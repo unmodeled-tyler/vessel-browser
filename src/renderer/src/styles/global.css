@@ -13,7 +13,7 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-primary);
   font-family: var(--font-ui);
   font-size: 13px;

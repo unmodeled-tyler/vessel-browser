@@ -1,33 +1,42 @@
-import Store from 'electron-store';
+import { app } from 'electron';
+import path from 'path';
+import fs from 'fs';
 import type { VesselSettings } from '../../shared/types';
 
 const defaults: VesselSettings = {
   apiKey: '',
   defaultUrl: 'https://start.duckduckgo.com',
   theme: 'dark',
+  sidebarWidth: 340,
 };
 
-let store: Store<VesselSettings>;
+let settings: VesselSettings | null = null;
 
-export function getStore(): Store<VesselSettings> {
-  if (!store) {
-    store = new Store<VesselSettings>({ defaults });
-  }
-  return store;
+function getSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'vessel-settings.json');
 }
 
 export function loadSettings(): VesselSettings {
-  const s = getStore();
-  return {
-    apiKey: s.get('apiKey'),
-    defaultUrl: s.get('defaultUrl'),
-    theme: s.get('theme'),
-  };
+  if (settings) return settings;
+  try {
+    const raw = fs.readFileSync(getSettingsPath(), 'utf-8');
+    settings = { ...defaults, ...JSON.parse(raw) };
+  } catch {
+    settings = { ...defaults };
+  }
+  return settings!;
+}
+
+function saveSettings(): void {
+  fs.mkdirSync(path.dirname(getSettingsPath()), { recursive: true });
+  fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2));
 }
 
 export function setSetting<K extends keyof VesselSettings>(
   key: K,
   value: VesselSettings[K],
 ): void {
-  getStore().set(key, value);
+  loadSettings();
+  settings![key] = value;
+  saveSettings();
 }

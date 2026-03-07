@@ -43,6 +43,8 @@ const api = {
   },
   ui: {
     toggleSidebar: () => ipcRenderer.invoke(Channels.SIDEBAR_TOGGLE),
+    resizeSidebar: (width: number) =>
+      ipcRenderer.invoke(Channels.SIDEBAR_RESIZE, width),
     toggleFocusMode: () => ipcRenderer.invoke(Channels.FOCUS_MODE_TOGGLE),
   },
   settings: {

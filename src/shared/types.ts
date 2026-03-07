@@ -25,6 +25,7 @@ export interface AIMessage {
 
 export interface UIState {
   sidebarOpen: boolean;
+  sidebarWidth: number;
   focusMode: boolean;
 }
 
@@ -32,4 +33,5 @@ export interface VesselSettings {
   apiKey: string;
   defaultUrl: string;
   theme: 'dark';
+  sidebarWidth: number;
 }

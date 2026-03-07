@@ -21,6 +21,7 @@ export const Channels = {
 
   // UI state
   SIDEBAR_TOGGLE: 'ui:sidebar-toggle',
+  SIDEBAR_RESIZE: 'ui:sidebar-resize',
   FOCUS_MODE_TOGGLE: 'ui:focus-mode-toggle',
 
   // Settings

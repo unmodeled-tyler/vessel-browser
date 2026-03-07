@@ -106,7 +106,18 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.SIDEBAR_TOGGLE, () => {
     windowState.uiState.sidebarOpen = !windowState.uiState.sidebarOpen;
     layoutViews(windowState);
-    return windowState.uiState.sidebarOpen;
+    return {
+      open: windowState.uiState.sidebarOpen,
+      width: windowState.uiState.sidebarWidth,
+    };
+  });
+
+  ipcMain.handle(Channels.SIDEBAR_RESIZE, (_, width: number) => {
+    const clamped = Math.max(240, Math.min(800, Math.round(width)));
+    windowState.uiState.sidebarWidth = clamped;
+    setSetting('sidebarWidth', clamped);
+    layoutViews(windowState);
+    return clamped;
   });
 
   ipcMain.handle(Channels.FOCUS_MODE_TOGGLE, () => {

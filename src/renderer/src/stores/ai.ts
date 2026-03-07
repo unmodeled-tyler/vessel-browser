@@ -5,21 +5,29 @@ const [messages, setMessages] = createSignal<AIMessage[]>([]);
 const [streamingText, setStreamingText] = createSignal('');
 const [isStreaming, setIsStreaming] = createSignal(false);
 
-// Set up stream listeners
-window.vessel.ai.onStreamChunk((chunk: string) => {
-  setStreamingText((prev) => prev + chunk);
-});
+let initialized = false;
 
-window.vessel.ai.onStreamEnd(() => {
-  const finalText = streamingText();
-  if (finalText) {
-    setMessages((prev) => [...prev, { role: 'assistant', content: finalText }]);
-  }
-  setStreamingText('');
-  setIsStreaming(false);
-});
+function init() {
+  if (initialized) return;
+  initialized = true;
+  window.vessel.ai.onStreamChunk((chunk: string) => {
+    setStreamingText((prev) => prev + chunk);
+  });
+  window.vessel.ai.onStreamEnd(() => {
+    const finalText = streamingText();
+    if (finalText) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: finalText },
+      ]);
+    }
+    setStreamingText('');
+    setIsStreaming(false);
+  });
+}
 
 export function useAI() {
+  init();
   return {
     messages,
     streamingText,

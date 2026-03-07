@@ -6,10 +6,10 @@ import './ai.css';
 const Sidebar: Component = () => {
   const { messages, streamingText, isStreaming, query, cancel, clearHistory } =
     useAI();
-  const { sidebarOpen } = useUI();
+  const { sidebarOpen, sidebarWidth, resizeSidebar, commitResize } = useUI();
   const [input, setInput] = createSignal('');
+  const [isDragging, setIsDragging] = createSignal(false);
   let messagesEndRef: HTMLDivElement | undefined;
-  let inputRef: HTMLTextAreaElement | undefined;
 
   // Auto-scroll to bottom on new messages
   createEffect(() => {
@@ -33,9 +33,38 @@ const Sidebar: Component = () => {
     }
   };
 
+  const startResize = (e: MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+
+    const onMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      resizeSidebar(newWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      commitResize();
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
   return (
     <Show when={sidebarOpen()}>
-      <div class="sidebar">
+      <div class="sidebar" style={{ width: `${sidebarWidth()}px` }}>
+        <div
+          class="sidebar-resize-handle"
+          classList={{ dragging: isDragging() }}
+          onMouseDown={startResize}
+        />
         <div class="sidebar-header">
           <span class="sidebar-title">Vessel AI</span>
           <button class="sidebar-clear" onClick={clearHistory} title="Clear">
@@ -75,7 +104,6 @@ const Sidebar: Component = () => {
 
         <form class="sidebar-input-area" onSubmit={handleSubmit}>
           <textarea
-            ref={inputRef}
             class="sidebar-input"
             value={input()}
             onInput={(e) => setInput(e.currentTarget.value)}

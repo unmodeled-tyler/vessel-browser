@@ -1,10 +1,10 @@
 import { BaseWindow, WebContentsView } from 'electron';
 import path from 'path';
 import { TabManager } from './tabs/tab-manager';
+import { loadSettings } from './config/settings';
 import type { UIState } from '../shared/types';
 
-const CHROME_HEIGHT = 80;
-const SIDEBAR_WIDTH = 340;
+const CHROME_HEIGHT = 110; // title(32) + tabs(36+1border) + address(40+1border)
 
 export interface WindowState {
   mainWindow: BaseWindow;
@@ -34,10 +34,13 @@ export function createMainWindow(
     },
   });
 
+  chromeView.setBackgroundColor('#00000000');
   mainWindow.contentView.addChildView(chromeView);
 
+  const settings = loadSettings();
   const uiState: UIState = {
     sidebarOpen: false,
+    sidebarWidth: settings.sidebarWidth,
     focusMode: false,
   };
 
@@ -53,26 +56,28 @@ export function createMainWindow(
 
 export function layoutViews(state: WindowState): void {
   const { mainWindow, chromeView, tabManager, uiState } = state;
-  const bounds = mainWindow.getBounds();
+  const [width, height] = mainWindow.getContentSize();
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
-  const sidebarWidth = uiState.sidebarOpen ? SIDEBAR_WIDTH : 0;
+  const sidebarWidth = uiState.sidebarOpen ? uiState.sidebarWidth : 0;
 
-  // Chrome view spans full window (uses CSS to position elements)
-  chromeView.setBounds({
-    x: 0,
-    y: 0,
-    width: bounds.width,
-    height: bounds.height,
-  });
+  if (sidebarWidth > 0) {
+    chromeView.setBounds({ x: 0, y: 0, width, height });
+  } else {
+    chromeView.setBounds({ x: 0, y: 0, width, height: chromeHeight });
+  }
 
-  // Active tab content view
+  // Chrome always on top
+  mainWindow.contentView.removeChildView(chromeView);
+  mainWindow.contentView.addChildView(chromeView);
+
+  // Active tab content: below chrome, left of sidebar
   const activeTab = tabManager.getActiveTab();
   if (activeTab) {
     activeTab.view.setBounds({
       x: 0,
       y: chromeHeight,
-      width: bounds.width - sidebarWidth,
-      height: bounds.height - chromeHeight,
+      width: width - sidebarWidth,
+      height: height - chromeHeight,
     });
   }
 }

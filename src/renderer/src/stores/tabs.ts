@@ -1,18 +1,24 @@
-import { createSignal, onCleanup } from 'solid-js';
+import { createSignal } from 'solid-js';
 import type { TabState } from '../../../shared/types';
 
 const [tabs, setTabs] = createSignal<TabState[]>([]);
 const [activeTabId, setActiveTabId] = createSignal('');
 
-// Listen for state updates from main process
-const cleanup = window.vessel.tabs.onStateUpdate(
-  (newTabs: TabState[], newActiveId: string) => {
-    setTabs(newTabs);
-    setActiveTabId(newActiveId);
-  },
-);
+let initialized = false;
+
+function init() {
+  if (initialized) return;
+  initialized = true;
+  window.vessel.tabs.onStateUpdate(
+    (newTabs: TabState[], newActiveId: string) => {
+      setTabs(newTabs);
+      setActiveTabId(newActiveId);
+    },
+  );
+}
 
 export function useTabs() {
+  init();
   return {
     tabs,
     activeTabId,

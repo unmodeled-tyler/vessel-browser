@@ -72,13 +72,28 @@
   position: fixed;
   top: 0;
   right: 0;
-  width: var(--sidebar-width);
   height: 100%;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   z-index: 100;
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 101;
+  transition: background 150ms;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.dragging {
+  background: var(--accent-primary);
 }
 
 .sidebar-header {
