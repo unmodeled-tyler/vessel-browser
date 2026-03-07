@@ -12,6 +12,13 @@ let initialized = false;
 function init() {
   if (initialized) return;
   initialized = true;
+  window.vessel.ai.onStreamStart((prompt: string) => {
+    setMessages((prev) => [...prev, { role: "user", content: prompt }]);
+    setStreamingText("");
+    setIsStreaming(true);
+    setHasFirstChunk(false);
+    setStreamStartedAt(Date.now());
+  });
   window.vessel.ai.onStreamChunk((chunk: string) => {
     if (!hasFirstChunk()) {
       setHasFirstChunk(true);
@@ -42,11 +49,6 @@ export function useAI() {
     hasFirstChunk,
     streamStartedAt,
     query: async (prompt: string) => {
-      setMessages((prev) => [...prev, { role: "user", content: prompt }]);
-      setStreamingText("");
-      setIsStreaming(true);
-      setHasFirstChunk(false);
-      setStreamStartedAt(Date.now());
       await window.vessel.ai.query(prompt);
     },
     cancel: () => window.vessel.ai.cancel(),

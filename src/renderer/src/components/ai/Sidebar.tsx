@@ -18,7 +18,7 @@ const MarkdownMessage = (props: { content: string }) => {
   return <div class="message-content markdown-content" innerHTML={html()} />;
 };
 
-const Sidebar: Component = () => {
+const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const {
     messages,
     streamingText,
@@ -89,6 +89,8 @@ const Sidebar: Component = () => {
   };
 
   const startResize = (e: MouseEvent) => {
+    if (props.forceOpen) return;
+
     e.preventDefault();
     setIsDragging(true);
 
@@ -113,13 +115,18 @@ const Sidebar: Component = () => {
   };
 
   return (
-    <Show when={sidebarOpen()}>
-      <div class="sidebar" style={{ width: `${sidebarWidth()}px` }}>
-        <div
-          class="sidebar-resize-handle"
-          classList={{ dragging: isDragging() }}
-          onMouseDown={startResize}
-        />
+    <Show when={props.forceOpen || sidebarOpen()}>
+      <div
+        class="sidebar"
+        style={{ width: props.forceOpen ? "100%" : `${sidebarWidth()}px` }}
+      >
+        <Show when={!props.forceOpen}>
+          <div
+            class="sidebar-resize-handle"
+            classList={{ dragging: isDragging() }}
+            onMouseDown={startResize}
+          />
+        </Show>
         <div class="sidebar-header">
           <span class="sidebar-title">Vessel AI</span>
           <div class="sidebar-header-actions">

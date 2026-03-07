@@ -20,7 +20,7 @@ import type {
 } from "../../shared/types";
 
 export function registerIpcHandlers(windowState: WindowState): void {
-  const { tabManager, chromeView, mainWindow } = windowState;
+  const { tabManager, chromeView, sidebarView, mainWindow } = windowState;
 
   let provider: AIProvider | null = null;
   let providerError =
@@ -50,6 +50,11 @@ export function registerIpcHandlers(windowState: WindowState): void {
   };
 
   refreshProvider(loadSettings().provider);
+
+  const sendToRendererViews = (channel: string, ...args: unknown[]) => {
+    chromeView.webContents.send(channel, ...args);
+    sidebarView.webContents.send(channel, ...args);
+  };
 
   // --- Tab handlers ---
 
@@ -88,9 +93,11 @@ export function registerIpcHandlers(windowState: WindowState): void {
   // --- AI handlers ---
 
   ipcMain.handle(Channels.AI_QUERY, async (_, query: string) => {
+    sendToRendererViews(Channels.AI_STREAM_START, query);
+
     if (!provider) {
-      chromeView.webContents.send(Channels.AI_STREAM_CHUNK, providerError);
-      chromeView.webContents.send(Channels.AI_STREAM_END);
+      sendToRendererViews(Channels.AI_STREAM_CHUNK, providerError);
+      sendToRendererViews(Channels.AI_STREAM_END);
       return;
     }
 
@@ -101,8 +108,8 @@ export function registerIpcHandlers(windowState: WindowState): void {
       query,
       provider,
       activeWebContents,
-      (chunk) => chromeView.webContents.send(Channels.AI_STREAM_CHUNK, chunk),
-      () => chromeView.webContents.send(Channels.AI_STREAM_END),
+      (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
+      () => sendToRendererViews(Channels.AI_STREAM_END),
     );
   });
 

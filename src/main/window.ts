@@ -9,6 +9,7 @@ const CHROME_HEIGHT = 110; // title(32) + tabs(36+1border) + address(40+1border)
 export interface WindowState {
   mainWindow: BaseWindow;
   chromeView: WebContentsView;
+  sidebarView: WebContentsView;
   tabManager: TabManager;
   uiState: UIState;
 }
@@ -37,6 +38,18 @@ export function createMainWindow(
   chromeView.setBackgroundColor("#00000000");
   mainWindow.contentView.addChildView(chromeView);
 
+  const sidebarView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  sidebarView.setBackgroundColor("#00000000");
+  mainWindow.contentView.addChildView(sidebarView);
+
   const settings = loadSettings();
   const uiState: UIState = {
     sidebarOpen: false,
@@ -47,7 +60,13 @@ export function createMainWindow(
 
   const tabManager = new TabManager(mainWindow, onTabStateChange);
 
-  const state: WindowState = { mainWindow, chromeView, tabManager, uiState };
+  const state: WindowState = {
+    mainWindow,
+    chromeView,
+    sidebarView,
+    tabManager,
+    uiState,
+  };
 
   mainWindow.on("resize", () => layoutViews(state));
   layoutViews(state);
@@ -56,11 +75,11 @@ export function createMainWindow(
 }
 
 export function layoutViews(state: WindowState): void {
-  const { mainWindow, chromeView, tabManager, uiState } = state;
+  const { mainWindow, chromeView, sidebarView, tabManager, uiState } = state;
   const [width, height] = mainWindow.getContentSize();
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
   const sidebarWidth = uiState.sidebarOpen ? uiState.sidebarWidth : 0;
-  const chromeNeedsFullHeight = uiState.sidebarOpen || uiState.settingsOpen;
+  const chromeNeedsFullHeight = uiState.settingsOpen;
 
   if (chromeNeedsFullHeight) {
     chromeView.setBounds({ x: 0, y: 0, width, height });
@@ -68,9 +87,22 @@ export function layoutViews(state: WindowState): void {
     chromeView.setBounds({ x: 0, y: 0, width, height: chromeHeight });
   }
 
+  if (uiState.sidebarOpen) {
+    sidebarView.setBounds({
+      x: width - sidebarWidth,
+      y: 0,
+      width: sidebarWidth,
+      height,
+    });
+  } else {
+    sidebarView.setBounds({ x: width, y: 0, width: 0, height: 0 });
+  }
+
   // Chrome always on top
   mainWindow.contentView.removeChildView(chromeView);
   mainWindow.contentView.addChildView(chromeView);
+  mainWindow.contentView.removeChildView(sidebarView);
+  mainWindow.contentView.addChildView(sidebarView);
 
   // Active tab content: below chrome, left of sidebar
   const activeTab = tabManager.getActiveTab();

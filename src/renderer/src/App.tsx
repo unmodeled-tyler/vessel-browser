@@ -1,15 +1,17 @@
-import { onMount, onCleanup, type Component } from 'solid-js';
-import TitleBar from './components/chrome/TitleBar';
-import TabBar from './components/chrome/TabBar';
-import AddressBar from './components/chrome/AddressBar';
-import CommandBar from './components/ai/CommandBar';
-import Sidebar from './components/ai/Sidebar';
-import Settings from './components/shared/Settings';
-import { useUI } from './stores/ui';
-import { useTabs } from './stores/tabs';
-import { setupKeybindings } from './lib/keybindings';
+import { onMount, onCleanup, type Component } from "solid-js";
+import TitleBar from "./components/chrome/TitleBar";
+import TabBar from "./components/chrome/TabBar";
+import AddressBar from "./components/chrome/AddressBar";
+import CommandBar from "./components/ai/CommandBar";
+import Sidebar from "./components/ai/Sidebar";
+import Settings from "./components/shared/Settings";
+import { useUI } from "./stores/ui";
+import { useTabs } from "./stores/tabs";
+import { setupKeybindings } from "./lib/keybindings";
 
 const App: Component = () => {
+  const view =
+    new URLSearchParams(window.location.search).get("view") || "chrome";
   const {
     openCommandBar,
     toggleSidebar,
@@ -20,6 +22,8 @@ const App: Component = () => {
   const { createTab, closeTab, activeTabId } = useTabs();
 
   onMount(() => {
+    if (view !== "chrome") return;
+
     const cleanup = setupKeybindings({
       openCommandBar,
       toggleSidebar,
@@ -34,15 +38,18 @@ const App: Component = () => {
     onCleanup(cleanup);
   });
 
+  if (view === "sidebar") {
+    return <Sidebar forceOpen />;
+  }
+
   return (
-    <div class="app" classList={{ 'focus-mode': focusMode() }}>
+    <div class="app" classList={{ "focus-mode": focusMode() }}>
       <div class="chrome">
         <TitleBar />
         <TabBar />
         <AddressBar />
       </div>
       <CommandBar />
-      <Sidebar />
       <Settings />
     </div>
   );

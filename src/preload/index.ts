@@ -30,6 +30,12 @@ const api = {
   },
   ai: {
     query: (prompt: string) => ipcRenderer.invoke(Channels.AI_QUERY, prompt),
+    onStreamStart: (cb: (prompt: string) => void): (() => void) => {
+      const handler = (_: any, prompt: string) => cb(prompt);
+      ipcRenderer.on(Channels.AI_STREAM_START, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AI_STREAM_START, handler);
+    },
     onStreamChunk: (cb: (chunk: string) => void): (() => void) => {
       const handler = (_: any, chunk: string) => cb(chunk);
       ipcRenderer.on(Channels.AI_STREAM_CHUNK, handler);

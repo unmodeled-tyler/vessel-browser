@@ -11,6 +11,7 @@ export const Channels = {
 
   // AI
   AI_QUERY: "ai:query",
+  AI_STREAM_START: "ai:stream-start",
   AI_STREAM_CHUNK: "ai:stream-chunk",
   AI_STREAM_END: "ai:stream-end",
   AI_CANCEL: "ai:cancel",
