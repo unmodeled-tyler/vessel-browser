@@ -3,12 +3,20 @@ import {
   For,
   Show,
   createEffect,
+  createMemo,
   onCleanup,
   type Component,
 } from "solid-js";
 import { useAI } from "../../stores/ai";
 import { useUI } from "../../stores/ui";
+import { renderMarkdown } from "../../lib/markdown";
 import "./ai.css";
+
+const MarkdownMessage = (props: { content: string }) => {
+  const html = createMemo(() => renderMarkdown(props.content));
+
+  return <div class="message-content markdown-content" innerHTML={html()} />;
+};
 
 const Sidebar: Component = () => {
   const {
@@ -150,7 +158,7 @@ const Sidebar: Component = () => {
           <For each={messages()}>
             {(msg) => (
               <div class={`message message-${msg.role}`}>
-                <div class="message-content">{msg.content}</div>
+                <MarkdownMessage content={msg.content} />
               </div>
             )}
           </For>
@@ -174,7 +182,7 @@ const Sidebar: Component = () => {
                   }
                 >
                   <div>
-                    {streamingText()}
+                    <MarkdownMessage content={streamingText()} />
                     <div class="streaming-status">
                       <span class="streaming-pulse" aria-hidden="true" />
                       <span>Generating</span>
