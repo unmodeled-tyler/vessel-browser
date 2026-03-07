@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { Channels } from "../shared/channels";
 import type {
   ProviderConfig,
+  ProviderModelsResult,
   ProviderMeta,
   ProviderId,
   ProviderUpdateResult,
@@ -51,6 +52,8 @@ const api = {
     resizeSidebar: (width: number) =>
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE, width),
     toggleFocusMode: () => ipcRenderer.invoke(Channels.FOCUS_MODE_TOGGLE),
+    setSettingsVisibility: (open: boolean) =>
+      ipcRenderer.invoke(Channels.SETTINGS_VISIBILITY, open),
   },
   settings: {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
@@ -62,6 +65,8 @@ const api = {
       ipcRenderer.invoke(Channels.PROVIDER_LIST),
     update: (config: ProviderConfig): Promise<ProviderUpdateResult> =>
       ipcRenderer.invoke(Channels.PROVIDER_UPDATE, config),
+    fetchModels: (config: ProviderConfig): Promise<ProviderModelsResult> =>
+      ipcRenderer.invoke(Channels.PROVIDER_FETCH_MODELS, config),
   },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),

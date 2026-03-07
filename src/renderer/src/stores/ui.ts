@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal } from "solid-js";
 
 const DEFAULT_SIDEBAR_WIDTH = 340;
 const MIN_SIDEBAR = 240;
@@ -36,7 +36,10 @@ export function useUI() {
     },
     resizeSidebar: (width: number) => {
       // Clamp + update CSS immediately (no await)
-      const clamped = Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, Math.round(width)));
+      const clamped = Math.max(
+        MIN_SIDEBAR,
+        Math.min(MAX_SIDEBAR, Math.round(width)),
+      );
       setSidebarWidth(clamped);
       // Batch IPC to main process via rAF
       pendingWidth = clamped;
@@ -61,7 +64,13 @@ export function useUI() {
     },
     openCommandBar: () => setCommandBarOpen(true),
     closeCommandBar: () => setCommandBarOpen(false),
-    openSettings: () => setSettingsOpen(true),
-    closeSettings: () => setSettingsOpen(false),
+    openSettings: async () => {
+      setSettingsOpen(true);
+      await window.vessel.ui.setSettingsVisibility(true);
+    },
+    closeSettings: async () => {
+      setSettingsOpen(false);
+      await window.vessel.ui.setSettingsVisibility(false);
+    },
   };
 }

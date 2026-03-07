@@ -3,6 +3,7 @@ import { Channels } from "../../shared/channels";
 import type { AIProvider } from "../ai/provider";
 import {
   createProvider,
+  fetchProviderModels,
   sanitizeProviderConfig,
   validateProviderConfig,
 } from "../ai/provider";
@@ -12,7 +13,11 @@ import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
 import { layoutViews, type WindowState } from "../window";
-import type { ProviderConfig, ProviderUpdateResult } from "../../shared/types";
+import type {
+  ProviderConfig,
+  ProviderModelsResult,
+  ProviderUpdateResult,
+} from "../../shared/types";
 
 export function registerIpcHandlers(windowState: WindowState): void {
   const { tabManager, chromeView, mainWindow } = windowState;
@@ -149,6 +154,12 @@ export function registerIpcHandlers(windowState: WindowState): void {
     return windowState.uiState.focusMode;
   });
 
+  ipcMain.handle(Channels.SETTINGS_VISIBILITY, (_, open: boolean) => {
+    windowState.uiState.settingsOpen = open;
+    layoutViews(windowState);
+    return windowState.uiState.settingsOpen;
+  });
+
   // --- Settings handlers ---
 
   ipcMain.handle(Channels.SETTINGS_GET, () => {
@@ -180,6 +191,32 @@ export function registerIpcHandlers(windowState: WindowState): void {
       }
 
       return { ok: true };
+    },
+  );
+
+  ipcMain.handle(
+    Channels.PROVIDER_FETCH_MODELS,
+    async (_, config: ProviderConfig): Promise<ProviderModelsResult> => {
+      const normalized = sanitizeProviderConfig(config);
+
+      try {
+        const models = await fetchProviderModels(normalized);
+        return {
+          ok: true,
+          models: Array.from(new Set(models)).sort((a, b) =>
+            a.localeCompare(b),
+          ),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          models: [],
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to fetch models from the provider.",
+        };
+      }
     },
   );
 

@@ -1,3 +1,5 @@
+import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import type { ProviderConfig } from "../../shared/types";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
@@ -24,6 +26,13 @@ export function sanitizeProviderConfig(config: ProviderConfig): ProviderConfig {
 }
 
 export function validateProviderConfig(config: ProviderConfig): string | null {
+  return validateProviderConnection(config, { requireModel: true });
+}
+
+export function validateProviderConnection(
+  config: ProviderConfig,
+  options: { requireModel: boolean } = { requireModel: true },
+): string | null {
   const normalized = sanitizeProviderConfig(config);
   const meta = PROVIDERS[normalized.id];
 
@@ -35,7 +44,7 @@ export function validateProviderConfig(config: ProviderConfig): string | null {
     return `${meta.name} requires an API key. Open settings (Ctrl+,) to add one.`;
   }
 
-  if (!normalized.model) {
+  if (options.requireModel && !normalized.model) {
     return normalized.id === "custom"
       ? "Custom provider requires a model name."
       : `Select a ${meta.name} model in settings.`;
@@ -46,6 +55,32 @@ export function validateProviderConfig(config: ProviderConfig): string | null {
   }
 
   return null;
+}
+
+export async function fetchProviderModels(
+  config: ProviderConfig,
+): Promise<string[]> {
+  const normalized = sanitizeProviderConfig(config);
+  const error = validateProviderConnection(normalized, { requireModel: false });
+  if (error) {
+    throw new Error(error);
+  }
+
+  if (normalized.id === "anthropic") {
+    const client = new Anthropic({ apiKey: normalized.apiKey });
+    const page = await client.models.list();
+    return page.data.map((model) => model.id);
+  }
+
+  const meta = PROVIDERS[normalized.id];
+  const baseURL =
+    normalized.baseUrl || meta?.defaultBaseUrl || "https://api.openai.com/v1";
+  const client = new OpenAI({
+    apiKey: normalized.apiKey || "ollama",
+    baseURL,
+  });
+  const page = await client.models.list();
+  return page.data.map((model) => model.id);
 }
 
 export function createProvider(config: ProviderConfig): AIProvider {

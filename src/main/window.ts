@@ -1,8 +1,8 @@
-import { BaseWindow, WebContentsView } from 'electron';
-import path from 'path';
-import { TabManager } from './tabs/tab-manager';
-import { loadSettings } from './config/settings';
-import type { UIState } from '../shared/types';
+import { BaseWindow, WebContentsView } from "electron";
+import path from "path";
+import { TabManager } from "./tabs/tab-manager";
+import { loadSettings } from "./config/settings";
+import type { UIState } from "../shared/types";
 
 const CHROME_HEIGHT = 110; // title(32) + tabs(36+1border) + address(40+1border)
 
@@ -22,19 +22,19 @@ export function createMainWindow(
     minWidth: 800,
     minHeight: 600,
     frame: false,
-    backgroundColor: '#1a1a1e',
+    backgroundColor: "#1a1a1e",
   });
 
   const chromeView = new WebContentsView({
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: path.join(__dirname, "../preload/index.js"),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  chromeView.setBackgroundColor('#00000000');
+  chromeView.setBackgroundColor("#00000000");
   mainWindow.contentView.addChildView(chromeView);
 
   const settings = loadSettings();
@@ -42,13 +42,14 @@ export function createMainWindow(
     sidebarOpen: false,
     sidebarWidth: settings.sidebarWidth,
     focusMode: false,
+    settingsOpen: false,
   };
 
   const tabManager = new TabManager(mainWindow, onTabStateChange);
 
   const state: WindowState = { mainWindow, chromeView, tabManager, uiState };
 
-  mainWindow.on('resize', () => layoutViews(state));
+  mainWindow.on("resize", () => layoutViews(state));
   layoutViews(state);
 
   return state;
@@ -59,8 +60,9 @@ export function layoutViews(state: WindowState): void {
   const [width, height] = mainWindow.getContentSize();
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
   const sidebarWidth = uiState.sidebarOpen ? uiState.sidebarWidth : 0;
+  const chromeNeedsFullHeight = uiState.sidebarOpen || uiState.settingsOpen;
 
-  if (sidebarWidth > 0) {
+  if (chromeNeedsFullHeight) {
     chromeView.setBounds({ x: 0, y: 0, width, height });
   } else {
     chromeView.setBounds({ x: 0, y: 0, width, height: chromeHeight });

@@ -9,6 +9,7 @@ import {
 import type {
   ProviderConfig,
   ProviderId,
+  ProviderModelsResult,
   ProviderMeta,
   ProviderUpdateResult,
 } from "../../../../shared/types";
@@ -27,6 +28,8 @@ const Settings: Component = () => {
     Record<ProviderId, ProviderMeta>
   >({} as Record<ProviderId, ProviderMeta>);
   const [config, setConfig] = createSignal<ProviderConfig>(DEFAULT_PROVIDER);
+  const [availableModels, setAvailableModels] = createSignal<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = createSignal(false);
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
     text: string;
@@ -39,6 +42,16 @@ const Settings: Component = () => {
     ]);
 
     setProviderMap(providers as Record<ProviderId, ProviderMeta>);
+    setAvailableModels(
+      Array.from(
+        new Set(
+          [
+            ...(providers[settings.provider.id]?.models || []),
+            settings.provider.model,
+          ].filter(Boolean),
+        ),
+      ),
+    );
     setConfig({
       ...DEFAULT_PROVIDER,
       ...settings.provider,
@@ -48,8 +61,22 @@ const Settings: Component = () => {
 
   const providerEntries = createMemo(() => Object.values(providerMap()));
   const activeProvider = createMemo(() => providerMap()[config().id]);
+  const modelOptions = createMemo(() =>
+    Array.from(
+      new Set(
+        [
+          ...(activeProvider()?.models || []),
+          ...availableModels(),
+          config().model,
+        ].filter(Boolean),
+      ),
+    ),
+  );
   const showBaseUrl = createMemo(
     () => config().id === "custom" || Boolean(activeProvider()?.defaultBaseUrl),
+  );
+  const selectedModelOption = createMemo(() =>
+    modelOptions().includes(config().model) ? config().model : "__custom__",
   );
 
   const updateConfig = (patch: Partial<ProviderConfig>) => {
@@ -63,11 +90,43 @@ const Settings: Component = () => {
   const handleProviderChange = (id: ProviderId) => {
     const meta = providerMap()[id];
     setStatus(null);
+    setAvailableModels(meta?.models || []);
     setConfig({
       id,
       apiKey: "",
       model: meta?.defaultModel || "",
       baseUrl: meta?.defaultBaseUrl || "",
+    });
+  };
+
+  const handleFetchModels = async () => {
+    setStatus(null);
+    setIsFetchingModels(true);
+
+    const result = (await window.vessel.provider.fetchModels(
+      config(),
+    )) as ProviderModelsResult;
+
+    setIsFetchingModels(false);
+
+    if (!result.ok) {
+      setStatus({
+        kind: "error",
+        text: result.error || "Failed to fetch models.",
+      });
+      return;
+    }
+
+    setAvailableModels(result.models);
+    if (
+      (!config().model || !result.models.includes(config().model)) &&
+      result.models[0]
+    ) {
+      updateConfig({ model: result.models[0] });
+    }
+    setStatus({
+      kind: "success",
+      text: `Loaded ${result.models.length} model${result.models.length === 1 ? "" : "s"}.`,
     });
   };
 
@@ -125,20 +184,55 @@ const Settings: Component = () => {
             <label class="settings-label" for="model-input">
               Model
             </label>
-            <input
-              id="model-input"
-              class="settings-input"
-              list="provider-models"
-              value={config().model}
-              onInput={(e) => updateConfig({ model: e.currentTarget.value })}
-              placeholder={activeProvider()?.defaultModel || "Enter model name"}
-              spellcheck={false}
-            />
+            <Show when={modelOptions().length > 0}>
+              <div class="settings-model-picker">
+                <select
+                  class="settings-input settings-select"
+                  value={selectedModelOption()}
+                  onChange={(e) => {
+                    const value = e.currentTarget.value;
+                    if (value !== "__custom__") {
+                      updateConfig({ model: value });
+                    }
+                  }}
+                >
+                  <option value="__custom__">Custom model ID...</option>
+                  <For each={modelOptions()}>
+                    {(model) => <option value={model}>{model}</option>}
+                  </For>
+                </select>
+              </div>
+            </Show>
+            <div class="settings-row">
+              <input
+                id="model-input"
+                class="settings-input"
+                list="provider-models"
+                value={config().model}
+                onInput={(e) => updateConfig({ model: e.currentTarget.value })}
+                placeholder={
+                  activeProvider()?.defaultModel || "Enter model name"
+                }
+                spellcheck={false}
+              />
+              <button
+                class="settings-secondary"
+                type="button"
+                onClick={handleFetchModels}
+                disabled={isFetchingModels()}
+              >
+                {isFetchingModels() ? "Loading..." : "Fetch models"}
+              </button>
+            </div>
             <datalist id="provider-models">
-              <For each={activeProvider()?.models || []}>
+              <For each={modelOptions()}>
                 {(model) => <option value={model} />}
               </For>
             </datalist>
+            <p class="settings-hint">
+              Type any model ID manually, or fetch the live list from the
+              provider.
+            </p>
           </div>
 
           <div class="settings-field">
@@ -240,6 +334,13 @@ const Settings: Component = () => {
           font-size: 13px;
           font-family: var(--font-mono);
         }
+        .settings-row {
+          display: flex;
+          gap: 8px;
+        }
+        .settings-model-picker {
+          margin-bottom: 8px;
+        }
         .settings-select {
           appearance: none;
         }
@@ -257,6 +358,24 @@ const Settings: Component = () => {
           gap: 8px;
           justify-content: flex-end;
           margin-top: 20px;
+        }
+        .settings-secondary {
+          flex-shrink: 0;
+          height: 34px;
+          padding: 0 12px;
+          border-radius: var(--radius-md);
+          background: var(--bg-tertiary);
+          color: var(--text-secondary);
+          border: 1px solid var(--border-subtle);
+          font-size: 12px;
+          font-weight: 500;
+        }
+        .settings-secondary:hover:not(:disabled) {
+          background: var(--border-visible);
+        }
+        .settings-secondary:disabled {
+          opacity: 0.55;
+          cursor: default;
         }
         .settings-status {
           margin-top: 12px;

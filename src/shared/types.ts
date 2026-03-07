@@ -27,6 +27,7 @@ export interface UIState {
   sidebarOpen: boolean;
   sidebarWidth: number;
   focusMode: boolean;
+  settingsOpen: boolean;
 }
 
 // --- Provider types ---
@@ -61,6 +62,12 @@ export interface ProviderMeta {
 
 export interface ProviderUpdateResult {
   ok: boolean;
+  error?: string;
+}
+
+export interface ProviderModelsResult {
+  ok: boolean;
+  models: string[];
   error?: string;
 }
 
