@@ -1,11 +1,28 @@
-import type { AIProvider } from './provider';
+import type { AIProvider } from "./provider";
 import {
   buildSummarizePrompt,
   buildQuestionPrompt,
   buildGeneralPrompt,
-} from './context-builder';
-import { extractContent } from '../content/extractor';
-import type { WebContents } from 'electron';
+} from "./context-builder";
+import { extractContent } from "../content/extractor";
+import type { WebContents } from "electron";
+
+function shouldUsePageContext(query: string): boolean {
+  const pageSpecificPatterns = [
+    /\bthis (page|article|site|post|tab|thread|document)\b/,
+    /\b(current|open) (page|article|site|tab)\b/,
+    /\b(on|from|in|about) this\b/,
+    /\baccording to (this|the) (page|article|site)\b/,
+    /\bwhat('?s| is) this\b/,
+    /\bwhat('?s| is) this about\b/,
+    /\bwhat does (this|the) (page|article|site) say\b/,
+    /\bwho wrote this\b/,
+    /\b(reader|reading) mode\b/,
+    /\b(key points|takeaways|main point|main points)\b/,
+  ];
+
+  return pageSpecificPatterns.some((pattern) => pattern.test(query));
+}
 
 export async function handleAIQuery(
   query: string,
@@ -17,20 +34,11 @@ export async function handleAIQuery(
   const lowerQuery = query.toLowerCase().trim();
 
   const isSummarize =
-    lowerQuery.startsWith('summarize') ||
-    lowerQuery.startsWith('tldr') ||
-    lowerQuery === 'summary';
+    lowerQuery.startsWith("summarize") ||
+    lowerQuery.startsWith("tldr") ||
+    lowerQuery === "summary";
 
-  const needsPageContext =
-    isSummarize ||
-    lowerQuery.startsWith('what') ||
-    lowerQuery.startsWith('who') ||
-    lowerQuery.startsWith('how') ||
-    lowerQuery.startsWith('why') ||
-    lowerQuery.startsWith('when') ||
-    lowerQuery.startsWith('where') ||
-    lowerQuery.includes('this page') ||
-    lowerQuery.includes('this article');
+  const needsPageContext = isSummarize || shouldUsePageContext(lowerQuery);
 
   let prompt: { system: string; user: string };
 

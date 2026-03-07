@@ -3,6 +3,7 @@ import {
   For,
   Show,
   createEffect,
+  onCleanup,
   type Component,
 } from "solid-js";
 import { useAI } from "../../stores/ai";
@@ -10,8 +11,16 @@ import { useUI } from "../../stores/ui";
 import "./ai.css";
 
 const Sidebar: Component = () => {
-  const { messages, streamingText, isStreaming, query, cancel, clearHistory } =
-    useAI();
+  const {
+    messages,
+    streamingText,
+    isStreaming,
+    hasFirstChunk,
+    streamStartedAt,
+    query,
+    cancel,
+    clearHistory,
+  } = useAI();
   const {
     sidebarOpen,
     sidebarWidth,
@@ -21,6 +30,7 @@ const Sidebar: Component = () => {
   } = useUI();
   const [input, setInput] = createSignal("");
   const [isDragging, setIsDragging] = createSignal(false);
+  const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
   let messagesEndRef: HTMLDivElement | undefined;
 
   // Auto-scroll to bottom on new messages
@@ -28,6 +38,25 @@ const Sidebar: Component = () => {
     messages();
     streamingText();
     messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+  });
+
+  createEffect(() => {
+    if (!isStreaming() || !streamStartedAt()) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    const tick = () => {
+      const startedAt = streamStartedAt();
+      if (!startedAt) return;
+      setElapsedSeconds(
+        Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
+      );
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 1000);
+    onCleanup(() => window.clearInterval(intervalId));
   });
 
   const handleSubmit = async (e: Event) => {
@@ -129,8 +158,32 @@ const Sidebar: Component = () => {
           <Show when={isStreaming()}>
             <div class="message message-assistant">
               <div class="message-content">
-                {streamingText()}
-                <span class="cursor-blink">|</span>
+                <Show
+                  when={hasFirstChunk()}
+                  fallback={
+                    <div class="thinking-state">
+                      <div class="thinking-orb" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                      <div class="thinking-copy">
+                        <div class="thinking-title">Thinking</div>
+                      </div>
+                    </div>
+                  }
+                >
+                  <div>
+                    {streamingText()}
+                    <div class="streaming-status">
+                      <span class="streaming-pulse" aria-hidden="true" />
+                      <span>Generating</span>
+                      <Show when={elapsedSeconds() > 0}>
+                        <span>{` • ${elapsedSeconds()}s`}</span>
+                      </Show>
+                    </div>
+                  </div>
+                </Show>
               </div>
             </div>
           </Show>

@@ -172,14 +172,102 @@
     border: 1px solid rgba(139, 126, 200, 0.15);
 }
 
-.cursor-blink {
-    animation: blink 0.8s step-end infinite;
-    color: var(--accent-primary);
+.thinking-state {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 220px;
 }
 
-@keyframes blink {
-    50% {
-        opacity: 0;
+.thinking-orb {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: rgba(139, 126, 200, 0.16);
+    border: 1px solid rgba(139, 126, 200, 0.25);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.thinking-orb span {
+    width: 4px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--accent-primary);
+    animation: thinking-bounce 0.9s ease-in-out infinite;
+}
+
+.thinking-orb span:nth-child(2) {
+    animation-delay: 0.12s;
+}
+
+.thinking-orb span:nth-child(3) {
+    animation-delay: 0.24s;
+}
+
+.thinking-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.thinking-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text-primary);
+}
+
+.thinking-meta,
+.streaming-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.streaming-status {
+    margin-top: 10px;
+}
+
+.streaming-pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--accent-primary);
+    box-shadow: 0 0 0 rgba(139, 126, 200, 0.45);
+    animation: streaming-pulse 1.4s ease-out infinite;
+}
+
+@keyframes thinking-bounce {
+    0%,
+    80%,
+    100% {
+        transform: translateY(0);
+        opacity: 0.45;
+    }
+    40% {
+        transform: translateY(-3px);
+        opacity: 1;
+    }
+}
+
+@keyframes streaming-pulse {
+    0% {
+        transform: scale(0.9);
+        box-shadow: 0 0 0 0 rgba(139, 126, 200, 0.42);
+    }
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 8px rgba(139, 126, 200, 0);
+    }
+    100% {
+        transform: scale(0.9);
+        box-shadow: 0 0 0 0 rgba(139, 126, 200, 0);
     }
 }
 
