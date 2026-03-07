@@ -1,0 +1,40 @@
+:root {
+  /* Base palette — warm dark, not pure black */
+  --bg-primary: #1a1a1e;
+  --bg-secondary: #222226;
+  --bg-tertiary: #2a2a2e;
+  --bg-elevated: #323236;
+
+  /* Text — never pure white */
+  --text-primary: #d4d4d8;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+
+  /* Accents — warm, muted */
+  --accent-primary: #8b7ec8;
+  --accent-secondary: #6b8aad;
+  --accent-warm: #c4956a;
+
+  /* Borders — barely visible */
+  --border-subtle: #2e2e33;
+  --border-visible: #3a3a40;
+
+  /* Functional */
+  --loading-bar: #8b7ec8;
+  --error: #c07070;
+  --success: #70a070;
+
+  /* Dimensions */
+  --chrome-height: 80px;
+  --sidebar-width: 340px;
+  --tab-height: 36px;
+  --address-bar-height: 40px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Typography */
+  --font-ui: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-reader: Charter, Georgia, serif;
+}
