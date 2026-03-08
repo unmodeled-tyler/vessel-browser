@@ -8,6 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import { useAI } from "../../stores/ai";
+import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import { renderMarkdown } from "../../lib/markdown";
 import "./ai.css";
@@ -30,6 +31,16 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     clearHistory,
   } = useAI();
   const {
+    runtimeState,
+    pause,
+    resume,
+    setApprovalMode,
+    resolveApproval,
+    createCheckpoint,
+    restoreCheckpoint,
+    restoreSession,
+  } = useRuntime();
+  const {
     sidebarOpen,
     sidebarWidth,
     resizeSidebar,
@@ -37,9 +48,16 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     toggleSidebar,
   } = useUI();
   const [input, setInput] = createSignal("");
+  const [checkpointName, setCheckpointName] = createSignal("");
   const [isDragging, setIsDragging] = createSignal(false);
   const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
   let messagesEndRef: HTMLDivElement | undefined;
+  const recentActions = createMemo(() =>
+    runtimeState().actions.slice(-8).reverse(),
+  );
+  const recentCheckpoints = createMemo(() =>
+    runtimeState().checkpoints.slice(-5).reverse(),
+  );
 
   // Auto-scroll to bottom on new messages
   createEffect(() => {
@@ -162,6 +180,166 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
         </div>
 
         <div class="sidebar-messages">
+          <section class="agent-panel">
+            <div class="agent-panel-header">
+              <div>
+                <div class="agent-panel-title">Supervisor</div>
+                <div class="agent-panel-subtitle">
+                  {runtimeState().supervisor.paused
+                    ? "Agent is paused"
+                    : "Agent is live"}
+                </div>
+              </div>
+              <span
+                class="agent-status-pill"
+                classList={{ paused: runtimeState().supervisor.paused }}
+              >
+                {runtimeState().supervisor.paused ? "Paused" : "Running"}
+              </span>
+            </div>
+
+            <div class="agent-panel-controls">
+              <select
+                class="agent-select"
+                value={runtimeState().supervisor.approvalMode}
+                onChange={(e) =>
+                  void setApprovalMode(
+                    e.currentTarget.value as
+                      | "auto"
+                      | "confirm-dangerous"
+                      | "manual",
+                  )
+                }
+              >
+                <option value="auto">Auto approve</option>
+                <option value="confirm-dangerous">Approve dangerous</option>
+                <option value="manual">Approve everything</option>
+              </select>
+              <button
+                class="agent-control-button"
+                type="button"
+                onClick={() =>
+                  void (runtimeState().supervisor.paused ? resume() : pause())
+                }
+              >
+                {runtimeState().supervisor.paused ? "Resume" : "Pause"}
+              </button>
+              <button
+                class="agent-control-button"
+                type="button"
+                onClick={() => void restoreSession()}
+              >
+                Restore session
+              </button>
+            </div>
+
+            <div class="agent-checkpoint-row">
+              <input
+                class="agent-input"
+                value={checkpointName()}
+                onInput={(e) => setCheckpointName(e.currentTarget.value)}
+                placeholder="Checkpoint name"
+              />
+              <button
+                class="agent-primary-button"
+                type="button"
+                onClick={async () => {
+                  const name = checkpointName().trim();
+                  await createCheckpoint(name || undefined);
+                  setCheckpointName("");
+                }}
+              >
+                Save checkpoint
+              </button>
+            </div>
+
+            <Show
+              when={runtimeState().supervisor.pendingApprovals.length > 0}
+              fallback={<div class="agent-muted">No pending approvals.</div>}
+            >
+              <div class="agent-section-title">Pending approvals</div>
+              <For each={runtimeState().supervisor.pendingApprovals}>
+                {(approval) => (
+                  <div class="agent-card">
+                    <div class="agent-card-title">{approval.name}</div>
+                    <div class="agent-card-copy">{approval.argsSummary}</div>
+                    <div class="agent-card-copy">{approval.reason}</div>
+                    <div class="agent-card-actions">
+                      <button
+                        class="agent-primary-button"
+                        type="button"
+                        onClick={() => void resolveApproval(approval.id, true)}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        class="agent-control-button"
+                        type="button"
+                        onClick={() => void resolveApproval(approval.id, false)}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </Show>
+
+            <div class="agent-section-title">Recent checkpoints</div>
+            <Show
+              when={recentCheckpoints().length > 0}
+              fallback={<div class="agent-muted">No checkpoints yet.</div>}
+            >
+              <For each={recentCheckpoints()}>
+                {(checkpoint) => (
+                  <div class="agent-card compact">
+                    <div>
+                      <div class="agent-card-title">{checkpoint.name}</div>
+                      <div class="agent-card-copy">
+                        {new Date(checkpoint.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <button
+                      class="agent-control-button"
+                      type="button"
+                      onClick={() => void restoreCheckpoint(checkpoint.id)}
+                    >
+                      Restore
+                    </button>
+                  </div>
+                )}
+              </For>
+            </Show>
+
+            <div class="agent-section-title">Recent actions</div>
+            <Show
+              when={recentActions().length > 0}
+              fallback={<div class="agent-muted">No actions yet.</div>}
+            >
+              <For each={recentActions()}>
+                {(action) => (
+                  <div class="agent-card">
+                    <div class="agent-action-row">
+                      <span class="agent-card-title">{action.name}</span>
+                      <span class={`agent-action-status ${action.status}`}>
+                        {action.status}
+                      </span>
+                    </div>
+                    <div class="agent-card-copy">{action.argsSummary}</div>
+                    <Show when={action.resultSummary}>
+                      <div class="agent-card-copy success">
+                        {action.resultSummary}
+                      </div>
+                    </Show>
+                    <Show when={action.error}>
+                      <div class="agent-card-copy error">{action.error}</div>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </section>
+
           <For each={messages()}>
             {(msg) => (
               <div class={`message message-${msg.role}`}>

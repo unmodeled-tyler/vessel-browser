@@ -1,4 +1,4 @@
-# Vessel
+# Vessel Agent Browser
 
 An agent-first web browser for Linux.
 
@@ -11,7 +11,7 @@ Today, Vessel provides the browser shell, page visibility, and AI surfaces neede
 - **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
 - **AI Command Bar** (`Ctrl+L`) — issue page-aware commands, summarize pages, ask questions, search
-- **AI Sidebar** (`Ctrl+Shift+L`) — streaming conversation with Claude about the current page and browsing context
+- **AI Sidebar** (`Ctrl+Shift+L`) — streaming conversation about the current page and browsing context
 - **Reader Mode** — extract article content into a clean, distraction-free view
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
 - **Resizable Panels** — drag the sidebar edge to resize; width persists across sessions
@@ -36,17 +36,17 @@ That means the product should optimize for:
 | UI Framework | SolidJS |
 | Language | TypeScript |
 | Build | electron-vite + Vite |
-| AI | Claude via @anthropic-ai/sdk |
+| AI | Multi-provider agent layer (Anthropic + OpenAI-compatible providers) |
 | Content Extraction | @mozilla/readability |
 
 ## Architecture
 
 ```
-Main Process                          Renderer (SolidJS)
-├── TabManager (WebContentsView[])    ├── TabBar, AddressBar
-├── ClaudeClient (streaming)          ├── CommandBar (Ctrl+L)
-├── ContentExtractor (readability)    ├── AI Sidebar (resizable)
-├── Settings (JSON persistence)       └── Signal stores (tabs, ai, ui)
+Main Process                              Renderer (SolidJS)
+├── TabManager (WebContentsView[])        ├── TabBar, AddressBar
+├── AgentRuntime (session + supervision)  ├── CommandBar (Ctrl+L)
+├── Provider adapters (streaming)         ├── AI Sidebar (resizable)
+├── MCP server for external agents        └── Signal stores (tabs, ai, ui)
 └── IPC Handlers ◄──contextBridge──► Preload API
 ```
 
@@ -68,12 +68,24 @@ npm run dev
 npm run build
 ```
 
-### Setting up AI
+### Setting up Vessel for Hermes Agent or OpenClaw
+
+Vessel is designed to act as the browser runtime that your external agent harness drives.
 
 1. Launch Vessel
 2. Open Settings (`Ctrl+,`)
-3. Paste your Claude API key (from [console.anthropic.com](https://console.anthropic.com))
-4. Open the command bar (`Ctrl+L`) or sidebar (`Ctrl+Shift+L`) and start asking
+3. Choose the model provider your harness will use for in-browser reasoning
+4. Enter the provider credentials or base URL required for that provider
+5. Confirm the MCP port setting in `vessel-settings.json` if your harness expects a specific port
+6. Start Hermes Agent or OpenClaw and configure it to connect to Vessel's MCP endpoint at `http://127.0.0.1:<mcpPort>/mcp`
+7. Use Vessel's sidebar supervisor controls to pause, approve, checkpoint, or restore the browser session while the harness runs
+
+Notes:
+
+- Vessel exposes browser control to external agents through its local MCP server
+- The default MCP port is `3100`
+- Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
+- If you want to use the built-in sidebar directly, you can still configure any supported provider in Settings and query the current page without an external harness
 
 ## Keyboard Shortcuts
 
@@ -91,11 +103,13 @@ npm run build
 ```
 src/
 ├── main/                 # Electron main process
-│   ├── ai/               # Claude client, context builder, commands
+│   ├── ai/               # Provider adapters, context builder, commands
 │   ├── tabs/             # Tab + TabManager (WebContentsView)
+│   ├── agent/            # Agent runtime, checkpoints, supervision
 │   ├── content/          # Readability extraction, reader mode
 │   ├── config/           # Settings persistence
 │   ├── ipc/              # IPC handler registry
+│   ├── mcp/              # MCP server for external agent control
 │   ├── window.ts         # Window layout manager
 │   └── index.ts          # App entry point
 ├── preload/              # contextBridge scripts
@@ -124,4 +138,4 @@ src/
 
 ## License
 
-ISC
+MIT

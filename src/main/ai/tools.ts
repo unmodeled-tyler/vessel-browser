@@ -2,6 +2,40 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
+    name: "list_tabs",
+    description: "List all open browser tabs with their IDs, titles, and URLs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "switch_tab",
+    description:
+      "Switch to a browser tab by tab ID, or by matching part of the title or URL.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tabId: { type: "string", description: "Exact tab ID to switch to" },
+        match: {
+          type: "string",
+          description:
+            "Case-insensitive partial match against tab title or URL",
+        },
+      },
+    },
+  },
+  {
+    name: "create_tab",
+    description: "Open a new browser tab, optionally navigating to a URL.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "Optional URL to open" },
+      },
+    },
+  },
+  {
     name: "navigate",
     description: "Navigate the browser to a URL.",
     input_schema: {
@@ -94,6 +128,63 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: "object" as const,
       properties: {},
+    },
+  },
+  {
+    name: "wait_for",
+    description:
+      "Wait for a text string or CSS selector to appear on the page before continuing.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        text: {
+          type: "string",
+          description: "Text that should appear in the page body",
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector that should match an element",
+        },
+        timeoutMs: {
+          type: "number",
+          description: "Maximum time to wait in milliseconds (default 5000)",
+        },
+      },
+    },
+  },
+  {
+    name: "create_checkpoint",
+    description:
+      "Capture the current browser session as a named checkpoint for later recovery.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "Short checkpoint name",
+        },
+        note: {
+          type: "string",
+          description: "Optional note about why this checkpoint matters",
+        },
+      },
+    },
+  },
+  {
+    name: "restore_checkpoint",
+    description: "Restore a previously captured checkpoint by name or ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        checkpointId: {
+          type: "string",
+          description: "Exact checkpoint ID",
+        },
+        name: {
+          type: "string",
+          description: "Checkpoint name to match if ID is unknown",
+        },
+      },
     },
   },
 ];

@@ -13,6 +13,8 @@ const defaults: VesselSettings = {
   theme: "dark",
   sidebarWidth: 340,
   mcpPort: 3100,
+  autoRestoreSession: true,
+  approvalMode: "confirm-dangerous",
 };
 
 let settings: VesselSettings | null = null;

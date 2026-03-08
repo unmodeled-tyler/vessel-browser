@@ -1,11 +1,15 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { Channels } from "../shared/channels";
 import type {
+  AgentCheckpoint,
+  AgentRuntimeState,
+  ApprovalMode,
   ProviderConfig,
   ProviderModelsResult,
   ProviderMeta,
   ProviderId,
   ProviderUpdateResult,
+  SessionSnapshot,
 } from "../shared/types";
 
 const api = {
@@ -48,6 +52,40 @@ const api = {
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
+    getRuntime: (): Promise<AgentRuntimeState> =>
+      ipcRenderer.invoke(Channels.AGENT_RUNTIME_GET),
+    onRuntimeUpdate: (cb: (state: AgentRuntimeState) => void): (() => void) => {
+      const handler = (_: any, state: AgentRuntimeState) => cb(state);
+      ipcRenderer.on(Channels.AGENT_RUNTIME_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AGENT_RUNTIME_UPDATE, handler);
+    },
+    pause: (): Promise<AgentRuntimeState> =>
+      ipcRenderer.invoke(Channels.AGENT_PAUSE),
+    resume: (): Promise<AgentRuntimeState> =>
+      ipcRenderer.invoke(Channels.AGENT_RESUME),
+    setApprovalMode: (mode: ApprovalMode): Promise<AgentRuntimeState> =>
+      ipcRenderer.invoke(Channels.AGENT_SET_APPROVAL_MODE, mode),
+    resolveApproval: (
+      approvalId: string,
+      approved: boolean,
+    ): Promise<AgentRuntimeState> =>
+      ipcRenderer.invoke(Channels.AGENT_APPROVAL_RESOLVE, approvalId, approved),
+    createCheckpoint: (
+      name?: string,
+      note?: string,
+    ): Promise<AgentCheckpoint> =>
+      ipcRenderer.invoke(Channels.AGENT_CHECKPOINT_CREATE, name, note),
+    restoreCheckpoint: (
+      checkpointId: string,
+    ): Promise<AgentCheckpoint | null> =>
+      ipcRenderer.invoke(Channels.AGENT_CHECKPOINT_RESTORE, checkpointId),
+    captureSession: (note?: string): Promise<SessionSnapshot> =>
+      ipcRenderer.invoke(Channels.AGENT_SESSION_CAPTURE, note),
+    restoreSession: (
+      snapshot?: SessionSnapshot | null,
+    ): Promise<SessionSnapshot> =>
+      ipcRenderer.invoke(Channels.AGENT_SESSION_RESTORE, snapshot),
   },
   content: {
     extract: () => ipcRenderer.invoke(Channels.CONTENT_EXTRACT),

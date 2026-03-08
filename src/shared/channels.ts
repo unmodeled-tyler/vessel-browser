@@ -15,6 +15,16 @@ export const Channels = {
   AI_STREAM_CHUNK: "ai:stream-chunk",
   AI_STREAM_END: "ai:stream-end",
   AI_CANCEL: "ai:cancel",
+  AGENT_RUNTIME_GET: "agent-runtime:get",
+  AGENT_RUNTIME_UPDATE: "agent-runtime:update",
+  AGENT_PAUSE: "agent:pause",
+  AGENT_RESUME: "agent:resume",
+  AGENT_SET_APPROVAL_MODE: "agent:set-approval-mode",
+  AGENT_APPROVAL_RESOLVE: "agent:approval-resolve",
+  AGENT_CHECKPOINT_CREATE: "agent:checkpoint-create",
+  AGENT_CHECKPOINT_RESTORE: "agent:checkpoint-restore",
+  AGENT_SESSION_CAPTURE: "agent:session-capture",
+  AGENT_SESSION_RESTORE: "agent:session-restore",
 
   // Content
   CONTENT_EXTRACT: "content:extract",

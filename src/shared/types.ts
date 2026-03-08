@@ -10,7 +10,7 @@ export interface TabState {
 }
 
 export interface InteractiveElement {
-  type: 'button' | 'link' | 'input' | 'select' | 'textarea';
+  type: "button" | "link" | "input" | "select" | "textarea";
   text?: string;
   label?: string;
   href?: string;
@@ -61,6 +61,75 @@ export interface PageContent {
 export interface AIMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+export type ApprovalMode = "auto" | "confirm-dangerous" | "manual";
+
+export type ActionSource = "ai" | "mcp" | "user" | "system";
+
+export type ActionStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "waiting-approval"
+  | "rejected";
+
+export interface SessionTabSnapshot {
+  url: string;
+  title: string;
+}
+
+export interface SessionSnapshot {
+  tabs: SessionTabSnapshot[];
+  activeIndex: number;
+  capturedAt: string;
+  note?: string;
+}
+
+export interface AgentActionEntry {
+  id: string;
+  source: ActionSource;
+  name: string;
+  args: Record<string, unknown>;
+  argsSummary: string;
+  status: ActionStatus;
+  startedAt: string;
+  finishedAt?: string;
+  tabId?: string | null;
+  resultSummary?: string;
+  error?: string;
+}
+
+export interface PendingApproval {
+  id: string;
+  actionId: string;
+  source: ActionSource;
+  name: string;
+  argsSummary: string;
+  reason: string;
+  requestedAt: string;
+}
+
+export interface AgentCheckpoint {
+  id: string;
+  name: string;
+  createdAt: string;
+  note?: string;
+  snapshot: SessionSnapshot;
+}
+
+export interface SupervisorState {
+  paused: boolean;
+  approvalMode: ApprovalMode;
+  pendingApprovals: PendingApproval[];
+  lastError?: string;
+}
+
+export interface AgentRuntimeState {
+  session: SessionSnapshot | null;
+  supervisor: SupervisorState;
+  actions: AgentActionEntry[];
+  checkpoints: AgentCheckpoint[];
 }
 
 export interface UIState {
@@ -117,4 +186,6 @@ export interface VesselSettings {
   theme: "dark";
   sidebarWidth: number;
   mcpPort: number;
+  autoRestoreSession: boolean;
+  approvalMode: ApprovalMode;
 }

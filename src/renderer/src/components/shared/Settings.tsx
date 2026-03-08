@@ -7,6 +7,7 @@ import {
   type Component,
 } from "solid-js";
 import type {
+  ApprovalMode,
   ProviderConfig,
   ProviderId,
   ProviderModelsResult,
@@ -30,6 +31,9 @@ const Settings: Component = () => {
   const [config, setConfig] = createSignal<ProviderConfig>(DEFAULT_PROVIDER);
   const [availableModels, setAvailableModels] = createSignal<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = createSignal(false);
+  const [autoRestoreSession, setAutoRestoreSession] = createSignal(true);
+  const [approvalMode, setApprovalMode] =
+    createSignal<ApprovalMode>("confirm-dangerous");
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
     text: string;
@@ -57,6 +61,8 @@ const Settings: Component = () => {
       ...settings.provider,
       baseUrl: settings.provider?.baseUrl || "",
     });
+    setAutoRestoreSession(settings.autoRestoreSession ?? true);
+    setApprovalMode(settings.approvalMode ?? "confirm-dangerous");
   });
 
   const providerEntries = createMemo(() => Object.values(providerMap()));
@@ -142,6 +148,11 @@ const Settings: Component = () => {
       });
       return;
     }
+
+    await Promise.all([
+      window.vessel.settings.set("autoRestoreSession", autoRestoreSession()),
+      window.vessel.settings.set("approvalMode", approvalMode()),
+    ]);
 
     setStatus({ kind: "success", text: "Saved." });
   };
@@ -273,6 +284,40 @@ const Settings: Component = () => {
             </div>
           </Show>
 
+          <div class="settings-field">
+            <label class="settings-label" for="approval-mode-select">
+              Approval Mode
+            </label>
+            <select
+              id="approval-mode-select"
+              class="settings-input settings-select"
+              value={approvalMode()}
+              onChange={(e) =>
+                setApprovalMode(e.currentTarget.value as ApprovalMode)
+              }
+            >
+              <option value="auto">Auto approve</option>
+              <option value="confirm-dangerous">
+                Approve dangerous actions
+              </option>
+              <option value="manual">Approve every action</option>
+            </select>
+            <p class="settings-hint">
+              Controls when the human supervisor must approve agent actions.
+            </p>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-toggle">
+              <input
+                type="checkbox"
+                checked={autoRestoreSession()}
+                onChange={(e) => setAutoRestoreSession(e.currentTarget.checked)}
+              />
+              <span>Restore last browser session on launch</span>
+            </label>
+          </div>
+
           <div class="settings-actions">
             <button class="settings-save" onClick={handleSave}>
               Save
@@ -358,6 +403,17 @@ const Settings: Component = () => {
           gap: 8px;
           justify-content: flex-end;
           margin-top: 20px;
+        }
+        .settings-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: var(--text-primary);
+          font-size: 13px;
+        }
+        .settings-toggle input {
+          width: 14px;
+          height: 14px;
         }
         .settings-secondary {
           flex-shrink: 0;

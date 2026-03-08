@@ -1,0 +1,362 @@
+import fs from "node:fs";
+import path from "node:path";
+import { app } from "electron";
+import { randomUUID } from "node:crypto";
+import type {
+  ActionSource,
+  AgentActionEntry,
+  AgentCheckpoint,
+  AgentRuntimeState,
+  ApprovalMode,
+  PendingApproval,
+} from "../../shared/types";
+import type { SessionSnapshot } from "../../shared/types";
+import type { TabManager } from "../tabs/tab-manager";
+
+const MAX_ACTIONS = 120;
+const MAX_CHECKPOINTS = 20;
+
+interface RuntimePersistenceShape {
+  session: SessionSnapshot | null;
+  supervisor: {
+    paused: boolean;
+    approvalMode: ApprovalMode;
+    lastError?: string;
+  };
+  actions: AgentActionEntry[];
+  checkpoints: AgentCheckpoint[];
+}
+
+interface ControlledActionOptions {
+  source: ActionSource;
+  name: string;
+  args?: Record<string, unknown>;
+  tabId?: string | null;
+  dangerous?: boolean;
+  executor: () => Promise<string>;
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function summarizeArgs(args: Record<string, unknown>): string {
+  const entries = Object.entries(args).filter(([, value]) => value != null);
+  if (entries.length === 0) return "No arguments";
+  return entries
+    .map(([key, value]) => {
+      const rendered =
+        typeof value === "string" ? value : JSON.stringify(value);
+      return `${key}=${String(rendered).slice(0, 120)}`;
+    })
+    .join(", ");
+}
+
+function summarizeText(value: string): string {
+  return value.length > 240 ? `${value.slice(0, 237)}...` : value;
+}
+
+function getRuntimeStatePath(): string {
+  return path.join(app.getPath("userData"), "vessel-agent-runtime.json");
+}
+
+function sanitizePersistence(
+  persisted: Partial<RuntimePersistenceShape> | null | undefined,
+): AgentRuntimeState {
+  return {
+    session: persisted?.session ?? null,
+    supervisor: {
+      paused: persisted?.supervisor?.paused ?? false,
+      approvalMode: persisted?.supervisor?.approvalMode ?? "confirm-dangerous",
+      pendingApprovals: [],
+      lastError: persisted?.supervisor?.lastError,
+    },
+    actions: Array.isArray(persisted?.actions)
+      ? persisted!.actions.slice(-MAX_ACTIONS)
+      : [],
+    checkpoints: Array.isArray(persisted?.checkpoints)
+      ? persisted!.checkpoints.slice(-MAX_CHECKPOINTS)
+      : [],
+  };
+}
+
+export class AgentRuntime {
+  private state: AgentRuntimeState;
+  private updateListener: ((state: AgentRuntimeState) => void) | null = null;
+  private pendingResolvers = new Map<string, (approved: boolean) => void>();
+
+  constructor(private readonly tabManager: TabManager) {
+    this.state = this.loadPersistedState();
+  }
+
+  setUpdateListener(listener: ((state: AgentRuntimeState) => void) | null): void {
+    this.updateListener = listener;
+    if (listener) {
+      listener(this.getState());
+    }
+  }
+
+  getState(): AgentRuntimeState {
+    return clone(this.state);
+  }
+
+  onTabStateChanged(): void {
+    this.captureSession();
+  }
+
+  setApprovalMode(mode: ApprovalMode): AgentRuntimeState {
+    this.state.supervisor.approvalMode = mode;
+    this.emit();
+    return this.getState();
+  }
+
+  pause(): AgentRuntimeState {
+    this.state.supervisor.paused = true;
+    this.emit();
+    return this.getState();
+  }
+
+  resume(): AgentRuntimeState {
+    this.state.supervisor.paused = false;
+    this.emit();
+    return this.getState();
+  }
+
+  createCheckpoint(name?: string, note?: string): AgentCheckpoint {
+    const snapshot = this.captureSession(note);
+    const checkpoint: AgentCheckpoint = {
+      id: randomUUID(),
+      name: name?.trim() || `Checkpoint ${this.state.checkpoints.length + 1}`,
+      createdAt: new Date().toISOString(),
+      note: note?.trim() || undefined,
+      snapshot,
+    };
+    this.state.checkpoints = [...this.state.checkpoints, checkpoint].slice(
+      -MAX_CHECKPOINTS,
+    );
+    this.emit();
+    return clone(checkpoint);
+  }
+
+  restoreCheckpoint(checkpointId: string): AgentCheckpoint | null {
+    const checkpoint =
+      this.state.checkpoints.find((item) => item.id === checkpointId) || null;
+    if (!checkpoint) return null;
+    this.tabManager.restoreSession(checkpoint.snapshot);
+    this.captureSession(`Restored ${checkpoint.name}`);
+    return clone(checkpoint);
+  }
+
+  captureSession(note?: string): SessionSnapshot {
+    const snapshot = this.tabManager.snapshotSession(note);
+    this.state.session = snapshot;
+    this.emit();
+    return clone(snapshot);
+  }
+
+  restoreSession(snapshot?: SessionSnapshot | null): SessionSnapshot {
+    const target = snapshot || this.state.session;
+    if (!target) {
+      return this.captureSession("No saved session to restore");
+    }
+    this.tabManager.restoreSession(target);
+    return this.captureSession(target.note || "Restored saved session");
+  }
+
+  async runControlledAction({
+    source,
+    name,
+    args = {},
+    tabId = null,
+    dangerous = false,
+    executor,
+  }: ControlledActionOptions): Promise<string> {
+    const action = this.startAction({
+      source,
+      name,
+      args,
+      tabId,
+    });
+
+    const approvalReason = this.getApprovalReason(dangerous);
+    if (approvalReason) {
+      const approved = await this.awaitApproval(action, approvalReason);
+      if (!approved) {
+        return `Action rejected: ${name}`;
+      }
+    }
+
+    this.updateAction(action.id, {
+      status: "running",
+      error: undefined,
+    });
+
+    try {
+      const result = await executor();
+      this.finishAction(action.id, "completed", summarizeText(result));
+      this.captureSession();
+      return result;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown action failure";
+      this.state.supervisor.lastError = message;
+      this.finishAction(action.id, "failed", undefined, message);
+      throw error;
+    }
+  }
+
+  resolveApproval(approvalId: string, approved: boolean): AgentRuntimeState {
+    const approval = this.state.supervisor.pendingApprovals.find(
+      (item) => item.id === approvalId,
+    );
+    if (!approval) return this.getState();
+
+    this.state.supervisor.pendingApprovals =
+      this.state.supervisor.pendingApprovals.filter(
+        (item) => item.id !== approvalId,
+      );
+
+    const resolve = this.pendingResolvers.get(approvalId);
+    this.pendingResolvers.delete(approvalId);
+    if (resolve) {
+      resolve(approved);
+    }
+
+    if (!approved) {
+      this.finishAction(approval.actionId, "rejected", undefined, approval.reason);
+      return this.getState();
+    }
+
+    this.updateAction(approval.actionId, {
+      status: "running",
+      error: undefined,
+    });
+    this.emit();
+    return this.getState();
+  }
+
+  private loadPersistedState(): AgentRuntimeState {
+    try {
+      const raw = fs.readFileSync(getRuntimeStatePath(), "utf-8");
+      const parsed = JSON.parse(raw) as RuntimePersistenceShape;
+      return sanitizePersistence(parsed);
+    } catch {
+      return sanitizePersistence(null);
+    }
+  }
+
+  private persist(): void {
+    const persisted: RuntimePersistenceShape = {
+      session: this.state.session,
+      supervisor: {
+        paused: this.state.supervisor.paused,
+        approvalMode: this.state.supervisor.approvalMode,
+        lastError: this.state.supervisor.lastError,
+      },
+      actions: this.state.actions.slice(-MAX_ACTIONS),
+      checkpoints: this.state.checkpoints.slice(-MAX_CHECKPOINTS),
+    };
+
+    fs.mkdirSync(path.dirname(getRuntimeStatePath()), { recursive: true });
+    fs.writeFileSync(
+      getRuntimeStatePath(),
+      JSON.stringify(persisted, null, 2),
+      "utf-8",
+    );
+  }
+
+  private emit(): void {
+    this.persist();
+    this.updateListener?.(this.getState());
+  }
+
+  private startAction(input: {
+    source: ActionSource;
+    name: string;
+    args: Record<string, unknown>;
+    tabId?: string | null;
+  }): AgentActionEntry {
+    const action: AgentActionEntry = {
+      id: randomUUID(),
+      source: input.source,
+      name: input.name,
+      args: clone(input.args),
+      argsSummary: summarizeArgs(input.args),
+      status: "running",
+      startedAt: new Date().toISOString(),
+      tabId: input.tabId,
+    };
+    this.state.actions = [...this.state.actions, action].slice(-MAX_ACTIONS);
+    this.emit();
+    return action;
+  }
+
+  private updateAction(
+    actionId: string,
+    patch: Partial<AgentActionEntry>,
+  ): void {
+    this.state.actions = this.state.actions.map((action) =>
+      action.id === actionId ? { ...action, ...patch } : action,
+    );
+    this.emit();
+  }
+
+  private finishAction(
+    actionId: string,
+    status: AgentActionEntry["status"],
+    resultSummary?: string,
+    error?: string,
+  ): void {
+    this.updateAction(actionId, {
+      status,
+      finishedAt: new Date().toISOString(),
+      resultSummary,
+      error,
+    });
+  }
+
+  private getApprovalReason(dangerous: boolean): string | null {
+    if (this.state.supervisor.paused) {
+      return "Agent execution is paused";
+    }
+    if (this.state.supervisor.approvalMode === "manual") {
+      return "Manual approval mode";
+    }
+    if (
+      this.state.supervisor.approvalMode === "confirm-dangerous" &&
+      dangerous
+    ) {
+      return "Dangerous action in confirm-dangerous mode";
+    }
+    return null;
+  }
+
+  private awaitApproval(
+    action: AgentActionEntry,
+    reason: string,
+  ): Promise<boolean> {
+    const approval: PendingApproval = {
+      id: randomUUID(),
+      actionId: action.id,
+      source: action.source,
+      name: action.name,
+      argsSummary: action.argsSummary,
+      reason,
+      requestedAt: new Date().toISOString(),
+    };
+
+    this.state.supervisor.pendingApprovals = [
+      ...this.state.supervisor.pendingApprovals,
+      approval,
+    ];
+    this.updateAction(action.id, {
+      status: "waiting-approval",
+      error: reason,
+    });
+
+    return new Promise<boolean>((resolve) => {
+      this.pendingResolvers.set(approval.id, resolve);
+      this.emit();
+    });
+  }
+}

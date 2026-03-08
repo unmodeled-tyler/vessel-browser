@@ -14,12 +14,19 @@ import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
 import { layoutViews, type WindowState } from "../window";
 import type {
+  ApprovalMode,
+  AgentRuntimeState,
   ProviderConfig,
   ProviderModelsResult,
   ProviderUpdateResult,
+  SessionSnapshot,
 } from "../../shared/types";
+import type { AgentRuntime } from "../agent/runtime";
 
-export function registerIpcHandlers(windowState: WindowState): void {
+export function registerIpcHandlers(
+  windowState: WindowState,
+  runtime: AgentRuntime,
+): void {
   const { tabManager, chromeView, sidebarView, mainWindow } = windowState;
 
   let provider: AIProvider | null = null;
@@ -55,6 +62,10 @@ export function registerIpcHandlers(windowState: WindowState): void {
     chromeView.webContents.send(channel, ...args);
     sidebarView.webContents.send(channel, ...args);
   };
+
+  runtime.setUpdateListener((state: AgentRuntimeState) => {
+    sendToRendererViews(Channels.AGENT_RUNTIME_UPDATE, state);
+  });
 
   // --- Tab handlers ---
 
@@ -111,6 +122,7 @@ export function registerIpcHandlers(windowState: WindowState): void {
       (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
       () => sendToRendererViews(Channels.AI_STREAM_END),
       tabManager,
+      runtime,
     );
   });
 
@@ -179,7 +191,50 @@ export function registerIpcHandlers(windowState: WindowState): void {
     if (key === "provider") {
       refreshProvider(value as ProviderConfig);
     }
+    if (key === "approvalMode") {
+      runtime.setApprovalMode(value as ApprovalMode);
+    }
   });
+
+  // --- Agent runtime handlers ---
+
+  ipcMain.handle(Channels.AGENT_RUNTIME_GET, () => runtime.getState());
+
+  ipcMain.handle(Channels.AGENT_PAUSE, () => runtime.pause());
+
+  ipcMain.handle(Channels.AGENT_RESUME, () => runtime.resume());
+
+  ipcMain.handle(
+    Channels.AGENT_SET_APPROVAL_MODE,
+    (_, mode: ApprovalMode): AgentRuntimeState => {
+      setSetting("approvalMode", mode);
+      return runtime.setApprovalMode(mode);
+    },
+  );
+
+  ipcMain.handle(
+    Channels.AGENT_APPROVAL_RESOLVE,
+    (_, approvalId: string, approved: boolean) =>
+      runtime.resolveApproval(approvalId, approved),
+  );
+
+  ipcMain.handle(
+    Channels.AGENT_CHECKPOINT_CREATE,
+    (_, name?: string, note?: string) => runtime.createCheckpoint(name, note),
+  );
+
+  ipcMain.handle(Channels.AGENT_CHECKPOINT_RESTORE, (_, checkpointId: string) =>
+    runtime.restoreCheckpoint(checkpointId),
+  );
+
+  ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (_, note?: string) =>
+    runtime.captureSession(note),
+  );
+
+  ipcMain.handle(
+    Channels.AGENT_SESSION_RESTORE,
+    (_, snapshot?: SessionSnapshot | null) => runtime.restoreSession(snapshot),
+  );
 
   // --- Provider handlers ---
 

@@ -5,6 +5,7 @@ import { registerIpcHandlers } from "./ipc/handlers";
 import { Channels } from "../shared/channels";
 import { loadSettings } from "./config/settings";
 import { startMcpServer, stopMcpServer } from "./mcp/server";
+import { AgentRuntime } from "./agent/runtime";
 
 function rendererUrlFor(view: "chrome" | "sidebar"): string | null {
   if (!process.env.ELECTRON_RENDERER_URL) return null;
@@ -15,6 +16,7 @@ function rendererUrlFor(view: "chrome" | "sidebar"): string | null {
 
 function bootstrap(): void {
   const settings = loadSettings();
+  let runtime: AgentRuntime | null = null;
 
   const windowState = createMainWindow((tabs, activeId) => {
     windowState.chromeView.webContents.send(
@@ -22,9 +24,11 @@ function bootstrap(): void {
       tabs,
       activeId,
     );
+    runtime?.onTabStateChanged();
   });
 
   const { chromeView, sidebarView, tabManager } = windowState;
+  runtime = new AgentRuntime(tabManager);
 
   // Load renderer
   const chromeUrl = rendererUrlFor("chrome");
@@ -43,14 +47,20 @@ function bootstrap(): void {
     });
   }
 
-  registerIpcHandlers(windowState);
+  registerIpcHandlers(windowState, runtime);
 
   // Start MCP server for external agent integration
-  startMcpServer(tabManager, settings.mcpPort, () => layoutViews(windowState));
+  startMcpServer(tabManager, runtime, settings.mcpPort);
 
-  // Open first tab once chrome is ready
+  // Restore previous session, or open the default tab once chrome is ready
   chromeView.webContents.once("did-finish-load", () => {
-    tabManager.createTab(settings.defaultUrl);
+    const savedSession = runtime.getState().session;
+    if (settings.autoRestoreSession && savedSession?.tabs.length) {
+      runtime.restoreSession(savedSession);
+    } else {
+      tabManager.createTab(settings.defaultUrl);
+      runtime.captureSession("Initial session");
+    }
     layoutViews(windowState);
   });
 }
