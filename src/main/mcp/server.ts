@@ -2,6 +2,7 @@ import http from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import type { PageContent } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 import {
   buildStructuredContext,
@@ -9,6 +10,7 @@ import {
   type ExtractMode,
 } from "../ai/context-builder";
 import { extractContent } from "../content/extractor";
+import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 
 let httpServer: http.Server | null = null;
@@ -260,12 +262,20 @@ async function submitForm(
         }
       }
       if (!form) return { error: 'No parent form found' };
-      const submitter =
-        target instanceof HTMLButtonElement ||
-        (target instanceof HTMLInputElement &&
-          (target.type === 'submit' || target.type === 'image'))
-          ? target
-          : form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
+      function isSubmitControl(el) {
+        return (
+          (el instanceof HTMLButtonElement &&
+            ((el.getAttribute('type') || '').trim().toLowerCase() === '' ||
+              el.type === 'submit')) ||
+          (el instanceof HTMLInputElement &&
+            (el.type === 'submit' || el.type === 'image'))
+        );
+      }
+      const submitter = isSubmitControl(target)
+        ? target
+        : Array.from(document.querySelectorAll('button, input[type="submit"], input[type="image"]')).find(
+            (candidate) => isSubmitControl(candidate) && candidate.form === form,
+          );
       if (
         submitter instanceof HTMLElement &&
         (submitter.hasAttribute('disabled') ||
@@ -274,9 +284,29 @@ async function submitForm(
         return { error: 'Submit control is disabled' };
       }
       // Collect form data and determine method
-      const action = form.action || window.location.href;
-      const method = (form.method || 'GET').toUpperCase();
-      const fd = new FormData(form);
+      const action =
+        (submitter instanceof HTMLButtonElement ||
+          submitter instanceof HTMLInputElement
+          ? submitter.formAction
+          : '') ||
+        form.action ||
+        window.location.href;
+      const method = (
+        ((submitter instanceof HTMLButtonElement ||
+          submitter instanceof HTMLInputElement)
+          ? submitter.formMethod
+          : '') ||
+        form.method ||
+        'GET'
+      ).toUpperCase();
+      let fd;
+      try {
+        fd = submitter instanceof HTMLElement
+          ? new FormData(form, submitter)
+          : new FormData(form);
+      } catch {
+        fd = new FormData(form);
+      }
       const params = new URLSearchParams();
       for (const [k, v] of fd.entries()) {
         if (typeof v === 'string') params.append(k, v);
@@ -1202,16 +1232,28 @@ async function resolveSelector(
 ): Promise<string | null> {
   if (selector) return selector;
   if (index == null) return null;
+
+  const authoritativeSelector = await wc.executeJavaScript(
+    `
+      (function() {
+        return window.__vessel?.getElementSelector
+          ? window.__vessel.getElementSelector(${index})
+          : null;
+      })()
+    `,
+  );
+  if (typeof authoritativeSelector === "string" && authoritativeSelector) {
+    return authoritativeSelector;
+  }
+
+  const page = await extractContent(wc);
+  const extractedSelector = findSelectorByIndex(page, index);
+  if (extractedSelector) return extractedSelector;
+
   return wc.executeJavaScript(
     `
       (function() {
-        // Primary path: use the content-script's authoritative index map
-        if (window.__vessel?.getElementSelector) {
-          return window.__vessel.getElementSelector(${index});
-        }
-
-        // Fallback: replicate the same extraction order as content-script
-        // (nav links → buttons → non-nav links → form inputs)
+        // Final fallback: replicate the legacy extraction order.
         function selectorFor(el) {
           if (!el) return null;
           if (el.id) return "#" + CSS.escape(el.id);
@@ -1236,20 +1278,15 @@ async function resolveSelector(
 
         var seen = new Set();
         var ordered = [];
-
-        // 1. Nav links
         document.querySelectorAll("nav a[href], [role='navigation'] a[href]").forEach(function(el) {
           if (!seen.has(el)) { seen.add(el); ordered.push(el); }
         });
-        // 2. Buttons
         document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']").forEach(function(el) {
           if (!seen.has(el)) { seen.add(el); ordered.push(el); }
         });
-        // 3. Non-nav links
         document.querySelectorAll("a[href]").forEach(function(el) {
           if (!seen.has(el)) { seen.add(el); ordered.push(el); }
         });
-        // 4. Form inputs
         document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea").forEach(function(el) {
           if (!seen.has(el)) { seen.add(el); ordered.push(el); }
         });

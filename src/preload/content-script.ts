@@ -401,11 +401,29 @@ function extractForms(): Array<{
     fields: InteractiveElement[];
   }> = [];
 
+  function isSubmitControlForForm(
+    el: Element,
+    form: HTMLFormElement,
+  ): el is HTMLButtonElement | HTMLInputElement {
+    if (el instanceof HTMLButtonElement) {
+      const type = getTrimmedText(el.getAttribute("type"))?.toLowerCase();
+      return (!type || type === "submit") && el.form === form;
+    }
+
+    return (
+      el instanceof HTMLInputElement &&
+      (el.type === "submit" || el.type === "image") &&
+      el.form === form
+    );
+  }
+
   document.querySelectorAll("form").forEach((form) => {
     const fields: InteractiveElement[] = [];
 
     form
-      .querySelectorAll("input:not([type='hidden']), select, textarea")
+      .querySelectorAll(
+        "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='image']), select, textarea",
+      )
       .forEach((input) => {
         const element = input as
           | HTMLInputElement
@@ -433,8 +451,12 @@ function extractForms(): Array<{
         });
       });
 
-    form
-      .querySelectorAll("button[type='submit'], input[type='submit'], button:not([type])")
+    Array.from(
+      document.querySelectorAll(
+        "button, input[type='submit'], input[type='image']",
+      ),
+    )
+      .filter((control) => isSubmitControlForForm(control, form))
       .forEach((btn) => {
         const input = btn as HTMLInputElement;
         const text =

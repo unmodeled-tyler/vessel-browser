@@ -247,15 +247,27 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       );
     });
 
+    function isSubmitControlForForm(el, form) {
+      if (el instanceof HTMLButtonElement) {
+        const type = text(el.getAttribute("type"))?.toLowerCase();
+        return (!type || type === "submit") && el.form === form;
+      }
+      return el instanceof HTMLInputElement &&
+        (el.type === "submit" || el.type === "image") &&
+        el.form === form;
+    }
+
     const forms = Array.from(document.querySelectorAll("form")).map((form) => {
       const fields = [];
-      form.querySelectorAll("input:not([type='hidden']), select, textarea").forEach((el) => {
+      form.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='image']), select, textarea").forEach((el) => {
         const tag = el.tagName.toLowerCase();
         fields.push(
           serializeInteractive(el, tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input"),
         );
       });
-      form.querySelectorAll("button[type='submit'], input[type='submit']").forEach((el) => {
+      Array.from(document.querySelectorAll("button, input[type='submit'], input[type='image']"))
+        .filter((el) => isSubmitControlForForm(el, form))
+        .forEach((el) => {
         fields.push(serializeInteractive(el, "button"));
       });
       return {
