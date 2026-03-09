@@ -434,7 +434,7 @@ function extractForms(): Array<{
       });
 
     form
-      .querySelectorAll("button[type='submit'], input[type='submit']")
+      .querySelectorAll("button[type='submit'], input[type='submit'], button:not([type])")
       .forEach((btn) => {
         const input = btn as HTMLInputElement;
         const text =

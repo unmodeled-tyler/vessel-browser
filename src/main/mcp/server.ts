@@ -120,8 +120,7 @@ function getPostActionState(
   const tabActions = ["create_tab", "switch_tab", "close_tab"];
 
   if (navActions.includes(name)) {
-    const history = wc.navigationHistory;
-    return `\n[state: url=${wc.getURL()}, canGoBack=${history.canGoBack()}, canGoForward=${history.canGoForward()}, loading=${wc.isLoading()}]`;
+    return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
@@ -246,37 +245,77 @@ async function submitForm(
   if (!resolvedSelector)
     return "Error: No form-related index or selector provided";
 
-  return wc.executeJavaScript(`
+  // Get form info to determine submission method
+  const formInfo = await wc.executeJavaScript(`
     (function() {
       const target = document.querySelector(${JSON.stringify(resolvedSelector)});
-      if (!target) return 'Target not found';
+      if (!target) return { error: 'Target not found' };
       const form = target instanceof HTMLFormElement ? target : target.closest('form');
-      if (!form) return 'No parent form found';
+      if (!form) {
+        // Also check the form attribute on the element
+        const formId = target.getAttribute('form');
+        if (formId) {
+          const linkedForm = document.getElementById(formId);
+          if (linkedForm instanceof HTMLFormElement) {
+            const action = linkedForm.action || window.location.href;
+            const method = (linkedForm.method || 'GET').toUpperCase();
+            return { action, method, found: true };
+          }
+        }
+        return { error: 'No parent form found' };
+      }
       const submitter =
         target instanceof HTMLButtonElement ||
         (target instanceof HTMLInputElement &&
           (target.type === 'submit' || target.type === 'image'))
           ? target
-          : form.querySelector('button[type="submit"], input[type="submit"]');
+          : form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
       if (
         submitter instanceof HTMLElement &&
         (submitter.hasAttribute('disabled') ||
           submitter.getAttribute('aria-disabled') === 'true')
       ) {
-        return 'Submit control is disabled';
+        return { error: 'Submit control is disabled' };
       }
+      // Collect form data for GET submissions
+      const action = form.action || window.location.href;
+      const method = (form.method || 'GET').toUpperCase();
+      if (method === 'GET') {
+        const fd = new FormData(form);
+        const params = new URLSearchParams();
+        for (const [k, v] of fd.entries()) {
+          if (typeof v === 'string') params.append(k, v);
+        }
+        return { action, method, params: params.toString(), found: true };
+      }
+      // For POST forms, we'll submit via JS and let navigation happen
       if (submitter instanceof HTMLElement) {
         submitter.click();
-        return 'Submitted form via submit control';
+        return { submitted: true, method: 'POST' };
       }
       if (typeof form.requestSubmit === 'function') {
         form.requestSubmit();
       } else {
         form.submit();
       }
-      return 'Submitted form directly';
+      return { submitted: true, method: 'POST' };
     })()
   `);
+
+  if (formInfo.error) return formInfo.error;
+
+  // For GET forms, use loadURL to ensure proper history entry
+  if (formInfo.found && formInfo.method === "GET") {
+    const url = new URL(formInfo.action);
+    if (formInfo.params) {
+      url.search = formInfo.params;
+    }
+    wc.loadURL(url.toString());
+    return "Submitted form via GET";
+  }
+
+  // POST forms were already submitted via JS above
+  return formInfo.submitted ? "Submitted form via POST" : "Submitted form";
 }
 
 async function pressKey(

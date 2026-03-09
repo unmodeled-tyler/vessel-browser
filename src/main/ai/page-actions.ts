@@ -308,44 +308,64 @@ async function submitForm(
   const selector = await resolveSelector(wc, args.index, args.selector);
   if (!selector) return "Error: No form-related index or selector provided";
 
-  return wc.executeJavaScript(`
+  // Get form info to determine submission method
+  const formInfo = await wc.executeJavaScript(`
     (function() {
       const target = document.querySelector(${JSON.stringify(selector)});
-      if (!target) return 'Target not found';
-      const form =
-        target instanceof HTMLFormElement
-          ? target
-          : target.closest('form');
-      if (!form) return 'No parent form found';
-
+      if (!target) return { error: 'Target not found' };
+      const form = target instanceof HTMLFormElement ? target : target.closest('form')
+        || (target.getAttribute('form') ? document.getElementById(target.getAttribute('form')) : null);
+      if (!form || !(form instanceof HTMLFormElement)) return { error: 'No parent form found' };
       const submitter =
         target instanceof HTMLButtonElement ||
         (target instanceof HTMLInputElement &&
           (target.type === 'submit' || target.type === 'image'))
           ? target
-          : form.querySelector('button[type="submit"], input[type="submit"]');
-
+          : form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
       if (
         submitter instanceof HTMLElement &&
         (submitter.hasAttribute('disabled') ||
           submitter.getAttribute('aria-disabled') === 'true')
       ) {
-        return 'Submit control is disabled';
+        return { error: 'Submit control is disabled' };
       }
-
+      const action = form.action || window.location.href;
+      const method = (form.method || 'GET').toUpperCase();
+      if (method === 'GET') {
+        const fd = new FormData(form);
+        const params = new URLSearchParams();
+        for (const [k, v] of fd.entries()) {
+          if (typeof v === 'string') params.append(k, v);
+        }
+        return { action, method, params: params.toString(), found: true };
+      }
+      // POST: submit via JS
       if (submitter instanceof HTMLElement) {
         submitter.click();
-        return 'Submitted form via submit control';
+        return { submitted: true, method: 'POST' };
       }
-
       if (typeof form.requestSubmit === 'function') {
         form.requestSubmit();
       } else {
         form.submit();
       }
-      return 'Submitted form directly';
+      return { submitted: true, method: 'POST' };
     })()
   `);
+
+  if (formInfo.error) return formInfo.error;
+
+  // For GET forms, use loadURL for proper history entry
+  if (formInfo.found && formInfo.method === "GET") {
+    const url = new URL(formInfo.action);
+    if (formInfo.params) {
+      url.search = formInfo.params;
+    }
+    wc.loadURL(url.toString());
+    return "Submitted form via GET";
+  }
+
+  return formInfo.submitted ? "Submitted form via POST" : "Submitted form";
 }
 
 async function pressKey(
@@ -403,8 +423,7 @@ function getPostActionState(
   const tabActions = ["create_tab", "switch_tab"];
 
   if (navActions.includes(name)) {
-    const history = wc.navigationHistory;
-    return `\n[state: url=${wc.getURL()}, canGoBack=${history.canGoBack()}, canGoForward=${history.canGoForward()}, loading=${wc.isLoading()}]`;
+    return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
