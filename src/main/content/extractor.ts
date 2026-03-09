@@ -15,6 +15,21 @@ const EMPTY_PAGE_CONTENT: PageContent = {
   landmarks: [],
 };
 
+const PRELOAD_EXTRACTION_SCRIPT = String.raw`
+  (function() {
+    try {
+      if (window.__vessel && typeof window.__vessel.extractContent === "function") {
+        const structured = window.__vessel.extractContent();
+        if (structured && typeof structured === "object") {
+          return structured;
+        }
+      }
+    } catch (_error) {
+    }
+    return null;
+  })()
+`;
+
 const DIRECT_EXTRACTION_SCRIPT = String.raw`
   (function() {
     function text(value) {
@@ -22,11 +37,18 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       return trimmed || undefined;
     }
 
+    function escapeSelectorValue(value) {
+      if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+        return CSS.escape(value);
+      }
+      return String(value).replace(/["\\]/g, "\\$&");
+    }
+
     function selectorFor(el) {
       if (!el) return "";
-      if (el.id) return "#" + CSS.escape(el.id);
+      if (el.id) return "#" + escapeSelectorValue(el.id);
       const name = el.getAttribute && el.getAttribute("name");
-      if (name) return el.tagName.toLowerCase() + "[name=\"" + CSS.escape(name) + "\"]";
+      if (name) return el.tagName.toLowerCase() + "[name=\"" + escapeSelectorValue(name) + "\"]";
       const parts = [];
       let current = el;
       for (let depth = 0; current && current !== document.body && depth < 5; depth += 1) {
@@ -84,7 +106,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
     function labelFor(el) {
       if (el.id) {
-        const label = document.querySelector("label[for=\"" + CSS.escape(el.id) + "\"]");
+        const label = document.querySelector("label[for=\"" + escapeSelectorValue(el.id) + "\"]");
         if (label) return text(label.textContent);
       }
       const parentLabel = el.closest && el.closest("label");
@@ -268,7 +290,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
     return {
       title: document.title,
-      content: document.body?.innerText || "",
+      content: document.body?.innerText || document.documentElement?.innerText || "",
       htmlContent: "",
       byline: "",
       excerpt: "",
@@ -282,43 +304,250 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
   })()
 `;
 
+const SAFE_EXTRACTION_SCRIPT = String.raw`
+  (function() {
+    function text(value) {
+      const trimmed = value == null ? "" : String(value).trim();
+      return trimmed || undefined;
+    }
+
+    function labelFor(el) {
+      const aria = text(el.getAttribute && el.getAttribute("aria-label"));
+      if (aria) return aria;
+      const placeholder = text(el.getAttribute && el.getAttribute("placeholder"));
+      if (placeholder) return placeholder;
+      if (el.id) {
+        const directLabel = document.querySelector('label[for="' + String(el.id).replace(/["\\]/g, "\\$&") + '"]');
+        const labelText = text(directLabel && directLabel.textContent);
+        if (labelText) return labelText;
+      }
+      return text(el.textContent);
+    }
+
+    let indexCounter = 0;
+    function nextIndex() {
+      indexCounter += 1;
+      return indexCounter;
+    }
+
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"))
+      .map((el) => {
+        const headingText = text(el.textContent);
+        if (!headingText) return null;
+        return { level: Number.parseInt(el.tagName[1], 10), text: headingText };
+      })
+      .filter(Boolean);
+
+    const navigation = Array.from(document.querySelectorAll("nav a[href], [role='navigation'] a[href], header nav a[href]"))
+      .map((el) => {
+        const href = text(el.href || el.getAttribute("href"));
+        const linkText = text(el.textContent);
+        if (!href || href.startsWith("#") || !linkText) return null;
+        return {
+          type: "link",
+          text: linkText.slice(0, 100),
+          href: href.slice(0, 500),
+          context: "nav",
+          index: nextIndex(),
+          visible: true,
+          disabled: false,
+        };
+      })
+      .filter(Boolean);
+
+    const interactiveElements = [];
+    Array.from(document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']"))
+      .forEach((el) => {
+        interactiveElements.push({
+          type: "button",
+          text: text(el.textContent || el.value || el.getAttribute("aria-label") || "Button")?.slice(0, 100),
+          index: nextIndex(),
+          visible: true,
+          disabled: !!(el.hasAttribute && (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true")),
+        });
+      });
+
+    Array.from(document.querySelectorAll("a[href]")).forEach((el) => {
+      const href = text(el.href || el.getAttribute("href"));
+      const linkText = text(el.textContent);
+      if (!href || href.startsWith("#") || !linkText) return;
+      interactiveElements.push({
+        type: "link",
+        text: linkText.slice(0, 100),
+        href: href.slice(0, 500),
+        index: nextIndex(),
+        visible: true,
+        disabled: false,
+      });
+    });
+
+    Array.from(document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea"))
+      .forEach((el) => {
+        const tag = el.tagName.toLowerCase();
+        interactiveElements.push({
+          type: tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
+          label: labelFor(el)?.slice(0, 100),
+          inputType: text(el.getAttribute && el.getAttribute("type")),
+          placeholder: text(el.getAttribute && el.getAttribute("placeholder")),
+          value: tag === "select" ? text(el.value) : ((el.type || "").toLowerCase() === "password" ? undefined : text(el.value)),
+          options: tag === "select"
+            ? Array.from(el.options || []).map((option) => text(option.textContent || option.value)).filter(Boolean).slice(0, 25)
+            : undefined,
+          required: !!(el.hasAttribute && el.hasAttribute("required")) || undefined,
+          index: nextIndex(),
+          visible: true,
+          disabled: !!(el.hasAttribute && (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true")),
+        });
+      });
+
+    const forms = Array.from(document.querySelectorAll("form")).map((form) => ({
+      id: text(form.id),
+      action: text(form.getAttribute("action")),
+      method: text(form.getAttribute("method")),
+      fields: [],
+    }));
+
+    return {
+      title: document.title || "",
+      content: document.body?.innerText || document.documentElement?.innerText || "",
+      htmlContent: "",
+      byline: "",
+      excerpt: "",
+      url: window.location.href || "",
+      headings,
+      navigation,
+      interactiveElements,
+      forms,
+      landmarks: [],
+    };
+  })()
+`;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForDomReady(
+  webContents: WebContents,
+  timeoutMs = 1500,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const readyState = await executeScript(
+      webContents,
+      String.raw`
+      (function() {
+        return document.readyState || "";
+      })()
+    `,
+    );
+
+    if (readyState === "interactive" || readyState === "complete") {
+      return;
+    }
+
+    await delay(75);
+  }
+}
+
+async function executeScript(
+  webContents: WebContents,
+  script: string,
+): Promise<unknown> {
+  if (webContents.isDestroyed()) {
+    return null;
+  }
+
+  try {
+    return await webContents.executeJavaScript(script);
+  } catch {
+    return null;
+  }
+}
+
+function bestString(values: Array<unknown>): string {
+  return (
+    values
+      .filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim().length > 0,
+      )
+      .sort((left, right) => right.length - left.length)[0] || ""
+  );
+}
+
+function bestArray<T>(values: Array<unknown>): T[] {
+  return (
+    values
+      .filter((value): value is T[] => Array.isArray(value))
+      .sort((left, right) => right.length - left.length)[0] || []
+  );
+}
+
+function isMeaningfullyEmpty(page: PageContent): boolean {
+  return !(
+    page.title.trim() ||
+    page.url.trim() ||
+    page.content.trim() ||
+    page.headings.length ||
+    page.navigation.length ||
+    page.interactiveElements.length ||
+    page.forms.length ||
+    page.landmarks.length
+  );
+}
+
+function mergePageContent(
+  candidates: unknown[],
+  webContents: WebContents,
+): PageContent {
+  const pages = candidates
+    .map((candidate) => normalizePageContent(candidate))
+    .filter((page) => !isMeaningfullyEmpty(page));
+
+  const mergedBase =
+    pages.length > 0
+      ? {
+          title: bestString(pages.map((page) => page.title)),
+          content: bestString(pages.map((page) => page.content)),
+          htmlContent: bestString(pages.map((page) => page.htmlContent)),
+          byline: bestString(pages.map((page) => page.byline)),
+          excerpt: bestString(pages.map((page) => page.excerpt)),
+          url: bestString(pages.map((page) => page.url)),
+          headings: bestArray(pages.map((page) => page.headings)),
+          navigation: bestArray(pages.map((page) => page.navigation)),
+          interactiveElements: bestArray(
+            pages.map((page) => page.interactiveElements),
+          ),
+          forms: bestArray(pages.map((page) => page.forms)),
+          landmarks: bestArray(pages.map((page) => page.landmarks)),
+        }
+      : { ...EMPTY_PAGE_CONTENT };
+
+  return {
+    ...mergedBase,
+    title: mergedBase.title || webContents.getTitle() || "",
+    url: mergedBase.url || webContents.getURL() || "",
+  };
+}
+
 export async function extractContent(
   webContents: WebContents,
 ): Promise<PageContent> {
   try {
-    const result = await webContents.executeJavaScript(`
-      (function() {
-        try {
-          if (window.__vessel && typeof window.__vessel.extractContent === "function") {
-            const structured = window.__vessel.extractContent();
-            if (structured && typeof structured === "object") {
-              return structured;
-            }
-          }
-        } catch (_error) {
-        }
+    await waitForDomReady(webContents);
 
-        try {
-          return ${DIRECT_EXTRACTION_SCRIPT};
-        } catch (_error) {
-          return {
-            title: document.title || "",
-            content: document.body?.innerText || "",
-            htmlContent: "",
-            byline: "",
-            excerpt: "",
-            url: window.location.href || "",
-            headings: [],
-            navigation: [],
-            interactiveElements: [],
-            forms: [],
-            landmarks: [],
-          };
-        }
-      })()
-    `);
+    const [preloadResult, directResult, safeResult] = await Promise.all([
+      executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT),
+      executeScript(webContents, DIRECT_EXTRACTION_SCRIPT),
+      executeScript(webContents, SAFE_EXTRACTION_SCRIPT),
+    ]);
 
-    return normalizePageContent(result);
+    return mergePageContent(
+      [preloadResult, directResult, safeResult],
+      webContents,
+    );
   } catch {
     return {
       ...EMPTY_PAGE_CONTENT,

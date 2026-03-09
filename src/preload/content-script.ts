@@ -54,15 +54,25 @@ interface PageContent {
 let elementIndex = 0;
 const elementSelectors: Record<number, string> = {};
 
+function escapeSelectorValue(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+
+  return value.replace(/["\\]/g, "\\$&");
+}
+
 function generateSelector(el: Element): string {
-  if (el.id) return `#${CSS.escape(el.id)}`;
+  if (el.id) return `#${escapeSelectorValue(el.id)}`;
 
   const testId = el.getAttribute("data-testid");
-  if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
+  if (testId) {
+    return `[data-testid="${escapeSelectorValue(testId)}"]`;
+  }
 
   const name = el.getAttribute("name");
   if (name) {
-    return `${el.tagName.toLowerCase()}[name="${CSS.escape(name)}"]`;
+    return `${el.tagName.toLowerCase()}[name="${escapeSelectorValue(name)}"]`;
   }
 
   const parts: string[] = [];
@@ -136,8 +146,7 @@ function isElementVisible(el: Element): boolean {
 
 function isElementDisabled(el: Element): boolean {
   return (
-    el.hasAttribute("disabled") ||
-    el.getAttribute("aria-disabled") === "true"
+    el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true"
   );
 }
 
@@ -168,7 +177,9 @@ function getInputLabel(
   el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
 ): string | undefined {
   if (el.id) {
-    const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+    const label = document.querySelector(
+      `label[for="${escapeSelectorValue(el.id)}"]`,
+    );
     if (label) return getTrimmedText(label.textContent);
   }
 
@@ -234,7 +245,9 @@ function getSelectOptions(el: HTMLSelectElement): string[] | undefined {
   return options.length > 0 ? options : undefined;
 }
 
-function buildBaseMetadata(el: Element): Pick<
+function buildBaseMetadata(
+  el: Element,
+): Pick<
   InteractiveElement,
   | "context"
   | "selector"
@@ -272,7 +285,9 @@ function extractNavigation(): InteractiveElement[] {
   const navigation: InteractiveElement[] = [];
 
   document
-    .querySelectorAll('nav, [role="navigation"], header nav, [role="banner"] nav')
+    .querySelectorAll(
+      'nav, [role="navigation"], header nav, [role="banner"] nav',
+    )
     .forEach((nav) => {
       nav.querySelectorAll("a[href]").forEach((link) => {
         const anchor = link as HTMLAnchorElement;
@@ -340,8 +355,10 @@ function extractInteractiveElements(): InteractiveElement[] {
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea',
     )
     .forEach((input) => {
-      const element =
-        input as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      const element = input as
+        | HTMLInputElement
+        | HTMLSelectElement
+        | HTMLTextAreaElement;
       const tag = input.tagName.toLowerCase();
 
       elements.push({
@@ -386,8 +403,10 @@ function extractForms(): Array<{
     form
       .querySelectorAll("input:not([type='hidden']), select, textarea")
       .forEach((input) => {
-        const element =
-          input as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+        const element = input as
+          | HTMLInputElement
+          | HTMLSelectElement
+          | HTMLTextAreaElement;
         const tag = input.tagName.toLowerCase();
 
         fields.push({
@@ -437,7 +456,11 @@ function extractForms(): Array<{
   return forms;
 }
 
-function extractLandmarks(): Array<{ role: string; label?: string; text?: string }> {
+function extractLandmarks(): Array<{
+  role: string;
+  label?: string;
+  text?: string;
+}> {
   const landmarks: Array<{ role: string; label?: string; text?: string }> = [];
   const selectors = [
     "header, [role='banner']",
@@ -491,7 +514,9 @@ function extractLandmarks(): Array<{ role: string; label?: string; text?: string
 function vesselExtractContent(): PageContent {
   try {
     elementIndex = 0;
-    Object.keys(elementSelectors).forEach((key) => delete elementSelectors[key]);
+    Object.keys(elementSelectors).forEach(
+      (key) => delete elementSelectors[key],
+    );
 
     const documentClone = document.cloneNode(true) as Document;
     const reader = new Readability(documentClone);
