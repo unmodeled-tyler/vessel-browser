@@ -2,11 +2,18 @@ import { WebContentsView } from "electron";
 import path from "path";
 import type { TabState } from "../../shared/types";
 
+const MAX_CUSTOM_HISTORY = 50;
+
 export class Tab {
   readonly id: string;
   readonly view: WebContentsView;
   private _state: TabState;
   private onChange: () => void;
+
+  // Custom URL history stack for scripted navigations that bypass Chromium history
+  private urlHistory: string[] = [];
+  private urlForwardStack: string[] = [];
+  private lastCommittedUrl = "";
 
   constructor(id: string, url: string, onChange: () => void) {
     this.id = id;
@@ -34,6 +41,7 @@ export class Tab {
 
     this.setupListeners();
     if (url) {
+      this.lastCommittedUrl = url;
       this.view.webContents.loadURL(url);
     }
   }
@@ -41,13 +49,34 @@ export class Tab {
   private setupListeners(): void {
     const wc = this.view.webContents;
     const history = wc.navigationHistory;
+
     const syncNavigationState = () => {
       this._state.title = wc.getTitle() || this._state.title || "New Tab";
       this._state.url = wc.getURL() || this._state.url;
-      this._state.canGoBack = history.canGoBack();
-      this._state.canGoForward = history.canGoForward();
+      // Can go back if native history allows OR we have custom history entries
+      this._state.canGoBack =
+        history.canGoBack() || this.urlHistory.length > 0;
+      this._state.canGoForward =
+        history.canGoForward() || this.urlForwardStack.length > 0;
       this.onChange();
     };
+
+    // Track URL changes for custom history
+    wc.on("did-navigate", (_event, url) => {
+      if (
+        this.lastCommittedUrl &&
+        this.lastCommittedUrl !== url &&
+        !this.lastCommittedUrl.startsWith("about:")
+      ) {
+        this.urlHistory.push(this.lastCommittedUrl);
+        if (this.urlHistory.length > MAX_CUSTOM_HISTORY) {
+          this.urlHistory.shift();
+        }
+        this.urlForwardStack = [];
+      }
+      this.lastCommittedUrl = url;
+      syncNavigationState();
+    });
 
     wc.on("page-title-updated", (_, title) => {
       this._state.title = title;
@@ -61,10 +90,6 @@ export class Tab {
 
     wc.on("did-stop-loading", () => {
       this._state.isLoading = false;
-      syncNavigationState();
-    });
-
-    wc.on("did-navigate", () => {
       syncNavigationState();
     });
 
@@ -102,16 +127,50 @@ export class Tab {
     this.view.webContents.loadURL(url);
   }
 
-  goBack(): void {
+  goBack(): boolean {
     if (this.view.webContents.navigationHistory.canGoBack()) {
       this.view.webContents.navigationHistory.goBack();
+      return true;
     }
+    // Fallback: use custom history stack
+    const previousUrl = this.urlHistory.pop();
+    if (previousUrl) {
+      this.urlForwardStack.push(this.lastCommittedUrl);
+      this.lastCommittedUrl = previousUrl;
+      this.view.webContents.loadURL(previousUrl);
+      return true;
+    }
+    return false;
   }
 
-  goForward(): void {
+  goForward(): boolean {
     if (this.view.webContents.navigationHistory.canGoForward()) {
       this.view.webContents.navigationHistory.goForward();
+      return true;
     }
+    // Fallback: use custom forward stack
+    const nextUrl = this.urlForwardStack.pop();
+    if (nextUrl) {
+      this.urlHistory.push(this.lastCommittedUrl);
+      this.lastCommittedUrl = nextUrl;
+      this.view.webContents.loadURL(nextUrl);
+      return true;
+    }
+    return false;
+  }
+
+  canGoBack(): boolean {
+    return (
+      this.view.webContents.navigationHistory.canGoBack() ||
+      this.urlHistory.length > 0
+    );
+  }
+
+  canGoForward(): boolean {
+    return (
+      this.view.webContents.navigationHistory.canGoForward() ||
+      this.urlForwardStack.length > 0
+    );
   }
 
   reload(): void {

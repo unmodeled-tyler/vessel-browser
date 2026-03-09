@@ -566,7 +566,7 @@ function registerTools(
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(runtime, tabManager, "go_back", {}, async () => {
-        if (!tab.view.webContents.navigationHistory.canGoBack()) {
+        if (!tab.canGoBack()) {
           return "No previous page in history";
         }
         const beforeUrl = tab.view.webContents.getURL();
@@ -590,7 +590,7 @@ function registerTools(
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(runtime, tabManager, "go_forward", {}, async () => {
-        if (!tab.view.webContents.navigationHistory.canGoForward()) {
+        if (!tab.canGoForward()) {
           return "No forward page in history";
         }
         const beforeUrl = tab.view.webContents.getURL();
@@ -650,25 +650,35 @@ function registerTools(
           if (!resolvedSelector) {
             return "Error: No index or selector provided";
           }
-          const clickInfo = await wc.executeJavaScript(`
+          // Get element info — check if it's a link with an href
+          const elInfo = await wc.executeJavaScript(`
             (function() {
               const el = document.querySelector(${JSON.stringify(resolvedSelector)});
               if (!el) return { error: 'Element not found' };
               const text = (el.textContent || el.tagName).trim().slice(0, 100);
               const href = el.tagName === 'A' ? el.href : null;
-              el.click();
               return { text: text, href: href };
             })()
           `);
-          if (clickInfo.error) return clickInfo.error;
-          const clickText = `Clicked: ${clickInfo.text}`;
-          await waitForPotentialNavigation(wc, beforeUrl);
-          // If click didn't navigate but element was a link, use explicit navigation
-          const midUrl = wc.getURL();
-          if (midUrl === beforeUrl && clickInfo.href && clickInfo.href !== beforeUrl && !clickInfo.href.startsWith("javascript:")) {
-            wc.loadURL(clickInfo.href);
+          if (elInfo.error) return elInfo.error;
+          const clickText = `Clicked: ${elInfo.text}`;
+
+          // For anchor links: use loadURL (browser-initiated = guaranteed history)
+          if (elInfo.href && elInfo.href !== beforeUrl && !elInfo.href.startsWith("javascript:") && !elInfo.href.startsWith("#")) {
+            wc.loadURL(elInfo.href);
             await waitForLoad(wc);
+            const afterUrl = wc.getURL();
+            return `${clickText} -> ${afterUrl}`;
           }
+
+          // For non-link elements: use el.click()
+          await wc.executeJavaScript(`
+            (function() {
+              const el = document.querySelector(${JSON.stringify(resolvedSelector)});
+              if (el) el.click();
+            })()
+          `);
+          await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl ? `${clickText} -> ${afterUrl}` : clickText;
         },

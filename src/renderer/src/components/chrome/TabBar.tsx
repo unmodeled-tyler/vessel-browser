@@ -1,21 +1,40 @@
-import { For, createMemo, type Component } from "solid-js";
+import { For, createMemo, createSignal, onCleanup, type Component } from "solid-js";
 import { useTabs } from "../../stores/tabs";
 import { useRuntime } from "../../stores/runtime";
 import "./chrome.css";
 
+const RECENT_WINDOW_MS = 6000; // Consider a tab "agent-active" if acted on within 6s
+
 const TabBar: Component = () => {
   const { tabs, activeTabId, switchTab, closeTab, createTab } = useTabs();
   const { runtimeState } = useRuntime();
+
+  // Tick every second so "recent" calculations stay fresh
+  const [now, setNow] = createSignal(Date.now());
+  const ticker = setInterval(() => setNow(Date.now()), 1000);
+  onCleanup(() => clearInterval(ticker));
+
   const modelActiveTabIds = createMemo(() => {
+    const currentTime = now();
     const activeIds = new Set<string>();
 
     for (const action of runtimeState().actions) {
       if (!action.tabId) continue;
       if (action.source === "user" || action.source === "system") continue;
-      if (action.status !== "running" && action.status !== "waiting-approval") {
+
+      // Currently executing
+      if (action.status === "running" || action.status === "waiting-approval") {
+        activeIds.add(action.tabId);
         continue;
       }
-      activeIds.add(action.tabId);
+
+      // Recently completed (within window)
+      if (action.status === "completed" && action.finishedAt) {
+        const elapsed = currentTime - new Date(action.finishedAt).getTime();
+        if (elapsed < RECENT_WINDOW_MS) {
+          activeIds.add(action.tabId);
+        }
+      }
     }
 
     return activeIds;

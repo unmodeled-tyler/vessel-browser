@@ -77,12 +77,12 @@ export class TabManager {
     if (tab) tab.navigate(url);
   }
 
-  goBack(id: string): void {
-    this.tabs.get(id)?.goBack();
+  goBack(id: string): boolean {
+    return this.tabs.get(id)?.goBack() ?? false;
   }
 
-  goForward(id: string): void {
-    this.tabs.get(id)?.goForward();
+  goForward(id: string): boolean {
+    return this.tabs.get(id)?.goForward() ?? false;
   }
 
   reloadTab(id: string): void {
