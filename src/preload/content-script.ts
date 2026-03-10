@@ -57,7 +57,7 @@ interface PageContent {
 
 let elementIndex = 0;
 const elementSelectors: Record<number, string> = {};
-const indexedElements = new WeakMap<Element, number>();
+let indexedElements = new WeakMap<Element, number>();
 
 function generateSelector(el: Element): string {
   return generateStableSelector(el);
