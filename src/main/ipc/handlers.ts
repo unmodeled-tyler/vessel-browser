@@ -22,6 +22,7 @@ import type {
   SessionSnapshot,
 } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
+import * as bookmarkManager from "../bookmarks/manager";
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -282,6 +283,63 @@ export function registerIpcHandlers(
       }
     },
   );
+
+  // --- Bookmark handlers ---
+
+  ipcMain.handle(Channels.BOOKMARKS_GET, () => {
+    return bookmarkManager.getState();
+  });
+
+  ipcMain.handle(Channels.FOLDER_CREATE, (_, name: string) => {
+    const folder = bookmarkManager.createFolder(name);
+    sendToRendererViews(Channels.BOOKMARKS_UPDATE, bookmarkManager.getState());
+    return folder;
+  });
+
+  ipcMain.handle(
+    Channels.BOOKMARK_SAVE,
+    (_, url: string, title: string, folderId?: string, note?: string) => {
+      const bookmark = bookmarkManager.saveBookmark(url, title, folderId, note);
+      sendToRendererViews(
+        Channels.BOOKMARKS_UPDATE,
+        bookmarkManager.getState(),
+      );
+      return bookmark;
+    },
+  );
+
+  ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
+    const removed = bookmarkManager.removeBookmark(id);
+    if (removed) {
+      sendToRendererViews(
+        Channels.BOOKMARKS_UPDATE,
+        bookmarkManager.getState(),
+      );
+    }
+    return removed;
+  });
+
+  ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string) => {
+    const removed = bookmarkManager.removeFolder(id);
+    if (removed) {
+      sendToRendererViews(
+        Channels.BOOKMARKS_UPDATE,
+        bookmarkManager.getState(),
+      );
+    }
+    return removed;
+  });
+
+  ipcMain.handle(Channels.FOLDER_RENAME, (_, id: string, newName: string) => {
+    const folder = bookmarkManager.renameFolder(id, newName);
+    if (folder) {
+      sendToRendererViews(
+        Channels.BOOKMARKS_UPDATE,
+        bookmarkManager.getState(),
+      );
+    }
+    return folder;
+  });
 
   // --- Window controls ---
 

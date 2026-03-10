@@ -4,6 +4,9 @@ import type {
   AgentCheckpoint,
   AgentRuntimeState,
   ApprovalMode,
+  Bookmark,
+  BookmarkFolder,
+  BookmarksState,
   ProviderConfig,
   ProviderModelsResult,
   ProviderMeta,
@@ -111,6 +114,34 @@ const api = {
       ipcRenderer.invoke(Channels.PROVIDER_UPDATE, config),
     fetchModels: (config: ProviderConfig): Promise<ProviderModelsResult> =>
       ipcRenderer.invoke(Channels.PROVIDER_FETCH_MODELS, config),
+  },
+  bookmarks: {
+    get: (): Promise<BookmarksState> =>
+      ipcRenderer.invoke(Channels.BOOKMARKS_GET),
+    saveBookmark: (
+      url: string,
+      title: string,
+      folderId?: string,
+      note?: string,
+    ): Promise<Bookmark> =>
+      ipcRenderer.invoke(Channels.BOOKMARK_SAVE, url, title, folderId, note),
+    removeBookmark: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.BOOKMARK_REMOVE, id),
+    createFolder: (name: string): Promise<BookmarkFolder> =>
+      ipcRenderer.invoke(Channels.FOLDER_CREATE, name),
+    removeFolder: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.FOLDER_REMOVE, id),
+    renameFolder: (
+      id: string,
+      newName: string,
+    ): Promise<BookmarkFolder | null> =>
+      ipcRenderer.invoke(Channels.FOLDER_RENAME, id, newName),
+    onUpdate: (cb: (state: BookmarksState) => void): (() => void) => {
+      const handler = (_: unknown, state: BookmarksState) => cb(state);
+      ipcRenderer.on(Channels.BOOKMARKS_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.BOOKMARKS_UPDATE, handler);
+    },
   },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),

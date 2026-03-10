@@ -149,6 +149,223 @@
     gap: 8px;
 }
 
+.bookmark-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(159, 184, 255, 0.18);
+    background: linear-gradient(
+        180deg,
+        rgba(159, 184, 255, 0.1),
+        rgba(159, 184, 255, 0.04)
+    );
+    border-radius: var(--radius-md);
+}
+
+.bookmark-panel-header,
+.bookmark-save-controls,
+.bookmark-folder-create,
+.bookmark-folder-header,
+.bookmark-folder-edit,
+.bookmark-item-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.bookmark-panel-title,
+.bookmark-current-title,
+.bookmark-folder-name,
+.bookmark-item-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.bookmark-panel-subtitle,
+.bookmark-current-url,
+.bookmark-folder-meta,
+.bookmark-empty-folder,
+.bookmark-item-url,
+.bookmark-item-time,
+.bookmark-item-note {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.bookmark-status-pill {
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: rgba(132, 209, 154, 0.14);
+    color: #84d19a;
+}
+
+.bookmark-save-card,
+.bookmark-folder-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.bookmark-current-title,
+.bookmark-current-url,
+.bookmark-item-title,
+.bookmark-item-url,
+.bookmark-item-note {
+    overflow-wrap: anywhere;
+}
+
+.bookmark-select,
+.bookmark-input,
+.bookmark-note-input {
+    width: 100%;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.bookmark-select,
+.bookmark-input {
+    height: 32px;
+    padding: 0 10px;
+}
+
+.bookmark-note-input {
+    resize: vertical;
+    min-height: 58px;
+    padding: 8px 10px;
+    font-family: var(--font-ui);
+}
+
+.bookmark-select:focus,
+.bookmark-input:focus,
+.bookmark-note-input:focus {
+    outline: none;
+    border-color: #9fb8ff;
+}
+
+.bookmark-primary-button,
+.bookmark-secondary-button,
+.bookmark-ghost-button {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition:
+        background 150ms,
+        border-color 150ms,
+        color 150ms,
+        opacity 150ms;
+}
+
+.bookmark-primary-button {
+    background: #9fb8ff;
+    color: #13203c;
+}
+
+.bookmark-primary-button:hover:not(:disabled) {
+    background: #b7c9ff;
+}
+
+.bookmark-secondary-button,
+.bookmark-ghost-button {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bookmark-secondary-button {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
+
+.bookmark-secondary-button:hover:not(:disabled),
+.bookmark-ghost-button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.bookmark-ghost-button {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+}
+
+.bookmark-primary-button:disabled,
+.bookmark-secondary-button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.bookmark-ghost-button.danger {
+    color: #ff8e8e;
+}
+
+.bookmark-folder-create,
+.bookmark-folder-edit {
+    align-items: stretch;
+}
+
+.bookmark-folder-list,
+.bookmark-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bookmark-folder-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bookmark-empty-folder {
+    padding: 2px 0;
+    color: var(--text-muted);
+}
+
+.bookmark-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.bookmark-item-link {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    text-align: left;
+}
+
+.bookmark-item-link:hover .bookmark-item-title {
+    color: #b7c9ff;
+}
+
+.bookmark-item-url {
+    color: var(--text-muted);
+}
+
+.bookmark-item-note {
+    color: var(--text-secondary);
+}
+
 .agent-panel {
     display: flex;
     flex-direction: column;
@@ -617,4 +834,38 @@
 
 .sidebar-cancel:hover {
     background: var(--border-visible);
+}
+
+@media (max-width: 640px) {
+    .bookmark-panel-header,
+    .bookmark-save-controls,
+    .bookmark-folder-create,
+    .bookmark-folder-header,
+    .bookmark-folder-edit,
+    .bookmark-item-footer,
+    .agent-panel-header,
+    .agent-panel-controls,
+    .agent-checkpoint-row,
+    .agent-card.compact,
+    .agent-card-actions,
+    .sidebar-input-area {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .bookmark-folder-actions,
+    .sidebar-header-actions {
+        width: 100%;
+    }
+
+    .bookmark-primary-button,
+    .bookmark-secondary-button,
+    .bookmark-ghost-button,
+    .agent-control-button,
+    .agent-primary-button,
+    .sidebar-send,
+    .sidebar-cancel {
+        width: 100%;
+        justify-content: center;
+    }
 }

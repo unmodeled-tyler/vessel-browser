@@ -6,6 +6,7 @@ import { Channels } from "../shared/channels";
 import { loadSettings } from "./config/settings";
 import { startMcpServer, stopMcpServer } from "./mcp/server";
 import { AgentRuntime } from "./agent/runtime";
+import * as bookmarkManager from "./bookmarks/manager";
 
 function rendererUrlFor(view: "chrome" | "sidebar"): string | null {
   if (!process.env.ELECTRON_RENDERER_URL) return null;
@@ -51,7 +52,11 @@ function bootstrap(): void {
   registerIpcHandlers(windowState, runtime);
 
   // Start MCP server for external agent integration
-  startMcpServer(tabManager, runtime, settings.mcpPort);
+  startMcpServer(tabManager, runtime, settings.mcpPort, () => {
+    const state = bookmarkManager.getState();
+    chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
+    sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
+  });
 
   // Restore previous session, or open the default tab once chrome is ready
   chromeView.webContents.once("did-finish-load", () => {

@@ -197,3 +197,25 @@ export interface VesselSettings {
   autoRestoreSession: boolean;
   approvalMode: ApprovalMode;
 }
+
+// --- Bookmarks ---
+
+export interface Bookmark {
+  id: string;
+  url: string;
+  title: string;
+  note?: string;
+  folderId: string; // "unsorted" for default
+  savedAt: string; // ISO timestamp
+}
+
+export interface BookmarkFolder {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface BookmarksState {
+  folders: BookmarkFolder[];
+  bookmarks: Bookmark[];
+}

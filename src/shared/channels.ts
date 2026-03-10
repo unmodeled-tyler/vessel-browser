@@ -45,6 +45,15 @@ export const Channels = {
   PROVIDER_UPDATE: "provider:update",
   PROVIDER_FETCH_MODELS: "provider:fetch-models",
 
+  // Bookmarks
+  BOOKMARKS_GET: "bookmarks:get",
+  BOOKMARKS_UPDATE: "bookmarks:update",
+  BOOKMARK_SAVE: "bookmarks:save",
+  BOOKMARK_REMOVE: "bookmarks:remove",
+  FOLDER_CREATE: "bookmarks:folder-create",
+  FOLDER_REMOVE: "bookmarks:folder-remove",
+  FOLDER_RENAME: "bookmarks:folder-rename",
+
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",

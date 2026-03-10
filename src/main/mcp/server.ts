@@ -12,6 +12,7 @@ import {
 import { extractContent } from "../content/extractor";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
+import * as bookmarkManager from "../bookmarks/manager";
 
 let httpServer: http.Server | null = null;
 
@@ -658,6 +659,7 @@ function registerTools(
   server: McpServer,
   tabManager: TabManager,
   runtime: AgentRuntime,
+  onBookmarkMutation?: () => void,
 ): void {
   server.registerPrompt(
     "vessel-supervisor-brief",
@@ -1503,6 +1505,168 @@ function registerTools(
       );
     },
   );
+
+  // --- Bookmark tools ---
+
+  server.registerTool(
+    "vessel_create_folder",
+    {
+      title: "Create Bookmark Folder",
+      description: "Create a named folder for organizing bookmarks.",
+      inputSchema: {
+        name: z.string().describe("Name for the new folder"),
+      },
+    },
+    async ({ name }) => {
+      const folder = bookmarkManager.createFolder(name);
+      if (onBookmarkMutation) onBookmarkMutation();
+      return asTextResponse(
+        `Created folder "${folder.name}" (id=${folder.id})`,
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_bookmark_save",
+    {
+      title: "Save Bookmark",
+      description:
+        "Save a URL to a bookmark folder. Omit folder_id to save to Unsorted.",
+      inputSchema: {
+        url: z.string().describe("URL to bookmark"),
+        title: z.string().describe("Human-readable title for the bookmark"),
+        folder_id: z
+          .string()
+          .optional()
+          .describe("Folder ID to save into (omit for Unsorted)"),
+        note: z
+          .string()
+          .optional()
+          .describe("Optional note about why this was bookmarked"),
+      },
+    },
+    async ({ url, title, folder_id, note }) => {
+      const bookmark = bookmarkManager.saveBookmark(
+        url,
+        title,
+        folder_id,
+        note,
+      );
+      if (onBookmarkMutation) onBookmarkMutation();
+      const folderLabel =
+        bookmark.folderId === "unsorted"
+          ? "Unsorted"
+          : (bookmarkManager
+              .getState()
+              .folders.find((f) => f.id === bookmark.folderId)?.name ??
+            bookmark.folderId);
+      return asTextResponse(
+        `Saved "${bookmark.title}" (${bookmark.url}) to "${folderLabel}" (id=${bookmark.id})`,
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_bookmark_list",
+    {
+      title: "List Bookmarks",
+      description:
+        "List all bookmark folders and their contents. Optionally filter by folder.",
+      inputSchema: {
+        folder_id: z
+          .string()
+          .optional()
+          .describe("Filter to a specific folder ID (omit for all)"),
+      },
+    },
+    async ({ folder_id }) => {
+      const state = bookmarkManager.getState();
+      const folders = [
+        { id: "unsorted", name: "Unsorted" },
+        ...state.folders,
+      ];
+      const lines: string[] = [];
+      for (const folder of folders) {
+        if (folder_id && folder.id !== folder_id) continue;
+        const items = state.bookmarks.filter(
+          (b) => b.folderId === folder.id,
+        );
+        lines.push(
+          `\n[${folder.name}] (id=${folder.id}, ${items.length} items)`,
+        );
+        for (const b of items) {
+          lines.push(
+            `  - ${b.title} | ${b.url} | id=${b.id}${b.note ? ` | note: ${b.note}` : ""}`,
+          );
+        }
+      }
+      return asTextResponse(
+        lines.length ? lines.join("\n").trim() : "No bookmarks saved yet.",
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_bookmark_remove",
+    {
+      title: "Remove Bookmark",
+      description: "Remove a specific bookmark by its ID.",
+      inputSchema: {
+        bookmark_id: z.string().describe("ID of the bookmark to remove"),
+      },
+    },
+    async ({ bookmark_id }) => {
+      const removed = bookmarkManager.removeBookmark(bookmark_id);
+      if (removed && onBookmarkMutation) onBookmarkMutation();
+      return asTextResponse(
+        removed
+          ? `Removed bookmark ${bookmark_id}`
+          : `Bookmark ${bookmark_id} not found`,
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_folder_remove",
+    {
+      title: "Remove Bookmark Folder",
+      description:
+        "Remove a folder. Bookmarks in it are moved to Unsorted.",
+      inputSchema: {
+        folder_id: z.string().describe("ID of the folder to remove"),
+      },
+    },
+    async ({ folder_id }) => {
+      const removed = bookmarkManager.removeFolder(folder_id);
+      if (removed && onBookmarkMutation) onBookmarkMutation();
+      return asTextResponse(
+        removed
+          ? `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`
+          : `Folder ${folder_id} not found`,
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_folder_rename",
+    {
+      title: "Rename Bookmark Folder",
+      description: "Rename an existing bookmark folder.",
+      inputSchema: {
+        folder_id: z.string().describe("ID of the folder to rename"),
+        new_name: z.string().describe("New name for the folder"),
+      },
+    },
+    async ({ folder_id, new_name }) => {
+      const folder = bookmarkManager.renameFolder(folder_id, new_name);
+      if (folder && onBookmarkMutation) onBookmarkMutation();
+      return asTextResponse(
+        folder
+          ? `Renamed folder to "${folder.name}"`
+          : `Folder ${folder_id} not found`,
+      );
+    },
+  );
 }
 
 function waitForLoad(wc: Electron.WebContents, timeout = 10000): Promise<void> {
@@ -1625,12 +1789,13 @@ async function resolveSelector(
 function createMcpServer(
   tabManager: TabManager,
   runtime: AgentRuntime,
+  onBookmarkMutation?: () => void,
 ): McpServer {
   const server = new McpServer({
     name: "vessel-browser",
     version: "0.1.0",
   });
-  registerTools(server, tabManager, runtime);
+  registerTools(server, tabManager, runtime, onBookmarkMutation);
   return server;
 }
 
@@ -1638,6 +1803,7 @@ export function startMcpServer(
   tabManager: TabManager,
   runtime: AgentRuntime,
   port: number,
+  onBookmarkMutation?: () => void,
 ): void {
   httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", `http://localhost:${port}`);
@@ -1662,7 +1828,7 @@ export function startMcpServer(
     }
 
     try {
-      const mcpServer = createMcpServer(tabManager, runtime);
+      const mcpServer = createMcpServer(tabManager, runtime, onBookmarkMutation);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
