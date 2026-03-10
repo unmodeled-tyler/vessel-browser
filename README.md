@@ -56,6 +56,28 @@ Each browser tab is a separate `WebContentsView` managed by the main process. Th
 
 ## Getting Started
 
+### One-Line Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
+```
+
+The installer:
+
+- clones or updates Vessel into `~/.local/share/vessel-browser`
+- installs dependencies and builds the app
+- creates a `vessel-browser` launcher in `~/.local/bin`
+- creates a desktop entry for Linux app launchers
+- writes `~/.config/vessel/vessel-settings.json` with MCP port `3100`
+- writes `~/.config/vessel/mcp-http-snippet.json`
+- prints the exact HTTP MCP snippet to paste into your harness config
+
+After install:
+
+```bash
+vessel-browser
+```
+
 ```bash
 # Install dependencies
 npm install
@@ -87,6 +109,25 @@ Notes:
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
 - Vessel does not expose local model or provider configuration in-app
 - The intended control plane is an external harness driving Vessel through MCP
+
+Generic HTTP MCP config:
+
+```json
+{
+  "mcpServers": {
+    "vessel": {
+      "type": "http",
+      "url": "http://127.0.0.1:3100/mcp"
+    }
+  }
+}
+```
+
+The installer also writes that snippet to `~/.config/vessel/mcp-http-snippet.json` and installs a helper command:
+
+```bash
+vessel-browser-mcp
+```
 
 ## Keyboard Shortcuts
 
