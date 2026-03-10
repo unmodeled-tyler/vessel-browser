@@ -3,16 +3,21 @@ import type { BookmarksState } from "../../../shared/types";
 
 const INITIAL: BookmarksState = { folders: [], bookmarks: [] };
 
-const [bookmarksState, setBookmarksState] = createSignal<BookmarksState>(INITIAL);
+const [bookmarksState, setBookmarksState] =
+  createSignal<BookmarksState>(INITIAL);
 
 let initialized = false;
 
 async function init() {
   if (initialized) return;
-  initialized = true;
-  const state = await window.vessel.bookmarks.get();
-  setBookmarksState(state);
-  window.vessel.bookmarks.onUpdate((s) => setBookmarksState(s));
+  try {
+    const state = await window.vessel.bookmarks.get();
+    setBookmarksState(state);
+    window.vessel.bookmarks.onUpdate((s) => setBookmarksState(s));
+    initialized = true;
+  } catch (error) {
+    console.error("Failed to initialize bookmarks store", error);
+  }
 }
 
 export function useBookmarks() {

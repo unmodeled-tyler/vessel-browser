@@ -1,73 +1,78 @@
-@import './theme.css';
+@import "./theme.css";
 
 *,
 *::before,
 *::after {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
 html,
 body,
 #root {
-  height: 100%;
-  overflow: hidden;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+}
+
+.app {
+    position: relative;
+    height: 100%;
 }
 
 ::-webkit-scrollbar {
-  width: 6px;
+    width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-visible);
-  border-radius: 3px;
+    background: var(--border-visible);
+    border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
+    background: var(--text-muted);
 }
 
 input,
 textarea {
-  font-family: var(--font-ui);
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  outline: none;
-  font-size: 13px;
+    font-family: var(--font-ui);
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    outline: none;
+    font-size: 13px;
 }
 
 input:focus,
 textarea:focus {
-  border-color: var(--accent-primary);
+    border-color: var(--accent-primary);
 }
 
 button {
-  font-family: var(--font-ui);
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font-size: 13px;
+    font-family: var(--font-ui);
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 13px;
 }
 
 button:hover {
-  color: var(--text-primary);
+    color: var(--text-primary);
 }
 
 /* Focus mode: hide chrome */
 .app.focus-mode .chrome {
-  display: none;
+    display: none;
 }

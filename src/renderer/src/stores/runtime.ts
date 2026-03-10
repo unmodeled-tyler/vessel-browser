@@ -1,8 +1,5 @@
 import { createSignal } from "solid-js";
-import type {
-  AgentRuntimeState,
-  ApprovalMode,
-} from "../../../shared/types";
+import type { AgentRuntimeState, ApprovalMode } from "../../../shared/types";
 
 const DEFAULT_RUNTIME_STATE: AgentRuntimeState = {
   session: null,
@@ -15,19 +12,24 @@ const DEFAULT_RUNTIME_STATE: AgentRuntimeState = {
   checkpoints: [],
 };
 
-const [runtimeState, setRuntimeState] =
-  createSignal<AgentRuntimeState>(DEFAULT_RUNTIME_STATE);
+const [runtimeState, setRuntimeState] = createSignal<AgentRuntimeState>(
+  DEFAULT_RUNTIME_STATE,
+);
 
 let initialized = false;
 
 async function init() {
   if (initialized) return;
-  initialized = true;
-  const initial = await window.vessel.ai.getRuntime();
-  setRuntimeState(initial);
-  window.vessel.ai.onRuntimeUpdate((state) => {
-    setRuntimeState(state);
-  });
+  try {
+    const initial = await window.vessel.ai.getRuntime();
+    setRuntimeState(initial);
+    window.vessel.ai.onRuntimeUpdate((state) => {
+      setRuntimeState(state);
+    });
+    initialized = true;
+  } catch (error) {
+    console.error("Failed to initialize runtime store", error);
+  }
 }
 
 export function useRuntime() {

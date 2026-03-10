@@ -35,6 +35,12 @@ function bootstrap(): void {
   const { chromeView, sidebarView, tabManager } = windowState;
   runtime = new AgentRuntime(tabManager);
 
+  registerIpcHandlers(windowState, runtime);
+  bookmarkManager.subscribe((state) => {
+    chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
+    sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
+  });
+
   // Load renderer
   const chromeUrl = rendererUrlFor("chrome");
   const sidebarUrl = rendererUrlFor("sidebar");
@@ -51,12 +57,6 @@ function bootstrap(): void {
       query: { view: "sidebar" },
     });
   }
-
-  registerIpcHandlers(windowState, runtime);
-  bookmarkManager.subscribe((state) => {
-    chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
-    sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
-  });
 
   // Start MCP server for external agent integration
   startMcpServer(tabManager, runtime, settings.mcpPort);
