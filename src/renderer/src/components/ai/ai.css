@@ -127,20 +127,26 @@
 
 .sidebar-clear,
 .sidebar-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
     font-size: 11px;
+    line-height: 1;
     color: var(--text-muted);
-    padding: 2px 8px;
+    padding: 0 8px;
     border-radius: var(--radius-sm);
     transition: background 150ms;
 }
 
 .sidebar-close {
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+}
+
+.sidebar-close svg {
+    pointer-events: none;
 }
 
 .sidebar-clear:hover,
