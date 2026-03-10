@@ -65,6 +65,12 @@ export function subscribe(
   };
 }
 
+export function clearAll(): void {
+  state = { folders: [], bookmarks: [] };
+  save();
+  emit();
+}
+
 export function createFolder(name: string): BookmarkFolder {
   load();
   const trimmed = name.trim();

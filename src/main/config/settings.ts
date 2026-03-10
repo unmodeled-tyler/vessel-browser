@@ -9,6 +9,7 @@ const defaults: VesselSettings = {
   sidebarWidth: 340,
   mcpPort: 3100,
   autoRestoreSession: true,
+  clearBookmarksOnLaunch: false,
   approvalMode: "confirm-dangerous",
 };
 

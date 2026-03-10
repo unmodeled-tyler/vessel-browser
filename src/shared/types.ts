@@ -194,6 +194,7 @@ export interface VesselSettings {
   sidebarWidth: number;
   mcpPort: number;
   autoRestoreSession: boolean;
+  clearBookmarksOnLaunch: boolean;
   approvalMode: ApprovalMode;
 }
 

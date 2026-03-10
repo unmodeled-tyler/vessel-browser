@@ -5,6 +5,8 @@ import { useUI } from "../../stores/ui";
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
   const [autoRestoreSession, setAutoRestoreSession] = createSignal(true);
+  const [clearBookmarksOnLaunch, setClearBookmarksOnLaunch] =
+    createSignal(false);
   const [approvalMode, setApprovalMode] =
     createSignal<ApprovalMode>("confirm-dangerous");
   const [status, setStatus] = createSignal<{
@@ -15,6 +17,7 @@ const Settings: Component = () => {
   onMount(async () => {
     const settings = await window.vessel.settings.get();
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
+    setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setApprovalMode(settings.approvalMode ?? "confirm-dangerous");
   });
 
@@ -22,6 +25,10 @@ const Settings: Component = () => {
     try {
       await Promise.all([
         window.vessel.settings.set("autoRestoreSession", autoRestoreSession()),
+        window.vessel.settings.set(
+          "clearBookmarksOnLaunch",
+          clearBookmarksOnLaunch(),
+        ),
         window.vessel.settings.set("approvalMode", approvalMode()),
       ]);
       setStatus({ kind: "success", text: "Saved." });
@@ -89,6 +96,23 @@ const Settings: Component = () => {
               />
               <span>Restore last browser session on launch</span>
             </label>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-toggle">
+              <input
+                type="checkbox"
+                checked={clearBookmarksOnLaunch()}
+                onChange={(e) =>
+                  setClearBookmarksOnLaunch(e.currentTarget.checked)
+                }
+              />
+              <span>Start bookmarks fresh on launch</span>
+            </label>
+            <p class="settings-hint">
+              Off by default. When enabled, bookmark folders and saved pages are
+              cleared each time Vessel starts.
+            </p>
           </div>
 
           <div class="settings-actions">

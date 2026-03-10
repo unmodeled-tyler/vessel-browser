@@ -1520,9 +1520,15 @@ function registerTools(
       },
     },
     async ({ name }) => {
-      const folder = bookmarkManager.createFolder(name);
-      return asTextResponse(
-        `Created folder "${folder.name}" (id=${folder.id})`,
+      return withAction(
+        runtime,
+        tabManager,
+        "create_bookmark_folder",
+        { name },
+        async () => {
+          const folder = bookmarkManager.createFolder(name);
+          return `Created folder "${folder.name}" (id=${folder.id})`;
+        },
       );
     },
   );
@@ -1547,21 +1553,27 @@ function registerTools(
       },
     },
     async ({ url, title, folder_id, note }) => {
-      const bookmark = bookmarkManager.saveBookmark(
-        url,
-        title,
-        folder_id,
-        note,
-      );
-      const folderLabel =
-        bookmark.folderId === "unsorted"
-          ? "Unsorted"
-          : (bookmarkManager
-              .getState()
-              .folders.find((f) => f.id === bookmark.folderId)?.name ??
-            bookmark.folderId);
-      return asTextResponse(
-        `Saved "${bookmark.title}" (${bookmark.url}) to "${folderLabel}" (id=${bookmark.id})`,
+      return withAction(
+        runtime,
+        tabManager,
+        "save_bookmark",
+        { url, title, folder_id, note },
+        async () => {
+          const bookmark = bookmarkManager.saveBookmark(
+            url,
+            title,
+            folder_id,
+            note,
+          );
+          const folderLabel =
+            bookmark.folderId === "unsorted"
+              ? "Unsorted"
+              : (bookmarkManager
+                  .getState()
+                  .folders.find((f) => f.id === bookmark.folderId)?.name ??
+                bookmark.folderId);
+          return `Saved "${bookmark.title}" (${bookmark.url}) to "${folderLabel}" (id=${bookmark.id})`;
+        },
       );
     },
   );
@@ -1580,23 +1592,36 @@ function registerTools(
       },
     },
     async ({ folder_id }) => {
-      const state = bookmarkManager.getState();
-      const folders = [{ id: "unsorted", name: "Unsorted" }, ...state.folders];
-      const lines: string[] = [];
-      for (const folder of folders) {
-        if (folder_id && folder.id !== folder_id) continue;
-        const items = state.bookmarks.filter((b) => b.folderId === folder.id);
-        lines.push(
-          `\n[${folder.name}] (id=${folder.id}, ${items.length} items)`,
-        );
-        for (const b of items) {
-          lines.push(
-            `  - ${b.title} | ${b.url} | id=${b.id}${b.note ? ` | note: ${b.note}` : ""}`,
-          );
-        }
-      }
-      return asTextResponse(
-        lines.length ? lines.join("\n").trim() : "No bookmarks saved yet.",
+      return withAction(
+        runtime,
+        tabManager,
+        "list_bookmarks",
+        { folder_id },
+        async () => {
+          const state = bookmarkManager.getState();
+          const folders = [
+            { id: "unsorted", name: "Unsorted" },
+            ...state.folders,
+          ];
+          const lines: string[] = [];
+          for (const folder of folders) {
+            if (folder_id && folder.id !== folder_id) continue;
+            const items = state.bookmarks.filter(
+              (b) => b.folderId === folder.id,
+            );
+            lines.push(
+              `\n[${folder.name}] (id=${folder.id}, ${items.length} items)`,
+            );
+            for (const b of items) {
+              lines.push(
+                `  - ${b.title} | ${b.url} | id=${b.id}${b.note ? ` | note: ${b.note}` : ""}`,
+              );
+            }
+          }
+          return lines.length
+            ? lines.join("\n").trim()
+            : "No bookmarks saved yet.";
+        },
       );
     },
   );
@@ -1611,11 +1636,17 @@ function registerTools(
       },
     },
     async ({ bookmark_id }) => {
-      const removed = bookmarkManager.removeBookmark(bookmark_id);
-      return asTextResponse(
-        removed
-          ? `Removed bookmark ${bookmark_id}`
-          : `Bookmark ${bookmark_id} not found`,
+      return withAction(
+        runtime,
+        tabManager,
+        "remove_bookmark",
+        { bookmark_id },
+        async () => {
+          const removed = bookmarkManager.removeBookmark(bookmark_id);
+          return removed
+            ? `Removed bookmark ${bookmark_id}`
+            : `Bookmark ${bookmark_id} not found`;
+        },
       );
     },
   );
@@ -1630,11 +1661,17 @@ function registerTools(
       },
     },
     async ({ folder_id }) => {
-      const removed = bookmarkManager.removeFolder(folder_id);
-      return asTextResponse(
-        removed
-          ? `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`
-          : `Folder ${folder_id} not found`,
+      return withAction(
+        runtime,
+        tabManager,
+        "remove_bookmark_folder",
+        { folder_id },
+        async () => {
+          const removed = bookmarkManager.removeFolder(folder_id);
+          return removed
+            ? `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`
+            : `Folder ${folder_id} not found`;
+        },
       );
     },
   );
@@ -1650,11 +1687,17 @@ function registerTools(
       },
     },
     async ({ folder_id, new_name }) => {
-      const folder = bookmarkManager.renameFolder(folder_id, new_name);
-      return asTextResponse(
-        folder
-          ? `Renamed folder to "${folder.name}"`
-          : `Folder ${folder_id} not found`,
+      return withAction(
+        runtime,
+        tabManager,
+        "rename_bookmark_folder",
+        { folder_id, new_name },
+        async () => {
+          const folder = bookmarkManager.renameFolder(folder_id, new_name);
+          return folder
+            ? `Renamed folder to "${folder.name}"`
+            : `Folder ${folder_id} not found`;
+        },
       );
     },
   );

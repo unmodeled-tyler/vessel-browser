@@ -17,6 +17,9 @@ function rendererUrlFor(view: "chrome" | "sidebar"): string | null {
 
 function bootstrap(): void {
   const settings = loadSettings();
+  if (settings.clearBookmarksOnLaunch) {
+    bookmarkManager.clearAll();
+  }
   let runtime: AgentRuntime | null = null;
 
   const windowState = createMainWindow((tabs, activeId) => {
