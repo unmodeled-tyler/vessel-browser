@@ -321,6 +321,142 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
         </div>
 
         <div class="sidebar-messages" ref={messagesContainerRef}>
+          <section class="agent-panel">
+            <div class="agent-panel-header">
+              <div>
+                <div class="agent-panel-title">Supervisor</div>
+                <div class="agent-panel-subtitle">
+                  {runtimeState().supervisor.paused
+                    ? "Agent is paused"
+                    : "Agent is live"}
+                </div>
+              </div>
+              <span
+                class="agent-status-pill"
+                classList={{ paused: runtimeState().supervisor.paused }}
+              >
+                {runtimeState().supervisor.paused ? "Paused" : "Running"}
+              </span>
+            </div>
+
+            <div class="agent-panel-controls">
+              <select
+                class="agent-select"
+                value={runtimeState().supervisor.approvalMode}
+                onChange={(e) =>
+                  void setApprovalMode(
+                    e.currentTarget.value as
+                      | "auto"
+                      | "confirm-dangerous"
+                      | "manual",
+                  )
+                }
+              >
+                <option value="auto">Auto approve</option>
+                <option value="confirm-dangerous">Approve dangerous</option>
+                <option value="manual">Approve everything</option>
+              </select>
+              <button
+                class="agent-control-button"
+                type="button"
+                onClick={() =>
+                  void (runtimeState().supervisor.paused ? resume() : pause())
+                }
+              >
+                {runtimeState().supervisor.paused ? "Resume" : "Pause"}
+              </button>
+              <button
+                class="agent-control-button"
+                type="button"
+                onClick={() => void restoreSession()}
+              >
+                Restore session
+              </button>
+            </div>
+
+            <Show
+              when={runtimeState().supervisor.pendingApprovals.length > 0}
+              fallback={<div class="agent-muted">No pending approvals.</div>}
+            >
+              <div class="agent-section-title">Pending approvals</div>
+              <For each={runtimeState().supervisor.pendingApprovals}>
+                {(approval) => (
+                  <div class="agent-card">
+                    <div class="agent-card-title">{approval.name}</div>
+                    <div class="agent-card-copy">{approval.argsSummary}</div>
+                    <div class="agent-card-copy">{approval.reason}</div>
+                    <div class="agent-card-actions">
+                      <button
+                        class="agent-primary-button"
+                        type="button"
+                        onClick={() => void resolveApproval(approval.id, true)}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        class="agent-control-button"
+                        type="button"
+                        onClick={() => void resolveApproval(approval.id, false)}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </Show>
+
+            <div class="agent-section-header">
+              <div class="agent-section-title">Recent actions</div>
+              <Show when={recentActions().length > 0}>
+                <button
+                  class="agent-section-toggle"
+                  type="button"
+                  onClick={() => setActionsExpanded((current) => !current)}
+                >
+                  {actionsExpanded()
+                    ? "Hide history"
+                    : `Show history (${recentActions().length})`}
+                </button>
+              </Show>
+            </div>
+            <Show
+              when={recentActions().length > 0}
+              fallback={<div class="agent-muted">No actions yet.</div>}
+            >
+              <Show
+                when={actionsExpanded()}
+                fallback={
+                  <div class="agent-muted">
+                    Recent actions are collapsed to reduce noise.
+                  </div>
+                }
+              >
+                <For each={recentActions()}>
+                  {(action) => (
+                    <div class="agent-card">
+                      <div class="agent-action-row">
+                        <span class="agent-card-title">{action.name}</span>
+                        <span class={`agent-action-status ${action.status}`}>
+                          {action.status}
+                        </span>
+                      </div>
+                      <div class="agent-card-copy">{action.argsSummary}</div>
+                      <Show when={action.resultSummary}>
+                        <div class="agent-card-copy success">
+                          {action.resultSummary}
+                        </div>
+                      </Show>
+                      <Show when={action.error}>
+                        <div class="agent-card-copy error">{action.error}</div>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </Show>
+            </Show>
+          </section>
+
           <section class="bookmark-panel">
             <div class="bookmark-panel-header">
               <div>
@@ -564,57 +700,14 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             </div>
           </section>
 
-          <section class="agent-panel">
+          <section class="agent-panel checkpoint-panel">
             <div class="agent-panel-header">
               <div>
-                <div class="agent-panel-title">Supervisor</div>
+                <div class="agent-panel-title">Checkpoints</div>
                 <div class="agent-panel-subtitle">
-                  {runtimeState().supervisor.paused
-                    ? "Agent is paused"
-                    : "Agent is live"}
+                  Save and restore session snapshots
                 </div>
               </div>
-              <span
-                class="agent-status-pill"
-                classList={{ paused: runtimeState().supervisor.paused }}
-              >
-                {runtimeState().supervisor.paused ? "Paused" : "Running"}
-              </span>
-            </div>
-
-            <div class="agent-panel-controls">
-              <select
-                class="agent-select"
-                value={runtimeState().supervisor.approvalMode}
-                onChange={(e) =>
-                  void setApprovalMode(
-                    e.currentTarget.value as
-                      | "auto"
-                      | "confirm-dangerous"
-                      | "manual",
-                  )
-                }
-              >
-                <option value="auto">Auto approve</option>
-                <option value="confirm-dangerous">Approve dangerous</option>
-                <option value="manual">Approve everything</option>
-              </select>
-              <button
-                class="agent-control-button"
-                type="button"
-                onClick={() =>
-                  void (runtimeState().supervisor.paused ? resume() : pause())
-                }
-              >
-                {runtimeState().supervisor.paused ? "Resume" : "Pause"}
-              </button>
-              <button
-                class="agent-control-button"
-                type="button"
-                onClick={() => void restoreSession()}
-              >
-                Restore session
-              </button>
             </div>
 
             <div class="agent-checkpoint-row">
@@ -636,38 +729,6 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 Save checkpoint
               </button>
             </div>
-
-            <Show
-              when={runtimeState().supervisor.pendingApprovals.length > 0}
-              fallback={<div class="agent-muted">No pending approvals.</div>}
-            >
-              <div class="agent-section-title">Pending approvals</div>
-              <For each={runtimeState().supervisor.pendingApprovals}>
-                {(approval) => (
-                  <div class="agent-card">
-                    <div class="agent-card-title">{approval.name}</div>
-                    <div class="agent-card-copy">{approval.argsSummary}</div>
-                    <div class="agent-card-copy">{approval.reason}</div>
-                    <div class="agent-card-actions">
-                      <button
-                        class="agent-primary-button"
-                        type="button"
-                        onClick={() => void resolveApproval(approval.id, true)}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        class="agent-control-button"
-                        type="button"
-                        onClick={() => void resolveApproval(approval.id, false)}
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </Show>
 
             <div class="agent-section-title">Recent checkpoints</div>
             <Show
@@ -693,56 +754,6 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                   </div>
                 )}
               </For>
-            </Show>
-
-            <div class="agent-section-header">
-              <div class="agent-section-title">Recent actions</div>
-              <Show when={recentActions().length > 0}>
-                <button
-                  class="agent-section-toggle"
-                  type="button"
-                  onClick={() => setActionsExpanded((current) => !current)}
-                >
-                  {actionsExpanded()
-                    ? "Hide history"
-                    : `Show history (${recentActions().length})`}
-                </button>
-              </Show>
-            </div>
-            <Show
-              when={recentActions().length > 0}
-              fallback={<div class="agent-muted">No actions yet.</div>}
-            >
-              <Show
-                when={actionsExpanded()}
-                fallback={
-                  <div class="agent-muted">
-                    Recent actions are collapsed to reduce noise.
-                  </div>
-                }
-              >
-                <For each={recentActions()}>
-                  {(action) => (
-                    <div class="agent-card">
-                      <div class="agent-action-row">
-                        <span class="agent-card-title">{action.name}</span>
-                        <span class={`agent-action-status ${action.status}`}>
-                          {action.status}
-                        </span>
-                      </div>
-                      <div class="agent-card-copy">{action.argsSummary}</div>
-                      <Show when={action.resultSummary}>
-                        <div class="agent-card-copy success">
-                          {action.resultSummary}
-                        </div>
-                      </Show>
-                      <Show when={action.error}>
-                        <div class="agent-card-copy error">{action.error}</div>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </Show>
             </Show>
           </section>
 
