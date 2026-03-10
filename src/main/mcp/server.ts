@@ -1652,6 +1652,53 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_bookmark_open",
+    {
+      title: "Open Bookmark",
+      description:
+        "Open a saved bookmark by bookmark ID. Optionally open it in a new tab.",
+      inputSchema: {
+        bookmark_id: z.string().describe("ID of the bookmark to open"),
+        new_tab: z
+          .boolean()
+          .optional()
+          .describe("Open the bookmark in a new tab"),
+      },
+    },
+    async ({ bookmark_id, new_tab }) => {
+      return withAction(
+        runtime,
+        tabManager,
+        "open_bookmark",
+        { bookmark_id, new_tab },
+        async () => {
+          const bookmark = bookmarkManager.getBookmark(bookmark_id);
+          if (!bookmark) {
+            return `Bookmark ${bookmark_id} not found`;
+          }
+
+          if (new_tab || !tabManager.getActiveTabId()) {
+            const createdId = tabManager.createTab(bookmark.url);
+            const created = tabManager.getActiveTab();
+            if (created) {
+              await waitForLoad(created.view.webContents);
+            }
+            return `Opened bookmark "${bookmark.title}" in new tab ${createdId}`;
+          }
+
+          const activeId = tabManager.getActiveTabId()!;
+          const activeTab = tabManager.getActiveTab();
+          tabManager.navigateTab(activeId, bookmark.url);
+          if (activeTab) {
+            await waitForLoad(activeTab.view.webContents);
+          }
+          return `Opened bookmark "${bookmark.title}" in current tab`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
     "vessel_folder_remove",
     {
       title: "Remove Bookmark Folder",

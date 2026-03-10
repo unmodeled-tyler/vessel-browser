@@ -192,6 +192,7 @@ function getTabByMatch(
 function isDangerousAction(name: string): boolean {
   return [
     "navigate",
+    "open_bookmark",
     "click",
     "type_text",
     "select_option",
@@ -697,6 +698,7 @@ function getPostActionState(ctx: ActionContext, name: string): string {
   const wc = tab.view.webContents;
   const navActions = [
     "navigate",
+    "open_bookmark",
     "go_back",
     "go_forward",
     "click",
@@ -740,6 +742,7 @@ export async function executeAction(
       "list_bookmarks",
       "create_bookmark_folder",
       "save_bookmark",
+      "open_bookmark",
     ].includes(name)
   ) {
     return "Error: No active tab";
@@ -1053,6 +1056,31 @@ export async function executeAction(
                   .folders.find((folder) => folder.id === bookmark.folderId)
                   ?.name ?? bookmark.folderId);
           return `Saved "${bookmark.title}" (${bookmark.url}) to "${folderLabel}" (id=${bookmark.id})`;
+        }
+
+        case "open_bookmark": {
+          const bookmarkId =
+            typeof args.bookmarkId === "string" ? args.bookmarkId.trim() : "";
+          if (!bookmarkId) return "Error: bookmarkId is required";
+
+          const bookmark = bookmarkManager.getBookmark(bookmarkId);
+          if (!bookmark) {
+            return `Bookmark ${bookmarkId} not found`;
+          }
+
+          const openInNewTab = Boolean(args.newTab);
+          if (openInNewTab || !tabId || !wc) {
+            const createdId = ctx.tabManager.createTab(bookmark.url);
+            const created = ctx.tabManager.getActiveTab();
+            if (created) {
+              await waitForLoad(created.view.webContents);
+            }
+            return `Opened bookmark "${bookmark.title}" in new tab ${createdId}`;
+          }
+
+          ctx.tabManager.navigateTab(tabId, bookmark.url);
+          await waitForLoad(wc);
+          return `Opened bookmark "${bookmark.title}" in current tab`;
         }
 
         case "highlight": {

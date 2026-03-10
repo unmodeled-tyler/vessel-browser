@@ -313,4 +313,24 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
       },
     },
   },
+  {
+    name: "open_bookmark",
+    description:
+      "Open a saved bookmark by its bookmark ID. Optionally open it in a new tab.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        bookmarkId: {
+          type: "string",
+          description: "Exact bookmark ID to open",
+        },
+        newTab: {
+          type: "boolean",
+          description:
+            "Open the bookmark in a new tab instead of the current tab",
+        },
+      },
+      required: ["bookmarkId"],
+    },
+  },
 ];

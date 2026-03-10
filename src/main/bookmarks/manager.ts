@@ -71,6 +71,12 @@ export function clearAll(): void {
   emit();
 }
 
+export function getBookmark(id: string): Bookmark | null {
+  load();
+  const bookmark = state!.bookmarks.find((item) => item.id === id);
+  return bookmark ? { ...bookmark } : null;
+}
+
 export function createFolder(name: string): BookmarkFolder {
   load();
   const trimmed = name.trim();
