@@ -7,6 +7,8 @@
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
 ```
+![vessel-logo-cropped](https://github.com/user-attachments/assets/58887932-26b3-45b5-be5e-21de562d2855)
+
 
 An agent-first web browser for Linux.
 
