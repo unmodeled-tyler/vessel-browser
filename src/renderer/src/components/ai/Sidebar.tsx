@@ -76,9 +76,12 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     null,
   );
   const [editingFolderName, setEditingFolderName] = createSignal("");
+  const [actionsExpanded, setActionsExpanded] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
   const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
+  let messagesContainerRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
+  let hasInitializedMessageScroll = false;
   const recentActions = createMemo(() =>
     runtimeState().actions.slice(-8).reverse(),
   );
@@ -110,7 +113,21 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   createEffect(() => {
     messages();
     streamingText();
+    if (!hasInitializedMessageScroll) {
+      hasInitializedMessageScroll = true;
+      return;
+    }
     messagesEndRef?.scrollIntoView({ behavior: "smooth" });
+  });
+
+  createEffect(() => {
+    const isVisible = props.forceOpen || sidebarOpen();
+    if (!isVisible) return;
+    queueMicrotask(() => {
+      if (messagesContainerRef) {
+        messagesContainerRef.scrollTop = 0;
+      }
+    });
   });
 
   createEffect(() => {
@@ -279,7 +296,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           </div>
         </div>
 
-        <div class="sidebar-messages">
+        <div class="sidebar-messages" ref={messagesContainerRef}>
           <section class="bookmark-panel">
             <div class="bookmark-panel-header">
               <div>
@@ -596,32 +613,54 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </For>
             </Show>
 
-            <div class="agent-section-title">Recent actions</div>
+            <div class="agent-section-header">
+              <div class="agent-section-title">Recent actions</div>
+              <Show when={recentActions().length > 0}>
+                <button
+                  class="agent-section-toggle"
+                  type="button"
+                  onClick={() => setActionsExpanded((current) => !current)}
+                >
+                  {actionsExpanded()
+                    ? "Hide history"
+                    : `Show history (${recentActions().length})`}
+                </button>
+              </Show>
+            </div>
             <Show
               when={recentActions().length > 0}
               fallback={<div class="agent-muted">No actions yet.</div>}
             >
-              <For each={recentActions()}>
-                {(action) => (
-                  <div class="agent-card">
-                    <div class="agent-action-row">
-                      <span class="agent-card-title">{action.name}</span>
-                      <span class={`agent-action-status ${action.status}`}>
-                        {action.status}
-                      </span>
-                    </div>
-                    <div class="agent-card-copy">{action.argsSummary}</div>
-                    <Show when={action.resultSummary}>
-                      <div class="agent-card-copy success">
-                        {action.resultSummary}
-                      </div>
-                    </Show>
-                    <Show when={action.error}>
-                      <div class="agent-card-copy error">{action.error}</div>
-                    </Show>
+              <Show
+                when={actionsExpanded()}
+                fallback={
+                  <div class="agent-muted">
+                    Recent actions are collapsed to reduce noise.
                   </div>
-                )}
-              </For>
+                }
+              >
+                <For each={recentActions()}>
+                  {(action) => (
+                    <div class="agent-card">
+                      <div class="agent-action-row">
+                        <span class="agent-card-title">{action.name}</span>
+                        <span class={`agent-action-status ${action.status}`}>
+                          {action.status}
+                        </span>
+                      </div>
+                      <div class="agent-card-copy">{action.argsSummary}</div>
+                      <Show when={action.resultSummary}>
+                        <div class="agent-card-copy success">
+                          {action.resultSummary}
+                        </div>
+                      </Show>
+                      <Show when={action.error}>
+                        <div class="agent-card-copy error">{action.error}</div>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </Show>
           </section>
 

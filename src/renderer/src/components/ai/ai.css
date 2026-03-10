@@ -378,6 +378,7 @@
 }
 
 .agent-panel-header,
+.agent-section-header,
 .agent-panel-controls,
 .agent-card.compact,
 .agent-action-row,
@@ -392,6 +393,10 @@
 .agent-panel-controls,
 .agent-checkpoint-row {
     align-items: stretch;
+}
+
+.agent-section-header {
+    align-items: center;
 }
 
 .agent-panel-title,
@@ -475,7 +480,8 @@
 }
 
 .agent-control-button,
-.agent-primary-button {
+.agent-primary-button,
+.agent-section-toggle {
     height: 32px;
     padding: 0 12px;
     border-radius: var(--radius-md);
@@ -490,8 +496,15 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.agent-control-button:hover {
+.agent-control-button:hover,
+.agent-section-toggle:hover {
     background: rgba(255, 255, 255, 0.08);
+}
+
+.agent-section-toggle {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .agent-primary-button {
@@ -844,6 +857,7 @@
     .bookmark-folder-edit,
     .bookmark-item-footer,
     .agent-panel-header,
+    .agent-section-header,
     .agent-panel-controls,
     .agent-checkpoint-row,
     .agent-card.compact,
@@ -863,6 +877,7 @@
     .bookmark-ghost-button,
     .agent-control-button,
     .agent-primary-button,
+    .agent-section-toggle,
     .sidebar-send,
     .sidebar-cancel {
         width: 100%;
