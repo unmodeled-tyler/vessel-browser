@@ -9,7 +9,7 @@ import {
   setElementValue,
   submitFormBySelector,
   waitForLoad,
-} from "../src/main/browser/page-interactions";
+} from "../src/main/ai/page-actions";
 import { Tab } from "../src/main/tabs/tab";
 import { createNavigationHarnessServer } from "./fixtures/navigation-harness";
 

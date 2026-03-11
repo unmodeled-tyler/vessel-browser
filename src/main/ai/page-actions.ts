@@ -1028,6 +1028,22 @@ async function submitForm(
   return formInfo.submitted ? "Submitted form via POST" : "Submitted form";
 }
 
+export { waitForLoad, setElementValue };
+
+export async function clickElementBySelector(
+  wc: WebContents,
+  selector: string,
+): Promise<string> {
+  return clickElement(wc, selector);
+}
+
+export async function submitFormBySelector(
+  wc: WebContents,
+  selector: string,
+): Promise<string> {
+  return submitForm(wc, { selector });
+}
+
 async function pressKey(
   wc: WebContents,
   args: Record<string, any>,
