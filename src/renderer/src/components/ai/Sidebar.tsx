@@ -31,7 +31,7 @@ const MarkdownMessage = (props: { content: string }) => {
 
 const DropdownSelect = (props: {
   value: string;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; description?: string }>;
   onChange: (value: string) => void;
   class?: string;
   ariaLabel?: string;
@@ -101,7 +101,16 @@ const DropdownSelect = (props: {
                   setOpen(false);
                 }}
               >
-                {option.label}
+                <span class="dropdown-select-option-copy">
+                  <span class="dropdown-select-option-label">
+                    {option.label}
+                  </span>
+                  <Show when={option.description}>
+                    <span class="dropdown-select-option-description">
+                      {option.description}
+                    </span>
+                  </Show>
+                </span>
               </button>
             )}
           </For>
@@ -176,10 +185,30 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     runtimeState().checkpoints.slice(-5).reverse(),
   );
   const approvalModeOptions = createMemo(() => [
-    { value: "auto", label: "Auto approve" },
-    { value: "confirm-dangerous", label: "Approve dangerous" },
-    { value: "manual", label: "Approve everything" },
+    {
+      value: "manual",
+      label: "Ask every time",
+      description: "Review each agent action before it runs.",
+    },
+    {
+      value: "confirm-dangerous",
+      label: "Ask for risky actions",
+      description:
+        "Allow routine actions, but stop on destructive or sensitive ones.",
+    },
+    {
+      value: "auto",
+      label: "Allow all actions",
+      description: "Run everything without approval prompts.",
+    },
   ]);
+  const approvalModeDescription = createMemo(() => {
+    const currentMode = runtimeState().supervisor.approvalMode;
+    return (
+      approvalModeOptions().find((option) => option.value === currentMode)
+        ?.description ?? "Controls when the supervisor must approve actions."
+    );
+  });
   const bookmarkFolders = createMemo(() => [
     UNSORTED_FOLDER,
     ...bookmarksState().folders,
@@ -443,6 +472,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 Restore session
               </button>
             </div>
+
+            <div class="agent-muted">{approvalModeDescription()}</div>
 
             <Show
               when={runtimeState().supervisor.pendingApprovals.length > 0}

@@ -732,13 +732,31 @@
 }
 
 .dropdown-select-option {
-    min-height: 32px;
-    padding: 0 10px;
+    min-height: 40px;
+    padding: 8px 10px;
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     display: inline-flex;
-    align-items: center;
+    align-items: flex-start;
     text-align: left;
+}
+
+.dropdown-select-option-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dropdown-select-option-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.dropdown-select-option-description {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-secondary);
 }
 
 .dropdown-select-option:hover,

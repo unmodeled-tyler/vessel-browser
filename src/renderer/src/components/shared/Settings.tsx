@@ -1,4 +1,10 @@
-import { createSignal, Show, onMount, type Component } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  Show,
+  onMount,
+  type Component,
+} from "solid-js";
 import type { ApprovalMode } from "../../../../shared/types";
 import { useUI } from "../../stores/ui";
 
@@ -21,6 +27,19 @@ const Settings: Component = () => {
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
     setApprovalMode(settings.approvalMode ?? "confirm-dangerous");
+  });
+
+  const approvalModeHint = createMemo(() => {
+    switch (approvalMode()) {
+      case "manual":
+        return "The supervisor must approve every agent action before it runs.";
+      case "confirm-dangerous":
+        return "Routine actions run automatically, but risky actions pause for approval.";
+      case "auto":
+        return "The agent can run all actions without approval prompts.";
+      default:
+        return "Controls when the human supervisor must approve agent actions.";
+    }
   });
 
   const handleSave = async () => {
@@ -79,15 +98,11 @@ const Settings: Component = () => {
                 setApprovalMode(e.currentTarget.value as ApprovalMode)
               }
             >
-              <option value="auto">Auto approve</option>
-              <option value="confirm-dangerous">
-                Approve dangerous actions
-              </option>
-              <option value="manual">Approve every action</option>
+              <option value="manual">Ask every time</option>
+              <option value="confirm-dangerous">Ask for risky actions</option>
+              <option value="auto">Allow all actions</option>
             </select>
-            <p class="settings-hint">
-              Controls when the human supervisor must approve agent actions.
-            </p>
+            <p class="settings-hint">{approvalModeHint()}</p>
           </div>
 
           <div class="settings-field">
