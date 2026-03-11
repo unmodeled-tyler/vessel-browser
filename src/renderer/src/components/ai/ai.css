@@ -267,7 +267,7 @@
 .bookmark-note-input {
     width: 100%;
     min-width: 0;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-md);
     color: var(--text-primary);
@@ -278,6 +278,16 @@
 .bookmark-input {
     height: 32px;
     padding: 0 10px;
+}
+
+.bookmark-select {
+    color: var(--text-primary);
+}
+
+.bookmark-select option,
+.bookmark-select optgroup {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 .bookmark-note-input {
@@ -548,11 +558,21 @@
     min-width: 0;
     height: 32px;
     padding: 0 10px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-md);
     color: var(--text-primary);
     font-size: 12px;
+}
+
+.agent-select {
+    color: var(--text-primary);
+}
+
+.agent-select option,
+.agent-select optgroup {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 .agent-select:focus,
