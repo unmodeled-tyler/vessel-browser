@@ -277,11 +277,28 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
     function viewportSnapshot() {
       const scroller = scrollingElement();
+      const scrollXCandidates = [
+        window.scrollX,
+        window.pageXOffset,
+        window.visualViewport?.pageLeft,
+        scroller?.scrollLeft,
+        document.documentElement?.scrollLeft,
+        document.body?.scrollLeft,
+      ].filter((value) => typeof value === "number");
+      const scrollYCandidates = [
+        window.scrollY,
+        window.pageYOffset,
+        window.visualViewport?.pageTop,
+        scroller?.scrollTop,
+        document.documentElement?.scrollTop,
+        document.body?.scrollTop,
+      ].filter((value) => typeof value === "number");
+
       return {
         width: viewportWidth(),
         height: viewportHeight(),
-        scrollX: window.scrollX || scroller?.scrollLeft || document.documentElement?.scrollLeft || document.body?.scrollLeft || 0,
-        scrollY: window.scrollY || scroller?.scrollTop || document.documentElement?.scrollTop || document.body?.scrollTop || 0,
+        scrollX: Math.max(0, ...scrollXCandidates),
+        scrollY: Math.max(0, ...scrollYCandidates),
       };
     }
 

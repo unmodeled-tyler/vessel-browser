@@ -333,21 +333,28 @@ function getVisibilityState(
 function getViewportSnapshot() {
   const scrollingElement =
     document.scrollingElement || document.documentElement || document.body;
+  const scrollXCandidates = [
+    window.scrollX,
+    window.pageXOffset,
+    window.visualViewport?.pageLeft,
+    scrollingElement?.scrollLeft,
+    document.documentElement?.scrollLeft,
+    document.body?.scrollLeft,
+  ].filter((value): value is number => typeof value === "number");
+  const scrollYCandidates = [
+    window.scrollY,
+    window.pageYOffset,
+    window.visualViewport?.pageTop,
+    scrollingElement?.scrollTop,
+    document.documentElement?.scrollTop,
+    document.body?.scrollTop,
+  ].filter((value): value is number => typeof value === "number");
+
   return {
     width: window.innerWidth || document.documentElement?.clientWidth || 0,
     height: window.innerHeight || document.documentElement?.clientHeight || 0,
-    scrollX:
-      window.scrollX ||
-      scrollingElement?.scrollLeft ||
-      document.documentElement?.scrollLeft ||
-      document.body?.scrollLeft ||
-      0,
-    scrollY:
-      window.scrollY ||
-      scrollingElement?.scrollTop ||
-      document.documentElement?.scrollTop ||
-      document.body?.scrollTop ||
-      0,
+    scrollX: Math.max(0, ...scrollXCandidates),
+    scrollY: Math.max(0, ...scrollYCandidates),
   };
 }
 
