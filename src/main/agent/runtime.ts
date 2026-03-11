@@ -89,7 +89,9 @@ export class AgentRuntime {
     this.state = this.loadPersistedState();
   }
 
-  setUpdateListener(listener: ((state: AgentRuntimeState) => void) | null): void {
+  setUpdateListener(
+    listener: ((state: AgentRuntimeState) => void) | null,
+  ): void {
     this.updateListener = listener;
     if (listener) {
       listener(this.getState());
@@ -223,7 +225,12 @@ export class AgentRuntime {
     }
 
     if (!approved) {
-      this.finishAction(approval.actionId, "rejected", undefined, approval.reason);
+      this.finishAction(
+        approval.actionId,
+        "rejected",
+        undefined,
+        approval.reason,
+      );
       return this.getState();
     }
 
@@ -320,13 +327,13 @@ export class AgentRuntime {
       return "Agent execution is paused";
     }
     if (this.state.supervisor.approvalMode === "manual") {
-      return "Manual approval mode";
+      return "Approval required: ask every time mode";
     }
     if (
       this.state.supervisor.approvalMode === "confirm-dangerous" &&
       dangerous
     ) {
-      return "Dangerous action in confirm-dangerous mode";
+      return "Approval required: risky action";
     }
     return null;
   }
