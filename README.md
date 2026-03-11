@@ -268,4 +268,4 @@ src/
 
 MIT
 
-*Developed by Tyler Williams in Portland, Oregon 2026*
+*Developed by Tyler Williams in Portland, Oregon (2026)*
