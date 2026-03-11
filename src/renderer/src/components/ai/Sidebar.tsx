@@ -151,6 +151,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [input, setInput] = createSignal("");
   const [checkpointName, setCheckpointName] = createSignal("");
   const [bookmarkNote, setBookmarkNote] = createSignal("");
+  const [bookmarkSaveExpanded, setBookmarkSaveExpanded] = createSignal(false);
   const [selectedFolderId, setSelectedFolderId] = createSignal<string>(
     UNSORTED_FOLDER.id,
   );
@@ -312,6 +313,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
       bookmarkNote(),
     );
     setBookmarkNote("");
+    setBookmarkSaveExpanded(false);
   };
 
   const handleCreateFolder = async (e: Event) => {
@@ -562,37 +564,63 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </Show>
             </div>
 
-            <div class="bookmark-save-card">
-              <div class="bookmark-current-title">
-                {currentTab()?.title || "No active page"}
-              </div>
-              <div class="bookmark-current-url">
-                {currentTab()?.url || "Open a page to save it here."}
-              </div>
-              <div class="bookmark-save-controls">
-                <DropdownSelect
-                  class="bookmark-select"
-                  value={selectedFolderId()}
-                  options={bookmarkFolderOptions()}
-                  ariaLabel="Bookmark folder"
-                  onChange={(value) => setSelectedFolderId(value)}
-                />
-                <button
-                  class="bookmark-primary-button"
-                  type="button"
-                  disabled={!currentTab()?.url}
-                  onClick={() => void handleSaveBookmark()}
+            <div class="bookmark-save-shell">
+              <button
+                class="bookmark-save-toggle"
+                type="button"
+                onClick={() => setBookmarkSaveExpanded((current) => !current)}
+              >
+                <span class="bookmark-save-toggle-copy">
+                  <span class="bookmark-save-toggle-title">
+                    Save Current Page
+                  </span>
+                  <span class="bookmark-save-toggle-subtitle">
+                    Manual bookmark save options
+                  </span>
+                </span>
+                <span
+                  class="bookmark-save-toggle-caret"
+                  classList={{ expanded: bookmarkSaveExpanded() }}
+                  aria-hidden="true"
                 >
-                  Save page
-                </button>
-              </div>
-              <textarea
-                class="bookmark-note-input"
-                value={bookmarkNote()}
-                onInput={(e) => setBookmarkNote(e.currentTarget.value)}
-                placeholder="Optional note about why this matters"
-                rows={2}
-              />
+                  ▾
+                </span>
+              </button>
+
+              <Show when={bookmarkSaveExpanded()}>
+                <div class="bookmark-save-card">
+                  <div class="bookmark-current-title">
+                    {currentTab()?.title || "No active page"}
+                  </div>
+                  <div class="bookmark-current-url">
+                    {currentTab()?.url || "Open a page to save it here."}
+                  </div>
+                  <div class="bookmark-save-controls">
+                    <DropdownSelect
+                      class="bookmark-select"
+                      value={selectedFolderId()}
+                      options={bookmarkFolderOptions()}
+                      ariaLabel="Bookmark folder"
+                      onChange={(value) => setSelectedFolderId(value)}
+                    />
+                    <button
+                      class="bookmark-primary-button"
+                      type="button"
+                      disabled={!currentTab()?.url}
+                      onClick={() => void handleSaveBookmark()}
+                    >
+                      Save page
+                    </button>
+                  </div>
+                  <textarea
+                    class="bookmark-note-input"
+                    value={bookmarkNote()}
+                    onInput={(e) => setBookmarkNote(e.currentTarget.value)}
+                    placeholder="Optional note about why this matters"
+                    rows={2}
+                  />
+                </div>
+              </Show>
             </div>
 
             <form class="bookmark-folder-create" onSubmit={handleCreateFolder}>
