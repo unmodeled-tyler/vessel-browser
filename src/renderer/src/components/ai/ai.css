@@ -277,17 +277,10 @@
 .bookmark-select,
 .bookmark-input {
     height: 32px;
+}
+
+.bookmark-input {
     padding: 0 10px;
-}
-
-.bookmark-select {
-    color: var(--text-primary);
-}
-
-.bookmark-select option,
-.bookmark-select optgroup {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
 }
 
 .bookmark-note-input {
@@ -557,7 +550,6 @@
     flex: 1;
     min-width: 0;
     height: 32px;
-    padding: 0 10px;
     background: var(--bg-secondary);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius-md);
@@ -565,14 +557,91 @@
     font-size: 12px;
 }
 
-.agent-select {
-    color: var(--text-primary);
+.agent-input {
+    padding: 0 10px;
 }
 
-.agent-select option,
-.agent-select optgroup {
+.dropdown-select {
+    position: relative;
+    min-width: 0;
+}
+
+.bookmark-select,
+.agent-select {
+    flex: 1;
+}
+
+.dropdown-select-trigger {
+    width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
     color: var(--text-primary);
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    text-align: left;
+}
+
+.dropdown-select-trigger:hover {
+    background: var(--bg-elevated);
+}
+
+.dropdown-select-trigger:focus-visible {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.dropdown-select-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dropdown-select-caret {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    transition: transform 150ms ease;
+}
+
+.dropdown-select-caret.open {
+    transform: rotate(180deg);
+}
+
+.dropdown-select-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+}
+
+.dropdown-select-option {
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    display: inline-flex;
+    align-items: center;
+    text-align: left;
+}
+
+.dropdown-select-option:hover,
+.dropdown-select-option.selected {
+    background: rgba(159, 184, 255, 0.14);
 }
 
 .agent-select:focus,

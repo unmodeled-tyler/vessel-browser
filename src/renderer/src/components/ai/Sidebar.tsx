@@ -29,6 +29,88 @@ const MarkdownMessage = (props: { content: string }) => {
   return <div class="message-content markdown-content" innerHTML={html()} />;
 };
 
+const DropdownSelect = (props: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  class?: string;
+  ariaLabel?: string;
+}) => {
+  const [open, setOpen] = createSignal(false);
+  let rootRef: HTMLDivElement | undefined;
+
+  const selectedLabel = createMemo(
+    () =>
+      props.options.find((option) => option.value === props.value)?.label ||
+      props.options[0]?.label ||
+      "",
+  );
+
+  createEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    });
+  });
+
+  return (
+    <div class={`dropdown-select ${props.class || ""}`} ref={rootRef}>
+      <button
+        class="dropdown-select-trigger"
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open()}
+        aria-label={props.ariaLabel}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span class="dropdown-select-value">{selectedLabel()}</span>
+        <span
+          class="dropdown-select-caret"
+          classList={{ open: open() }}
+          aria-hidden="true"
+        >
+          ▾
+        </span>
+      </button>
+      <Show when={open()}>
+        <div class="dropdown-select-menu" role="listbox">
+          <For each={props.options}>
+            {(option) => (
+              <button
+                class="dropdown-select-option"
+                classList={{ selected: option.value === props.value }}
+                type="button"
+                role="option"
+                aria-selected={option.value === props.value}
+                onClick={() => {
+                  props.onChange(option.value);
+                  setOpen(false);
+                }}
+              >
+                {option.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+};
+
 const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const {
     messages,
@@ -94,10 +176,21 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const recentCheckpoints = createMemo(() =>
     runtimeState().checkpoints.slice(-5).reverse(),
   );
+  const approvalModeOptions = createMemo(() => [
+    { value: "auto", label: "Auto approve" },
+    { value: "confirm-dangerous", label: "Approve dangerous" },
+    { value: "manual", label: "Approve everything" },
+  ]);
   const bookmarkFolders = createMemo(() => [
     UNSORTED_FOLDER,
     ...bookmarksState().folders,
   ]);
+  const bookmarkFolderOptions = createMemo(() =>
+    bookmarkFolders().map((folder) => ({
+      value: folder.id,
+      label: folder.name,
+    })),
+  );
   const groupedBookmarks = createMemo(() =>
     bookmarkFolders().map((folder) => ({
       ...folder,
@@ -343,22 +436,17 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             </div>
 
             <div class="agent-panel-controls">
-              <select
+              <DropdownSelect
                 class="agent-select"
                 value={runtimeState().supervisor.approvalMode}
-                onChange={(e) =>
+                options={approvalModeOptions()}
+                ariaLabel="Approval mode"
+                onChange={(value) =>
                   void setApprovalMode(
-                    e.currentTarget.value as
-                      | "auto"
-                      | "confirm-dangerous"
-                      | "manual",
+                    value as "auto" | "confirm-dangerous" | "manual",
                   )
                 }
-              >
-                <option value="auto">Auto approve</option>
-                <option value="confirm-dangerous">Approve dangerous</option>
-                <option value="manual">Approve everything</option>
-              </select>
+              />
               <button
                 class="agent-control-button"
                 type="button"
@@ -482,17 +570,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 {currentTab()?.url || "Open a page to save it here."}
               </div>
               <div class="bookmark-save-controls">
-                <select
+                <DropdownSelect
                   class="bookmark-select"
                   value={selectedFolderId()}
-                  onChange={(e) => setSelectedFolderId(e.currentTarget.value)}
-                >
-                  <For each={bookmarkFolders()}>
-                    {(folder) => (
-                      <option value={folder.id}>{folder.name}</option>
-                    )}
-                  </For>
-                </select>
+                  options={bookmarkFolderOptions()}
+                  ariaLabel="Bookmark folder"
+                  onChange={(value) => setSelectedFolderId(value)}
+                />
                 <button
                   class="bookmark-primary-button"
                   type="button"
