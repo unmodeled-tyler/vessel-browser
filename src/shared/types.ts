@@ -75,6 +75,13 @@ export interface PageContent {
     text?: string;
     blocksInteraction?: boolean;
   }>;
+  dormantOverlays: Array<{
+    type: "dialog" | "modal" | "overlay";
+    role?: string;
+    label?: string;
+    selector?: string;
+    text?: string;
+  }>;
   landmarks: Array<{
     role: string;
     label?: string;

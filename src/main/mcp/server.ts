@@ -240,6 +240,7 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
   const initialBlocking = before.overlays.filter(
     (overlay) => overlay.blocksInteraction,
   ).length;
+  const initialDormant = before.dormantOverlays.length;
 
   const candidates = await wc.executeJavaScript(`
     (function() {
@@ -446,7 +447,9 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
 
   return initialBlocking > 0
     ? "Could not dismiss the blocking popup automatically"
-    : "No blocking popup detected";
+    : initialDormant > 0
+      ? `No active blocking popup detected. Found ${initialDormant} dormant consent/modal surface(s) in the DOM, likely geo-gated or inactive in this session.`
+      : "No blocking popup detected";
 }
 
 function isDangerousAction(name: string): boolean {

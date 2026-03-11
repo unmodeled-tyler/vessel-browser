@@ -233,6 +233,23 @@ function formatOverlays(overlays: PageContent["overlays"]): string {
     .join("\n");
 }
 
+function formatDormantOverlays(
+  overlays: PageContent["dormantOverlays"],
+): string {
+  if (overlays.length === 0) return "None detected";
+
+  const items = limitItems(overlays, 10);
+  return items
+    .map((overlay) => {
+      const parts = [`- ${overlay.type}`];
+      if (overlay.role) parts.push(`role=${overlay.role}`);
+      if (overlay.label) parts.push(`label="${overlay.label.slice(0, 80)}"`);
+      if (overlay.text) parts.push(`text="${overlay.text.slice(0, 100)}"`);
+      return parts.join(" ");
+    })
+    .join("\n");
+}
+
 /**
  * Build the structured context section
  */
@@ -268,6 +285,11 @@ export function buildScopedContext(
           `Blocking overlays: ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
         );
       }
+      if (page.dormantOverlays.length > 0) {
+        sections.push(
+          `Dormant consent/modal surfaces: ${page.dormantOverlays.length}`,
+        );
+      }
       return sections.join("\n");
     }
 
@@ -280,6 +302,11 @@ export function buildScopedContext(
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
+        sections.push("");
+      }
+      if (page.dormantOverlays.length > 0) {
+        sections.push("### Dormant Consent / Modal UI");
+        sections.push(formatDormantOverlays(page.dormantOverlays));
         sections.push("");
       }
       if (page.navigation.length > 0) {
@@ -305,6 +332,11 @@ export function buildScopedContext(
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
+        sections.push("");
+      }
+      if (page.dormantOverlays.length > 0) {
+        sections.push("### Dormant Consent / Modal UI");
+        sections.push(formatDormantOverlays(page.dormantOverlays));
         sections.push("");
       }
       if (page.forms.length > 0) {
@@ -347,6 +379,11 @@ export function buildScopedContext(
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
+        sections.push("");
+      }
+      if (page.dormantOverlays.length > 0) {
+        sections.push("### Dormant Consent / Modal UI");
+        sections.push(formatDormantOverlays(page.dormantOverlays));
         sections.push("");
       }
       if (visibleNav.length > 0) {
@@ -410,6 +447,10 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push(formatOverlays(page.overlays));
   sections.push("");
 
+  sections.push("### Dormant Consent / Modal UI");
+  sections.push(formatDormantOverlays(page.dormantOverlays));
+  sections.push("");
+
   // Interactive Elements
   if (page.interactiveElements.length > 0) {
     sections.push("### Interactive Elements");
@@ -438,6 +479,9 @@ export function buildStructuredContext(page: PageContent): string {
   );
   sections.push(
     `**Blocking Overlays:** ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
+  );
+  sections.push(
+    `**Dormant Consent / Modal UI:** ${page.dormantOverlays.length}`,
   );
   sections.push(`**Landmarks:** ${page.landmarks.length}`);
 

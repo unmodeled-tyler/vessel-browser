@@ -66,6 +66,13 @@ interface PageContent {
     text?: string;
     blocksInteraction?: boolean;
   }>;
+  dormantOverlays: Array<{
+    type: "dialog" | "modal" | "overlay";
+    role?: string;
+    label?: string;
+    selector?: string;
+    text?: string;
+  }>;
   landmarks: Array<{
     role: string;
     label?: string;
@@ -261,6 +268,76 @@ function detectOverlays(): OverlayCandidate[] {
     }
     return b.zIndex - a.zIndex;
   });
+}
+
+function isLikelyDormantOverlay(el: HTMLElement): boolean {
+  const tag = el.tagName.toLowerCase();
+  const role = getTrimmedText(el.getAttribute("role")) || "";
+  const attrs = [
+    el.id,
+    el.className,
+    el.getAttribute("data-testid"),
+    el.getAttribute("data-test"),
+    el.getAttribute("aria-label"),
+    el.getAttribute("title"),
+    el.getAttribute("data-module-name"),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const text = getTrimmedText(el.textContent)?.toLowerCase() || "";
+
+  if (
+    tag === "dialog" ||
+    role === "dialog" ||
+    role === "alertdialog" ||
+    el.getAttribute("aria-modal") === "true"
+  ) {
+    return true;
+  }
+
+  return /cookie|consent|privacy|gdpr|ccpa|onetrust|ot-sdk|trustarc|didomi|sp_message|qc-cmp|cmp|newsletter|subscribe/.test(
+    `${attrs} ${text.slice(0, 200)}`,
+  );
+}
+
+function detectDormantOverlays(): Array<{
+  type: "dialog" | "modal" | "overlay";
+  role?: string;
+  label?: string;
+  selector?: string;
+  text?: string;
+}> {
+  if (!document.body) return [];
+
+  const seen = new Set<string>();
+  const matches: Array<{
+    type: "dialog" | "modal" | "overlay";
+    role?: string;
+    label?: string;
+    selector?: string;
+    text?: string;
+  }> = [];
+
+  Array.from(document.body.querySelectorAll("*")).forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    if (isElementVisible(node)) return;
+    if (!isLikelyDormantOverlay(node)) return;
+
+    const selector = generateSelector(node);
+    if (!selector || seen.has(selector)) return;
+    seen.add(selector);
+
+    matches.push({
+      type: getOverlayType(node) ?? "overlay",
+      role: getTrimmedText(node.getAttribute("role")) || undefined,
+      label: getOverlayLabel(node),
+      selector,
+      text: getTrimmedText(node.textContent)?.slice(0, 160),
+    });
+  });
+
+  return matches.slice(0, 10);
 }
 
 function samplePointForRect(rect: DOMRect): { x: number; y: number } | null {
@@ -776,6 +853,7 @@ function vesselExtractContent(): PageContent {
       overlays: activeOverlays.map(
         ({ element: _element, zIndex: _zIndex, ...overlay }) => overlay,
       ),
+      dormantOverlays: detectDormantOverlays(),
       landmarks: extractLandmarks(),
     };
   };

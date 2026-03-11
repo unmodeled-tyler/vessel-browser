@@ -19,6 +19,7 @@ const EMPTY_PAGE_CONTENT: PageContent = {
     scrollY: 0,
   },
   overlays: [],
+  dormantOverlays: [],
   landmarks: [],
 };
 
@@ -533,6 +534,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       forms,
       viewport: viewportSnapshot(),
       overlays: overlays.map(({ element, zIndex, ...overlay }) => overlay),
+      dormantOverlays: [],
       landmarks,
     };
   })()
@@ -652,6 +654,14 @@ const SAFE_EXTRACTION_SCRIPT = String.raw`
       navigation,
       interactiveElements,
       forms,
+      viewport: {
+        width: window.innerWidth || document.documentElement?.clientWidth || 0,
+        height: window.innerHeight || document.documentElement?.clientHeight || 0,
+        scrollX: 0,
+        scrollY: 0,
+      },
+      overlays: [],
+      dormantOverlays: [],
       landmarks: [],
     };
   })()
@@ -779,6 +789,7 @@ function mergePageContent(
       pages.find((page) => page.viewport.width > 0 || page.viewport.height > 0)
         ?.viewport ?? EMPTY_PAGE_CONTENT.viewport,
     overlays: bestArray(pages.map((page) => page.overlays)),
+    dormantOverlays: bestArray(pages.map((page) => page.dormantOverlays)),
     landmarks: bestArray(pages.map((page) => page.landmarks)),
   };
 
@@ -843,6 +854,9 @@ function normalizePageContent(value: unknown): PageContent {
         ? page.viewport
         : EMPTY_PAGE_CONTENT.viewport,
     overlays: Array.isArray(page.overlays) ? page.overlays : [],
+    dormantOverlays: Array.isArray(page.dormantOverlays)
+      ? page.dormantOverlays
+      : [],
     landmarks: Array.isArray(page.landmarks) ? page.landmarks : [],
   };
 }
