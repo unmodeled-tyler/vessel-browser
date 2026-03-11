@@ -109,6 +109,182 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       return rect.width > 0 && rect.height > 0;
     }
 
+    function viewportWidth() {
+      return window.innerWidth || document.documentElement?.clientWidth || 0;
+    }
+
+    function viewportHeight() {
+      return window.innerHeight || document.documentElement?.clientHeight || 0;
+    }
+
+    function scrollingElement() {
+      return document.scrollingElement || document.documentElement || document.body;
+    }
+
+    function inViewport(rect) {
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < viewportHeight() &&
+        rect.left < viewportWidth();
+    }
+
+    function fullyInViewport(rect) {
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= viewportHeight() &&
+        rect.right <= viewportWidth();
+    }
+
+    function parseZIndex(style) {
+      const value = Number.parseInt(style.zIndex, 10);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function overlayLabel(el) {
+      return text(el.getAttribute && el.getAttribute("aria-label")) ||
+        text(el.id) ||
+        undefined;
+    }
+
+    function overlayType(el) {
+      const tag = el.tagName.toLowerCase();
+      const role = el.getAttribute("role");
+      if (tag === "dialog" || role === "dialog" || role === "alertdialog") {
+        return "dialog";
+      }
+      if (el.getAttribute("aria-modal") === "true") {
+        return "modal";
+      }
+      return "overlay";
+    }
+
+    function coversViewportCenter(rect) {
+      const centerX = viewportWidth() / 2;
+      const centerY = viewportHeight() / 2;
+      return rect.left <= centerX &&
+        rect.right >= centerX &&
+        rect.top <= centerY &&
+        rect.bottom >= centerY;
+    }
+
+    function detectOverlays() {
+      if (!document.body) return [];
+      const viewportArea = Math.max(1, viewportWidth() * viewportHeight());
+      const overlays = [];
+
+      Array.from(document.body.querySelectorAll("*")).forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        if (!visible(node)) return;
+
+        const style = window.getComputedStyle(node);
+        if (style.pointerEvents === "none") return;
+
+        const rect = node.getBoundingClientRect();
+        if (!inViewport(rect)) return;
+
+        const type = overlayType(node);
+        const dialogLike = type === "dialog" || type === "modal";
+        const areaRatio = (rect.width * rect.height) / viewportArea;
+        const blocksInteraction = dialogLike ||
+          ((style.position === "fixed" || style.position === "sticky") &&
+            parseZIndex(style) >= 10 &&
+            areaRatio >= 0.3 &&
+            coversViewportCenter(rect));
+
+        if (!blocksInteraction && type !== "dialog" && type !== "modal") return;
+
+        overlays.push({
+          element: node,
+          type,
+          role: text(node.getAttribute("role")),
+          label: overlayLabel(node),
+          selector: selectorFor(node),
+          text: text(node.textContent)?.slice(0, 160),
+          blocksInteraction,
+          zIndex: parseZIndex(style),
+        });
+      });
+
+      return overlays.sort((a, b) => {
+        if ((a.blocksInteraction ? 1 : 0) !== (b.blocksInteraction ? 1 : 0)) {
+          return (b.blocksInteraction ? 1 : 0) - (a.blocksInteraction ? 1 : 0);
+        }
+        return b.zIndex - a.zIndex;
+      });
+    }
+
+    const overlays = detectOverlays();
+
+    function samplePoint(rect) {
+      if (!inViewport(rect)) return null;
+      return {
+        x: Math.min(Math.max(0, rect.left + rect.width / 2), Math.max(0, viewportWidth() - 1)),
+        y: Math.min(Math.max(0, rect.top + rect.height / 2), Math.max(0, viewportHeight() - 1)),
+      };
+    }
+
+    function visibilityState(el) {
+      if (!(el instanceof HTMLElement)) {
+        return {
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+          obscured: false,
+          blockedByOverlay: false,
+        };
+      }
+
+      const rect = el.getBoundingClientRect();
+      const isVisible = visible(el);
+      const isInViewport = isVisible && inViewport(rect);
+      const isFullyInViewport = isVisible && fullyInViewport(rect);
+      let obscured = false;
+      let blockedByOverlay = false;
+
+      if (isInViewport) {
+        const point = samplePoint(rect);
+        if (point) {
+          const topElement = document.elementFromPoint(point.x, point.y);
+          if (
+            topElement &&
+            topElement !== el &&
+            !el.contains(topElement) &&
+            !(topElement instanceof HTMLElement && topElement.contains(el))
+          ) {
+            obscured = true;
+            blockedByOverlay = overlays.some(
+              (overlay) =>
+                overlay.blocksInteraction &&
+                overlay.element.contains(topElement) &&
+                !overlay.element.contains(el),
+            );
+          }
+        }
+      }
+
+      return {
+        visible: isVisible,
+        inViewport: isInViewport,
+        fullyInViewport: isFullyInViewport,
+        obscured,
+        blockedByOverlay,
+      };
+    }
+
+    function viewportSnapshot() {
+      const scroller = scrollingElement();
+      return {
+        width: viewportWidth(),
+        height: viewportHeight(),
+        scrollX: window.scrollX || scroller?.scrollLeft || document.documentElement?.scrollLeft || document.body?.scrollLeft || 0,
+        scrollY: window.scrollY || scroller?.scrollTop || document.documentElement?.scrollTop || document.body?.scrollTop || 0,
+      };
+    }
+
     function disabled(el) {
       return !!(el && (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true"));
     }
@@ -186,7 +362,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         index: nextIndex(el),
         role: text(el.getAttribute && el.getAttribute("role")),
         description: descriptionFor(el),
-        visible: visible(el),
+        ...visibilityState(el),
         disabled: disabled(el),
       };
 
@@ -338,6 +514,8 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       navigation: dedupedNavigation,
       interactiveElements,
       forms,
+      viewport: viewportSnapshot(),
+      overlays: overlays.map(({ element, zIndex, ...overlay }) => overlay),
       landmarks,
     };
   })()

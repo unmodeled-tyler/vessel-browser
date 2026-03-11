@@ -57,8 +57,8 @@ function formatElementMeta(el: InteractiveElement): string[] {
 
 function isVisibleToUser(el: InteractiveElement): boolean {
   return (
-    el.visible !== false &&
-    el.inViewport !== false &&
+    el.visible === true &&
+    el.inViewport === true &&
     el.obscured !== true &&
     el.blockedByOverlay !== true
   );

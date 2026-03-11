@@ -136,24 +136,32 @@ function isElementVisible(el: Element): boolean {
 }
 
 function isInViewportRect(rect: DOMRect): boolean {
+  const viewportWidth =
+    window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight =
+    window.innerHeight || document.documentElement?.clientHeight || 0;
   return (
     rect.width > 0 &&
     rect.height > 0 &&
     rect.bottom > 0 &&
     rect.right > 0 &&
-    rect.top < window.innerHeight &&
-    rect.left < window.innerWidth
+    rect.top < viewportHeight &&
+    rect.left < viewportWidth
   );
 }
 
 function isFullyInViewportRect(rect: DOMRect): boolean {
+  const viewportWidth =
+    window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight =
+    window.innerHeight || document.documentElement?.clientHeight || 0;
   return (
     rect.width > 0 &&
     rect.height > 0 &&
     rect.top >= 0 &&
     rect.left >= 0 &&
-    rect.bottom <= window.innerHeight &&
-    rect.right <= window.innerWidth
+    rect.bottom <= viewportHeight &&
+    rect.right <= viewportWidth
   );
 }
 
@@ -163,8 +171,12 @@ function parseZIndex(style: CSSStyleDeclaration): number {
 }
 
 function getViewportCenterCoverage(rect: DOMRect): boolean {
-  const centerX = window.innerWidth / 2;
-  const centerY = window.innerHeight / 2;
+  const viewportWidth =
+    window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight =
+    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const centerX = viewportWidth / 2;
+  const centerY = viewportHeight / 2;
   return (
     rect.left <= centerX &&
     rect.right >= centerX &&
@@ -199,7 +211,11 @@ function getOverlayType(
 function detectOverlays(): OverlayCandidate[] {
   if (!document.body) return [];
 
-  const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+  const viewportWidth =
+    window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight =
+    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const viewportArea = Math.max(1, viewportWidth * viewportHeight);
   const overlays: OverlayCandidate[] = [];
   const seen = new Set<HTMLElement>();
 
@@ -249,8 +265,12 @@ function detectOverlays(): OverlayCandidate[] {
 
 function samplePointForRect(rect: DOMRect): { x: number; y: number } | null {
   if (!isInViewportRect(rect)) return null;
-  const maxX = Math.max(0, window.innerWidth - 1);
-  const maxY = Math.max(0, window.innerHeight - 1);
+  const viewportWidth =
+    window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight =
+    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const maxX = Math.max(0, viewportWidth - 1);
+  const maxY = Math.max(0, viewportHeight - 1);
   return {
     x: Math.min(maxX, Math.max(0, rect.left + rect.width / 2)),
     y: Math.min(maxY, Math.max(0, rect.top + rect.height / 2)),
@@ -311,11 +331,23 @@ function getVisibilityState(
 }
 
 function getViewportSnapshot() {
+  const scrollingElement =
+    document.scrollingElement || document.documentElement || document.body;
   return {
-    width: window.innerWidth,
-    height: window.innerHeight,
-    scrollX: window.scrollX,
-    scrollY: window.scrollY,
+    width: window.innerWidth || document.documentElement?.clientWidth || 0,
+    height: window.innerHeight || document.documentElement?.clientHeight || 0,
+    scrollX:
+      window.scrollX ||
+      scrollingElement?.scrollLeft ||
+      document.documentElement?.scrollLeft ||
+      document.body?.scrollLeft ||
+      0,
+    scrollY:
+      window.scrollY ||
+      scrollingElement?.scrollTop ||
+      document.documentElement?.scrollTop ||
+      document.body?.scrollTop ||
+      0,
   };
 }
 
