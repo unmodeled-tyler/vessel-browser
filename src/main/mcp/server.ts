@@ -196,6 +196,91 @@ async function scrollPage(
   `);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function clickElement(
+  wc: Electron.WebContents,
+  selector: string,
+): Promise<string> {
+  const target = await wc.executeJavaScript(`
+    (async function() {
+      function matchesTarget(candidate, el) {
+        return !!candidate && (candidate === el || el.contains(candidate) || candidate.contains(el));
+      }
+
+      function samplePoints(rect) {
+        const width = window.innerWidth || document.documentElement?.clientWidth || 0;
+        const height = window.innerHeight || document.documentElement?.clientHeight || 0;
+        const insetX = Math.min(12, rect.width / 4);
+        const insetY = Math.min(12, rect.height / 4);
+        const raw = [
+          [rect.left + rect.width / 2, rect.top + rect.height / 2],
+          [rect.left + insetX, rect.top + insetY],
+          [rect.right - insetX, rect.top + insetY],
+          [rect.left + insetX, rect.bottom - insetY],
+          [rect.right - insetX, rect.bottom - insetY],
+        ];
+        return raw.map(([x, y]) => ({
+          x: Math.min(Math.max(1, x), Math.max(1, width - 1)),
+          y: Math.min(Math.max(1, y), Math.max(1, height - 1)),
+        }));
+      }
+
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { error: "Element not found" };
+
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return { error: "Element is not visible" };
+      }
+
+      const points = samplePoints(rect);
+      const hit = points.find((point) => matchesTarget(document.elementFromPoint(point.x, point.y), el));
+      const chosen = hit || points[0];
+      const top = document.elementFromPoint(chosen.x, chosen.y);
+
+      return {
+        x: Math.round(chosen.x),
+        y: Math.round(chosen.y),
+        obstructed: !matchesTarget(top, el),
+      };
+    })()
+  `);
+
+  if (!target || typeof target !== "object") {
+    return "Error: Could not resolve click target";
+  }
+  if ("error" in target && typeof target.error === "string") {
+    return `Error: ${target.error}`;
+  }
+
+  const x = typeof target.x === "number" ? target.x : null;
+  const y = typeof target.y === "number" ? target.y : null;
+  if (x == null || y == null) {
+    return "Error: Could not resolve click coordinates";
+  }
+
+  wc.sendInputEvent({ type: "mouseMove", x, y });
+  await sleep(16);
+  wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
+  await sleep(24);
+  wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+  await sleep(80);
+
+  return target.obstructed
+    ? "Clicked via pointer events (target may be partially obstructed)"
+    : "Clicked via pointer events";
+}
+
 function isDangerousAction(name: string): boolean {
   return [
     "navigate",
@@ -1071,18 +1156,13 @@ function registerTools(
             return `${clickText} -> ${afterUrl}`;
           }
 
-          // For non-link elements: use el.click()
-          await wc.executeJavaScript(`
-            (function() {
-              const el = document.querySelector(${JSON.stringify(resolvedSelector)});
-              if (el) el.click();
-            })()
-          `);
+          const clickResult = await clickElement(wc, resolvedSelector);
+          if (clickResult.startsWith("Error:")) return clickResult;
           await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
             ? `${clickText} -> ${afterUrl}`
-            : clickText;
+            : `${clickText} (${clickResult})`;
         },
       );
     },
