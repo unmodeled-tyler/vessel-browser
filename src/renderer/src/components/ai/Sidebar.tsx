@@ -118,8 +118,6 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     isStreaming,
     hasFirstChunk,
     streamStartedAt,
-    query,
-    cancel,
     clearHistory,
   } = useAI();
   const {
@@ -148,7 +146,6 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     removeFolder,
     renameFolder,
   } = useBookmarks();
-  const [input, setInput] = createSignal("");
   const [checkpointName, setCheckpointName] = createSignal("");
   const [bookmarkNote, setBookmarkNote] = createSignal("");
   const [bookmarkSaveExpanded, setBookmarkSaveExpanded] = createSignal(false);
@@ -166,6 +163,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     UNSORTED_FOLDER.id,
   ]);
   const [actionsExpanded, setActionsExpanded] = createSignal(false);
+  const [checkpointsExpanded, setCheckpointsExpanded] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
   const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
   let messagesContainerRef: HTMLDivElement | undefined;
@@ -248,27 +246,6 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     const intervalId = window.setInterval(tick, 1000);
     onCleanup(() => window.clearInterval(intervalId));
   });
-
-  const handleSubmit = async (e: Event) => {
-    e.preventDefault();
-    const val = input().trim();
-    if (!val || isStreaming()) return;
-    setInput("");
-    await query(val);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      void toggleSidebar();
-      return;
-    }
-
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
-  };
 
   const startResize = (e: MouseEvent) => {
     if (props.forceOpen) return;
@@ -816,59 +793,76 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           </section>
 
           <section class="agent-panel checkpoint-panel">
-            <div class="agent-panel-header">
-              <div>
-                <div class="agent-panel-title">Checkpoints</div>
-                <div class="agent-panel-subtitle">
-                  Save and restore session snapshots
-                </div>
-              </div>
-            </div>
-
-            <div class="agent-checkpoint-row">
-              <input
-                class="agent-input"
-                value={checkpointName()}
-                onInput={(e) => setCheckpointName(e.currentTarget.value)}
-                placeholder="Checkpoint name"
-              />
-              <button
-                class="agent-primary-button"
-                type="button"
-                onClick={async () => {
-                  const name = checkpointName().trim();
-                  await createCheckpoint(name || undefined);
-                  setCheckpointName("");
-                }}
-              >
-                Save checkpoint
-              </button>
-            </div>
-
-            <div class="agent-section-title">Recent checkpoints</div>
-            <Show
-              when={recentCheckpoints().length > 0}
-              fallback={<div class="agent-muted">No checkpoints yet.</div>}
+            <button
+              class="agent-panel-toggle"
+              type="button"
+              onClick={() => setCheckpointsExpanded((current) => !current)}
             >
-              <For each={recentCheckpoints()}>
-                {(checkpoint) => (
-                  <div class="agent-card compact">
-                    <div>
-                      <div class="agent-card-title">{checkpoint.name}</div>
-                      <div class="agent-card-copy">
-                        {new Date(checkpoint.createdAt).toLocaleString()}
+              <span class="agent-panel-toggle-copy">
+                <span class="agent-panel-title">Checkpoints</span>
+                <span class="agent-panel-subtitle">
+                  {recentCheckpoints().length > 0
+                    ? `${recentCheckpoints().length} saved snapshots`
+                    : "Save and restore session snapshots"}
+                </span>
+              </span>
+              <span
+                class="agent-panel-toggle-caret"
+                classList={{ expanded: checkpointsExpanded() }}
+                aria-hidden="true"
+              >
+                ▾
+              </span>
+            </button>
+
+            <Show when={checkpointsExpanded()}>
+              <div class="agent-panel-body">
+                <div class="agent-checkpoint-row">
+                  <input
+                    class="agent-input"
+                    value={checkpointName()}
+                    onInput={(e) => setCheckpointName(e.currentTarget.value)}
+                    placeholder="Checkpoint name"
+                  />
+                  <button
+                    class="agent-primary-button"
+                    type="button"
+                    onClick={async () => {
+                      const name = checkpointName().trim();
+                      await createCheckpoint(name || undefined);
+                      setCheckpointName("");
+                    }}
+                  >
+                    Save checkpoint
+                  </button>
+                </div>
+
+                <div class="agent-section-title">Recent checkpoints</div>
+                <Show
+                  when={recentCheckpoints().length > 0}
+                  fallback={<div class="agent-muted">No checkpoints yet.</div>}
+                >
+                  <For each={recentCheckpoints()}>
+                    {(checkpoint) => (
+                      <div class="agent-card compact">
+                        <div>
+                          <div class="agent-card-title">{checkpoint.name}</div>
+                          <div class="agent-card-copy">
+                            {new Date(checkpoint.createdAt).toLocaleString()}
+                          </div>
+                        </div>
+                        <button
+                          class="agent-control-button"
+                          type="button"
+                          onClick={() => void restoreCheckpoint(checkpoint.id)}
+                        >
+                          Restore
+                        </button>
                       </div>
-                    </div>
-                    <button
-                      class="agent-control-button"
-                      type="button"
-                      onClick={() => void restoreCheckpoint(checkpoint.id)}
-                    >
-                      Restore
-                    </button>
-                  </div>
-                )}
-              </For>
+                    )}
+                  </For>
+                </Show>
+              </div>
             </Show>
           </section>
 
@@ -925,34 +919,6 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
           <div ref={messagesEndRef} />
         </div>
-
-        <form class="sidebar-input-area" onSubmit={handleSubmit}>
-          <textarea
-            class="sidebar-input"
-            value={input()}
-            onInput={(e) => setInput(e.currentTarget.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Local chat disabled; use Hermes or OpenClaw"
-            rows={2}
-            disabled={isStreaming()}
-          />
-          <Show
-            when={isStreaming()}
-            fallback={
-              <button
-                class="sidebar-send"
-                type="submit"
-                disabled={!input().trim()}
-              >
-                Send
-              </button>
-            }
-          >
-            <button class="sidebar-cancel" type="button" onClick={cancel}>
-              Stop
-            </button>
-          </Show>
-        </form>
       </div>
     </Show>
   );

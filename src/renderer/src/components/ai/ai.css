@@ -441,12 +441,20 @@
 }
 
 .bookmark-folder-chevron {
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     color: #9fb8ff;
     font-size: 12px;
-    line-height: 1.4;
+    line-height: 1;
+    transform-origin: center;
     transform: rotate(0deg);
     transition: transform 150ms ease;
-    margin-top: 1px;
+    margin-top: 2px;
+    overflow: hidden;
 }
 
 .bookmark-folder-chevron.expanded {
@@ -513,6 +521,47 @@
     background: rgba(139, 126, 200, 0.06);
     border-radius: var(--radius-md);
     margin-bottom: 4px;
+}
+
+.agent-panel-toggle {
+    width: 100%;
+    min-height: 40px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    text-align: left;
+}
+
+.agent-panel-toggle:hover {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.agent-panel-toggle-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.agent-panel-toggle-caret {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    transition: transform 150ms ease;
+}
+
+.agent-panel-toggle-caret.expanded {
+    transform: rotate(180deg);
+}
+
+.agent-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .agent-panel-header,
