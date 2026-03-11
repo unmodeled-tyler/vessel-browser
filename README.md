@@ -30,6 +30,9 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands, not the primary chat interface
 - **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision split into Supervisor, Bookmarks, and Checkpoints panels
 - **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
+- **Structured Page Visibility Context** — extraction can report in-viewport elements, obscured controls, active overlays, and dormant consent/modal UI
+- **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
+- **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
 - **Obsidian Memory Hooks** — optional vault path for agent-written markdown notes, page captures, and research breadcrumbs
 - **Reader Mode** — extract article content into a clean, distraction-free view
 - **Focus Mode** (`Ctrl+Shift+F`) — hide all chrome, content fills the screen
@@ -138,6 +141,7 @@ Notes:
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
 - Vessel does not expose local model or provider configuration in-app
 - Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
+- Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
 - The intended control plane is an external harness driving Vessel through MCP
 - If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory MCP tools
 
@@ -160,6 +164,25 @@ Bookmark and folder tools exposed today include:
 - `vessel_create_folder`
 - `vessel_folder_rename`
 - `vessel_folder_remove`
+
+Page interaction and recovery tools exposed today include:
+
+- `vessel_extract_content`
+- `vessel_read_page`
+- `vessel_scroll`
+- `vessel_dismiss_popup`
+- `vessel_set_ad_blocking`
+- `vessel_wait_for`
+
+Notable extraction modes include:
+
+- `visible_only` — only currently visible, in-viewport, unobstructed interactive elements plus active overlays
+- `full` / `summary` / `interactives_only` / `forms_only` / `text_only`
+
+The extraction output can distinguish:
+
+- active blocking overlays
+- dormant consent/modal UI present in the DOM but not active for the current session or region
 
 Generic HTTP MCP config:
 
