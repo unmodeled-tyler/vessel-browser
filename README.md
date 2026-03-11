@@ -1,3 +1,5 @@
+![vessel-logo-cropped](https://github.com/user-attachments/assets/58887932-26b3-45b5-be5e-21de562d2855)
+
 # Vessel: Your Agent's Browser
 
 *Vessel Browser is in active development and makes no assurances at this time in regards to security. Use and deploy at your own risk.*
@@ -7,7 +9,6 @@
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
 ```
-![vessel-logo-cropped](https://github.com/user-attachments/assets/58887932-26b3-45b5-be5e-21de562d2855)
 
 ---
 
