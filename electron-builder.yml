@@ -1,0 +1,23 @@
+appId: ai.vessel.browser
+productName: Vessel
+asar: true
+
+directories:
+  output: dist
+  buildResources: resources
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  - from: resources/vessel-icon.png
+    to: vessel-icon.png
+
+linux:
+  target:
+    - AppImage
+  category: Network;WebBrowser;
+  executableName: vessel
+  icon: resources/vessel-icon.png
+  artifactName: ${productName}-${version}-${arch}.${ext}
