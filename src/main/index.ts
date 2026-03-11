@@ -6,6 +6,7 @@ import { Channels } from "../shared/channels";
 import { loadSettings } from "./config/settings";
 import { startMcpServer, stopMcpServer } from "./mcp/server";
 import { AgentRuntime } from "./agent/runtime";
+import { installAdBlocking } from "./network/ad-blocking";
 import * as bookmarkManager from "./bookmarks/manager";
 
 function rendererUrlFor(view: "chrome" | "sidebar"): string | null {
@@ -34,6 +35,7 @@ function bootstrap(): void {
 
   const { chromeView, sidebarView, tabManager } = windowState;
   runtime = new AgentRuntime(tabManager);
+  installAdBlocking(tabManager);
 
   registerIpcHandlers(windowState, runtime);
   bookmarkManager.subscribe((state) => {

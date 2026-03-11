@@ -7,6 +7,7 @@ export interface TabState {
   canGoBack: boolean;
   canGoForward: boolean;
   isReaderMode: boolean;
+  adBlockingEnabled: boolean;
 }
 
 export interface InteractiveElement {
@@ -109,6 +110,7 @@ export interface SessionTabSnapshot {
   id: string;
   url: string;
   title: string;
+  adBlockingEnabled?: boolean;
 }
 
 export interface SessionSnapshot {

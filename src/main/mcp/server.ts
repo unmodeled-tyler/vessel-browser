@@ -1182,7 +1182,7 @@ function registerTools(
         .getAllStates()
         .map(
           (tab) =>
-            `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url}`,
+            `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url} [adblock:${tab.adBlockingEnabled ? "on" : "off"}]`,
         );
       return asTextResponse(lines.join("\n") || "No tabs open");
     },
@@ -1204,6 +1204,69 @@ function registerTools(
         await waitForLoad(tab.view.webContents);
         return `Navigated to ${tab.view.webContents.getURL()}`;
       });
+    },
+  );
+
+  server.registerTool(
+    "vessel_set_ad_blocking",
+    {
+      title: "Set Ad Blocking",
+      description:
+        "Enable or disable ad blocking for the active tab or a matched tab. Reload after changes unless reload is false.",
+      inputSchema: {
+        enabled: z
+          .boolean()
+          .describe("Whether ad blocking should be enabled for the target tab"),
+        tabId: z
+          .string()
+          .optional()
+          .describe("Exact tab ID to target instead of the active tab"),
+        match: z
+          .string()
+          .optional()
+          .describe("Case-insensitive partial match against tab title or URL"),
+        reload: z
+          .boolean()
+          .optional()
+          .describe("Reload the tab after changing the setting (default true)"),
+      },
+    },
+    async ({ enabled, tabId, match, reload }) => {
+      const activeTab = tabManager.getActiveTab();
+      if (!activeTab && !tabId && !match) {
+        return asTextResponse("Error: No active tab");
+      }
+
+      return withAction(
+        runtime,
+        tabManager,
+        "set_ad_blocking",
+        { enabled, tabId, match, reload },
+        async () => {
+          let targetId = typeof tabId === "string" ? tabId.trim() : "";
+          if (!targetId && typeof match === "string" && match.trim()) {
+            targetId = getTabByMatch(tabManager, match.trim())?.id || "";
+          }
+          if (!targetId) {
+            targetId = tabManager.getActiveTabId() || "";
+          }
+          if (!targetId) return "Error: No target tab found";
+
+          const targetTab = tabManager.getTab(targetId);
+          if (!targetTab) return "Error: Target tab not found";
+
+          tabManager.setAdBlockingEnabled(targetId, enabled);
+
+          const shouldReload = reload !== false;
+          if (shouldReload) {
+            targetTab.reload();
+            await waitForLoad(targetTab.view.webContents);
+          }
+
+          const state = targetTab.state;
+          return `${enabled ? "Enabled" : "Disabled"} ad blocking for "${state.title}"${shouldReload ? " and reloaded the tab" : ""}`;
+        },
+      );
     },
   );
 

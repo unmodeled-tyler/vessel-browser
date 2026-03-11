@@ -20,11 +20,13 @@ export class TabManager {
 
   createTab(
     url: string = "about:blank",
-    options?: { background?: boolean },
+    options?: { background?: boolean; adBlockingEnabled?: boolean },
   ): string {
     const background = options?.background ?? false;
     const id = randomUUID();
-    const tab = new Tab(id, url, () => this.broadcastState());
+    const tab = new Tab(id, url, () => this.broadcastState(), {
+      adBlockingEnabled: options?.adBlockingEnabled,
+    });
     this.tabs.set(id, tab);
     this.order.push(id);
     this.window.contentView.addChildView(tab.view);
@@ -93,12 +95,30 @@ export class TabManager {
     return this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
   }
 
+  getTab(id: string): Tab | undefined {
+    return this.tabs.get(id);
+  }
+
   getActiveTabId(): string | null {
     return this.activeTabId;
   }
 
   getAllStates(): TabState[] {
     return this.order.map((id) => this.tabs.get(id)!.state);
+  }
+
+  isAdBlockingEnabledForWebContents(webContentsId: number): boolean {
+    for (const id of this.order) {
+      const tab = this.tabs.get(id);
+      if (tab?.webContentsId === webContentsId) {
+        return tab.state.adBlockingEnabled;
+      }
+    }
+    return false;
+  }
+
+  setAdBlockingEnabled(id: string, enabled: boolean): boolean {
+    return this.tabs.get(id)?.setAdBlockingEnabled(enabled) ?? false;
   }
 
   snapshotSession(note?: string): SessionSnapshot {
@@ -114,6 +134,7 @@ export class TabManager {
         id: state.id,
         url: state.url || "about:blank",
         title: state.title,
+        adBlockingEnabled: state.adBlockingEnabled,
       })),
       activeIndex: activeIndex >= 0 ? activeIndex : 0,
       activeTabId: activeId || undefined,
@@ -136,6 +157,7 @@ export class TabManager {
     const ids = tabs.map((tab, index) =>
       this.createTab(tab.url || "about:blank", {
         background: index !== activeIndex,
+        adBlockingEnabled: tab.adBlockingEnabled ?? true,
       }),
     );
 

@@ -184,6 +184,35 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "set_ad_blocking",
+    description:
+      "Enable or disable ad blocking for the active tab or a matched tab. Reload after changes unless you explicitly set reload to false.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        enabled: {
+          type: "boolean",
+          description: "Whether ad blocking should be enabled for the tab",
+        },
+        tabId: {
+          type: "string",
+          description: "Exact tab ID to target instead of the active tab",
+        },
+        match: {
+          type: "string",
+          description:
+            "Case-insensitive partial match against tab title or URL",
+        },
+        reload: {
+          type: "boolean",
+          description:
+            "Reload the tab after changing the setting (default true)",
+        },
+      },
+      required: ["enabled"],
+    },
+  },
+  {
     name: "dismiss_popup",
     description:
       "Dismiss a modal, popup, newsletter gate, cookie banner, or overlay using common close/decline actions.",

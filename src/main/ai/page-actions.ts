@@ -1076,7 +1076,7 @@ function getPostActionState(ctx: ActionContext, name: string): string {
     "reload",
   ];
   const interactActions = ["type_text", "select_option", "press_key"];
-  const tabActions = ["create_tab", "switch_tab"];
+  const tabActions = ["create_tab", "switch_tab", "set_ad_blocking"];
 
   if (navActions.includes(name)) {
     return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
@@ -1108,6 +1108,7 @@ export async function executeAction(
     ![
       "list_tabs",
       "create_tab",
+      "set_ad_blocking",
       "restore_checkpoint",
       "list_bookmarks",
       "search_bookmarks",
@@ -1133,7 +1134,8 @@ export async function executeAction(
           const activeId = ctx.tabManager.getActiveTabId();
           const lines = ctx.tabManager.getAllStates().map((item) => {
             const prefix = item.id === activeId ? "->" : "  ";
-            return `${prefix} [${item.id}] ${item.title} — ${item.url}`;
+            const adBlock = item.adBlockingEnabled ? "on" : "off";
+            return `${prefix} [${item.id}] ${item.title} — ${item.url} [adblock:${adBlock}]`;
           });
           return lines.join("\n") || "No tabs open";
         }
@@ -1299,6 +1301,38 @@ export async function executeAction(
           const dir = args.direction === "up" ? -pixels : pixels;
           const result = await scrollPage(wc, dir);
           return `Scrolled ${args.direction} by ${pixels}px (moved ${Math.abs(result.movedY)}px, now at y=${Math.round(result.afterY)})`;
+        }
+
+        case "set_ad_blocking": {
+          const enabled =
+            typeof args.enabled === "boolean" ? args.enabled : null;
+          if (enabled == null) {
+            return "Error: enabled must be true or false";
+          }
+
+          let targetId =
+            typeof args.tabId === "string" ? args.tabId.trim() : "";
+          if (!targetId) {
+            targetId = getTabByMatch(ctx.tabManager, args.match)?.id || "";
+          }
+          if (!targetId) {
+            targetId = ctx.tabManager.getActiveTabId() || "";
+          }
+          if (!targetId) return "Error: No target tab found";
+
+          const targetTab = ctx.tabManager.getTab(targetId);
+          if (!targetTab) return "Error: Target tab not found";
+
+          ctx.tabManager.setAdBlockingEnabled(targetId, enabled);
+
+          const shouldReload = args.reload !== false;
+          if (shouldReload) {
+            targetTab.reload();
+            await waitForLoad(targetTab.view.webContents);
+          }
+
+          const state = targetTab.state;
+          return `${enabled ? "Enabled" : "Disabled"} ad blocking for "${state.title}"${shouldReload ? " and reloaded the tab" : ""}`;
         }
 
         case "dismiss_popup": {

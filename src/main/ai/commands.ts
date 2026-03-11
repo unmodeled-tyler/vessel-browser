@@ -67,6 +67,7 @@ Instructions:
 - Create a checkpoint before risky multi-step flows or before leaving an important state.
 - Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.
 - After clicking or navigating, use read_page to see the updated content.
+- If a page behaves abnormally or key UI fails to load, consider disabling ad blocking for that tab and reloading before retrying.
 - Reference interactive elements by their index number (shown as [#N] in the listings above).
 - Be concise. Explain what you're doing as you go.
 - For simple questions about the page, just answer directly without using tools.`;

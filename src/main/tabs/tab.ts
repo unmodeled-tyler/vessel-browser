@@ -18,7 +18,12 @@ export class Tab {
   private lastCommittedUrl = "";
   private navigatingViaHistory = false;
 
-  constructor(id: string, url: string, onChange: () => void) {
+  constructor(
+    id: string,
+    url: string,
+    onChange: () => void,
+    options?: { adBlockingEnabled?: boolean },
+  ) {
     this.id = id;
     this.onChange = onChange;
 
@@ -40,6 +45,7 @@ export class Tab {
       canGoBack: false,
       canGoForward: false,
       isReaderMode: false,
+      adBlockingEnabled: options?.adBlockingEnabled ?? true,
     };
 
     this.setupListeners();
@@ -164,6 +170,17 @@ export class Tab {
 
   reload(): void {
     this.view.webContents.reload();
+  }
+
+  setAdBlockingEnabled(enabled: boolean): boolean {
+    if (this._state.adBlockingEnabled === enabled) return false;
+    this._state.adBlockingEnabled = enabled;
+    this.onChange();
+    return true;
+  }
+
+  get webContentsId(): number {
+    return this.view.webContents.id;
   }
 
   destroy(): void {
