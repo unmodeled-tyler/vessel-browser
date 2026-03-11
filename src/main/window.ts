@@ -1,4 +1,5 @@
-import { BaseWindow, WebContentsView } from "electron";
+import { BaseWindow, WebContentsView, app } from "electron";
+import { existsSync } from "fs";
 import path from "path";
 import { TabManager } from "./tabs/tab-manager";
 import { loadSettings } from "./config/settings";
@@ -14,6 +15,16 @@ export interface WindowState {
   uiState: UIState;
 }
 
+function getWindowIconPath(): string | undefined {
+  const candidates = [
+    path.join(app.getAppPath(), "resources", "vessel-icon.png"),
+    path.join(process.resourcesPath, "vessel-icon.png"),
+    path.join(__dirname, "../../resources/vessel-icon.png"),
+  ];
+
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 export function createMainWindow(
   onTabStateChange: (tabs: any[], activeId: string) => void,
 ): WindowState {
@@ -24,6 +35,7 @@ export function createMainWindow(
     minHeight: 600,
     frame: false,
     backgroundColor: "#1a1a1e",
+    icon: getWindowIconPath(),
   });
 
   const chromeView = new WebContentsView({
