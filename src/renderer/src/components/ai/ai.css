@@ -254,6 +254,59 @@
     border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.bookmark-save-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bookmark-save-toggle {
+    width: 100%;
+    min-height: 40px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    text-align: left;
+}
+
+.bookmark-save-toggle:hover {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.bookmark-save-toggle-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.bookmark-save-toggle-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.bookmark-save-toggle-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.bookmark-save-toggle-caret {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    transition: transform 150ms ease;
+}
+
+.bookmark-save-toggle-caret.expanded {
+    transform: rotate(180deg);
+}
+
 .bookmark-current-title,
 .bookmark-current-url,
 .bookmark-item-title,
