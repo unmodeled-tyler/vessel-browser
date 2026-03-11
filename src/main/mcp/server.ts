@@ -1092,19 +1092,22 @@ function registerTools(
   function buildExtractResponse(
     pageContent: PageContent,
     mode: ExtractMode,
+    adBlockingEnabled: boolean,
   ): string {
+    const adBlockLine = `**Ad Blocking:** ${adBlockingEnabled ? "On" : "Off"}`;
+
     if (mode === "full") {
       const structured = buildStructuredContext(pageContent);
       const truncated =
         pageContent.content.length > 30000
           ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
           : pageContent.content;
-      return `${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+      return `${adBlockLine}\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
     }
     if (mode === "text_only") {
-      return buildScopedContext(pageContent, mode);
+      return `${adBlockLine}\n\n${buildScopedContext(pageContent, mode)}`;
     }
-    return buildScopedContext(pageContent, mode);
+    return `${adBlockLine}\n\n${buildScopedContext(pageContent, mode)}`;
   }
 
   server.registerTool(
@@ -1129,7 +1132,13 @@ function registerTools(
       try {
         const pageContent = await extractContent(tab.view.webContents);
         const effectiveMode = (mode || "full") as ExtractMode;
-        return asTextResponse(buildExtractResponse(pageContent, effectiveMode));
+        return asTextResponse(
+          buildExtractResponse(
+            pageContent,
+            effectiveMode,
+            tab.state.adBlockingEnabled,
+          ),
+        );
       } catch (error) {
         return asTextResponse(
           `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -1160,7 +1169,13 @@ function registerTools(
       try {
         const pageContent = await extractContent(tab.view.webContents);
         const effectiveMode = (mode || "full") as ExtractMode;
-        return asTextResponse(buildExtractResponse(pageContent, effectiveMode));
+        return asTextResponse(
+          buildExtractResponse(
+            pageContent,
+            effectiveMode,
+            tab.state.adBlockingEnabled,
+          ),
+        );
       } catch (error) {
         return asTextResponse(
           `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`,
