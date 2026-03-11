@@ -4,7 +4,7 @@
 
 *Vessel Browser is in active development and makes no assurances at this time in regards to security. Use and deploy at your own risk.*
 
-### One-Line Install
+### Quick Fire Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
