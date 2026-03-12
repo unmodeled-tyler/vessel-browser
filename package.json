@@ -11,7 +11,17 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": [],
+  "keywords": [
+    "agent-browser",
+    "ai-agent",
+    "browser-automation",
+    "electron",
+    "human-in-the-loop",
+    "linux",
+    "mcp",
+    "model-context-protocol",
+    "solidjs"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {

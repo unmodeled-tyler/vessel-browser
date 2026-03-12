@@ -2,7 +2,17 @@
 
 # Vessel: Your Agent's Browser
 
-*Vessel Browser is in active development and makes no assurances at this time in regards to security. Use and deploy at your own risk.*
+Open-source browser runtime for persistent web agents on Linux.
+
+Vessel gives external agent harnesses a real browser with durable state, MCP control, and a human-visible supervisory UI. It is built for long-running workflows where the agent drives and the human audits, intervenes, and redirects when needed.
+
+- **Built for agent harnesses** such as Hermes Agent, OpenClaw, and other MCP clients
+- **Keeps browser state alive** with named sessions, bookmarks, checkpoints, and structured page visibility
+- **Keeps humans in the loop** with approvals, runtime controls, and a visible browser instead of a headless black box
+
+*Vessel is in active development and currently makes no security assurances. Use and deploy it with care.*
+
+## Quick Start
 
 ### Quick Fire Install
 
@@ -10,15 +20,20 @@
 curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
 ```
 
----
+### From Source
 
+```bash
+npm install
+npm run dev
+```
 
-An agent-first web browser for Linux.
+### Why Vessel?
+
+Most browser automation stacks are either headless, stateless, or designed around a human as the primary operator. Vessel is built around the opposite model: the browser is the agent's operating surface, and the human stays in the loop through a visible interface with clear supervisory controls.
 
 <img width="1280" height="800" alt="vessel_2026-03-10_170917_8761" src="https://github.com/user-attachments/assets/ce2c96dc-d1c1-43dc-aba6-19441ca4228d" />
 
 <img width="1280" height="800" alt="vessel_2026-03-10_204143_6698" src="https://github.com/user-attachments/assets/a50ab3ae-08bf-4696-8e49-91c0976e8c68" />
-
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
 
@@ -77,12 +92,6 @@ Main Process                              Renderer (SolidJS)
 Each browser tab is a separate `WebContentsView` managed by the main process. The browser chrome (SolidJS) runs in its own view layered on top. All communication between renderer and main goes through typed IPC channels via `contextBridge`.
 
 ## Getting Started
-
-### One-Line Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/scripts/install.sh | bash
-```
 
 The installer:
 
