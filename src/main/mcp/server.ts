@@ -183,63 +183,27 @@ async function scrollPage(
   afterY: number;
   movedY: number;
 }> {
-  const getSnapshot = async () =>
+  const getScrollY = () =>
     wc.executeJavaScript(`
       (function() {
-        const width = window.innerWidth || document.documentElement?.clientWidth || 0;
-        const height = window.innerHeight || document.documentElement?.clientHeight || 0;
-        const scrollY = Math.max(
+        return Math.max(
           window.scrollY || 0,
           window.pageYOffset || 0,
-          window.visualViewport?.pageTop || 0,
           document.scrollingElement?.scrollTop || 0,
           document.documentElement?.scrollTop || 0,
           document.body?.scrollTop || 0,
         );
-        return {
-          x: Math.max(1, Math.round(width / 2)),
-          y: Math.max(1, Math.round(height / 2)),
-          scrollY,
-        };
       })()
     `);
 
-  const before = await getSnapshot();
-  wc.sendInputEvent({ type: "mouseMove", x: before.x, y: before.y });
-  await sleep(16);
-  wc.sendInputEvent({
-    type: "mouseWheel",
-    x: before.x,
-    y: before.y,
-    deltaX: 0,
-    deltaY,
-  });
-
-  let lastY = before.scrollY;
-  let stableSamples = 0;
-  let moved = false;
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < 1500) {
-    await sleep(50);
-    const current = await getSnapshot();
-    if (Math.abs(current.scrollY - lastY) < 1) {
-      stableSamples += 1;
-    } else {
-      stableSamples = 0;
-      moved = true;
-    }
-    lastY = current.scrollY;
-    if (moved && stableSamples >= 3) {
-      break;
-    }
-  }
-
-  const after = await getSnapshot();
+  const beforeY = await getScrollY();
+  await wc.executeJavaScript(`window.scrollBy(0, ${deltaY})`);
+  await sleep(100);
+  const afterY = await getScrollY();
   return {
-    beforeY: before.scrollY,
-    afterY: after.scrollY,
-    movedY: Math.round(after.scrollY - before.scrollY),
+    beforeY,
+    afterY,
+    movedY: Math.round(afterY - beforeY),
   };
 }
 
