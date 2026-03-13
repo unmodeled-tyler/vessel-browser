@@ -1,4 +1,7 @@
 import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -2021,6 +2024,8 @@ function registerTools(
             `Error capturing screenshot: ${screenshot.error}`,
           );
         }
+        const screenshotPath = path.join(os.tmpdir(), `vessel_screenshot_${Date.now()}.png`);
+        fs.writeFileSync(screenshotPath, Buffer.from(screenshot.base64, "base64"));
         return {
           content: [
             {
@@ -2030,7 +2035,7 @@ function registerTools(
             },
             {
               type: "text" as const,
-              text: `Screenshot captured: ${screenshot.width}x${screenshot.height}`,
+              text: `Screenshot captured: ${screenshot.width}x${screenshot.height}\nSaved to: ${screenshotPath}\nTo analyze visually, call vision_analyze with image_url="${screenshotPath}"`,
             },
           ],
         };
