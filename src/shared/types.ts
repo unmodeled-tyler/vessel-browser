@@ -88,6 +88,7 @@ export interface PageContent {
     label?: string;
     text?: string;
   }>;
+  jsonLd?: Record<string, unknown>[];
 }
 
 export interface AIMessage {

@@ -828,6 +828,26 @@ function extractLandmarks(): Array<{
   return landmarks;
 }
 
+function extractJsonLd(): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
+  const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+  for (const script of scripts) {
+    try {
+      const parsed = JSON.parse(script.textContent || "");
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && typeof item === "object") results.push(item);
+        }
+      } else if (parsed && typeof parsed === "object") {
+        results.push(parsed);
+      }
+    } catch {
+      // ignore malformed JSON-LD
+    }
+  }
+  return results;
+}
+
 function vesselExtractContent(): PageContent {
   const extractStructuredContent = (article?: {
     title?: string | null;
@@ -855,6 +875,7 @@ function vesselExtractContent(): PageContent {
       ),
       dormantOverlays: detectDormantOverlays(),
       landmarks: extractLandmarks(),
+      jsonLd: extractJsonLd(),
     };
   };
 

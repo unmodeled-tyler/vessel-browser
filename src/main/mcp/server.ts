@@ -246,11 +246,10 @@ async function clickElement(
       if (!el) return { error: "Element not found" };
 
       if (el instanceof HTMLElement) {
-        el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
@@ -1166,6 +1165,7 @@ function registerTools(
     "forms_only",
     "text_only",
     "visible_only",
+    "results_only",
   ];
 
   function buildExtractResponse(
@@ -1194,13 +1194,13 @@ function registerTools(
     {
       title: "Extract Page Content",
       description:
-        "Extract structured content from the current page. Modes: 'full' (default, everything), 'summary' (title+headings+stats), 'interactives_only' (clickable elements with indices), 'forms_only' (form fields only), 'text_only' (page text, no interactives), 'visible_only' (only currently visible, in-viewport, unobstructed elements plus active overlays).",
+        "Extract structured content from the current page. Modes: 'full' (default, everything), 'summary' (title+headings+stats), 'interactives_only' (clickable elements with indices), 'forms_only' (form fields only), 'text_only' (page text, no interactives), 'visible_only' (only currently visible, in-viewport, unobstructed elements plus active overlays), 'results_only' (likely primary search/result links only).",
       inputSchema: {
         mode: z
           .enum(EXTRACT_MODES as [string, ...string[]])
           .optional()
           .describe(
-            "Extraction mode: full, summary, interactives_only, forms_only, text_only, visible_only",
+            "Extraction mode: full, summary, interactives_only, forms_only, text_only, visible_only, results_only",
           ),
       },
     },
@@ -1231,13 +1231,13 @@ function registerTools(
     {
       title: "Read Page",
       description:
-        "Alias for vessel_extract_content. Supports same modes: full, summary, interactives_only, forms_only, text_only, visible_only.",
+        "Alias for vessel_extract_content. Supports same modes: full, summary, interactives_only, forms_only, text_only, visible_only, results_only.",
       inputSchema: {
         mode: z
           .enum(EXTRACT_MODES as [string, ...string[]])
           .optional()
           .describe(
-            "Extraction mode: full, summary, interactives_only, forms_only, text_only, visible_only",
+            "Extraction mode: full, summary, interactives_only, forms_only, text_only, visible_only, results_only",
           ),
       },
     },
