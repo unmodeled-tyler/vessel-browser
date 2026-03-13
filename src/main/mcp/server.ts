@@ -842,7 +842,7 @@ async function waitForCondition(
   const expectedSelector = (selector || "").trim();
 
   if (!expectedText && !expectedSelector) {
-    return "Error: wait_for requires text or selector";
+    return JSON.stringify({ matched: false, error: "wait_for requires text or selector" });
   }
 
   // Wait for any pending load to finish first
@@ -868,18 +868,22 @@ async function waitForCondition(
       })()
     `);
 
+    const elapsedMs = Date.now() - startedAt;
+
     if (result === "selector") {
-      return `Matched selector ${expectedSelector}`;
+      return JSON.stringify({ matched: true, type: "selector", value: expectedSelector, elapsed_ms: elapsedMs });
     }
     if (result === "text") {
-      return `Matched text "${expectedText.slice(0, 80)}"`;
+      return JSON.stringify({ matched: true, type: "text", value: expectedText.slice(0, 80), elapsed_ms: elapsedMs });
     }
     if (typeof result === "string" && result.startsWith("invalid_selector:")) {
-      return `Error: Invalid selector "${expectedSelector}" — ${result.slice(17)}`;
+      return JSON.stringify({ matched: false, error: `Invalid selector "${expectedSelector}" — ${result.slice(17)}` });
     }
 
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
+
+  const elapsedMs = Date.now() - startedAt;
 
   // On timeout, provide diagnostic info
   const diagnostic = expectedSelector
@@ -891,12 +895,16 @@ async function waitForCondition(
           } catch (e) { return 'selector error: ' + e.message; }
         })()
       `)
-    : "";
+    : null;
 
-  const suffix = diagnostic ? ` (${diagnostic})` : "";
-  return expectedSelector
-    ? `Timed out waiting for selector ${expectedSelector}${suffix}`
-    : `Timed out waiting for text "${expectedText.slice(0, 80)}"`;
+  return JSON.stringify({
+    matched: false,
+    type: expectedSelector ? "selector" : "text",
+    value: expectedSelector ? expectedSelector : expectedText.slice(0, 80),
+    elapsed_ms: elapsedMs,
+    timeout_ms: effectiveTimeout,
+    ...(diagnostic ? { diagnostic } : {}),
+  });
 }
 
 const VESSEL_HIGHLIGHT_CSS = `

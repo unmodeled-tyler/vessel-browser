@@ -69,7 +69,7 @@ function getVaultRoot(): string {
   const configured = loadSettings().obsidianVaultPath.trim();
   if (!configured) {
     throw new Error(
-      "Obsidian vault path is not configured in Vessel settings.",
+      "Obsidian not configured. Set vault path in Vessel settings to use memory capture.",
     );
   }
   return path.resolve(configured);
