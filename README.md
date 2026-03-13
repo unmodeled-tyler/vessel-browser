@@ -198,6 +198,7 @@ Session files are sensitive because they may contain login cookies and tokens. V
 Notable extraction modes include:
 
 - `visible_only` — only currently visible, in-viewport, unobstructed interactive elements plus active overlays
+- `results_only` — likely primary search/result links only
 - `full` / `summary` / `interactives_only` / `forms_only` / `text_only`
 
 The extraction output can distinguish:

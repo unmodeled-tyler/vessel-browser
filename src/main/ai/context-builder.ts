@@ -255,6 +255,74 @@ function formatDormantOverlays(
     .join("\n");
 }
 
+function formatJsonLd(items: Record<string, unknown>[]): string {
+  if (!items || items.length === 0) return "";
+
+  const lines: string[] = [];
+
+  // Fields to omit as too noisy for agents
+  const SKIP = new Set(["@context", "image", "logo", "thumbnail", "potentialAction"]);
+
+  // Type-specific field priority (shown first)
+  const TYPE_FIELDS: Record<string, string[]> = {
+    Recipe: ["name", "url", "description", "recipeYield", "totalTime", "cookTime", "prepTime", "recipeIngredient", "recipeInstructions"],
+    Article: ["headline", "name", "url", "datePublished", "dateModified", "author", "description"],
+    Product: ["name", "url", "description", "offers"],
+    BreadcrumbList: ["itemListElement"],
+    Organization: ["name", "url", "description"],
+  };
+
+  for (const item of items) {
+    const type = (item["@type"] as string) || "Unknown";
+    lines.push(`**[${type}]**`);
+
+    const priorityFields = TYPE_FIELDS[type] ?? [];
+    const seen = new Set<string>();
+
+    const renderValue = (val: unknown, depth = 0): string => {
+      if (val === null || val === undefined) return "";
+      if (typeof val === "string") return val;
+      if (typeof val === "number" || typeof val === "boolean") return String(val);
+      if (Array.isArray(val)) {
+        if (depth > 0) return val.map((v) => renderValue(v, depth + 1)).filter(Boolean).join(", ");
+        return val.map((v, i) => {
+          const s = renderValue(v, depth + 1);
+          return s ? `  ${i + 1}. ${s}` : "";
+        }).filter(Boolean).join("\n");
+      }
+      if (typeof val === "object") {
+        const obj = val as Record<string, unknown>;
+        // Common single-value wrappers
+        const text = obj["@value"] ?? obj["text"] ?? obj["name"] ?? obj["url"] ?? obj["item"];
+        if (text) return renderValue(text, depth + 1);
+        return Object.entries(obj)
+          .filter(([k]) => !SKIP.has(k))
+          .map(([k, v]) => `${k}: ${renderValue(v, depth + 1)}`)
+          .join(", ");
+      }
+      return String(val);
+    };
+
+    // Priority fields first
+    for (const key of priorityFields) {
+      if (key in item) {
+        seen.add(key);
+        const rendered = renderValue(item[key]);
+        if (rendered) lines.push(`  ${key}: ${rendered}`);
+      }
+    }
+    // Remaining fields
+    for (const [key, val] of Object.entries(item)) {
+      if (seen.has(key) || SKIP.has(key) || key === "@type") continue;
+      const rendered = renderValue(val);
+      if (rendered) lines.push(`  ${key}: ${rendered}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
 /**
  * Build the structured context section
  */
@@ -264,7 +332,160 @@ export type ExtractMode =
   | "interactives_only"
   | "forms_only"
   | "text_only"
-  | "visible_only";
+  | "visible_only"
+  | "results_only";
+
+function normalizeComparable(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normalizeUrlForMatch(value?: string): string | null {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return `${url.origin}${pathname}`.toLowerCase();
+  } catch {
+    return value.trim().replace(/\/+$/, "").toLowerCase() || null;
+  }
+}
+
+function collectJsonLdEntityItems(
+  input: unknown,
+  results: Record<string, unknown>[] = [],
+): Record<string, unknown>[] {
+  if (!input) return results;
+
+  if (Array.isArray(input)) {
+    input.forEach((item) => collectJsonLdEntityItems(item, results));
+    return results;
+  }
+
+  if (typeof input !== "object") return results;
+
+  const item = input as Record<string, unknown>;
+  const type = item["@type"];
+  const types = Array.isArray(type) ? type : [type];
+  const typeNames = types.filter((entry): entry is string => typeof entry === "string");
+
+  if (
+    (typeof item.name === "string" || typeof item.url === "string") &&
+    !typeNames.some((entry) =>
+      ["BreadcrumbList", "Organization", "WebSite", "WebPage"].includes(entry),
+    )
+  ) {
+    results.push(item);
+  }
+
+  collectJsonLdEntityItems(item["@graph"], results);
+  collectJsonLdEntityItems(item.mainEntity, results);
+  collectJsonLdEntityItems(item.itemListElement, results);
+  collectJsonLdEntityItems(item.item, results);
+
+  return results;
+}
+
+function getResultCandidates(page: PageContent): InteractiveElement[] {
+  const entityItems = collectJsonLdEntityItems(page.jsonLd ?? []);
+  const entityNames = new Set(
+    entityItems
+      .map((item) =>
+        typeof item.name === "string" ? normalizeComparable(item.name) : "",
+      )
+      .filter(Boolean),
+  );
+  const entityUrls = new Set(
+    entityItems
+      .map((item) =>
+        typeof item.url === "string" ? normalizeUrlForMatch(item.url) : null,
+      )
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  const pageHost = normalizeUrlForMatch(page.url);
+
+  const scored = page.interactiveElements
+    .filter(
+      (element) => element.type === "link" && element.text?.trim() && element.href,
+    )
+    .map((element) => {
+      const text = element.text?.trim() || "";
+      const comparableText = normalizeComparable(text);
+      const href = normalizeUrlForMatch(element.href);
+      const haystack = normalizeComparable(
+        [element.text, element.description, element.selector, element.href]
+          .filter(Boolean)
+          .join(" "),
+      );
+
+      let score = 0;
+
+      if (entityNames.has(comparableText)) score += 6;
+      if (href && entityUrls.has(href)) score += 6;
+      if (
+        entityItems.some((item) => {
+          const name = typeof item.name === "string" ? normalizeComparable(item.name) : "";
+          return Boolean(name) && (name.includes(comparableText) || comparableText.includes(name));
+        })
+      ) {
+        score += 4;
+      }
+
+      if (element.context === "article") score += 3;
+      else if (element.context === "main" || element.context === "content") score += 1;
+
+      if (href && pageHost) {
+        try {
+          if (new URL(href).origin === new URL(pageHost).origin) score += 1;
+        } catch {
+          // ignore malformed URLs
+        }
+      }
+
+      if (/\b(card|tile|result|rating|review)\b/.test(haystack)) score += 1;
+      if (text.length >= 12 && text.split(/\s+/).length >= 2) score += 1;
+
+      if (
+        element.context === "nav" ||
+        element.context === "header" ||
+        element.context === "footer" ||
+        element.context === "sidebar" ||
+        element.context === "dialog"
+      ) {
+        score -= 5;
+      }
+
+      if (
+        /\b(home|menu|about|contact|privacy|terms|login|sign in|sign up|subscribe|newsletter|facebook|instagram|pinterest|share|print)\b/.test(
+          comparableText,
+        )
+      ) {
+        score -= 4;
+      }
+
+      return { element, score };
+    })
+    .filter(({ score, element }) => {
+      if (entityItems.length > 0) return score >= 4;
+      return score >= 4 || (score >= 3 && element.context === "article");
+    })
+    .sort((a, b) => b.score - a.score || (a.element.index ?? 0) - (b.element.index ?? 0));
+
+  const seen = new Set<string>();
+  return scored
+    .map(({ element }) => element)
+    .filter((element) => {
+      const key = `${normalizeComparable(element.text || "")}|${normalizeUrlForMatch(element.href) || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
 
 export function buildScopedContext(
   page: PageContent,
@@ -414,6 +635,22 @@ export function buildScopedContext(
       return sections.join("\n");
     }
 
+    case "results_only": {
+      const resultElements = getResultCandidates(page);
+      const sections: string[] = [];
+      sections.push(`**URL:** ${page.url}`);
+      sections.push(`**Title:** ${page.title}`);
+      sections.push(`**Viewport:** ${formatViewport(page)}`);
+      sections.push("");
+      if (resultElements.length > 0) {
+        sections.push(`### Likely Search Results (${resultElements.length})`);
+        sections.push(formatInteractiveElements(resultElements));
+      } else {
+        sections.push("No likely primary result links were detected on this page.");
+      }
+      return sections.join("\n");
+    }
+
     case "full":
     default:
       return buildStructuredContext(page);
@@ -432,6 +669,12 @@ export function buildStructuredContext(page: PageContent): string {
   if (page.byline) sections.push(`**Author:** ${page.byline}`);
   if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
   sections.push("");
+
+  // Structured data (JSON-LD)
+  if (page.jsonLd && page.jsonLd.length > 0) {
+    sections.push("### Structured Data (JSON-LD)");
+    sections.push(formatJsonLd(page.jsonLd));
+  }
 
   // Headings
   sections.push("### Document Outline (Headings)");

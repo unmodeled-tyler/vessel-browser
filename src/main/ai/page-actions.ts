@@ -138,11 +138,10 @@ async function clickElement(
       if (!el) return { error: "Element not found" };
 
       if (el instanceof HTMLElement) {
-        el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {

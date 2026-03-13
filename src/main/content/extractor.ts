@@ -21,6 +21,7 @@ const EMPTY_PAGE_CONTENT: PageContent = {
   overlays: [],
   dormantOverlays: [],
   landmarks: [],
+  jsonLd: [],
 };
 
 const PRELOAD_EXTRACTION_SCRIPT = String.raw`
@@ -791,6 +792,7 @@ function mergePageContent(
     overlays: bestArray(pages.map((page) => page.overlays)),
     dormantOverlays: bestArray(pages.map((page) => page.dormantOverlays)),
     landmarks: bestArray(pages.map((page) => page.landmarks)),
+    jsonLd: bestArray(pages.map((page) => page.jsonLd ?? [])),
   };
 
   return {
@@ -858,5 +860,6 @@ function normalizePageContent(value: unknown): PageContent {
       ? page.dormantOverlays
       : [],
     landmarks: Array.isArray(page.landmarks) ? page.landmarks : [],
+    jsonLd: Array.isArray(page.jsonLd) ? page.jsonLd : [],
   };
 }
