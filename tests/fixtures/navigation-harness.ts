@@ -18,6 +18,7 @@ function renderPage(title: string, body: string): string {
     <nav>
       <a href="/">Home</a>
       <a href="/anchor-source">Anchor test</a>
+      <a href="/offscreen-anchor-source">Offscreen anchor</a>
       <a href="/js-source">JS test</a>
       <a href="/get-form">GET form</a>
       <a href="/post-form">POST form</a>
@@ -89,6 +90,22 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
           `
             <h1>Anchor Dest</h1>
             <p>Reached the anchor destination.</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/offscreen-anchor-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "offscreen-anchor-source",
+          `
+            <h1>Offscreen Anchor Source</h1>
+            <p>The target link starts below the fold and should be auto-scrolled before clicking.</p>
+            <div style="height: 1600px;"></div>
+            <a id="go-offscreen-anchor" href="/anchor-dest">Go to Anchor Dest</a>
           `,
         ),
       );

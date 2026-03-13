@@ -186,6 +186,53 @@ async function clickElement(
     : "Clicked via pointer events";
 }
 
+async function describeElementForClick(
+  wc: WebContents,
+  selector: string,
+): Promise<{ text: string } | { error: string }> {
+  const result = await wc.executeJavaScript(`
+    (function() {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return { error: "Element not found" };
+      const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
+      return { text: text || "Element" };
+    })()
+  `);
+
+  if (!result || typeof result !== "object") {
+    return { error: "Element not found" };
+  }
+  if ("error" in result && typeof result.error === "string") {
+    return { error: result.error };
+  }
+
+  return {
+    text:
+      "text" in result && typeof result.text === "string"
+        ? result.text
+        : "Element",
+  };
+}
+
+async function clickResolvedSelector(
+  wc: WebContents,
+  selector: string,
+): Promise<string> {
+  const beforeUrl = wc.getURL();
+  const elInfo = await describeElementForClick(wc, selector);
+  if ("error" in elInfo) return `Error: ${elInfo.error}`;
+
+  const clickText = `Clicked: ${elInfo.text}`;
+  const clickResult = await clickElement(wc, selector);
+  if (clickResult.startsWith("Error:")) return clickResult;
+
+  await waitForPotentialNavigation(wc, beforeUrl);
+  const afterUrl = wc.getURL();
+  return afterUrl !== beforeUrl
+    ? `${clickText} -> ${afterUrl}`
+    : `${clickText} (${clickResult})`;
+}
+
 async function dismissPopup(wc: WebContents): Promise<string> {
   const before = await extractContent(wc);
   const initialBlocking = before.overlays.filter(
@@ -1055,7 +1102,7 @@ export async function clickElementBySelector(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
-  return clickElement(wc, selector);
+  return clickResolvedSelector(wc, selector);
 }
 
 export async function submitFormBySelector(
@@ -1263,40 +1310,7 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
-          const beforeUrl = wc.getURL();
-          // Get element info — check if it's a link with an href
-          const elInfo = await wc.executeJavaScript(`
-            (function() {
-              const el = document.querySelector(${JSON.stringify(selector)});
-              if (!el) return { error: 'Element not found with selector: ${selector.replace(/'/g, "\\'")}' };
-              const text = (el.textContent || el.tagName).trim().slice(0, 100);
-              const href = el.tagName === 'A' ? el.href : null;
-              return { text: text, href: href };
-            })()
-          `);
-          if (elInfo.error) return elInfo.error;
-          const clickText = `Clicked: ${elInfo.text}`;
-
-          // For anchor links: use loadURL (browser-initiated = guaranteed history)
-          if (
-            elInfo.href &&
-            elInfo.href !== beforeUrl &&
-            !elInfo.href.startsWith("javascript:") &&
-            !elInfo.href.startsWith("#")
-          ) {
-            wc.loadURL(elInfo.href);
-            await waitForLoad(wc);
-            const afterUrl = wc.getURL();
-            return `${clickText} -> ${afterUrl}`;
-          }
-
-          const clickResult = await clickElement(wc, selector);
-          if (clickResult.startsWith("Error:")) return clickResult;
-          await waitForPotentialNavigation(wc, beforeUrl);
-          const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl
-            ? `${clickText} -> ${afterUrl}`
-            : `${clickText} (${clickResult})`;
+          return clickResolvedSelector(wc, selector);
         }
 
         case "type_text": {

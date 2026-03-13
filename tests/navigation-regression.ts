@@ -73,6 +73,17 @@ async function main(): Promise<void> {
       });
     });
 
+    await runScenario("offscreen anchors auto-scroll before click", async () => {
+      await withTab(`${harness.baseUrl}/offscreen-anchor-source`, async (tab) => {
+        const wc = tab.view.webContents;
+
+        const result = await clickElementBySelector(wc, "#go-offscreen-anchor");
+        assert.match(result, /Clicked: Go to Anchor Dest/);
+        assert.equal(wc.getURL(), `${harness.baseUrl}/anchor-dest`);
+        assert.equal(tab.canGoBack(), true);
+      });
+    });
+
     await runScenario("JS-driven button navigations survive back/forward", async () => {
       await withTab(`${harness.baseUrl}/js-source`, async (tab) => {
         const wc = tab.view.webContents;
