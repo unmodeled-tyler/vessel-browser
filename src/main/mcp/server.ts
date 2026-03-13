@@ -820,10 +820,21 @@ async function pressKey(
       target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
       const tag = target.tagName;
       const type = target instanceof HTMLInputElement ? target.type : '';
-      if (key === 'Enter' &&
-          typeof target.click === 'function' &&
-          (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button')))) {
-        target.click();
+      if (key === 'Enter') {
+        if (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button'))) {
+          target.click();
+        } else if (tag === 'INPUT' || tag === 'TEXTAREA') {
+          const form = target.closest('form');
+          if (form) {
+            if (typeof form.requestSubmit === 'function') {
+              form.requestSubmit();
+            } else {
+              const submitBtn = form.querySelector('[type="submit"]');
+              if (submitBtn) submitBtn.click();
+              else form.submit();
+            }
+          }
+        }
       }
       target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
       return 'Pressed key: ' + key;
@@ -1284,8 +1295,13 @@ function registerTools(
       return withAction(runtime, tabManager, "navigate", { url }, async () => {
         const id = tabManager.getActiveTabId()!;
         tabManager.navigateTab(id, url);
-        await waitForLoad(tab.view.webContents);
-        return `Navigated to ${tab.view.webContents.getURL()}`;
+        const { httpStatus } = await waitForLoadWithStatus(tab.view.webContents);
+        const finalUrl = tab.view.webContents.getURL();
+        const statusNote =
+          httpStatus !== null && httpStatus >= 400
+            ? ` [HTTP ${httpStatus} — page may be missing or unavailable, consider navigating back and trying a different link]`
+            : "";
+        return `Navigated to ${finalUrl}${statusNote}`;
       });
     },
   );
@@ -2997,6 +3013,32 @@ function waitForLoad(wc: Electron.WebContents, timeout = 10000): Promise<void> {
     wc.once("did-stop-loading", () => {
       clearTimeout(timer);
       resolve();
+    });
+  });
+}
+
+function waitForLoadWithStatus(
+  wc: Electron.WebContents,
+  timeout = 10000,
+): Promise<{ httpStatus: number | null }> {
+  return new Promise((resolve) => {
+    let httpStatus: number | null = null;
+    const onNavigate = (_: Electron.Event, _url: string, code: number) => {
+      if (code > 0) httpStatus = code;
+    };
+    wc.on("did-navigate", onNavigate);
+    const finish = () => {
+      wc.removeListener("did-navigate", onNavigate);
+      resolve({ httpStatus });
+    };
+    if (!wc.isLoading()) {
+      finish();
+      return;
+    }
+    const timer = setTimeout(finish, timeout);
+    wc.once("did-stop-loading", () => {
+      clearTimeout(timer);
+      finish();
     });
   });
 }
