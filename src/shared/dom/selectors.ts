@@ -67,6 +67,11 @@ export function generateStableSelector(el: Element): string {
       siblings.length > 1 ? `${tag}:nth-of-type(${index})` : tag,
     );
     current = parent;
+
+    // Stop as soon as the accumulated path is already unique in the document
+    if (uniqueSelector(document, parts.join(" > "))) {
+      break;
+    }
   }
 
   return uniqueSelector(document, parts.join(" > ")) || parts.join(" > ");
