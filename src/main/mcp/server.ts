@@ -1478,6 +1478,48 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_extract_text",
+    {
+      title: "Extract Element Text",
+      description:
+        "Extract the text content of a specific element by its index number or CSS selector.",
+      inputSchema: {
+        index: z
+          .number()
+          .optional()
+          .describe("Element index from the page content listing"),
+        selector: z.string().optional().describe("CSS selector as fallback"),
+      },
+    },
+    async ({ index, selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      const wc = tab.view.webContents;
+      const resolvedSelector = await resolveSelector(wc, index, selector);
+      if (!resolvedSelector) {
+        return asTextResponse("Error: No index or selector provided");
+      }
+      const result = await wc.executeJavaScript(`
+        (function() {
+          const el = document.querySelector(${JSON.stringify(resolvedSelector)});
+          if (!el) return { error: 'Element not found' };
+          const tag = el.tagName.toLowerCase();
+          const text = el.innerText || el.textContent || '';
+          const value = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) ? el.value : null;
+          const attr = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt') || null;
+          return { tag, text: text.trim(), value, attr };
+        })()
+      `);
+      if (result.error) return asTextResponse(`Error: ${result.error}`);
+      const parts: string[] = [`<${result.tag}>`];
+      if (result.value !== null) parts.push(`value: ${result.value}`);
+      if (result.text) parts.push(`text: ${result.text}`);
+      if (result.attr) parts.push(`label: ${result.attr}`);
+      return asTextResponse(parts.join('\n'));
+    },
+  );
+
+  server.registerTool(
     "vessel_type",
     {
       title: "Type Text",
