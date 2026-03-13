@@ -163,6 +163,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   );
   const [newFolderName, setNewFolderName] = createSignal("");
   const [newFolderSummary, setNewFolderSummary] = createSignal("");
+  const [bookmarkSearchQuery, setBookmarkSearchQuery] = createSignal("");
   const [editingFolderId, setEditingFolderId] = createSignal<string | null>(
     null,
   );
@@ -226,6 +227,41 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
         .bookmarks.filter((bookmark) => bookmark.folderId === folder.id)
         .sort((a, b) => b.savedAt.localeCompare(a.savedAt)),
     })),
+  );
+  const normalizedBookmarkSearch = createMemo(() =>
+    bookmarkSearchQuery().trim().toLowerCase(),
+  );
+  const filteredGroupedBookmarks = createMemo(() => {
+    const query = normalizedBookmarkSearch();
+    if (!query) return groupedBookmarks();
+
+    return groupedBookmarks()
+      .map((folder) => {
+        const folderMatches = [folder.name, folder.summary].some(
+          (value) =>
+            typeof value === "string" && value.toLowerCase().includes(query),
+        );
+
+        return {
+          ...folder,
+          items: folderMatches
+            ? folder.items
+            : folder.items.filter((bookmark) =>
+                [bookmark.title, bookmark.url, bookmark.note].some(
+                  (value) =>
+                    typeof value === "string" &&
+                    value.toLowerCase().includes(query),
+                ),
+              ),
+        };
+      })
+      .filter((folder) => folder.items.length > 0);
+  });
+  const bookmarkMatchCount = createMemo(() =>
+    filteredGroupedBookmarks().reduce(
+      (total, folder) => total + folder.items.length,
+      0,
+    ),
   );
   const currentTab = createMemo(() => activeTab());
   const currentTabSaved = createMemo(() => {
@@ -372,6 +408,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   };
 
   const isFolderExpanded = (folderId: string) =>
+    normalizedBookmarkSearch().length > 0 ||
     expandedFolderIds().includes(folderId);
 
   return (
@@ -563,14 +600,22 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               <div>
                 <div class="bookmark-panel-title">Bookmarks</div>
                 <div class="bookmark-panel-subtitle">
-                  {bookmarksState().bookmarks.length} saved across{" "}
-                  {bookmarkFolders().length} folders
+                  {normalizedBookmarkSearch()
+                    ? `${bookmarkMatchCount()} matches for "${bookmarkSearchQuery().trim()}"`
+                    : `${bookmarksState().bookmarks.length} saved across ${bookmarkFolders().length} folders`}
                 </div>
               </div>
               <Show when={currentTabSaved()}>
                 <span class="bookmark-status-pill">Saved</span>
               </Show>
             </div>
+
+            <input
+              class="bookmark-input bookmark-search-input"
+              value={bookmarkSearchQuery()}
+              onInput={(e) => setBookmarkSearchQuery(e.currentTarget.value)}
+              placeholder="Search titles, URLs, notes, and folders"
+            />
 
             <div class="bookmark-save-shell">
               <button
@@ -656,170 +701,181 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             </form>
 
             <div class="bookmark-folder-list">
-              <For each={groupedBookmarks()}>
-                {(folder) => (
-                  <div class="bookmark-folder-section">
-                    <div
-                      class="bookmark-folder-header clickable"
-                      onClick={() => toggleFolderExpanded(folder.id)}
-                      role="button"
-                      tabindex="0"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          toggleFolderExpanded(folder.id);
-                        }
-                      }}
-                    >
-                      <div class="bookmark-folder-overview">
-                        <span
-                          class="bookmark-folder-chevron"
-                          classList={{ expanded: isFolderExpanded(folder.id) }}
-                          aria-hidden="true"
-                        >
-                          ▸
-                        </span>
-                        <div>
-                          <div class="bookmark-folder-name">{folder.name}</div>
-                          <div class="bookmark-folder-meta">
-                            {folder.items.length} saved
-                          </div>
-                          <Show when={folder.summary}>
-                            <div class="bookmark-folder-summary">
-                              {folder.summary}
+              <Show
+                when={filteredGroupedBookmarks().length > 0}
+                fallback={
+                  <div class="bookmark-empty-folder">
+                    {normalizedBookmarkSearch()
+                      ? `No bookmarks matched "${bookmarkSearchQuery().trim()}".`
+                      : "No bookmarks saved yet."}
+                  </div>
+                }
+              >
+                <For each={filteredGroupedBookmarks()}>
+                  {(folder) => (
+                    <div class="bookmark-folder-section">
+                      <div
+                        class="bookmark-folder-header clickable"
+                        onClick={() => toggleFolderExpanded(folder.id)}
+                        role="button"
+                        tabindex="0"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleFolderExpanded(folder.id);
+                          }
+                        }}
+                      >
+                        <div class="bookmark-folder-overview">
+                          <span
+                            class="bookmark-folder-chevron"
+                            classList={{ expanded: isFolderExpanded(folder.id) }}
+                            aria-hidden="true"
+                          >
+                            ▸
+                          </span>
+                          <div>
+                            <div class="bookmark-folder-name">{folder.name}</div>
+                            <div class="bookmark-folder-meta">
+                              {folder.items.length} saved
                             </div>
-                          </Show>
+                            <Show when={folder.summary}>
+                              <div class="bookmark-folder-summary">
+                                {folder.summary}
+                              </div>
+                            </Show>
+                          </div>
                         </div>
+                        <Show when={folder.id !== UNSORTED_FOLDER.id}>
+                          <div class="bookmark-folder-actions">
+                            <button
+                              class="bookmark-ghost-button"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingFolderId(folder.id);
+                                setEditingFolderName(folder.name);
+                                setEditingFolderSummary(folder.summary || "");
+                              }}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              class="bookmark-ghost-button danger"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleRemoveFolder(folder.id);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </Show>
                       </div>
-                      <Show when={folder.id !== UNSORTED_FOLDER.id}>
-                        <div class="bookmark-folder-actions">
+
+                      <Show when={editingFolderId() === folder.id}>
+                        <div class="bookmark-folder-edit">
+                          <div class="bookmark-folder-form-fields">
+                            <input
+                              class="bookmark-input"
+                              value={editingFolderName()}
+                              onInput={(e) =>
+                                setEditingFolderName(e.currentTarget.value)
+                              }
+                            />
+                            <input
+                              class="bookmark-input"
+                              value={editingFolderSummary()}
+                              onInput={(e) =>
+                                setEditingFolderSummary(e.currentTarget.value)
+                              }
+                              placeholder="Optional one-line summary"
+                            />
+                          </div>
+                          <button
+                            class="bookmark-secondary-button"
+                            type="button"
+                            disabled={!editingFolderName().trim()}
+                            onClick={() => void handleRenameFolder(folder.id)}
+                          >
+                            Save
+                          </button>
                           <button
                             class="bookmark-ghost-button"
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingFolderId(folder.id);
-                              setEditingFolderName(folder.name);
-                              setEditingFolderSummary(folder.summary || "");
+                            onClick={() => {
+                              setEditingFolderId(null);
+                              setEditingFolderName("");
+                              setEditingFolderSummary("");
                             }}
                           >
-                            Rename
-                          </button>
-                          <button
-                            class="bookmark-ghost-button danger"
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleRemoveFolder(folder.id);
-                            }}
-                          >
-                            Delete
+                            Cancel
                           </button>
                         </div>
                       </Show>
-                    </div>
 
-                    <Show when={editingFolderId() === folder.id}>
-                      <div class="bookmark-folder-edit">
-                        <div class="bookmark-folder-form-fields">
-                          <input
-                            class="bookmark-input"
-                            value={editingFolderName()}
-                            onInput={(e) =>
-                              setEditingFolderName(e.currentTarget.value)
-                            }
-                          />
-                          <input
-                            class="bookmark-input"
-                            value={editingFolderSummary()}
-                            onInput={(e) =>
-                              setEditingFolderSummary(e.currentTarget.value)
-                            }
-                            placeholder="Optional one-line summary"
-                          />
-                        </div>
-                        <button
-                          class="bookmark-secondary-button"
-                          type="button"
-                          disabled={!editingFolderName().trim()}
-                          onClick={() => void handleRenameFolder(folder.id)}
-                        >
-                          Save
-                        </button>
-                        <button
-                          class="bookmark-ghost-button"
-                          type="button"
-                          onClick={() => {
-                            setEditingFolderId(null);
-                            setEditingFolderName("");
-                            setEditingFolderSummary("");
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </Show>
-
-                    <Show
-                      when={isFolderExpanded(folder.id)}
-                      fallback={
-                        <div class="bookmark-folder-collapsed-hint">
-                          Click to view saved links.
-                        </div>
-                      }
-                    >
                       <Show
-                        when={folder.items.length > 0}
+                        when={isFolderExpanded(folder.id)}
                         fallback={
-                          <div class="bookmark-empty-folder">
-                            No bookmarks in this folder yet.
+                          <div class="bookmark-folder-collapsed-hint">
+                            Click to view saved links.
                           </div>
                         }
                       >
-                        <div class="bookmark-items">
-                          <For each={folder.items}>
-                            {(bookmark) => (
-                              <div class="bookmark-item">
-                                <button
-                                  class="bookmark-item-link"
-                                  type="button"
-                                  onClick={() => void createTab(bookmark.url)}
-                                >
-                                  <span class="bookmark-item-title">
-                                    {bookmark.title || bookmark.url}
-                                  </span>
-                                  <span class="bookmark-item-url">
-                                    {bookmark.url}
-                                  </span>
-                                </button>
-                                <Show when={bookmark.note}>
-                                  <div class="bookmark-item-note">
-                                    {bookmark.note}
-                                  </div>
-                                </Show>
-                                <div class="bookmark-item-footer">
-                                  <span class="bookmark-item-time">
-                                    {formatBookmarkDate(bookmark.savedAt)}
-                                  </span>
+                        <Show
+                          when={folder.items.length > 0}
+                          fallback={
+                            <div class="bookmark-empty-folder">
+                              No bookmarks in this folder yet.
+                            </div>
+                          }
+                        >
+                          <div class="bookmark-items">
+                            <For each={folder.items}>
+                              {(bookmark) => (
+                                <div class="bookmark-item">
                                   <button
-                                    class="bookmark-ghost-button danger"
+                                    class="bookmark-item-link"
                                     type="button"
-                                    onClick={() =>
-                                      void removeBookmark(bookmark.id)
-                                    }
+                                    onClick={() => void createTab(bookmark.url)}
                                   >
-                                    Remove
+                                    <span class="bookmark-item-title">
+                                      {bookmark.title || bookmark.url}
+                                    </span>
+                                    <span class="bookmark-item-url">
+                                      {bookmark.url}
+                                    </span>
                                   </button>
+                                  <Show when={bookmark.note}>
+                                    <div class="bookmark-item-note">
+                                      {bookmark.note}
+                                    </div>
+                                  </Show>
+                                  <div class="bookmark-item-footer">
+                                    <span class="bookmark-item-time">
+                                      {formatBookmarkDate(bookmark.savedAt)}
+                                    </span>
+                                    <button
+                                      class="bookmark-ghost-button danger"
+                                      type="button"
+                                      onClick={() =>
+                                        void removeBookmark(bookmark.id)
+                                      }
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                          </For>
-                        </div>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
                       </Show>
-                    </Show>
-                  </div>
-                )}
-              </For>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </div>
           </section>
 
