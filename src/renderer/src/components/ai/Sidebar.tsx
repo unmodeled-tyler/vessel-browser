@@ -146,7 +146,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     commitResize,
     toggleSidebar,
   } = useUI();
-  const { activeTab, navigate } = useTabs();
+  const { activeTab, createTab } = useTabs();
   const {
     bookmarksState,
     saveBookmark,
@@ -783,7 +783,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                                 <button
                                   class="bookmark-item-link"
                                   type="button"
-                                  onClick={() => navigate(bookmark.url)}
+                                  onClick={() => void createTab(bookmark.url)}
                                 >
                                   <span class="bookmark-item-title">
                                     {bookmark.title || bookmark.url}
