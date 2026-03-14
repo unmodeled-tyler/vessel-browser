@@ -9,6 +9,7 @@ import type {
 
 const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
 const MAX_STRUCTURED_ITEMS = 100; // Limit structured elements to keep context manageable
+const LARGE_PAGE_HINT_THRESHOLD = 12000;
 
 function truncateContent(content: string): string {
   if (content.length <= MAX_CONTENT_LENGTH) return content;
@@ -326,6 +327,19 @@ function formatStructuredEntities(entities: StructuredDataEntity[]): string {
     .join("\n");
 }
 
+function hasOnlyFallbackStructuredData(page: PageContent): boolean {
+  return (
+    (page.structuredData?.length ?? 0) > 0 &&
+    (page.structuredData ?? []).every((entity) => entity.source === "page")
+  );
+}
+
+function formatLargePageHint(page: PageContent): string | null {
+  if (page.content.length < LARGE_PAGE_HINT_THRESHOLD) return null;
+
+  return `Large page detected: ${page.content.length} chars across ${page.headings.length} headings. Prefer summary, results_only, forms_only, or interactives_only before reading raw page text.`;
+}
+
 function formatJsonLd(items: Record<string, unknown>[]): string {
   if (!items || items.length === 0) return "";
 
@@ -627,6 +641,8 @@ export function buildScopedContext(
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       if (page.byline) sections.push(`**Author:** ${page.byline}`);
       if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
+      const largePageHint = formatLargePageHint(page);
+      if (largePageHint) sections.push(`**Reading Hint:** ${largePageHint}`);
       sections.push("");
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
@@ -637,12 +653,16 @@ export function buildScopedContext(
       sections.push(formatHeadings(page.headings));
       sections.push("");
       sections.push(
-        `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.content.length} chars`,
+        `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.headings.length} headings, ${page.content.length} chars`,
       );
       if ((page.structuredData?.length ?? 0) > 0) {
-        sections.push(
-          `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,
-        );
+        if (hasOnlyFallbackStructuredData(page)) {
+          sections.push("Structured data: generic page metadata only");
+        } else {
+          sections.push(
+            `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,
+          );
+        }
       }
       if (page.overlays.length > 0) {
         sections.push(
@@ -839,8 +859,19 @@ export function buildStructuredContext(page: PageContent): string {
     sections.push("");
   }
 
+  const largePageHint = formatLargePageHint(page);
+  if (largePageHint) {
+    sections.push("### Reading Hint");
+    sections.push(largePageHint);
+    sections.push("");
+  }
+
   if (page.structuredData && page.structuredData.length > 0) {
-    sections.push("### Structured Data");
+    sections.push(
+      hasOnlyFallbackStructuredData(page)
+        ? "### Page Metadata"
+        : "### Structured Data",
+    );
     sections.push(formatStructuredEntities(page.structuredData));
     sections.push("");
   } else if (page.jsonLd && page.jsonLd.length > 0) {

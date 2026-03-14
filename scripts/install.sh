@@ -9,6 +9,7 @@ DESKTOP_DIR="${VESSEL_DESKTOP_DIR:-$HOME/.local/share/applications}"
 CONFIG_DIR="${VESSEL_CONFIG_DIR:-$HOME/.config/vessel}"
 SETTINGS_PATH="$CONFIG_DIR/vessel-settings.json"
 MCP_SNIPPET_PATH="$CONFIG_DIR/mcp-http-snippet.json"
+HERMES_SNIPPET_PATH="$CONFIG_DIR/mcp-hermes-snippet.yaml"
 MCP_PORT="${VESSEL_MCP_PORT:-3100}"
 
 info() {
@@ -74,8 +75,74 @@ info "Creating MCP helper at $MCP_HELPER_PATH"
 cat >"$MCP_HELPER_PATH" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-PORT="${MCP_PORT}"
-cat <<JSON
+SETTINGS_PATH="${SETTINGS_PATH}"
+DEFAULT_PORT="${MCP_PORT}"
+FORMAT="json"
+
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in
+    --format)
+      shift
+      FORMAT="\${1:-}"
+      ;;
+    --format=*)
+      FORMAT="\${1#*=}"
+      ;;
+    --hermes)
+      FORMAT="hermes"
+      ;;
+    --json)
+      FORMAT="json"
+      ;;
+    --url)
+      FORMAT="url"
+      ;;
+    --help|-h)
+      cat <<'HELP'
+Usage: vessel-browser-mcp [--format json|hermes|url]
+
+Formats:
+  json    Generic MCP JSON snippet (default)
+  hermes  Hermes config.yaml snippet
+  url     Raw MCP endpoint URL
+HELP
+      exit 0
+      ;;
+    *)
+      printf 'Unknown argument: %s\n' "\$1" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+PORT="\$DEFAULT_PORT"
+if [[ -f "\$SETTINGS_PATH" ]]; then
+  PARSED_PORT=\$(SETTINGS_PATH="\$SETTINGS_PATH" DEFAULT_PORT="\$DEFAULT_PORT" node <<'NODE'
+const fs = require("fs");
+
+const settingsPath = process.env.SETTINGS_PATH;
+const defaultPort = Number(process.env.DEFAULT_PORT) || 3100;
+
+try {
+  const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  const port = Number(parsed?.mcpPort);
+  if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+    process.stdout.write(String(port));
+  } else {
+    process.stdout.write(String(defaultPort));
+  }
+} catch {
+  process.stdout.write(String(defaultPort));
+}
+NODE
+)
+  PORT="\${PARSED_PORT:-\$DEFAULT_PORT}"
+fi
+
+case "\$FORMAT" in
+  json)
+    cat <<JSON
 {
   "mcpServers": {
     "vessel": {
@@ -85,6 +152,24 @@ cat <<JSON
   }
 }
 JSON
+    ;;
+  hermes)
+    cat <<YAML
+mcp_servers:
+  vessel:
+    url: "http://127.0.0.1:\${PORT}/mcp"
+    timeout: 180
+    connect_timeout: 30
+YAML
+    ;;
+  url)
+    printf 'http://127.0.0.1:%s/mcp\n' "\$PORT"
+    ;;
+  *)
+    printf 'Unsupported format: %s\n' "\$FORMAT" >&2
+    exit 1
+    ;;
+esac
 EOF
 chmod +x "$MCP_HELPER_PATH"
 
@@ -148,6 +233,15 @@ cat >"$MCP_SNIPPET_PATH" <<EOF
 }
 EOF
 
+info "Writing Hermes MCP snippet to $HERMES_SNIPPET_PATH"
+cat >"$HERMES_SNIPPET_PATH" <<EOF
+mcp_servers:
+  vessel:
+    url: "http://127.0.0.1:${MCP_PORT}/mcp"
+    timeout: 180
+    connect_timeout: 30
+EOF
+
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
   warn "$BIN_DIR is not on your PATH."
   warn "Add this line to your shell profile if needed:"
@@ -167,8 +261,12 @@ Default MCP endpoint:
 Generic HTTP MCP snippet:
 $(cat "$MCP_SNIPPET_PATH")
 
+Hermes config.yaml snippet:
+$(cat "$HERMES_SNIPPET_PATH")
+
 You can print the snippet any time with:
   $MCP_HELPER_PATH
+  $MCP_HELPER_PATH --format hermes
 
 Notes:
   - Vessel must be running before your harness connects.

@@ -822,13 +822,16 @@ function mergePageContent(
   const normalizedStructuredData =
     mergedBase.structuredData.length > 0
       ? mergedBase.structuredData
-      : extractStructuredDataFromJsonLd(
+        : extractStructuredDataFromJsonLd(
           mergedBase.jsonLd,
           mergedBase.microdata,
           mergedBase.rdfa,
           mergedBase.metaTags,
           mergedBase.title,
           mergedBase.url,
+          mergedBase.excerpt,
+          mergedBase.byline,
+          mergedBase.headings,
         );
 
   const pageIssues = detectPageIssues({

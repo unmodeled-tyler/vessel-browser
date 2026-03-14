@@ -1,4 +1,5 @@
 import type {
+  HeadingStructure,
   StructuredDataEntity,
   StructuredDataObject,
   StructuredDataSource,
@@ -451,6 +452,46 @@ function extractEntityFromMetaTags(
   return [entity];
 }
 
+function extractFallbackPageEntity(
+  pageTitle?: string,
+  pageUrl?: string,
+  pageExcerpt?: string,
+  pageByline?: string,
+  pageHeadings?: HeadingStructure[],
+): StructuredDataEntity[] {
+  const name = trimString(pageTitle, 240);
+  const url = trimString(pageUrl, 500);
+  const description = trimString(pageExcerpt, 320);
+  const headings = (pageHeadings ?? [])
+    .slice(0, 6)
+    .map((heading) => trimString(heading.text, 140))
+    .filter((heading): heading is string => Boolean(heading));
+
+  const attributes: StructuredDataObject = {};
+  const byline = trimString(pageByline, 160);
+  if (byline) {
+    attributes.byline = byline;
+  }
+  if (headings.length > 0) {
+    attributes.headings = headings;
+  }
+
+  if (!name && !url && !description && Object.keys(attributes).length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      source: "page",
+      types: [byline ? "Article" : "WebPage"],
+      name,
+      url,
+      description,
+      attributes,
+    },
+  ];
+}
+
 export function extractStructuredDataFromJsonLd(
   jsonLd: Record<string, unknown>[] | undefined,
   microdata?: Record<string, unknown>[] | undefined,
@@ -458,6 +499,9 @@ export function extractStructuredDataFromJsonLd(
   metaTags?: Record<string, string> | undefined,
   pageTitle?: string,
   pageUrl?: string,
+  pageExcerpt?: string,
+  pageByline?: string,
+  pageHeadings?: HeadingStructure[],
 ): StructuredDataEntity[] {
   const candidates = [
     ...extractEntitiesFromRecords(jsonLd, "json-ld"),
@@ -475,7 +519,17 @@ export function extractStructuredDataFromJsonLd(
     deduped.push(entity);
   }
 
-  return deduped.slice(0, 25);
+  if (deduped.length > 0) {
+    return deduped.slice(0, 25);
+  }
+
+  return extractFallbackPageEntity(
+    pageTitle,
+    pageUrl,
+    pageExcerpt,
+    pageByline,
+    pageHeadings,
+  );
 }
 
 function addIfPresent(

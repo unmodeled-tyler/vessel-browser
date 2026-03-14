@@ -241,6 +241,16 @@ Generic HTTP MCP config:
 }
 ```
 
+Hermes Agent `config.yaml` MCP config:
+
+```yaml
+mcp_servers:
+  vessel:
+    url: "http://127.0.0.1:3100/mcp"
+    timeout: 180
+    connect_timeout: 30
+```
+
 ## Packaging And Releases
 
 For the current MVP, the supported packaged target is:
@@ -274,10 +284,28 @@ Recommended GitHub settings:
 - create the `dev` branch in the remote repository
 - enable branch protection on `main` if you want extra safety against manual direct pushes
 
-The installer also writes that snippet to `~/.config/vessel/mcp-http-snippet.json` and installs a helper command:
+The installer writes both snippets to:
+
+- `~/.config/vessel/mcp-http-snippet.json`
+- `~/.config/vessel/mcp-hermes-snippet.yaml`
+
+It also installs a helper command:
 
 ```bash
 vessel-browser-mcp
+```
+
+Helper examples:
+
+```bash
+# Generic JSON snippet
+vessel-browser-mcp
+
+# Hermes-ready YAML snippet
+vessel-browser-mcp --format hermes
+
+# Raw MCP endpoint URL
+vessel-browser-mcp --format url
 ```
 
 ## Keyboard Shortcuts

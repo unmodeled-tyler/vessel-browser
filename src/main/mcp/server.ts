@@ -1670,9 +1670,13 @@ function registerTools(
           rdfa: pageContent.rdfa?.length ?? 0,
           meta_tags: Object.keys(pageContent.metaTags ?? {}).length,
         };
+        const usedPageFallback =
+          entities.length > 0 && entities.every((entity) => entity.source === "page");
         const message =
           entities.length > 0
-            ? undefined
+            ? usedPageFallback
+              ? "No richer machine-readable schema was detected. Returning a generic page metadata entity synthesized from the current page."
+              : undefined
             : requestedType
               ? `No structured data entities matched type "${type}".`
               : "No structured data entities detected. This page may not expose usable JSON-LD, microdata, RDFa, or high-signal metadata.";
@@ -1684,6 +1688,7 @@ function registerTools(
               title: pageContent.title,
               count: entities.length,
               sources_checked: sourceCounts,
+              used_page_fallback: usedPageFallback,
               message,
               entities,
             },
