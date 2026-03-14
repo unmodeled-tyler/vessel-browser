@@ -72,6 +72,7 @@ PATH_HAS_BIN=0
 
 RUNNING=0
 RUNNING_MATCHES="$(pgrep -af "electron.*vessel-browser|$INSTALL_DIR|Vessel-.*AppImage" || true)"
+RUNNING_MATCHES="$(printf '%s\n' "$RUNNING_MATCHES" | grep -v 'status-installation.sh' | grep -v 'vessel-browser-status' || true)"
 if [[ -n "$RUNNING_MATCHES" ]]; then
   RUNNING=1
 fi
