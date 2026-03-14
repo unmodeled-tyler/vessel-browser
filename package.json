@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "dist": "npm run build && electron-builder --linux",
-    "dist:dir": "npm run build && electron-builder --linux dir",
+    "dist": "npm run build && electron-builder --linux --publish never",
+    "dist:dir": "npm run build && electron-builder --linux dir --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test:navigation-regression": "electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
