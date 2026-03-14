@@ -1,13 +1,30 @@
-import { createSignal, createEffect, type Component } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  createMemo,
+  onCleanup,
+  type Component,
+} from "solid-js";
 import { useTabs } from "../../stores/tabs";
+import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
+import { hasRecentAgentActivity } from "../../lib/agentActivity";
 import "./chrome.css";
 
 const AddressBar: Component = () => {
   const { activeTab, navigate, goBack, goForward, reload } = useTabs();
+  const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings } = useUI();
   const [inputValue, setInputValue] = createSignal("");
+  const [now, setNow] = createSignal(Date.now());
   let inputRef: HTMLInputElement | undefined;
+
+  const ticker = setInterval(() => setNow(Date.now()), 1000);
+  onCleanup(() => clearInterval(ticker));
+
+  const agentIsActive = createMemo(() =>
+    hasRecentAgentActivity(runtimeState(), now()),
+  );
 
   // Sync URL from active tab
   createEffect(() => {
@@ -96,6 +113,18 @@ const AddressBar: Component = () => {
           spellcheck={false}
         />
       </form>
+
+      <div
+        class={`agent-status-badge ${agentIsActive() ? "active" : "inactive"}`}
+        title={
+          agentIsActive()
+            ? "Agent activity detected in the browser"
+            : "No recent agent activity detected"
+        }
+      >
+        <span class="agent-status-dot" aria-hidden="true" />
+        <span>{agentIsActive() ? "Agent Active" : "Agent Inactive"}</span>
+      </div>
 
       <div class="toolbar-actions">
         <button

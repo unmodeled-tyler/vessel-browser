@@ -259,6 +259,7 @@
 .url-form {
     flex: 1;
     display: flex;
+    min-width: 0;
 }
 
 .url-input {
@@ -282,6 +283,53 @@
 
 .url-input::placeholder {
     color: var(--text-muted);
+}
+
+.agent-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: rgba(42, 42, 46, 0.88);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition:
+        border-color 150ms,
+        background 150ms,
+        color 150ms;
+}
+
+.agent-status-badge.active {
+    border-color: rgba(139, 126, 200, 0.28);
+    background: rgba(139, 126, 200, 0.12);
+    color: var(--text-primary);
+}
+
+.agent-status-badge.inactive {
+    border-color: rgba(113, 113, 122, 0.18);
+}
+
+.agent-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.agent-status-badge.active .agent-status-dot {
+    background: var(--accent-primary);
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(139, 126, 200, 0.28);
+    animation: agent-status-pulse 1.8s ease-out infinite;
 }
 
 .toolbar-actions {
@@ -327,4 +375,18 @@
     font-size: 12px;
     line-height: 1.4;
     word-break: break-word;
+}
+
+@keyframes agent-status-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(139, 126, 200, 0.32);
+    }
+
+    70% {
+        box-shadow: 0 0 0 5px rgba(139, 126, 200, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(139, 126, 200, 0);
+    }
 }
