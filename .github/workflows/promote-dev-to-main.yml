@@ -23,12 +23,6 @@ jobs:
         run: |
           gh api repos/${{ github.repository }}/branches/dev > /dev/null
 
-          if ! gh api repos/${{ github.repository }}/branches/main/protection > /dev/null 2>&1; then
-            echo "main branch protection is not configured."
-            echo "Enable required status checks on main before using automated promotion."
-            exit 1
-          fi
-
       - name: Check whether dev is ahead of main
         id: compare
         env:
@@ -63,17 +57,20 @@ jobs:
 
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
-      - name: Enable auto-merge
+      - name: Wait for PR checks to pass
         if: steps.compare.outputs.ahead_by != '0'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
-          auto_merge_enabled=$(gh pr view "$PR_NUMBER" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          gh pr checks "$PR_NUMBER" --watch --fail-fast
 
-          if [ "$auto_merge_enabled" = "true" ]; then
-            echo "Auto-merge is already enabled for PR #$PR_NUMBER."
-            exit 0
-          fi
+      - name: Merge promotion PR
+        if: steps.compare.outputs.ahead_by != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
+        run: |
+          pr_head_sha=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
 
-          gh pr merge "$PR_NUMBER" --auto --merge
+          gh pr merge "$PR_NUMBER" --merge --match-head-commit "$pr_head_sha"

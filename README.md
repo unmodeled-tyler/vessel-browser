@@ -266,15 +266,13 @@ Recommended branch flow:
 - `dev` is the day-to-day branch for active work
 - every push to `dev` runs the preview AppImage workflow and updates the rolling `edge` prerelease
 - `main` stays stable for users
-- a scheduled workflow on `main` opens or refreshes a `dev -> main` PR once per day and enables auto-merge
+- a scheduled workflow on `main` opens or refreshes a `dev -> main` PR once per day, waits for PR checks, and merges only if they pass
 - `v*` tags on `main` still produce official stable releases
 
-One-time GitHub settings:
+Recommended GitHub settings:
 
 - create the `dev` branch in the remote repository
-- enable branch protection on `main`
-- require the relevant status checks on `main` before merge
-- enable repository auto-merge so the scheduled promotion PR can merge itself after checks pass
+- enable branch protection on `main` if you want extra safety against manual direct pushes
 
 The installer also writes that snippet to `~/.config/vessel/mcp-http-snippet.json` and installs a helper command:
 
