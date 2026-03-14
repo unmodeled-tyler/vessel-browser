@@ -1,0 +1,67 @@
+name: Preview Build
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: preview-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview-appimage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Smoke test
+        run: xvfb-run -a npm run smoke:test
+
+      - name: Build AppImage
+        run: npm run dist
+
+      - name: Generate checksums
+        run: sha256sum dist/*.AppImage > dist/SHASUMS256.txt
+
+      - name: Upload preview artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vessel-preview-main
+          retention-days: 14
+          path: |
+            dist/*.AppImage
+            dist/SHASUMS256.txt
+
+      - name: Publish rolling preview release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: edge
+          target_commitish: ${{ github.sha }}
+          name: Vessel Preview (main)
+          prerelease: true
+          make_latest: false
+          body: |
+            Rolling preview build from `main`.
+
+            Commit: `${{ github.sha }}`
+
+            This prerelease is updated automatically on every push to `main`.
+          files: |
+            dist/*.AppImage
+            dist/SHASUMS256.txt
