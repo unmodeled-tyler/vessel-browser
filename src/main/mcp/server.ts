@@ -13,6 +13,7 @@ import {
   type ExtractMode,
 } from "../ai/context-builder";
 import { extractContent } from "../content/extractor";
+import { getRecoverableAccessIssue } from "../content/page-access-issues";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
@@ -645,7 +646,10 @@ function getTabByMatch(tabManager: TabManager, match: string) {
   );
 }
 
-function getPostActionState(tabManager: TabManager, name: string): string {
+async function getPostActionState(
+  tabManager: TabManager,
+  name: string,
+): Promise<string> {
   // Append state context for navigation/interaction actions
   const tab = tabManager.getActiveTab();
   if (!tab) return "";
@@ -658,12 +662,41 @@ function getPostActionState(tabManager: TabManager, name: string): string {
     "click",
     "submit_form",
     "reload",
+    "press_key",
   ];
-  const interactActions = ["type", "type_text", "select_option", "press_key"];
+  const interactActions = ["type", "type_text", "select_option"];
   const tabActions = ["create_tab", "switch_tab", "close_tab"];
 
   if (navActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    let warning = "";
+
+    try {
+      const page = await extractContent(wc);
+      const issue = getRecoverableAccessIssue(page);
+      if (issue) {
+        const blockedUrl = wc.getURL();
+        const canRecover =
+          [
+            "navigate",
+            "open_bookmark",
+            "click",
+            "submit_form",
+            "reload",
+            "press_key",
+          ].includes(name) && tab.canGoBack();
+
+        if (canRecover && tab.goBack()) {
+          await waitForLoad(wc);
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""} Automatically returned to ${wc.getURL()} after landing on ${blockedUrl}.]`;
+        } else {
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
+        }
+      }
+    } catch {
+      // Best-effort post-action warning only
+    }
+
+    return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
@@ -695,7 +728,7 @@ async function withAction(
       dangerous: isDangerousAction(name),
       executor,
     });
-    const stateInfo = getPostActionState(tabManager, name);
+    const stateInfo = await getPostActionState(tabManager, name);
     return asTextResponse(result + stateInfo);
   } catch (error) {
     return asTextResponse(

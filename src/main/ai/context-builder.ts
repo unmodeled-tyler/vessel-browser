@@ -4,6 +4,7 @@ import type {
   HeadingStructure,
   StructuredDataEntity,
   StructuredDataValue,
+  PageIssue,
 } from "../../shared/types";
 
 const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
@@ -253,6 +254,23 @@ function formatDormantOverlays(
       if (overlay.label) parts.push(`label="${overlay.label.slice(0, 80)}"`);
       if (overlay.text) parts.push(`text="${overlay.text.slice(0, 100)}"`);
       return parts.join(" ");
+    })
+    .join("\n");
+}
+
+function formatPageIssues(issues: PageIssue[]): string {
+  if (issues.length === 0) return "None detected";
+
+  return limitItems(issues, 3)
+    .map((issue) => {
+      const lines = [`- ${issue.summary}`];
+      if (issue.detail) {
+        lines.push(`  detail: ${issue.detail}`);
+      }
+      if (issue.recommendation) {
+        lines.push(`  recommendation: ${issue.recommendation}`);
+      }
+      return lines.join("\n");
     })
     .join("\n");
 }
@@ -553,6 +571,11 @@ export function buildScopedContext(
       if (page.byline) sections.push(`**Author:** ${page.byline}`);
       if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       sections.push("### Document Outline");
       sections.push(formatHeadings(page.headings));
       sections.push("");
@@ -583,6 +606,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
@@ -613,6 +641,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
@@ -638,6 +671,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       const truncated =
         page.content.length > 60000
           ? page.content.slice(0, 60000) + "\n[Content truncated...]"
@@ -660,6 +698,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
@@ -700,6 +743,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      if ((page.pageIssues?.length ?? 0) > 0) {
+        sections.push("### Page Access Warnings");
+        sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
       if (resultElements.length > 0) {
         sections.push(`### Likely Search Results (${resultElements.length})`);
         sections.push(formatInteractiveElements(resultElements));
@@ -727,6 +775,12 @@ export function buildStructuredContext(page: PageContent): string {
   if (page.byline) sections.push(`**Author:** ${page.byline}`);
   if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
   sections.push("");
+
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
 
   if (page.structuredData && page.structuredData.length > 0) {
     sections.push("### Structured Data");

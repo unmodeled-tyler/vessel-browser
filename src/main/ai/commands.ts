@@ -69,6 +69,8 @@ Instructions:
 - Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.
 - After clicking or navigating, use read_page to see the updated content.
 - If a page behaves abnormally or key UI fails to load, consider disabling ad blocking for that tab and reloading before retrying.
+- For broad discovery tasks, prefer direct sources, official sites, venue directories, and site-specific search over generic search engines, which often rate-limit automated browser traffic.
+- If the page context reports a rate limit, human verification, or access warning, stop using that page and switch to a different source.
 - Reference interactive elements by their index number (shown as [#N] in the listings above).
 - Be concise. Explain what you're doing as you go.
 - For simple questions about the page, just answer directly without using tools.`;
