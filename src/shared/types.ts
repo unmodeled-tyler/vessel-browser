@@ -45,6 +45,26 @@ export interface SemanticSection {
   elements: InteractiveElement[];
 }
 
+export type StructuredDataPrimitive = string | number | boolean | null;
+
+export interface StructuredDataObject {
+  [key: string]: StructuredDataValue;
+}
+
+export type StructuredDataValue =
+  | StructuredDataPrimitive
+  | StructuredDataObject
+  | StructuredDataValue[];
+
+export interface StructuredDataEntity {
+  source: "json-ld";
+  types: string[];
+  name?: string;
+  url?: string;
+  description?: string;
+  attributes: StructuredDataObject;
+}
+
 export interface PageContent {
   title: string;
   content: string;
@@ -89,6 +109,7 @@ export interface PageContent {
     text?: string;
   }>;
   jsonLd?: Record<string, unknown>[];
+  structuredData?: StructuredDataEntity[];
 }
 
 export interface AIMessage {
