@@ -1808,20 +1808,66 @@ function registerTools(
       }
       const result = await wc.executeJavaScript(`
         (function() {
-          const el = document.querySelector(${JSON.stringify(resolvedSelector)});
-          if (!el) return { error: 'Element not found' };
-          const tag = el.tagName.toLowerCase();
-          const text = el.innerText || el.textContent || '';
-          const value = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) ? el.value : null;
-          const attr = el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt') || null;
-          return { tag, text: text.trim(), value, attr };
+          try {
+            const el = document.querySelector(${JSON.stringify(resolvedSelector)});
+            if (!el) return { error: 'Element not found' };
+
+            const tag =
+              typeof el.tagName === 'string' ? el.tagName.toLowerCase() : 'unknown';
+            const text =
+              el instanceof HTMLElement
+                ? (el.innerText || el.textContent || '')
+                : (el.textContent || '');
+            const value =
+              el instanceof HTMLInputElement ||
+              el instanceof HTMLTextAreaElement ||
+              el instanceof HTMLSelectElement
+                ? el.value
+                : null;
+            const attr =
+              el.getAttribute('aria-label') ||
+              el.getAttribute('title') ||
+              el.getAttribute('alt') ||
+              null;
+            const role = el.getAttribute('role') || null;
+
+            return {
+              tag,
+              role,
+              text: String(text || '').trim(),
+              value: value == null ? null : String(value),
+              attr: attr == null ? null : String(attr),
+            };
+          } catch (error) {
+            return {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Element text extraction failed',
+            };
+          }
         })()
       `);
-      if (result.error) return asTextResponse(`Error: ${result.error}`);
+      if (!result || typeof result !== "object") {
+        return asTextResponse("Error: Element text extraction returned no result");
+      }
+      if ("error" in result && typeof result.error === "string") {
+        return asTextResponse(`Error: ${result.error}`);
+      }
       const parts: string[] = [`<${result.tag}>`];
+      if (
+        "role" in result &&
+        typeof result.role === "string" &&
+        result.role.trim()
+      ) {
+        parts.push(`role: ${result.role}`);
+      }
       if (result.value !== null) parts.push(`value: ${result.value}`);
       if (result.text) parts.push(`text: ${result.text}`);
       if (result.attr) parts.push(`label: ${result.attr}`);
+      if (parts.length === 1) {
+        parts.push("No readable text, value, or label found on this element.");
+      }
       return asTextResponse(parts.join('\n'));
     },
   );

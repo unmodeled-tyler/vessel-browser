@@ -426,6 +426,37 @@ function normalizeUrlForMatch(value?: string): string | null {
   }
 }
 
+function getUrlPathSegments(value?: string): string[] {
+  if (!value) return [];
+
+  try {
+    return new URL(value).pathname.split("/").filter(Boolean);
+  } catch {
+    return value
+      .split("?")[0]
+      .split("#")[0]
+      .split("/")
+      .filter(Boolean);
+  }
+}
+
+function isSearchOrListingPage(page: PageContent): boolean {
+  const haystack = normalizeComparable(
+    [
+      page.url,
+      page.title,
+      page.excerpt,
+      page.headings.map((heading) => heading.text).join(" "),
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return /\b(search|results|find|discover|browse|repositories|repository|issues|pull requests|prs|users|events|listings)\b/.test(
+    haystack,
+  );
+}
+
 function collectJsonLdEntityItems(
   input: unknown,
   results: Record<string, unknown>[] = [],
@@ -479,6 +510,7 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
   );
 
   const pageHost = normalizeUrlForMatch(page.url);
+  const searchOrListingPage = isSearchOrListingPage(page);
 
   const scored = page.interactiveElements
     .filter(
@@ -518,7 +550,23 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
         }
       }
 
+      const hrefSegments = getUrlPathSegments(element.href);
+      if (hrefSegments.length >= 2) score += 1;
+      if (text.includes("/")) score += 1;
+
+      if (
+        searchOrListingPage &&
+        (element.context === "article" ||
+          element.context === "main" ||
+          element.context === "content")
+      ) {
+        score += 2;
+      }
+
       if (/\b(card|tile|result|rating|review)\b/.test(haystack)) score += 1;
+      if (/\b(item|list|row|repo|repository|issue|pull request|event)\b/.test(haystack)) {
+        score += 1;
+      }
       if (text.length >= 12 && text.split(/\s+/).length >= 2) score += 1;
 
       if (
@@ -532,7 +580,7 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       }
 
       if (
-        /\b(home|menu|about|contact|privacy|terms|login|sign in|sign up|subscribe|newsletter|facebook|instagram|pinterest|share|print)\b/.test(
+        /\b(home|menu|about|contact|privacy|terms|login|sign in|sign up|subscribe|newsletter|facebook|instagram|pinterest|share|print|next|previous|prev|sort|filter|star|sponsor)\b/.test(
           comparableText,
         )
       ) {
@@ -543,6 +591,15 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
     })
     .filter(({ score, element }) => {
       if (entityItems.length > 0) return score >= 4;
+      if (searchOrListingPage) {
+        return (
+          score >= 4 ||
+          (score >= 3 &&
+            (element.context === "article" ||
+              element.context === "main" ||
+              element.context === "content"))
+        );
+      }
       return score >= 4 || (score >= 3 && element.context === "article");
     })
     .sort((a, b) => b.score - a.score || (a.element.index ?? 0) - (b.element.index ?? 0));
