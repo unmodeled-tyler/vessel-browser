@@ -2,12 +2,31 @@ import type {
   ActionSource,
   AgentActionEntry,
   AgentRuntimeState,
+  AgentTranscriptEntry,
 } from "../../../shared/types";
 
 export const AGENT_ACTIVITY_WINDOW_MS = 6000;
 
 function isAgentActionSource(source: ActionSource): boolean {
   return source === "ai" || source === "mcp";
+}
+
+function isAgentTranscriptActive(
+  entry: AgentTranscriptEntry,
+  currentTime: number,
+): boolean {
+  if (!isAgentActionSource(entry.source)) return false;
+
+  if (entry.status === "streaming") {
+    const updatedAt = new Date(entry.updatedAt).getTime();
+    if (Number.isNaN(updatedAt)) return true;
+    return currentTime - updatedAt < AGENT_ACTIVITY_WINDOW_MS;
+  }
+
+  const updatedAt = new Date(entry.updatedAt).getTime();
+  if (Number.isNaN(updatedAt)) return false;
+
+  return currentTime - updatedAt < AGENT_ACTIVITY_WINDOW_MS;
 }
 
 function isAgentActionActive(
@@ -34,7 +53,10 @@ export function hasRecentAgentActivity(
   state: AgentRuntimeState,
   currentTime = Date.now(),
 ): boolean {
-  return state.actions.some((action) => isAgentActionActive(action, currentTime));
+  return (
+    state.actions.some((action) => isAgentActionActive(action, currentTime)) ||
+    state.transcript.some((entry) => isAgentTranscriptActive(entry, currentTime))
+  );
 }
 
 export function getAgentActiveTabIds(

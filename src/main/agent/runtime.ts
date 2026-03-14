@@ -60,6 +60,14 @@ function summarizeText(value: string): string {
   return value.length > 240 ? `${value.slice(0, 237)}...` : value;
 }
 
+function humanizeActionName(name: string): string {
+  return name
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function getRuntimeStatePath(): string {
   return path.join(app.getPath("userData"), "vessel-agent-runtime.json");
 }
@@ -240,11 +248,38 @@ export class AgentRuntime {
       args,
       tabId,
     });
+    const transcriptStreamId = `action:${action.id}`;
+    const transcriptTitle = humanizeActionName(name);
+
+    this.publishTranscript({
+      source,
+      kind: "status",
+      title: transcriptTitle,
+      text: `Starting ${transcriptTitle.toLowerCase()}.`,
+      streamId: transcriptStreamId,
+      mode: "replace",
+    });
 
     const approvalReason = this.getApprovalReason(dangerous);
     if (approvalReason) {
+      this.publishTranscript({
+        source,
+        kind: "status",
+        title: transcriptTitle,
+        text: `Waiting for approval: ${approvalReason}.`,
+        streamId: transcriptStreamId,
+        mode: "replace",
+      });
       const approved = await this.awaitApproval(action, approvalReason);
       if (!approved) {
+        this.publishTranscript({
+          source,
+          kind: "status",
+          title: transcriptTitle,
+          text: `Rejected: ${approvalReason}.`,
+          streamId: transcriptStreamId,
+          mode: "final",
+        });
         return `Action rejected: ${name}`;
       }
     }
@@ -253,10 +288,26 @@ export class AgentRuntime {
       status: "running",
       error: undefined,
     });
+    this.publishTranscript({
+      source,
+      kind: "status",
+      title: transcriptTitle,
+      text: `Running ${transcriptTitle.toLowerCase()}.`,
+      streamId: transcriptStreamId,
+      mode: "replace",
+    });
 
     try {
       const result = await executor();
       this.finishAction(action.id, "completed", summarizeText(result));
+      this.publishTranscript({
+        source,
+        kind: "status",
+        title: transcriptTitle,
+        text: summarizeText(result),
+        streamId: transcriptStreamId,
+        mode: "final",
+      });
       this.captureSession();
       return result;
     } catch (error) {
@@ -264,6 +315,14 @@ export class AgentRuntime {
         error instanceof Error ? error.message : "Unknown action failure";
       this.state.supervisor.lastError = message;
       this.finishAction(action.id, "failed", undefined, message);
+      this.publishTranscript({
+        source,
+        kind: "status",
+        title: transcriptTitle,
+        text: `Failed: ${summarizeText(message)}`,
+        streamId: transcriptStreamId,
+        mode: "final",
+      });
       throw error;
     }
   }
