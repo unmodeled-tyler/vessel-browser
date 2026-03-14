@@ -2,6 +2,8 @@ import type {
   PageContent,
   InteractiveElement,
   HeadingStructure,
+  StructuredDataEntity,
+  StructuredDataValue,
 } from "../../shared/types";
 
 const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
@@ -251,6 +253,57 @@ function formatDormantOverlays(
       if (overlay.label) parts.push(`label="${overlay.label.slice(0, 80)}"`);
       if (overlay.text) parts.push(`text="${overlay.text.slice(0, 100)}"`);
       return parts.join(" ");
+    })
+    .join("\n");
+}
+
+function formatStructuredValue(
+  value: StructuredDataValue,
+  depth = 0,
+): string {
+  if (value == null) return "";
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const rendered = value
+      .map((item) => formatStructuredValue(item, depth + 1))
+      .filter(Boolean)
+      .slice(0, depth === 0 ? 8 : 5);
+    return rendered.join(depth === 0 ? ", " : " | ");
+  }
+  const entries = Object.entries(value)
+    .slice(0, 6)
+    .map(([key, entry]) => `${key}: ${formatStructuredValue(entry, depth + 1)}`)
+    .filter((entry) => !entry.endsWith(": "));
+  return entries.join(", ");
+}
+
+function formatStructuredEntities(entities: StructuredDataEntity[]): string {
+  if (entities.length === 0) return "None detected";
+
+  return limitItems(entities, 12)
+    .map((entity) => {
+      const lines: string[] = [];
+      const label = entity.name || entity.url || "Unnamed entity";
+      lines.push(`- [${entity.types.join(", ")}] ${label}`);
+      if (entity.description) {
+        lines.push(`  description: ${entity.description.slice(0, 180)}`);
+      }
+      if (entity.url && entity.url !== entity.name) {
+        lines.push(`  url: ${entity.url}`);
+      }
+      for (const [key, value] of Object.entries(entity.attributes).slice(0, 8)) {
+        const rendered = formatStructuredValue(value);
+        if (rendered) {
+          lines.push(`  ${key}: ${rendered}`);
+        }
+      }
+      return lines.join("\n");
     })
     .join("\n");
 }
@@ -506,6 +559,11 @@ export function buildScopedContext(
       sections.push(
         `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.content.length} chars`,
       );
+      if ((page.structuredData?.length ?? 0) > 0) {
+        sections.push(
+          `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,
+        );
+      }
       if (page.overlays.length > 0) {
         sections.push(
           `Blocking overlays: ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
@@ -670,10 +728,14 @@ export function buildStructuredContext(page: PageContent): string {
   if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
   sections.push("");
 
-  // Structured data (JSON-LD)
-  if (page.jsonLd && page.jsonLd.length > 0) {
-    sections.push("### Structured Data (JSON-LD)");
+  if (page.structuredData && page.structuredData.length > 0) {
+    sections.push("### Structured Data");
+    sections.push(formatStructuredEntities(page.structuredData));
+    sections.push("");
+  } else if (page.jsonLd && page.jsonLd.length > 0) {
+    sections.push("### Structured Data (Raw JSON-LD)");
     sections.push(formatJsonLd(page.jsonLd));
+    sections.push("");
   }
 
   // Headings

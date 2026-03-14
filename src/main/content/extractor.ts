@@ -1,5 +1,6 @@
 import type { WebContents } from "electron";
 import type { PageContent } from "../../shared/types";
+import { extractStructuredDataFromJsonLd } from "./structured-data";
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -22,6 +23,7 @@ const EMPTY_PAGE_CONTENT: PageContent = {
   dormantOverlays: [],
   landmarks: [],
   jsonLd: [],
+  structuredData: [],
 };
 
 const PRELOAD_EXTRACTION_SCRIPT = String.raw`
@@ -793,10 +795,17 @@ function mergePageContent(
     dormantOverlays: bestArray(pages.map((page) => page.dormantOverlays)),
     landmarks: bestArray(pages.map((page) => page.landmarks)),
     jsonLd: bestArray(pages.map((page) => page.jsonLd ?? [])),
+    structuredData: bestArray(pages.map((page) => page.structuredData ?? [])),
   };
+
+  const normalizedStructuredData =
+    mergedBase.structuredData.length > 0
+      ? mergedBase.structuredData
+      : extractStructuredDataFromJsonLd(mergedBase.jsonLd);
 
   return {
     ...mergedBase,
+    structuredData: normalizedStructuredData,
     title: mergedBase.title || webContents.getTitle() || "",
     url: mergedBase.url || webContents.getURL() || "",
   };
@@ -861,5 +870,8 @@ function normalizePageContent(value: unknown): PageContent {
       : [],
     landmarks: Array.isArray(page.landmarks) ? page.landmarks : [],
     jsonLd: Array.isArray(page.jsonLd) ? page.jsonLd : [],
+    structuredData: Array.isArray(page.structuredData)
+      ? page.structuredData
+      : [],
   };
 }

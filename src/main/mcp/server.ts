@@ -1490,6 +1490,55 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_extract_structured_data",
+    {
+      title: "Extract Structured Data",
+      description:
+        "Return normalized structured data derived from page JSON-LD schema markup. Useful for recipes, products, articles, events, FAQs, and other schema-rich pages.",
+      inputSchema: {
+        type: z
+          .string()
+          .optional()
+          .describe(
+            "Optional schema type filter, for example Recipe, Product, Article, Event, or FAQPage",
+          ),
+      },
+    },
+    async ({ type }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+
+      try {
+        const pageContent = await extractContent(tab.view.webContents);
+        const requestedType =
+          typeof type === "string" && type.trim() ? type.trim().toLowerCase() : "";
+        const entities = (pageContent.structuredData ?? []).filter((entity) =>
+          requestedType
+            ? entity.types.some((entry) => entry.toLowerCase() === requestedType)
+            : true,
+        );
+
+        return asTextResponse(
+          JSON.stringify(
+            {
+              url: pageContent.url,
+              title: pageContent.title,
+              count: entities.length,
+              entities,
+            },
+            null,
+            2,
+          ),
+        );
+      } catch (error) {
+        return asTextResponse(
+          `Error extracting structured data: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+      }
+    },
+  );
+
+  server.registerTool(
     "vessel_go_back",
     {
       title: "Go Back",
