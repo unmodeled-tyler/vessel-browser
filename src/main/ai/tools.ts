@@ -431,6 +431,12 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
           type: "string",
           description: "Optional note about why the page was saved",
         },
+        onDuplicate: {
+          type: "string",
+          enum: ["ask", "update", "duplicate"],
+          description:
+            'How to handle an existing bookmark with the same URL in the same folder: "ask" (default), "update", or "duplicate".',
+        },
       },
     },
   },

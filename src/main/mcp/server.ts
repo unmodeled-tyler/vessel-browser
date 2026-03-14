@@ -147,6 +147,14 @@ function composeFolderAwareResponse(
   return `${prefix}${message}\n${formatFolderStatus()}`;
 }
 
+function composeDuplicateBookmarkResponse(args: {
+  url: string;
+  folderName: string;
+  bookmarkId: string;
+}): string {
+  return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with on_duplicate="update" to refresh the existing bookmark or on_duplicate="duplicate" to keep both entries.`;
+}
+
 function waitForPotentialNavigation(
   wc: Electron.WebContents,
   beforeUrl: string,
@@ -2382,6 +2390,12 @@ function registerTools(
           .string()
           .optional()
           .describe("Optional note about why this was bookmarked"),
+        on_duplicate: z
+          .enum(["ask", "update", "duplicate"])
+          .optional()
+          .describe(
+            'How to handle an existing bookmark with the same URL in the same folder: "ask" (default), "update", or "duplicate"',
+          ),
       },
     },
     async ({
@@ -2392,6 +2406,7 @@ function registerTools(
       folder_summary,
       create_folder_if_missing,
       note,
+      on_duplicate,
     }) => {
       return withAction(
         runtime,
@@ -2415,14 +2430,32 @@ function registerTools(
           });
           if (target.error) return target.error;
 
-          const bookmark = bookmarkManager.saveBookmark(
+          const result = bookmarkManager.saveBookmarkWithPolicy(
             url,
             title,
             target.folderId,
             note,
+            { onDuplicate: on_duplicate ?? "ask" },
           );
+          if (result.status === "conflict" && result.existing) {
+            return composeFolderAwareResponse(
+              composeDuplicateBookmarkResponse({
+                url,
+                folderName: describeFolder(target.folderId),
+                bookmarkId: result.existing.id,
+              }),
+              target.createdFolder,
+            );
+          }
+
+          const bookmark = result.bookmark;
+          if (!bookmark) {
+            return "Error: Bookmark save failed";
+          }
+
+          const verb = result.status === "updated" ? "Updated" : "Saved";
           return composeFolderAwareResponse(
-            `Saved "${bookmark.title}" (${bookmark.url}) to "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
+            `${verb} "${bookmark.title}" (${bookmark.url}) in "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
             target.createdFolder,
           );
         },

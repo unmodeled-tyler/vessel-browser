@@ -997,6 +997,14 @@ function describeFolder(folderId?: string): string {
   return bookmarkManager.getFolder(folderId)?.name ?? folderId;
 }
 
+function composeDuplicateBookmarkResponse(args: {
+  url: string;
+  folderName: string;
+  bookmarkId: string;
+}): string {
+  return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with onDuplicate="update" to refresh the existing bookmark or onDuplicate="duplicate" to keep both entries.`;
+}
+
 function composeFolderAwareResponse(
   message: string,
   createdFolder?: string,
@@ -1671,14 +1679,33 @@ export async function executeAction(
             typeof args.note === "string" && args.note.trim()
               ? args.note.trim()
               : undefined;
-          const bookmark = bookmarkManager.saveBookmark(
+          const onDuplicate =
+            typeof args.onDuplicate === "string" &&
+            ["ask", "update", "duplicate"].includes(args.onDuplicate)
+              ? (args.onDuplicate as bookmarkManager.DuplicateBookmarkPolicy)
+              : "ask";
+          const result = bookmarkManager.saveBookmarkWithPolicy(
             url,
             title,
             target.folderId,
             note,
+            { onDuplicate },
           );
+          if (result.status === "conflict" && result.existing) {
+            return composeFolderAwareResponse(
+              composeDuplicateBookmarkResponse({
+                url,
+                folderName: describeFolder(target.folderId),
+                bookmarkId: result.existing.id,
+              }),
+              target.createdFolder,
+            );
+          }
+          const bookmark = result.bookmark;
+          if (!bookmark) return "Error: Bookmark save failed";
+          const verb = result.status === "updated" ? "Updated" : "Saved";
           return composeFolderAwareResponse(
-            `Saved "${bookmark.title}" (${bookmark.url}) to "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
+            `${verb} "${bookmark.title}" (${bookmark.url}) in "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
             target.createdFolder,
           );
         }
