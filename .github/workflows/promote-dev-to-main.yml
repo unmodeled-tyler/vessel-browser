@@ -12,6 +12,8 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
     permissions:
       contents: write
       pull-requests: write
@@ -41,16 +43,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pr_number=$(gh pr list --state open --base main --head dev --json number --jq '.[0].number // empty')
+          pr_number=$(gh pr list --repo "$GH_REPO" --state open --base main --head dev --json number --jq '.[0].number // empty')
 
           if [ -z "$pr_number" ]; then
             gh pr create \
+              --repo "$GH_REPO" \
               --base main \
               --head dev \
               --title "Promote dev to main" \
               --body "Automated daily promotion PR from \`dev\` to \`main\`.\n\nThis PR is created by \`.github/workflows/promote-dev-to-main.yml\` and is intended to auto-merge once required checks pass."
 
-            pr_number=$(gh pr list --state open --base main --head dev --json number --jq '.[0].number // empty')
+            pr_number=$(gh pr list --repo "$GH_REPO" --state open --base main --head dev --json number --jq '.[0].number // empty')
           else
             echo "Using existing promotion PR #$pr_number"
           fi
@@ -63,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
-          gh pr checks "$PR_NUMBER" --watch --fail-fast
+          gh pr checks --repo "$GH_REPO" "$PR_NUMBER" --watch --fail-fast
 
       - name: Merge promotion PR
         if: steps.compare.outputs.ahead_by != '0'
@@ -71,6 +74,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
-          pr_head_sha=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
+          pr_head_sha=$(gh pr view --repo "$GH_REPO" "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
 
-          gh pr merge "$PR_NUMBER" --merge --match-head-commit "$pr_head_sha"
+          gh pr merge --repo "$GH_REPO" "$PR_NUMBER" --merge --match-head-commit "$pr_head_sha"
