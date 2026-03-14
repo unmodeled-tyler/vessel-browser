@@ -11,6 +11,8 @@ LAUNCHER_PATH="$BIN_DIR/vessel-browser"
 STATUS_HELPER_PATH="$BIN_DIR/vessel-browser-status"
 DEFAULT_PORT="${VESSEL_MCP_PORT:-3100}"
 FORMAT="text"
+ELECTRON_PATH="$INSTALL_DIR/node_modules/electron/dist/electron"
+CHROME_SANDBOX_PATH="$INSTALL_DIR/node_modules/electron/dist/chrome-sandbox"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -72,7 +74,7 @@ PATH_HAS_BIN=0
 
 RUNNING=0
 RUNNING_MATCHES="$(pgrep -af "electron.*vessel-browser|$INSTALL_DIR|Vessel-.*AppImage" || true)"
-RUNNING_MATCHES="$(printf '%s\n' "$RUNNING_MATCHES" | grep -v 'status-installation.sh' | grep -v 'vessel-browser-status' || true)"
+RUNNING_MATCHES="$(printf '%s\n' "$RUNNING_MATCHES" | grep -Ev 'status-installation\.sh|vessel-browser-status|update-installation\.sh|vessel-browser-update|launch-installation\.sh|vessel-browser-launch|pgrep -af' || true)"
 if [[ -n "$RUNNING_MATCHES" ]]; then
   RUNNING=1
 fi
@@ -162,6 +164,51 @@ elif [[ ${#APPIMAGE_CANDIDATES[@]} -gt 0 ]]; then
   INSTALL_KIND="appimage"
 fi
 
+PREFERRED_APPIMAGE=""
+PREFERRED_APPIMAGE_MTIME=0
+for candidate in "${APPIMAGE_CANDIDATES[@]}"; do
+  candidate_mtime="$(stat -c '%Y' "$candidate" 2>/dev/null || printf '0')"
+  if (( candidate_mtime >= PREFERRED_APPIMAGE_MTIME )); then
+    PREFERRED_APPIMAGE="$candidate"
+    PREFERRED_APPIMAGE_MTIME="$candidate_mtime"
+  fi
+done
+
+SOURCE_LAUNCH_READY=0
+SOURCE_LAUNCH_ISSUE=""
+CHROME_SANDBOX_EXISTS=0
+CHROME_SANDBOX_OWNER=""
+CHROME_SANDBOX_MODE=""
+CHROME_SANDBOX_SETUID=0
+
+if [[ -e "$CHROME_SANDBOX_PATH" ]]; then
+  CHROME_SANDBOX_EXISTS=1
+  CHROME_SANDBOX_OWNER="$(stat -c '%u' "$CHROME_SANDBOX_PATH" 2>/dev/null || true)"
+  CHROME_SANDBOX_MODE="$(stat -c '%a' "$CHROME_SANDBOX_PATH" 2>/dev/null || true)"
+  if [[ -u "$CHROME_SANDBOX_PATH" ]]; then
+    CHROME_SANDBOX_SETUID=1
+  fi
+fi
+
+if [[ "$SOURCE_INSTALL" -eq 1 && -x "$ELECTRON_PATH" ]]; then
+  if [[ "$CHROME_SANDBOX_EXISTS" -eq 1 && "$CHROME_SANDBOX_OWNER" == "0" && "$CHROME_SANDBOX_SETUID" -eq 1 ]]; then
+    SOURCE_LAUNCH_READY=1
+  else
+    SOURCE_LAUNCH_ISSUE="sandbox-permissions"
+  fi
+fi
+
+LAUNCH_RECOMMENDATION="unknown"
+if [[ "$MCP_REACHABLE" -eq 1 ]]; then
+  LAUNCH_RECOMMENDATION="already-running"
+elif [[ "$SOURCE_INSTALL" -eq 1 && "$SOURCE_LAUNCH_READY" -eq 1 ]]; then
+  LAUNCH_RECOMMENDATION="source"
+elif [[ -n "$PREFERRED_APPIMAGE" ]]; then
+  LAUNCH_RECOMMENDATION="appimage"
+elif [[ "$SOURCE_INSTALL" -eq 1 && -x "$ELECTRON_PATH" ]]; then
+  LAUNCH_RECOMMENDATION="source-with-warning"
+fi
+
 if [[ "$FORMAT" == "json" ]]; then
   APPIMAGE_JSON="$(printf '%s\n' "${APPIMAGE_CANDIDATES[@]:-}" | node -e 'const fs=require("fs"); const items=fs.readFileSync(0,"utf8").split(/\n/).map(s=>s.trim()).filter(Boolean); process.stdout.write(JSON.stringify(items));')"
   MATCHES_JSON="$(printf '%s\n' "$RUNNING_MATCHES" | node -e 'const fs=require("fs"); const items=fs.readFileSync(0,"utf8").split(/\n/).map(s=>s.trim()).filter(Boolean); process.stdout.write(JSON.stringify(items));')"
@@ -186,6 +233,16 @@ if [[ "$FORMAT" == "json" ]]; then
   "mcp_error": $(printf '%s' "$MCP_ERROR" | node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify(fs.readFileSync(0,"utf8")));'),
   "running": $( [[ "$RUNNING" -eq 1 ]] && printf 'true' || printf 'false' ),
   "running_matches": $MATCHES_JSON,
+  "source_electron_path": $(printf '%s' "$ELECTRON_PATH" | node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify(fs.readFileSync(0,"utf8")));'),
+  "source_launch_ready": $( [[ "$SOURCE_LAUNCH_READY" -eq 1 ]] && printf 'true' || printf 'false' ),
+  "source_launch_issue": $(printf '%s' "$SOURCE_LAUNCH_ISSUE" | node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify(fs.readFileSync(0,"utf8")));'),
+  "launch_recommendation": "$LAUNCH_RECOMMENDATION",
+  "chrome_sandbox_path": $(printf '%s' "$CHROME_SANDBOX_PATH" | node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify(fs.readFileSync(0,"utf8")));'),
+  "chrome_sandbox_exists": $( [[ "$CHROME_SANDBOX_EXISTS" -eq 1 ]] && printf 'true' || printf 'false' ),
+  "chrome_sandbox_owner_uid": $( [[ -n "$CHROME_SANDBOX_OWNER" ]] && printf '%s' "$CHROME_SANDBOX_OWNER" || printf 'null' ),
+  "chrome_sandbox_mode": $(printf '%s' "$CHROME_SANDBOX_MODE" | node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify(fs.readFileSync(0,"utf8")));'),
+  "chrome_sandbox_setuid": $( [[ "$CHROME_SANDBOX_SETUID" -eq 1 ]] && printf 'true' || printf 'false' ),
+  "preferred_appimage": $(printf '%s' "$PREFERRED_APPIMAGE" | node -e 'const fs=require("fs"); process.stdout.write(JSON.stringify(fs.readFileSync(0,"utf8")));'),
   "appimage_candidates": $APPIMAGE_JSON
 }
 JSON
@@ -215,6 +272,16 @@ fi
 printf 'Likely Vessel process running: %s\n' "$( [[ "$RUNNING" -eq 1 ]] && printf 'yes' || printf 'no' )"
 if [[ -n "$RUNNING_MATCHES" ]]; then
   printf 'Process matches:\n%s\n' "$RUNNING_MATCHES"
+fi
+if [[ "$SOURCE_INSTALL" -eq 1 ]]; then
+  printf 'Source launch ready: %s\n' "$( [[ "$SOURCE_LAUNCH_READY" -eq 1 ]] && printf 'yes' || printf 'no' )"
+  if [[ -n "$SOURCE_LAUNCH_ISSUE" ]]; then
+    printf 'Source launch issue: %s\n' "$SOURCE_LAUNCH_ISSUE"
+  fi
+fi
+printf 'Launch recommendation: %s\n' "$LAUNCH_RECOMMENDATION"
+if [[ -n "$PREFERRED_APPIMAGE" ]]; then
+  printf 'Preferred AppImage: %s\n' "$PREFERRED_APPIMAGE"
 fi
 if [[ ${#APPIMAGE_CANDIDATES[@]} -gt 0 ]]; then
   printf 'AppImage candidates:\n'

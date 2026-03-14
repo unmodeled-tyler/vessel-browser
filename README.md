@@ -108,6 +108,7 @@ The installer:
 - clones or updates Vessel into `~/.local/share/vessel-browser`
 - installs dependencies and builds the app
 - creates a `vessel-browser` launcher in `~/.local/bin`
+- creates a `vessel-browser-launch` helper in `~/.local/bin`
 - creates a `vessel-browser-update` helper in `~/.local/bin`
 - creates a `vessel-browser-status` helper in `~/.local/bin`
 - creates a desktop entry for Linux app launchers
@@ -329,6 +330,18 @@ vessel-browser-status
 # Machine-readable status for harnesses
 vessel-browser-status --json
 ```
+
+Smart launch helper:
+
+```bash
+# Launch Vessel using the best available local install
+vessel-browser-launch
+
+# Show the chosen launch path without starting anything
+vessel-browser-launch --dry-run
+```
+
+`vessel-browser-launch` prefers a healthy source install and falls back to the newest local AppImage when the source install is likely blocked by Electron sandbox permissions.
 
 ## Keyboard Shortcuts
 

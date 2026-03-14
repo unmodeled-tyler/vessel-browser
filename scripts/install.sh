@@ -62,6 +62,7 @@ LAUNCHER_PATH="$BIN_DIR/vessel-browser"
 MCP_HELPER_PATH="$BIN_DIR/vessel-browser-mcp"
 UPDATE_HELPER_PATH="$BIN_DIR/vessel-browser-update"
 STATUS_HELPER_PATH="$BIN_DIR/vessel-browser-status"
+SMART_LAUNCHER_PATH="$BIN_DIR/vessel-browser-launch"
 DESKTOP_ENTRY_PATH="$DESKTOP_DIR/vessel-browser.desktop"
 
 info "Creating launcher at $LAUNCHER_PATH"
@@ -94,6 +95,17 @@ export VESSEL_MCP_PORT="$MCP_PORT"
 exec bash "$INSTALL_DIR/scripts/status-installation.sh" "\$@"
 EOF
 chmod +x "$STATUS_HELPER_PATH"
+
+info "Creating smart launcher at $SMART_LAUNCHER_PATH"
+cat >"$SMART_LAUNCHER_PATH" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export VESSEL_INSTALL_DIR="$INSTALL_DIR"
+export VESSEL_BIN_DIR="$BIN_DIR"
+export VESSEL_CONFIG_DIR="$CONFIG_DIR"
+exec bash "$INSTALL_DIR/scripts/launch-installation.sh" "\$@"
+EOF
+chmod +x "$SMART_LAUNCHER_PATH"
 
 info "Creating MCP helper at $MCP_HELPER_PATH"
 cat >"$MCP_HELPER_PATH" <<EOF
@@ -301,6 +313,10 @@ To update Vessel from source:
 To inspect Vessel install and MCP status:
   $STATUS_HELPER_PATH
   $STATUS_HELPER_PATH --json
+
+To launch Vessel using the best available local install:
+  $SMART_LAUNCHER_PATH
+  $SMART_LAUNCHER_PATH --dry-run
 
 Notes:
   - Vessel must be running before your harness connects.
