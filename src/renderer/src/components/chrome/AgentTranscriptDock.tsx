@@ -35,16 +35,6 @@ const AgentTranscriptDock: Component = () => {
     visibleEntries().some((entry) => entry.status === "streaming"),
   );
 
-  const summaryLines = createMemo(() =>
-    visibleEntries()
-      .slice(0, 2)
-      .map((entry) => ({
-        id: entry.id,
-        text: `${entry.title || entry.kind}: ${entry.text}`.trim(),
-        streaming: entry.status === "streaming",
-      })),
-  );
-
   const formatTime = (value: string) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
@@ -60,13 +50,10 @@ const AgentTranscriptDock: Component = () => {
   };
 
   return (
-    <Show when={mode() !== "off" && visibleEntries().length > 0}>
+    <Show when={mode() === "full" && visibleEntries().length > 0}>
       <aside
         class="agent-transcript-dock"
-        classList={{
-          collapsed: collapsed(),
-          summary: mode() === "summary",
-        }}
+        classList={{ collapsed: collapsed() }}
       >
         <div class="agent-transcript-header">
           <div class="agent-transcript-title-row">
@@ -79,15 +66,13 @@ const AgentTranscriptDock: Component = () => {
             </Show>
           </div>
           <div class="agent-transcript-actions">
-            <Show when={mode() === "full"}>
-              <button
-                class="agent-transcript-icon"
-                onClick={() => setCollapsed((value) => !value)}
-                title={collapsed() ? "Expand transcript" : "Collapse transcript"}
-              >
-                {collapsed() ? "▴" : "▾"}
-              </button>
-            </Show>
+            <button
+              class="agent-transcript-icon"
+              onClick={() => setCollapsed((value) => !value)}
+              title={collapsed() ? "Expand transcript" : "Collapse transcript"}
+            >
+              {collapsed() ? "▴" : "▾"}
+            </button>
             <button
               class="agent-transcript-icon"
               onClick={() => void hideDock()}
@@ -98,22 +83,7 @@ const AgentTranscriptDock: Component = () => {
           </div>
         </div>
 
-        <Show when={mode() === "summary"}>
-          <div class="agent-transcript-summary">
-            <For each={summaryLines()}>
-              {(line) => (
-                <div
-                  class="agent-transcript-summary-line"
-                  classList={{ streaming: line.streaming }}
-                >
-                  {line.text}
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-
-        <Show when={mode() === "full" && !collapsed()}>
+        <Show when={!collapsed()}>
           <div class="agent-transcript-list">
             <For each={visibleEntries()}>
               {(entry) => (

@@ -1641,7 +1641,7 @@ function registerTools(
     {
       title: "Extract Structured Data",
       description:
-        "Return normalized structured data derived from page JSON-LD schema markup. Useful for recipes, products, articles, events, FAQs, and other schema-rich pages.",
+        "Return normalized structured data derived from page JSON-LD, microdata, RDFa, and high-signal meta tags. Useful for recipes, products, articles, events, FAQs, and other schema-rich pages.",
       inputSchema: {
         type: z
           .string()
@@ -1664,6 +1664,18 @@ function registerTools(
             ? entity.types.some((entry) => entry.toLowerCase() === requestedType)
             : true,
         );
+        const sourceCounts = {
+          json_ld: pageContent.jsonLd?.length ?? 0,
+          microdata: pageContent.microdata?.length ?? 0,
+          rdfa: pageContent.rdfa?.length ?? 0,
+          meta_tags: Object.keys(pageContent.metaTags ?? {}).length,
+        };
+        const message =
+          entities.length > 0
+            ? undefined
+            : requestedType
+              ? `No structured data entities matched type "${type}".`
+              : "No structured data entities detected. This page may not expose usable JSON-LD, microdata, RDFa, or high-signal metadata.";
 
         return asTextResponse(
           JSON.stringify(
@@ -1671,6 +1683,8 @@ function registerTools(
               url: pageContent.url,
               title: pageContent.title,
               count: entities.length,
+              sources_checked: sourceCounts,
+              message,
               entities,
             },
             null,

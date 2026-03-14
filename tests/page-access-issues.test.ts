@@ -75,3 +75,17 @@ test("detectPageIssues does not flag normal event listing pages", () => {
 
   assert.equal(issues.length, 0);
 });
+
+test("detectPageIssues flags 404-style not-found pages", () => {
+  const issues = detectPageIssues(
+    buildPage({
+      url: "https://www.allrecipes.com/recipe/missing-page",
+      title: "404 - Page Not Found",
+      content:
+        "Sorry, the page you're looking for could not be found. It may have been removed or is temporarily unavailable.",
+    }),
+  );
+
+  assert.equal(issues[0]?.kind, "not-found");
+  assert.match(issues[0]?.recommendation ?? "", /Navigate back/i);
+});

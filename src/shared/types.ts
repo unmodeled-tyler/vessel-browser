@@ -67,7 +67,11 @@ export interface StructuredDataEntity {
   attributes: StructuredDataObject;
 }
 
-export type PageIssueKind = "rate-limit" | "bot-check" | "access-denied";
+export type PageIssueKind =
+  | "rate-limit"
+  | "bot-check"
+  | "access-denied"
+  | "not-found";
 
 export type PageIssueSeverity = "warning" | "error";
 

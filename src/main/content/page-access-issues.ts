@@ -105,6 +105,34 @@ const ISSUE_PATTERNS: IssuePatternSet[] = [
     urlPatterns: [/access[-_]denied/i, /forbidden/i],
     minimumScore: 3,
   },
+  {
+    kind: "not-found",
+    severity: "warning",
+    summary: "Missing or removed page detected.",
+    detail:
+      "The page appears to be a 404 or not-found response rather than the intended destination.",
+    recommendation:
+      "Navigate back and try a different result or source. This destination may be stale or removed.",
+    titlePatterns: [
+      /\b404\b/i,
+      /\bnot found\b/i,
+      /page not found/i,
+      /we couldn(?:'|’)t find/i,
+    ],
+    bodyPatterns: [
+      /\b404\b/i,
+      /\bnot found\b/i,
+      /page not found/i,
+      /sorry[, ]+we can(?:'|’)t find/i,
+      /the page you(?:'|’)re looking for/i,
+      /this page is unavailable/i,
+      /the requested url was not found/i,
+      /doesn(?:'|’)t exist/i,
+      /could not be found/i,
+    ],
+    urlPatterns: [/\/404\b/i, /not[-_]found/i],
+    minimumScore: 3,
+  },
 ];
 
 function normalizeText(value: string): string {

@@ -107,33 +107,35 @@ const AddressBar: Component = () => {
         </button>
       </div>
 
-      <form class="url-form" onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          class="url-input"
-          type="text"
-          value={inputValue()}
-          onInput={(e) => setInputValue(e.currentTarget.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          placeholder="Search or enter URL"
-          spellcheck={false}
-        />
-      </form>
+      <div class="url-shell">
+        <form class="url-form" onSubmit={handleSubmit}>
+          <input
+            ref={inputRef}
+            class="url-input"
+            type="text"
+            value={inputValue()}
+            onInput={(e) => setInputValue(e.currentTarget.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            placeholder="Search or enter URL"
+            spellcheck={false}
+          />
+        </form>
 
-      <div
-        class={`agent-status-badge ${agentIsActive() ? "active" : "inactive"}`}
-        title={
-          agentStatusMessage() ||
-          (agentIsActive()
-            ? "Agent activity detected in the browser"
-            : "No recent agent activity detected")
-        }
-      >
-        <span class="agent-status-dot" aria-hidden="true" />
-        <span class="agent-status-text">
-          {agentStatusMessage() ||
-            (agentIsActive() ? "Agent Active" : "Agent Inactive")}
-        </span>
+        <div
+          class={`agent-status-badge ${agentIsActive() ? "active" : "inactive"}`}
+          title={
+            agentStatusMessage() ||
+            (agentIsActive()
+              ? "Agent activity detected in the browser"
+              : "No recent agent activity detected")
+          }
+        >
+          <span class="agent-status-dot" aria-hidden="true" />
+          <span class="agent-status-text">
+            {agentStatusMessage() ||
+              (agentIsActive() ? "Agent Active" : "Agent Inactive")}
+          </span>
+        </div>
       </div>
 
       <div class="toolbar-actions">
