@@ -276,11 +276,15 @@ const Settings: Component = () => {
 
       <style>{`
         .settings-panel {
-          width: 420px;
+          width: min(420px, calc(100vw - 32px));
+          max-height: calc(100vh - 48px);
           background: var(--bg-elevated);
           border: 1px solid var(--border-visible);
           border-radius: var(--radius-lg);
           padding: 24px;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          scrollbar-gutter: stable;
           box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
         }
         .settings-title {

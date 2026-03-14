@@ -6,7 +6,9 @@
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    padding-top: 120px;
+    padding: clamp(32px, 10vh, 120px) 16px 24px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     z-index: 1000;
 }
 
@@ -156,9 +158,10 @@
 }
 
 .sidebar-close {
-    width: 28px;
-    height: 28px;
+    width: 34px;
+    height: 34px;
     padding: 0;
+    flex-shrink: 0;
 }
 
 .sidebar-clear {
