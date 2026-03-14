@@ -3,6 +3,7 @@ import type { AgentCheckpoint } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 import * as bookmarkManager from "../bookmarks/manager";
 import { extractContent } from "../content/extractor";
+import { getRecoverableAccessIssue } from "../content/page-access-issues";
 import { findSelectorByIndex } from "../mcp/indexed-selector";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
@@ -1243,7 +1244,10 @@ async function pressKey(
   `);
 }
 
-function getPostActionState(ctx: ActionContext, name: string): string {
+async function getPostActionState(
+  ctx: ActionContext,
+  name: string,
+): Promise<string> {
   const tab = ctx.tabManager.getActiveTab();
   if (!tab) return "";
 
@@ -1256,8 +1260,9 @@ function getPostActionState(ctx: ActionContext, name: string): string {
     "click",
     "submit_form",
     "reload",
+    "press_key",
   ];
-  const interactActions = ["type_text", "select_option", "press_key"];
+  const interactActions = ["type_text", "select_option"];
   const tabActions = [
     "create_tab",
     "switch_tab",
@@ -1266,7 +1271,35 @@ function getPostActionState(ctx: ActionContext, name: string): string {
   ];
 
   if (navActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    let warning = "";
+
+    try {
+      const page = await extractContent(wc);
+      const issue = getRecoverableAccessIssue(page);
+      if (issue) {
+        const blockedUrl = wc.getURL();
+        const canRecover =
+          [
+            "navigate",
+            "open_bookmark",
+            "click",
+            "submit_form",
+            "reload",
+            "press_key",
+          ].includes(name) && tab.canGoBack();
+
+        if (canRecover && tab.goBack()) {
+          await waitForLoad(wc);
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""} Automatically returned to ${wc.getURL()} after landing on ${blockedUrl}.]`;
+        } else {
+          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
+        }
+      }
+    } catch {
+      // Best-effort post-action warning only
+    }
+
+    return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
@@ -1876,5 +1909,5 @@ export async function executeAction(
     },
   });
 
-  return result + getPostActionState(ctx, name);
+  return result + (await getPostActionState(ctx, name));
 }

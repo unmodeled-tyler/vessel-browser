@@ -1,5 +1,6 @@
 import type { WebContents } from "electron";
 import type { PageContent } from "../../shared/types";
+import { detectPageIssues } from "./page-access-issues";
 import { extractStructuredDataFromJsonLd } from "./structured-data";
 
 const EMPTY_PAGE_CONTENT: PageContent = {
@@ -27,6 +28,7 @@ const EMPTY_PAGE_CONTENT: PageContent = {
   rdfa: [],
   metaTags: {},
   structuredData: [],
+  pageIssues: [],
 };
 
 const PRELOAD_EXTRACTION_SCRIPT = String.raw`
@@ -829,9 +831,19 @@ function mergePageContent(
           mergedBase.url,
         );
 
+  const pageIssues = detectPageIssues({
+    url: mergedBase.url || webContents.getURL() || "",
+    title: mergedBase.title || webContents.getTitle() || "",
+    content: mergedBase.content,
+    excerpt: mergedBase.excerpt,
+    headings: mergedBase.headings,
+    metaTags: mergedBase.metaTags,
+  });
+
   return {
     ...mergedBase,
     structuredData: normalizedStructuredData,
+    pageIssues,
     title: mergedBase.title || webContents.getTitle() || "",
     url: mergedBase.url || webContents.getURL() || "",
   };
@@ -907,5 +919,6 @@ function normalizePageContent(value: unknown): PageContent {
     structuredData: Array.isArray(page.structuredData)
       ? page.structuredData
       : [],
+    pageIssues: Array.isArray(page.pageIssues) ? page.pageIssues : [],
   };
 }

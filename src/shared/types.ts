@@ -67,6 +67,18 @@ export interface StructuredDataEntity {
   attributes: StructuredDataObject;
 }
 
+export type PageIssueKind = "rate-limit" | "bot-check" | "access-denied";
+
+export type PageIssueSeverity = "warning" | "error";
+
+export interface PageIssue {
+  kind: PageIssueKind;
+  severity: PageIssueSeverity;
+  summary: string;
+  detail: string;
+  recommendation?: string;
+}
+
 export interface PageContent {
   title: string;
   content: string;
@@ -115,6 +127,7 @@ export interface PageContent {
   rdfa?: Record<string, unknown>[];
   metaTags?: Record<string, string>;
   structuredData?: StructuredDataEntity[];
+  pageIssues?: PageIssue[];
 }
 
 export interface AIMessage {
