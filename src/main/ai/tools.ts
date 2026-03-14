@@ -396,18 +396,29 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "save_bookmark",
     description:
-      "Save the current page or a specified URL as a bookmark. If folderName is provided and missing, create it automatically.",
+      "Save the current page, a specified URL, or a link target from the current page as a bookmark. If folderName is provided and missing, create it automatically.",
     input_schema: {
       type: "object" as const,
       properties: {
         url: {
           type: "string",
-          description: "URL to save. Omit to save the current page.",
+          description:
+            "URL to save. Omit to save the current page, or provide index/selector to save a link target from the page.",
         },
         title: {
           type: "string",
           description:
-            "Title for the bookmark. Omit to use the current page title.",
+            "Title for the bookmark. Omit to use the current page title or the selected link text.",
+        },
+        index: {
+          type: "number",
+          description:
+            "Element index of a link on the current page to bookmark without opening it.",
+        },
+        selector: {
+          type: "string",
+          description:
+            "CSS selector of a link on the current page to bookmark without opening it.",
         },
         folderId: {
           type: "string",
@@ -443,7 +454,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "organize_bookmark",
     description:
-      'Organize a bookmark by intent: move an existing bookmark or save the current page/URL into a folder, creating the folder if needed. If archive is true, use the default "Archive" folder.',
+      'Organize a bookmark by intent: move an existing bookmark or save the current page, a URL, or a link target from the current page into a folder, creating the folder if needed. If archive is true, use the default "Archive" folder.',
     input_schema: {
       type: "object" as const,
       properties: {
@@ -453,12 +464,23 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
         },
         url: {
           type: "string",
-          description: "URL to organize. Omit to use the current page",
+          description:
+            "URL to organize. Omit to use the current page, or provide index/selector to organize a link target from the page.",
         },
         title: {
           type: "string",
           description:
             "Optional title when saving a new bookmark or retitling an existing one",
+        },
+        index: {
+          type: "number",
+          description:
+            "Element index of a link on the current page to organize without opening it.",
+        },
+        selector: {
+          type: "string",
+          description:
+            "CSS selector of a link on the current page to organize without opening it.",
         },
         folderId: {
           type: "string",
@@ -492,7 +514,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "archive_bookmark",
     description:
-      'Archive the current page, a URL, or an existing bookmark into the default "Archive" folder.',
+      'Archive the current page, a URL, a link target from the current page, or an existing bookmark into the default "Archive" folder.',
     input_schema: {
       type: "object" as const,
       properties: {
@@ -502,11 +524,22 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
         },
         url: {
           type: "string",
-          description: "URL to archive. Omit to use the current page",
+          description:
+            "URL to archive. Omit to use the current page, or provide index/selector to archive a link target from the page.",
         },
         title: {
           type: "string",
           description: "Optional title when saving a new archived bookmark",
+        },
+        index: {
+          type: "number",
+          description:
+            "Element index of a link on the current page to archive without opening it.",
+        },
+        selector: {
+          type: "string",
+          description:
+            "CSS selector of a link on the current page to archive without opening it.",
         },
         note: {
           type: "string",

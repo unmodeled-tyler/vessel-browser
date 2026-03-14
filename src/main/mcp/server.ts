@@ -12,6 +12,7 @@ import {
   buildScopedContext,
   type ExtractMode,
 } from "../ai/context-builder";
+import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
 import { extractContent } from "../content/extractor";
 import { getRecoverableAccessIssue } from "../content/page-access-issues";
 import {
@@ -2481,10 +2482,24 @@ function registerTools(
     {
       title: "Save Bookmark",
       description:
-        "Save a URL to a bookmark folder. You can provide folder_id or folder_name; missing folder names can be created automatically.",
+        "Save the current page, a specific URL, or a link target from the current page into a bookmark folder. You can provide folder_id or folder_name; missing folder names can be created automatically.",
       inputSchema: {
-        url: z.string().describe("URL to bookmark"),
-        title: z.string().describe("Human-readable title for the bookmark"),
+        url: z
+          .string()
+          .optional()
+          .describe("URL to bookmark. Omit to use the current page or provide index/selector to bookmark a link target from the page"),
+        title: z
+          .string()
+          .optional()
+          .describe("Human-readable title for the bookmark. Omit to use the page or link text"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index of a link on the current page to bookmark without opening it"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector of a link on the current page to bookmark without opening it"),
         folder_id: z
           .string()
           .optional()
@@ -2516,6 +2531,8 @@ function registerTools(
     async ({
       url,
       title,
+      index,
+      selector,
       folder_id,
       folder_name,
       folder_summary,
@@ -2530,6 +2547,8 @@ function registerTools(
         {
           url,
           title,
+          index,
+          selector,
           folder_id,
           folder_name,
           folder_summary,
@@ -2537,6 +2556,26 @@ function registerTools(
           note,
         },
         async () => {
+          const currentTab = tabManager.getActiveTab();
+          const resolvedSelector =
+            currentTab &&
+            (typeof index === "number" || typeof selector === "string")
+              ? await resolveSelector(
+                  currentTab.view.webContents,
+                  index,
+                  selector,
+                )
+              : null;
+          const source = await resolveBookmarkSourceDraft(
+            currentTab?.view.webContents,
+            {
+              explicitUrl: url,
+              explicitTitle: title,
+              resolvedSelector,
+            },
+          );
+          if ("error" in source) return `Error: ${source.error}`;
+
           const target = resolveBookmarkFolderTarget({
             folder_id,
             folder_name,
@@ -2546,8 +2585,8 @@ function registerTools(
           if (target.error) return target.error;
 
           const result = bookmarkManager.saveBookmarkWithPolicy(
-            url,
-            title,
+            source.url,
+            source.title,
             target.folderId,
             note,
             { onDuplicate: on_duplicate ?? "ask" },
@@ -2555,7 +2594,7 @@ function registerTools(
           if (result.status === "conflict" && result.existing) {
             return composeFolderAwareResponse(
               composeDuplicateBookmarkResponse({
-                url,
+                url: source.url,
                 folderName: describeFolder(target.folderId),
                 bookmarkId: result.existing.id,
               }),
@@ -2647,7 +2686,7 @@ function registerTools(
     {
       title: "Organize Bookmark",
       description:
-        "Organize a bookmark by intent: save or move a bookmark into a folder, creating the folder if needed. Works with bookmark_id, url, or the current page.",
+        "Organize a bookmark by intent: save or move a bookmark into a folder, creating the folder if needed. Works with bookmark_id, url, a link target from the current page, or the current page itself.",
       inputSchema: {
         bookmark_id: z
           .string()
@@ -2656,11 +2695,19 @@ function registerTools(
         url: z
           .string()
           .optional()
-          .describe("URL to organize. Omit to use the current page"),
+          .describe("URL to organize. Omit to use the current page or provide index/selector to target a link"),
         title: z
           .string()
           .optional()
           .describe("Optional title when saving a new bookmark"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index of a link on the current page to organize without opening it"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector of a link on the current page to organize without opening it"),
         folder_id: z
           .string()
           .optional()
@@ -2700,25 +2747,34 @@ function registerTools(
           const bookmarkId =
             typeof args.bookmark_id === "string" ? args.bookmark_id.trim() : "";
           const currentTab = tabManager.getActiveTab();
-          const currentUrl = currentTab?.view.webContents.getURL().trim() || "";
-          const resolvedUrl =
-            typeof args.url === "string" && args.url.trim()
-              ? args.url.trim()
-              : currentUrl;
-          const currentTitle =
-            currentTab?.view.webContents.getTitle().trim() || resolvedUrl;
-          const explicitTitle =
-            typeof args.title === "string" && args.title.trim()
-              ? args.title.trim()
-              : undefined;
           const note =
             typeof args.note === "string" && args.note.trim()
               ? args.note.trim()
               : undefined;
+          const resolvedSelector =
+            currentTab &&
+            (typeof args.index === "number" ||
+              typeof args.selector === "string")
+              ? await resolveSelector(
+                  currentTab.view.webContents,
+                  args.index,
+                  args.selector,
+                )
+              : null;
+          const source = await resolveBookmarkSourceDraft(
+            currentTab?.view.webContents,
+            {
+              explicitUrl: args.url,
+              explicitTitle: args.title,
+              resolvedSelector,
+            },
+          );
 
           const existing = bookmarkId
             ? bookmarkManager.getBookmark(bookmarkId)
-            : bookmarkManager.getBookmarkByUrl(resolvedUrl);
+            : "error" in source
+              ? undefined
+              : bookmarkManager.getBookmarkByUrl(source.url);
           if (bookmarkId && !existing) {
             return `Bookmark ${bookmarkId} not found`;
           }
@@ -2726,7 +2782,10 @@ function registerTools(
           if (existing) {
             const updated = bookmarkManager.updateBookmark(existing.id, {
               folderId: target.folderId,
-              title: explicitTitle,
+              title:
+                typeof args.title === "string" && args.title.trim()
+                  ? args.title.trim()
+                  : undefined,
               note,
             });
             if (!updated) {
@@ -2738,13 +2797,11 @@ function registerTools(
             );
           }
 
-          if (!resolvedUrl) {
-            return "Error: No bookmark_id provided and no URL available to organize";
-          }
+          if ("error" in source) return `Error: ${source.error}`;
 
           const bookmark = bookmarkManager.saveBookmark(
-            resolvedUrl,
-            explicitTitle || currentTitle || resolvedUrl,
+            source.url,
+            source.title,
             target.folderId,
             note,
           );
@@ -2824,7 +2881,7 @@ function registerTools(
     {
       title: "Archive Bookmark",
       description:
-        'Archive the current page, a URL, or an existing bookmark into the default "Archive" folder.',
+        'Archive the current page, a URL, a link target from the current page, or an existing bookmark into the default "Archive" folder.',
       inputSchema: {
         bookmark_id: z
           .string()
@@ -2833,42 +2890,62 @@ function registerTools(
         url: z
           .string()
           .optional()
-          .describe("URL to archive. Omit to use the current page"),
+          .describe("URL to archive. Omit to use the current page or provide index/selector to target a link"),
         title: z
           .string()
           .optional()
           .describe("Optional title when saving a new archived bookmark"),
+        index: z
+          .number()
+          .optional()
+          .describe("Element index of a link on the current page to archive without opening it"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector of a link on the current page to archive without opening it"),
         note: z
           .string()
           .optional()
           .describe("Optional note to store with the archived bookmark"),
       },
     },
-    async ({ bookmark_id, url, title, note }) => {
+    async ({ bookmark_id, url, title, index, selector, note }) => {
       return withAction(
         runtime,
         tabManager,
         "archive_bookmark",
-        { bookmark_id, url, title, note },
+        { bookmark_id, url, title, index, selector, note },
         async () => {
           const currentTab = tabManager.getActiveTab();
-          const currentUrl = currentTab?.view.webContents.getURL().trim() || "";
-          const resolvedUrl =
-            typeof url === "string" && url.trim() ? url.trim() : currentUrl;
-          const currentTitle =
-            currentTab?.view.webContents.getTitle().trim() || resolvedUrl;
-          const explicitTitle =
-            typeof title === "string" && title.trim() ? title.trim() : undefined;
           const trimmedBookmarkId =
             typeof bookmark_id === "string" ? bookmark_id.trim() : "";
           const trimmedNote =
             typeof note === "string" && note.trim() ? note.trim() : undefined;
           const target = resolveBookmarkFolderTarget({ archive: true });
           if (target.error) return target.error;
+          const resolvedSelector =
+            currentTab &&
+            (typeof index === "number" || typeof selector === "string")
+              ? await resolveSelector(
+                  currentTab.view.webContents,
+                  index,
+                  selector,
+                )
+              : null;
+          const source = await resolveBookmarkSourceDraft(
+            currentTab?.view.webContents,
+            {
+              explicitUrl: url,
+              explicitTitle: title,
+              resolvedSelector,
+            },
+          );
 
           const existing = trimmedBookmarkId
             ? bookmarkManager.getBookmark(trimmedBookmarkId)
-            : bookmarkManager.getBookmarkByUrl(resolvedUrl);
+            : "error" in source
+              ? undefined
+              : bookmarkManager.getBookmarkByUrl(source.url);
           if (trimmedBookmarkId && !existing) {
             return `Bookmark ${trimmedBookmarkId} not found`;
           }
@@ -2876,7 +2953,10 @@ function registerTools(
           if (existing) {
             const updated = bookmarkManager.updateBookmark(existing.id, {
               folderId: target.folderId,
-              title: explicitTitle,
+              title:
+                typeof title === "string" && title.trim()
+                  ? title.trim()
+                  : undefined,
               note: trimmedNote,
             });
             if (!updated) {
@@ -2888,13 +2968,13 @@ function registerTools(
             );
           }
 
-          if (!resolvedUrl) {
-            return "Error: No bookmark_id provided and no URL available to archive";
+          if ("error" in source) {
+            return `Error: ${source.error}`;
           }
 
           const bookmark = bookmarkManager.saveBookmark(
-            resolvedUrl,
-            explicitTitle || currentTitle || resolvedUrl,
+            source.url,
+            source.title,
             target.folderId,
             trimmedNote,
           );
