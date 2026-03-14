@@ -23,6 +23,9 @@ const EMPTY_PAGE_CONTENT: PageContent = {
   dormantOverlays: [],
   landmarks: [],
   jsonLd: [],
+  microdata: [],
+  rdfa: [],
+  metaTags: {},
   structuredData: [],
 };
 
@@ -732,6 +735,17 @@ function bestArray<T>(values: Array<unknown>): T[] {
   );
 }
 
+function mergeObjects<T extends Record<string, unknown>>(
+  values: Array<unknown>,
+): T {
+  return values
+    .filter(
+      (value): value is T =>
+        Boolean(value) && typeof value === "object" && !Array.isArray(value),
+    )
+    .reduce<T>((acc, value) => ({ ...acc, ...value }), {} as T);
+}
+
 function isMeaningfullyEmpty(page: PageContent): boolean {
   return !(
     page.title.trim() ||
@@ -795,13 +809,25 @@ function mergePageContent(
     dormantOverlays: bestArray(pages.map((page) => page.dormantOverlays)),
     landmarks: bestArray(pages.map((page) => page.landmarks)),
     jsonLd: bestArray(pages.map((page) => page.jsonLd ?? [])),
+    microdata: bestArray(pages.map((page) => page.microdata ?? [])),
+    rdfa: bestArray(pages.map((page) => page.rdfa ?? [])),
+    metaTags: mergeObjects<Record<string, string>>(
+      pages.map((page) => page.metaTags ?? {}),
+    ),
     structuredData: bestArray(pages.map((page) => page.structuredData ?? [])),
   };
 
   const normalizedStructuredData =
     mergedBase.structuredData.length > 0
       ? mergedBase.structuredData
-      : extractStructuredDataFromJsonLd(mergedBase.jsonLd);
+      : extractStructuredDataFromJsonLd(
+          mergedBase.jsonLd,
+          mergedBase.microdata,
+          mergedBase.rdfa,
+          mergedBase.metaTags,
+          mergedBase.title,
+          mergedBase.url,
+        );
 
   return {
     ...mergedBase,
@@ -870,6 +896,14 @@ function normalizePageContent(value: unknown): PageContent {
       : [],
     landmarks: Array.isArray(page.landmarks) ? page.landmarks : [],
     jsonLd: Array.isArray(page.jsonLd) ? page.jsonLd : [],
+    microdata: Array.isArray(page.microdata) ? page.microdata : [],
+    rdfa: Array.isArray(page.rdfa) ? page.rdfa : [],
+    metaTags:
+      page.metaTags &&
+      typeof page.metaTags === "object" &&
+      !Array.isArray(page.metaTags)
+        ? (page.metaTags as Record<string, string>)
+        : {},
     structuredData: Array.isArray(page.structuredData)
       ? page.structuredData
       : [],

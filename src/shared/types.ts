@@ -56,8 +56,10 @@ export type StructuredDataValue =
   | StructuredDataObject
   | StructuredDataValue[];
 
+export type StructuredDataSource = "json-ld" | "microdata" | "rdfa" | "meta";
+
 export interface StructuredDataEntity {
-  source: "json-ld";
+  source: StructuredDataSource;
   types: string[];
   name?: string;
   url?: string;
@@ -109,6 +111,9 @@ export interface PageContent {
     text?: string;
   }>;
   jsonLd?: Record<string, unknown>[];
+  microdata?: Record<string, unknown>[];
+  rdfa?: Record<string, unknown>[];
+  metaTags?: Record<string, string>;
   structuredData?: StructuredDataEntity[];
 }
 

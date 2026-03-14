@@ -78,6 +78,10 @@ interface PageContent {
     label?: string;
     text?: string;
   }>;
+  jsonLd?: Record<string, unknown>[];
+  microdata?: Record<string, unknown>[];
+  rdfa?: Record<string, unknown>[];
+  metaTags?: Record<string, string>;
 }
 
 interface OverlayCandidate {
@@ -123,6 +127,86 @@ function getNodeTextByIds(ids: string | null): string | undefined {
 function getTrimmedText(value: string | null | undefined): string | undefined {
   const text = value?.trim();
   return text || undefined;
+}
+
+function pushPropertyValue(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (!key || value == null) return;
+
+  const existing = target[key];
+  if (existing === undefined) {
+    target[key] = value;
+    return;
+  }
+
+  if (Array.isArray(existing)) {
+    existing.push(value);
+    return;
+  }
+
+  target[key] = [existing, value];
+}
+
+function getStructuredElementValue(el: Element): unknown {
+  if (el instanceof HTMLMetaElement) {
+    return getTrimmedText(el.content);
+  }
+
+  if (
+    el instanceof HTMLAnchorElement ||
+    el instanceof HTMLAreaElement ||
+    el instanceof HTMLLinkElement
+  ) {
+    return getTrimmedText(el.href);
+  }
+
+  if (
+    el instanceof HTMLImageElement ||
+    el instanceof HTMLAudioElement ||
+    el instanceof HTMLVideoElement ||
+    el instanceof HTMLSourceElement ||
+    el instanceof HTMLTrackElement ||
+    el instanceof HTMLIFrameElement ||
+    el instanceof HTMLEmbedElement
+  ) {
+    return getTrimmedText(el.src);
+  }
+
+  if (el instanceof HTMLObjectElement) {
+    return getTrimmedText(el.data);
+  }
+
+  if (el instanceof HTMLDataElement || el instanceof HTMLMeterElement) {
+    return getTrimmedText(el.value);
+  }
+
+  if (el instanceof HTMLTimeElement) {
+    return getTrimmedText(el.dateTime) || getTrimmedText(el.textContent);
+  }
+
+  if (
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLSelectElement ||
+    el instanceof HTMLTextAreaElement
+  ) {
+    return getTrimmedText(el.value);
+  }
+
+  const contentAttr = getTrimmedText(el.getAttribute("content"));
+  if (contentAttr) return contentAttr;
+
+  const resourceAttr =
+    getTrimmedText(el.getAttribute("resource")) ||
+    getTrimmedText(el.getAttribute("href")) ||
+    getTrimmedText(el.getAttribute("src")) ||
+    getTrimmedText(el.getAttribute("datetime")) ||
+    getTrimmedText(el.getAttribute("data"));
+  if (resourceAttr) return resourceAttr;
+
+  return getTrimmedText(el.textContent);
 }
 
 function isElementVisible(el: Element): boolean {
@@ -848,6 +932,159 @@ function extractJsonLd(): Record<string, unknown>[] {
   return results;
 }
 
+function extractMetaTags(): Record<string, string> {
+  const tags: Record<string, string> = {};
+
+  document
+    .querySelectorAll("meta[name], meta[property], meta[itemprop]")
+    .forEach((el) => {
+      if (!(el instanceof HTMLMetaElement)) return;
+      const key =
+        getTrimmedText(el.getAttribute("property")) ||
+        getTrimmedText(el.getAttribute("name")) ||
+        getTrimmedText(el.getAttribute("itemprop"));
+      const value = getTrimmedText(el.content);
+      if (!key || !value || tags[key]) return;
+
+      if (
+        key === "description" ||
+        key === "author" ||
+        key.startsWith("og:") ||
+        key.startsWith("article:") ||
+        key.startsWith("product:") ||
+        key.startsWith("recipe:") ||
+        key.startsWith("twitter:")
+      ) {
+        tags[key] = value;
+      }
+    });
+
+  const canonical = document.querySelector('link[rel="canonical"]');
+  if (canonical instanceof HTMLLinkElement && canonical.href) {
+    tags.canonical = canonical.href;
+  }
+
+  return tags;
+}
+
+function extractMicrodata(): Record<string, unknown>[] {
+  const serializeItem = (
+    scope: HTMLElement,
+    depth = 0,
+  ): Record<string, unknown> | null => {
+    if (depth > 3) return null;
+
+    const item: Record<string, unknown> = {};
+    const itemType = getTrimmedText(scope.getAttribute("itemtype"));
+    const itemId = getTrimmedText(scope.getAttribute("itemid"));
+
+    if (itemType) {
+      const types = itemType.split(/\s+/).filter(Boolean);
+      item["@type"] = types.length === 1 ? types[0] : types;
+    }
+    if (itemId) item["@id"] = itemId;
+
+    scope.querySelectorAll("[itemprop]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+
+      const nearestScope = node.closest("[itemscope]");
+      const isNestedItemRoot = nearestScope === node && node.hasAttribute("itemscope");
+      if (nearestScope !== scope && !isNestedItemRoot) {
+        return;
+      }
+      if (isNestedItemRoot && node.parentElement?.closest("[itemscope]") !== scope) {
+        return;
+      }
+
+      const propNames = (node.getAttribute("itemprop") || "")
+        .split(/\s+/)
+        .map((name) => name.trim())
+        .filter(Boolean);
+      if (propNames.length === 0) return;
+
+      const value =
+        node.hasAttribute("itemscope") && isNestedItemRoot
+          ? serializeItem(node, depth + 1)
+          : getStructuredElementValue(node);
+      if (value == null) return;
+
+      propNames.forEach((name) => pushPropertyValue(item, name, value));
+    });
+
+    return Object.keys(item).length > 0 ? item : null;
+  };
+
+  return Array.from(document.querySelectorAll("[itemscope]"))
+    .filter(
+      (node): node is HTMLElement =>
+        node instanceof HTMLElement && !node.hasAttribute("itemprop"),
+    )
+    .map((scope) => serializeItem(scope))
+    .filter((item): item is Record<string, unknown> => item !== null);
+}
+
+function extractRdfa(): Record<string, unknown>[] {
+  const serializeEntity = (
+    scope: HTMLElement,
+    depth = 0,
+  ): Record<string, unknown> | null => {
+    if (depth > 3) return null;
+
+    const entity: Record<string, unknown> = {};
+    const typeAttr = getTrimmedText(scope.getAttribute("typeof"));
+    const about =
+      getTrimmedText(scope.getAttribute("about")) ||
+      getTrimmedText(scope.getAttribute("resource")) ||
+      getTrimmedText(scope.getAttribute("href")) ||
+      getTrimmedText(scope.getAttribute("src"));
+
+    if (typeAttr) {
+      const types = typeAttr.split(/\s+/).filter(Boolean);
+      entity["@type"] = types.length === 1 ? types[0] : types;
+    }
+    if (about) entity["@id"] = about;
+
+    scope.querySelectorAll("[property]").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+
+      const nearestTypedAncestor = node.closest("[typeof]");
+      const isNestedEntityRoot =
+        nearestTypedAncestor === node && node.hasAttribute("typeof");
+      if (nearestTypedAncestor !== scope && !isNestedEntityRoot) {
+        return;
+      }
+      if (
+        isNestedEntityRoot &&
+        node.parentElement?.closest("[typeof]") !== scope &&
+        node !== scope
+      ) {
+        return;
+      }
+
+      const propNames = (node.getAttribute("property") || "")
+        .split(/\s+/)
+        .map((name) => name.trim())
+        .filter(Boolean);
+      if (propNames.length === 0) return;
+
+      const value =
+        node.hasAttribute("typeof") && isNestedEntityRoot && node !== scope
+          ? serializeEntity(node, depth + 1)
+          : getStructuredElementValue(node);
+      if (value == null) return;
+
+      propNames.forEach((name) => pushPropertyValue(entity, name, value));
+    });
+
+    return Object.keys(entity).length > 0 ? entity : null;
+  };
+
+  return Array.from(document.querySelectorAll("[typeof]"))
+    .filter((node): node is HTMLElement => node instanceof HTMLElement)
+    .map((scope) => serializeEntity(scope))
+    .filter((entity): entity is Record<string, unknown> => entity !== null);
+}
+
 function vesselExtractContent(): PageContent {
   const extractStructuredContent = (article?: {
     title?: string | null;
@@ -876,6 +1113,9 @@ function vesselExtractContent(): PageContent {
       dormantOverlays: detectDormantOverlays(),
       landmarks: extractLandmarks(),
       jsonLd: extractJsonLd(),
+      microdata: extractMicrodata(),
+      rdfa: extractRdfa(),
+      metaTags: extractMetaTags(),
     };
   };
 

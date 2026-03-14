@@ -1,6 +1,7 @@
 import type {
   StructuredDataEntity,
   StructuredDataObject,
+  StructuredDataSource,
   StructuredDataValue,
 } from "../../shared/types";
 
@@ -316,6 +317,7 @@ function collectCandidateEntities(
 
 function dedupeKey(entity: StructuredDataEntity): string {
   return [
+    entity.source,
     entity.types.join("|"),
     entity.name || "",
     entity.url || "",
@@ -323,15 +325,15 @@ function dedupeKey(entity: StructuredDataEntity): string {
   ].join("::");
 }
 
-export function extractStructuredDataFromJsonLd(
-  jsonLd: Record<string, unknown>[] | undefined,
+function extractEntitiesFromRecords(
+  records: Record<string, unknown>[] | undefined,
+  source: StructuredDataSource,
 ): StructuredDataEntity[] {
-  if (!jsonLd || jsonLd.length === 0) return [];
-
+  if (!records || records.length === 0) return [];
   const entities: StructuredDataEntity[] = [];
   const seen = new Set<string>();
 
-  for (const candidate of collectCandidateEntities(jsonLd)) {
+  for (const candidate of collectCandidateEntities(records)) {
     const types = getTypes(candidate);
     const name = firstString(candidate.name, candidate.headline);
     const url = firstString(candidate.url, candidate["@id"]);
@@ -358,7 +360,7 @@ export function extractStructuredDataFromJsonLd(
     }
 
     const entity: StructuredDataEntity = {
-      source: "json-ld",
+      source,
       types: types.length > 0 ? types : ["Thing"],
       attributes,
     };
@@ -374,6 +376,106 @@ export function extractStructuredDataFromJsonLd(
   }
 
   return entities.slice(0, 25);
+}
+
+function getMetaType(metaTags: Record<string, string>): string[] {
+  const rawType = metaTags["og:type"] || metaTags["twitter:label1"];
+  if (!rawType) return ["WebPage"];
+
+  const normalized = rawType.toLowerCase();
+  if (normalized.includes("article")) return ["Article"];
+  if (normalized.includes("product")) return ["Product"];
+  if (normalized.includes("recipe")) return ["Recipe"];
+  if (normalized.includes("video")) return ["VideoObject"];
+  if (normalized.includes("book")) return ["Book"];
+  return [rawType];
+}
+
+function extractEntityFromMetaTags(
+  metaTags: Record<string, string> | undefined,
+  pageTitle?: string,
+  pageUrl?: string,
+): StructuredDataEntity[] {
+  if (!metaTags || Object.keys(metaTags).length === 0) return [];
+
+  const name =
+    metaTags["og:title"] ||
+    metaTags["twitter:title"] ||
+    metaTags["title"] ||
+    pageTitle;
+  const description =
+    metaTags["og:description"] ||
+    metaTags.description ||
+    metaTags["twitter:description"];
+  const url = metaTags["og:url"] || metaTags.canonical || pageUrl;
+  const types = getMetaType(metaTags);
+
+  const attributes: StructuredDataObject = {};
+  for (const [key, value] of Object.entries(metaTags)) {
+    if (
+      key === "og:title" ||
+      key === "twitter:title" ||
+      key === "title" ||
+      key === "og:description" ||
+      key === "description" ||
+      key === "twitter:description" ||
+      key === "og:url" ||
+      key === "canonical"
+    ) {
+      continue;
+    }
+    const normalized = sanitizeValue(value);
+    if (normalized !== undefined) {
+      attributes[key] = normalized;
+    }
+  }
+
+  const entity: StructuredDataEntity = {
+    source: "meta",
+    types,
+    attributes,
+  };
+  addIfPresent(entity, "name", name);
+  addIfPresent(entity, "url", url);
+  addIfPresent(entity, "description", description);
+
+  if (
+    !entity.name &&
+    !entity.url &&
+    !entity.description &&
+    Object.keys(entity.attributes).length === 0
+  ) {
+    return [];
+  }
+
+  return [entity];
+}
+
+export function extractStructuredDataFromJsonLd(
+  jsonLd: Record<string, unknown>[] | undefined,
+  microdata?: Record<string, unknown>[] | undefined,
+  rdfa?: Record<string, unknown>[] | undefined,
+  metaTags?: Record<string, string> | undefined,
+  pageTitle?: string,
+  pageUrl?: string,
+): StructuredDataEntity[] {
+  const candidates = [
+    ...extractEntitiesFromRecords(jsonLd, "json-ld"),
+    ...extractEntitiesFromRecords(microdata, "microdata"),
+    ...extractEntitiesFromRecords(rdfa, "rdfa"),
+    ...extractEntityFromMetaTags(metaTags, pageTitle, pageUrl),
+  ];
+
+  const deduped: StructuredDataEntity[] = [];
+  const seen = new Set<string>();
+  for (const entity of candidates) {
+    const key = dedupeKey(entity);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(entity);
+  }
+
+  return deduped.slice(0, 25);
 }
 
 function addIfPresent(
