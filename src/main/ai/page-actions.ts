@@ -5,6 +5,10 @@ import * as bookmarkManager from "../bookmarks/manager";
 import { extractContent } from "../content/extractor";
 import { getRecoverableAccessIssue } from "../content/page-access-issues";
 import { findSelectorByIndex } from "../mcp/indexed-selector";
+import {
+  formatDeadLinkMessage,
+  validateLinkDestination,
+} from "../network/link-validation";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import { buildStructuredContext } from "./context-builder";
@@ -255,13 +259,17 @@ async function clickElement(
 async function describeElementForClick(
   wc: WebContents,
   selector: string,
-): Promise<{ text: string } | { error: string }> {
+): Promise<{ text: string; href?: string } | { error: string }> {
   const result = await wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return { error: "Element not found" };
+      const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
       const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
-      return { text: text || "Element" };
+      return {
+        text: text || "Element",
+        href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
+      };
     })()
   `);
 
@@ -277,6 +285,7 @@ async function describeElementForClick(
       "text" in result && typeof result.text === "string"
         ? result.text
         : "Element",
+    href: "href" in result && typeof result.href === "string" ? result.href : undefined,
   };
 }
 
@@ -287,6 +296,13 @@ async function clickResolvedSelector(
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
+
+  if (elInfo.href) {
+    const validation = await validateLinkDestination(elInfo.href);
+    if (validation.status === "dead") {
+      return formatDeadLinkMessage(elInfo.text, validation);
+    }
+  }
 
   const clickText = `Clicked: ${elInfo.text}`;
   const clickResult = await clickElement(wc, selector);
@@ -1869,6 +1885,11 @@ export async function executeAction(
           const bookmark = bookmarkManager.getBookmark(bookmarkId);
           if (!bookmark) {
             return `Bookmark ${bookmarkId} not found`;
+          }
+
+          const validation = await validateLinkDestination(bookmark.url);
+          if (validation.status === "dead") {
+            return formatDeadLinkMessage(bookmark.title, validation);
           }
 
           const openInNewTab = Boolean(args.newTab);

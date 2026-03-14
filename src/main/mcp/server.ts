@@ -14,6 +14,10 @@ import {
 } from "../ai/context-builder";
 import { extractContent } from "../content/extractor";
 import { getRecoverableAccessIssue } from "../content/page-access-issues";
+import {
+  formatDeadLinkMessage,
+  validateLinkDestination,
+} from "../network/link-validation";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
@@ -357,13 +361,17 @@ async function clickElement(
 async function describeElementForClick(
   wc: Electron.WebContents,
   selector: string,
-): Promise<{ text: string } | { error: string }> {
+): Promise<{ text: string; href?: string } | { error: string }> {
   const result = await wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return { error: "Element not found" };
+      const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
       const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
-      return { text: text || "Element" };
+      return {
+        text: text || "Element",
+        href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
+      };
     })()
   `);
 
@@ -379,6 +387,10 @@ async function describeElementForClick(
       "text" in result && typeof result.text === "string"
         ? result.text
         : "Element",
+    href:
+      "href" in result && typeof result.href === "string"
+        ? result.href
+        : undefined,
   };
 }
 
@@ -389,6 +401,13 @@ async function clickResolvedSelector(
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
+
+  if (elInfo.href) {
+    const validation = await validateLinkDestination(elInfo.href);
+    if (validation.status === "dead") {
+      return formatDeadLinkMessage(elInfo.text, validation);
+    }
+  }
 
   const clickText = `Clicked: ${elInfo.text}`;
   const clickResult = await clickElement(wc, selector);
@@ -2912,6 +2931,11 @@ function registerTools(
           const bookmark = bookmarkManager.getBookmark(bookmark_id);
           if (!bookmark) {
             return `Bookmark ${bookmark_id} not found`;
+          }
+
+          const validation = await validateLinkDestination(bookmark.url);
+          if (validation.status === "dead") {
+            return formatDeadLinkMessage(bookmark.title, validation);
           }
 
           if (new_tab || !tabManager.getActiveTabId()) {
