@@ -12,11 +12,8 @@ concurrency:
 jobs:
   promote:
     runs-on: ubuntu-latest
-    env:
-      GH_REPO: ${{ github.repository }}
     permissions:
       contents: write
-      pull-requests: write
 
     steps:
       - name: Verify branch setup
@@ -37,43 +34,39 @@ jobs:
             echo "No new commits to promote from dev to main."
           fi
 
-      - name: Create or reuse promotion PR
+      - name: Verify dev checks pass
         if: success() && steps.compare.outputs.ahead_by != '0'
-        id: promotion_pr
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pr_number=$(gh pr list --repo "$GH_REPO" --state open --base main --head dev --json number --jq '.[0].number // empty')
+          dev_sha=$(gh api repos/${{ github.repository }}/branches/dev --jq '.commit.sha')
 
-          if [ -z "$pr_number" ]; then
-            gh pr create \
-              --repo "$GH_REPO" \
-              --base main \
-              --head dev \
-              --title "Promote dev to main" \
-              --body "Automated daily promotion PR from \`dev\` to \`main\`.\n\nThis PR is created by \`.github/workflows/promote-dev-to-main.yml\` and is intended to auto-merge once required checks pass."
+          failed=$(gh api repos/${{ github.repository }}/commits/$dev_sha/check-runs \
+            --jq '[.check_runs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled")] | length')
 
-            pr_number=$(gh pr list --repo "$GH_REPO" --state open --base main --head dev --json number --jq '.[0].number // empty')
-          else
-            echo "Using existing promotion PR #$pr_number"
+          if [ "$failed" != "0" ]; then
+            echo "ERROR: $failed check(s) failed on dev HEAD ($dev_sha). Aborting promotion."
+            exit 1
           fi
 
-          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "All checks on dev HEAD ($dev_sha) passed. Proceeding with promotion."
 
-      - name: Wait for PR checks to pass
+      - name: Merge dev into main
         if: success() && steps.compare.outputs.ahead_by != '0'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
-          gh pr checks --repo "$GH_REPO" "$PR_NUMBER" --watch --fail-fast
+          if ! response=$(gh api repos/${{ github.repository }}/merges \
+            --method POST \
+            -f base=main \
+            -f head=dev \
+            -f commit_message="Promote dev to main" 2>&1); then
+            if echo "$response" | grep -q "Merge conflict"; then
+              echo "ERROR: Merge conflict detected between dev and main. Manual resolution required."
+            else
+              echo "ERROR: Merge failed: $response"
+            fi
+            exit 1
+          fi
 
-      - name: Merge promotion PR
-        if: success() && steps.compare.outputs.ahead_by != '0'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
-        run: |
-          pr_head_sha=$(gh pr view --repo "$GH_REPO" "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
-
-          gh pr merge --repo "$GH_REPO" "$PR_NUMBER" --merge --match-head-commit "$pr_head_sha"
+          echo "Successfully promoted dev to main."
