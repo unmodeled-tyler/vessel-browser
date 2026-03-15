@@ -14,15 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
+      actions: write
 
     steps:
-      - name: Verify branch setup
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api repos/${{ github.repository }}/branches/dev > /dev/null
-
       - name: Check whether dev is ahead of main
         id: compare
         env:
@@ -35,42 +29,21 @@ jobs:
             echo "No new commits to promote from dev to main."
           fi
 
-      - name: Create or reuse promotion PR
-        if: steps.compare.outputs.ahead_by != '0'
-        id: promotion_pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          pr_number=$(gh pr list --state open --base main --head dev --json number --jq '.[0].number // empty')
-
-          if [ -z "$pr_number" ]; then
-            gh pr create \
-              --base main \
-              --head dev \
-              --title "Promote dev to main" \
-              --body "Automated daily promotion PR from \`dev\` to \`main\`.\n\nThis PR is created by \`.github/workflows/promote-dev-to-main.yml\` and is intended to auto-merge once required checks pass."
-
-            pr_number=$(gh pr list --state open --base main --head dev --json number --jq '.[0].number // empty')
-          else
-            echo "Using existing promotion PR #$pr_number"
-          fi
-
-          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for PR checks to pass
+      - name: Merge dev into main
         if: steps.compare.outputs.ahead_by != '0'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
-          gh pr checks "$PR_NUMBER" --watch --fail-fast
+          gh api repos/${{ github.repository }}/merges \
+            -f base=main \
+            -f head=dev \
+            -f commit_message="Promote dev to main (automated daily merge)"
 
-      - name: Merge promotion PR
+      - name: Trigger release workflow
         if: steps.compare.outputs.ahead_by != '0'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.promotion_pr.outputs.pr_number }}
         run: |
-          pr_head_sha=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
-
-          gh pr merge "$PR_NUMBER" --merge --match-head-commit "$pr_head_sha"
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --ref main

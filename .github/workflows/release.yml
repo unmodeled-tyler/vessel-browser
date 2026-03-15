@@ -15,6 +15,41 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_REF: ${{ github.ref }}
+        run: |
+          if [[ "$GIT_REF" == refs/tags/v* ]]; then
+            version="${GIT_REF#refs/tags/v}"
+          else
+            pkg_version=$(node -p "require('./package.json').version")
+            latest_patch=$(git tag --list "v${pkg_version%.*}.*" --sort=-version:refname | head -1 | sed 's/^v//')
+            if [ -z "$latest_patch" ]; then
+              version="$pkg_version"
+            else
+              major_minor="${latest_patch%.*}"
+              patch="${latest_patch##*.}"
+              version="${major_minor}.$((patch + 1))"
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing version: $version"
+
+      - name: Create tag if needed
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -43,9 +78,9 @@ jobs:
             dist/SHASUMS256.txt
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           files: |
             dist/*.AppImage
             dist/SHASUMS256.txt
