@@ -1296,13 +1296,16 @@ async function getPostActionState(
   }
 
   if (interactActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, tabId=${ctx.tabManager.getActiveTabId()}]`;
+    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, tabId=${ctx.tabManager.getActiveTabId()}]`;
   }
 
   if (tabActions.includes(name)) {
     const activeId = ctx.tabManager.getActiveTabId();
+    const activeTab = ctx.tabManager.getActiveTab();
     const count = ctx.tabManager.getAllStates().length;
-    return `\n[state: activeTab=${activeId}, totalTabs=${count}]`;
+    const activeTitle = activeTab?.view.webContents.getTitle() || "";
+    const activeUrl = activeTab?.view.webContents.getURL() || "";
+    return `\n[state: activeTab=${activeId}, title=${JSON.stringify(activeTitle)}, url=${activeUrl}, totalTabs=${count}]`;
   }
 
   return "";
@@ -1319,6 +1322,7 @@ export async function executeAction(
   if (
     !tab &&
     ![
+      "current_tab",
       "list_tabs",
       "create_tab",
       "set_ad_blocking",
@@ -1349,6 +1353,27 @@ export async function executeAction(
     dangerous: isDangerousAction(name),
     executor: async () => {
       switch (name) {
+        case "current_tab": {
+          const active = ctx.tabManager.getActiveTab();
+          const activeId = ctx.tabManager.getActiveTabId();
+          if (!active || !activeId) return "Error: No active tab";
+          const state = active.state;
+          return JSON.stringify(
+            {
+              tabId: activeId,
+              title: state.title,
+              url: state.url,
+              isLoading: state.isLoading,
+              canGoBack: state.canGoBack,
+              canGoForward: state.canGoForward,
+              adBlockingEnabled: state.adBlockingEnabled,
+              humanFocused: true,
+            },
+            null,
+            2,
+          );
+        }
+
         case "list_tabs": {
           const activeId = ctx.tabManager.getActiveTabId();
           const lines = ctx.tabManager.getAllStates().map((item) => {

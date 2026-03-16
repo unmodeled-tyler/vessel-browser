@@ -67,6 +67,23 @@ function asPromptResponse(text: string) {
   };
 }
 
+function getActiveTabSummary(tabManager: TabManager) {
+  const activeTab = tabManager.getActiveTab();
+  const activeTabId = tabManager.getActiveTabId();
+  if (!activeTab || !activeTabId) return null;
+  const state = activeTab.state;
+  return {
+    tabId: activeTabId,
+    title: state.title,
+    url: state.url,
+    isLoading: state.isLoading,
+    canGoBack: state.canGoBack,
+    canGoForward: state.canGoForward,
+    adBlockingEnabled: state.adBlockingEnabled,
+    humanFocused: true,
+  };
+}
+
 function formatFolderStatus(limit = 6): string {
   const folders = bookmarkManager.listFolderOverviews();
   const visible = folders.slice(0, limit);
@@ -749,13 +766,14 @@ async function getPostActionState(
   }
 
   if (interactActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, tabId=${tabManager.getActiveTabId()}]`;
+    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, tabId=${tabManager.getActiveTabId()}]`;
   }
 
   if (tabActions.includes(name)) {
     const activeId = tabManager.getActiveTabId();
+    const active = getActiveTabSummary(tabManager);
     const count = tabManager.getAllStates().length;
-    return `\n[state: activeTab=${activeId}, totalTabs=${count}]`;
+    return `\n[state: activeTab=${activeId}, title=${JSON.stringify(active?.title ?? "")}, url=${active?.url ?? ""}, totalTabs=${count}]`;
   }
 
   return "";
@@ -1267,6 +1285,7 @@ function registerTools(
     },
     async () => {
       const state = runtime.getState();
+      const activeTab = getActiveTabSummary(tabManager);
       return asPromptResponse(
         [
           "Review the current Vessel runtime state.",
@@ -1274,6 +1293,7 @@ function registerTools(
           `Approval mode: ${state.supervisor.approvalMode}`,
           `Pending approvals: ${state.supervisor.pendingApprovals.length}`,
           `Open tabs: ${state.session?.tabs.length || 0}`,
+          `Human-focused tab: ${activeTab ? `${activeTab.title || "(untitled)"} — ${activeTab.url} [${activeTab.tabId}]` : "none"}`,
           `Recent actions: ${
             state.actions
               .slice(-5)
@@ -1302,6 +1322,39 @@ function registerTools(
         },
       ],
     }),
+  );
+
+  server.registerResource(
+    "vessel-active-tab",
+    "vessel://tabs/active",
+    {
+      title: "Vessel Active Tab",
+      description:
+        "The tab currently visible to the human user, with URL and title.",
+      mimeType: "application/json",
+    },
+    async () => ({
+      contents: [
+        {
+          uri: "vessel://tabs/active",
+          text: JSON.stringify(getActiveTabSummary(tabManager), null, 2),
+        },
+      ],
+    }),
+  );
+
+  server.registerTool(
+    "vessel_current_tab",
+    {
+      title: "Get Active Tab",
+      description:
+        "Return the browser tab the human is actively looking at right now. Use this instead of vessel_list_tabs when you only need the focused tab.",
+    },
+    async () => {
+      const activeTab = getActiveTabSummary(tabManager);
+      if (!activeTab) return asTextResponse("Error: No active tab");
+      return asTextResponse(JSON.stringify(activeTab, null, 2));
+    },
   );
 
   server.registerTool(

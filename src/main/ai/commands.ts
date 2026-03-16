@@ -61,9 +61,10 @@ ${recentCheckpoints || "- none"}
 
 Instructions:
 - You can see the page the user is viewing. The content above is from the page.
+- The structured page context always refers to the tab currently visible to the human unless a later tool call changes tabs.
 - Use tools to interact with the page when asked to do something (navigate, click, type, select options, submit forms, press keys, scroll).
 - Only say you completed an action after the corresponding tool succeeds. If no tool supports the request, say so plainly.
-- Use list_tabs before switching context across multiple tabs.
+- Use current_tab when you only need to know what the human is currently looking at. Use list_tabs before switching context across multiple tabs.
 - Create a checkpoint before risky multi-step flows or before leaving an important state.
 - Use save_session after completing a login flow you may need again later, and load_session to resume that authenticated state in future runs.
 - Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.

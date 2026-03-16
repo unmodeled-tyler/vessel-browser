@@ -964,6 +964,9 @@ export function buildStructuredContext(page: PageContent): string {
   // Page Overview
   sections.push("## PAGE STRUCTURE");
   sections.push("");
+  sections.push(
+    "**User Focus:** This page is from the active tab currently visible to the human user.",
+  );
   sections.push(`**URL:** ${page.url}`);
   sections.push(`**Title:** ${page.title}`);
   sections.push(`**Viewport:** ${formatViewport(page)}`);
