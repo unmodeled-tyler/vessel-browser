@@ -12,6 +12,8 @@ import type {
 } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 import * as bookmarkManager from "../bookmarks/manager";
+import * as highlightsManager from "../highlights/manager";
+import { highlightOnPage } from "../highlights/inject";
 import { startMcpServer, stopMcpServer } from "../mcp/server";
 
 export function registerIpcHandlers(
@@ -224,6 +226,66 @@ export function registerIpcHandlers(
       return bookmarkManager.renameFolder(id, newName, summary);
     },
   );
+
+  // --- Highlight capture (user Ctrl+H) ---
+
+  // Handle capture from chrome keybinding (when chrome view has focus)
+  ipcMain.handle(Channels.HIGHLIGHT_CAPTURE, async () => {
+    try {
+      const activeTab = tabManager.getActiveTab();
+      if (!activeTab) {
+        return { success: false, message: "No active tab" };
+      }
+
+      const wc = activeTab.view.webContents;
+      if (wc.isDestroyed()) {
+        return { success: false, message: "Tab is not available" };
+      }
+
+      const url = wc.getURL();
+      if (!url || url === "about:blank") {
+        return { success: false, message: "No page loaded" };
+      }
+
+      const selectedText: string = await wc.executeJavaScript(`
+        (function() {
+          var sel = window.getSelection();
+          return sel ? sel.toString().trim() : '';
+        })()
+      `);
+
+      if (!selectedText) {
+        return { success: false, message: "No text selected" };
+      }
+
+      const capped =
+        selectedText.length > 5000 ? selectedText.slice(0, 5000) : selectedText;
+
+      const highlight = highlightsManager.addHighlight(
+        url,
+        undefined,
+        capped,
+        undefined,
+        "yellow",
+        "user",
+      );
+
+      await highlightOnPage(wc, null, capped, undefined, undefined, "yellow").catch(
+        () => {},
+      );
+
+      return { success: true, text: capped, id: highlight.id };
+    } catch {
+      return { success: false, message: "Could not capture selection" };
+    }
+  });
+
+  // Forward page-view Ctrl+H captures to the chrome view for toast display
+  tabManager.setHighlightCaptureListener((result) => {
+    if (!chromeView.webContents.isDestroyed()) {
+      chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
+    }
+  });
 
   // --- Window controls ---
 

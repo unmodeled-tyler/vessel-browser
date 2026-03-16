@@ -51,6 +51,10 @@ export const Channels = {
   FOLDER_REMOVE: "bookmarks:folder-remove",
   FOLDER_RENAME: "bookmarks:folder-rename",
 
+  // Highlights
+  HIGHLIGHT_CAPTURE: "highlights:capture",
+  HIGHLIGHT_CAPTURE_RESULT: "highlights:capture-result",
+
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",

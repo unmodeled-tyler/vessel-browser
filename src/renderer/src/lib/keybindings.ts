@@ -5,6 +5,7 @@ interface KeyBindingHandlers {
   newTab: () => void;
   closeTab: () => void;
   openSettings: () => void;
+  captureHighlight: () => void;
 }
 
 export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
@@ -50,6 +51,13 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     if (ctrl && e.key === ',') {
       e.preventDefault();
       handlers.openSettings();
+      return;
+    }
+
+    // Ctrl+H — capture highlight from selection
+    if (ctrl && e.key === 'h' && !e.shiftKey) {
+      e.preventDefault();
+      handlers.captureHighlight();
       return;
     }
   };
