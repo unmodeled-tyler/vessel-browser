@@ -5,12 +5,22 @@ import type { SessionSnapshot, TabState } from "../../shared/types";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage } from "../highlights/inject";
 
+export type HighlightCaptureResult = {
+  success: boolean;
+  text?: string;
+  message?: string;
+  id?: string;
+};
+
+export type HighlightCaptureListener = (result: HighlightCaptureResult) => void;
+
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
   private order: string[] = [];
   private activeTabId: string | null = null;
   private window: BaseWindow;
   private onStateChange: (tabs: TabState[], activeId: string) => void;
+  private highlightCaptureListener: HighlightCaptureListener | null = null;
 
   constructor(
     window: BaseWindow,
@@ -32,6 +42,7 @@ export class TabManager {
         this.createTab(requestedUrl, { background, adBlockingEnabled });
       },
       onPageLoad: (pageUrl, wc) => this.reapplyHighlights(pageUrl, wc),
+      onCaptureHighlight: (wc) => this.captureHighlightFromPage(wc),
     });
     this.tabs.set(id, tab);
     this.order.push(id);
@@ -213,6 +224,73 @@ export class TabManager {
         h.color,
       ).catch(() => {});
     }
+  }
+
+  setHighlightCaptureListener(listener: HighlightCaptureListener | null): void {
+    this.highlightCaptureListener = listener;
+  }
+
+  private captureHighlightFromPage(wc: WebContents): void {
+    void (async () => {
+      try {
+        if (wc.isDestroyed()) return;
+        const url = wc.getURL();
+        if (!url || url === "about:blank") {
+          this.highlightCaptureListener?.({
+            success: false,
+            message: "No page loaded",
+          });
+          return;
+        }
+
+        const selectedText: string = await wc.executeJavaScript(`
+          (function() {
+            var sel = window.getSelection();
+            return sel ? sel.toString().trim() : '';
+          })()
+        `);
+
+        if (!selectedText) {
+          this.highlightCaptureListener?.({
+            success: false,
+            message: "No text selected",
+          });
+          return;
+        }
+
+        const capped =
+          selectedText.length > 5000 ? selectedText.slice(0, 5000) : selectedText;
+
+        const highlight = highlightsManager.addHighlight(
+          url,
+          undefined,
+          capped,
+          undefined,
+          "yellow",
+          "user",
+        );
+
+        await highlightOnPage(
+          wc,
+          null,
+          capped,
+          undefined,
+          undefined,
+          "yellow",
+        ).catch(() => {});
+
+        this.highlightCaptureListener?.({
+          success: true,
+          text: capped,
+          id: highlight.id,
+        });
+      } catch {
+        this.highlightCaptureListener?.({
+          success: false,
+          message: "Could not capture selection",
+        });
+      }
+    })();
   }
 
   private broadcastState(): void {

@@ -17,6 +17,7 @@ export class Tab {
   private onChange: () => void;
   private onOpenUrl?: (request: OpenUrlRequest) => void;
   private onPageLoad?: (url: string, wc: WebContents) => void;
+  private onCaptureHighlight?: (wc: WebContents) => void;
 
   // Fully custom URL history — we never rely on Chromium's native back/forward
   // because loadURL() calls (used for anchor clicks, form GETs, etc.) pollute
@@ -34,12 +35,14 @@ export class Tab {
       adBlockingEnabled?: boolean;
       onOpenUrl?: (request: OpenUrlRequest) => void;
       onPageLoad?: (url: string, wc: WebContents) => void;
+      onCaptureHighlight?: (wc: WebContents) => void;
     },
   ) {
     this.id = id;
     this.onChange = onChange;
     this.onOpenUrl = options?.onOpenUrl;
     this.onPageLoad = options?.onPageLoad;
+    this.onCaptureHighlight = options?.onCaptureHighlight;
 
     this.view = new WebContentsView({
       webPreferences: {
@@ -147,6 +150,20 @@ export class Tab {
       this._state.favicon = favicons[0] || "";
       this.onChange();
     });
+
+    // Intercept Ctrl+H in the page view for highlight capture
+    wc.on("before-input-event", (event, input) => {
+      if (
+        input.type === "keyDown" &&
+        input.key === "h" &&
+        (input.control || input.meta) &&
+        !input.shift &&
+        !input.alt
+      ) {
+        event.preventDefault();
+        this.onCaptureHighlight?.(wc);
+      }
+    });
   }
 
   get state(): TabState {
@@ -209,6 +226,7 @@ export class Tab {
   }
 
   destroy(): void {
+    this.view.webContents.removeAllListeners("before-input-event");
     this.view.webContents.close();
   }
 }

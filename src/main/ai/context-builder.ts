@@ -2,10 +2,12 @@ import type {
   PageContent,
   InteractiveElement,
   HeadingStructure,
+  StoredHighlight,
   StructuredDataEntity,
   StructuredDataValue,
   PageIssue,
 } from "../../shared/types";
+import * as highlightsManager from "../highlights/manager";
 
 const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
 const MAX_STRUCTURED_ITEMS = 100; // Limit structured elements to keep context manageable
@@ -380,6 +382,35 @@ function formatLargePageHint(page: PageContent): string | null {
   return `Large page detected: ${page.content.length} chars across ${page.headings.length} headings. Prefer summary, results_only, forms_only, or interactives_only before reading raw page text.`;
 }
 
+function formatHighlights(highlights: StoredHighlight[]): string {
+  if (highlights.length === 0) return "No highlights on this page.";
+  return highlights
+    .map((h) => {
+      const parts: string[] = [];
+      const source = h.source === "user" ? "user" : "agent";
+      parts.push(`- [${source}]`);
+      if (h.label) parts.push(`**${h.label}**`);
+      if (h.text) {
+        const preview =
+          h.text.length > 120 ? h.text.slice(0, 117) + "..." : h.text;
+        parts.push(`"${preview}"`);
+      }
+      if (h.selector) parts.push(`(${h.selector})`);
+      if (h.color) parts.push(`color=${h.color}`);
+      parts.push(`id=${h.id}`);
+      return parts.join(" ");
+    })
+    .join("\n");
+}
+
+function getHighlightsForPage(url: string): StoredHighlight[] {
+  try {
+    return highlightsManager.getHighlightsForUrl(url);
+  } catch {
+    return [];
+  }
+}
+
 function formatJsonLd(items: Record<string, unknown>[]): string {
   if (!items || items.length === 0) return "";
 
@@ -692,9 +723,20 @@ export function buildScopedContext(
       sections.push("### Document Outline");
       sections.push(formatHeadings(page.headings));
       sections.push("");
+      const summaryHighlights = getHighlightsForPage(page.url);
       sections.push(
         `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.headings.length} headings, ${page.content.length} chars`,
       );
+      if (summaryHighlights.length > 0) {
+        const userCount = summaryHighlights.filter((h) => h.source === "user").length;
+        const agentCount = summaryHighlights.length - userCount;
+        const parts: string[] = [];
+        if (userCount > 0) parts.push(`${userCount} user`);
+        if (agentCount > 0) parts.push(`${agentCount} agent`);
+        sections.push(
+          `Highlights: ${summaryHighlights.length} (${parts.join(", ")}) — use vessel_list_highlights for details`,
+        );
+      }
       if ((page.structuredData?.length ?? 0) > 0) {
         if (hasOnlyFallbackStructuredData(page)) {
           const rawSources = [
@@ -953,6 +995,14 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push("### Dormant Consent / Modal UI");
   sections.push(formatDormantOverlays(page.dormantOverlays));
   sections.push("");
+
+  // Highlights (user + agent annotations)
+  const fullHighlights = getHighlightsForPage(page.url);
+  if (fullHighlights.length > 0) {
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(fullHighlights));
+    sections.push("");
+  }
 
   // Interactive Elements
   if (page.interactiveElements.length > 0) {

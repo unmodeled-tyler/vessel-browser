@@ -400,6 +400,8 @@ export type HighlightColor =
   | "purple"
   | "orange";
 
+export type HighlightSource = "agent" | "user";
+
 export interface StoredHighlight {
   id: string;
   url: string; // hash-stripped canonical URL
@@ -407,6 +409,7 @@ export interface StoredHighlight {
   text?: string;
   label?: string;
   color?: HighlightColor;
+  source?: HighlightSource;
   createdAt: string; // ISO timestamp
 }
 

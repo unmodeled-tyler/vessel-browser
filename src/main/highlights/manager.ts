@@ -4,6 +4,7 @@ import fs from "fs";
 import { randomUUID } from "crypto";
 import type {
   HighlightColor,
+  HighlightSource,
   HighlightsState,
   StoredHighlight,
 } from "../../shared/types";
@@ -77,6 +78,7 @@ export function addHighlight(
   text?: string,
   label?: string,
   color?: HighlightColor,
+  source?: HighlightSource,
 ): StoredHighlight {
   load();
   const highlight: StoredHighlight = {
@@ -86,6 +88,7 @@ export function addHighlight(
     text: text || undefined,
     label: label || undefined,
     color: color || undefined,
+    source: source || undefined,
     createdAt: new Date().toISOString(),
   };
   state!.highlights.push(highlight);

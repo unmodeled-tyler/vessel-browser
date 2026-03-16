@@ -606,6 +606,10 @@
 }
 
 
+.highlight-toast {
+    border-color: rgba(240, 198, 54, 0.25);
+}
+
 /* ═══════════════════════════════════════
    Agent transcript dock — floating panel
    ═══════════════════════════════════════ */

@@ -2575,6 +2575,7 @@ function registerTools(
               text,
               label,
               color,
+              "agent",
             );
           }
 
@@ -2608,7 +2609,7 @@ function registerTools(
     {
       title: "List Persistent Highlights",
       description:
-        "List all persistent highlights. Optionally filter by URL.",
+        "List all persistent highlights (both user-created and agent-created). Each highlight has a 'source' field ('user' or 'agent'). User highlights are created by the user selecting text and pressing Ctrl+H. Optionally filter by URL.",
       inputSchema: {
         url: z
           .string()
