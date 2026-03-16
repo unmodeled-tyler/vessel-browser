@@ -276,73 +276,79 @@ const Settings: Component = () => {
 
       <style>{`
         .settings-panel {
-          width: min(420px, calc(100vw - 32px));
+          width: min(440px, calc(100vw - 32px));
           max-height: calc(100vh - 48px);
           background: var(--bg-elevated);
           border: 1px solid var(--border-visible);
-          border-radius: var(--radius-lg);
-          padding: 30px 24px 24px;
+          border-radius: 14px;
+          padding: 28px 24px 24px;
           overflow-y: auto;
           overscroll-behavior: contain;
           scrollbar-gutter: stable;
-          box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+          box-shadow:
+            0 4px 24px rgba(0, 0, 0, 0.2),
+            0 24px 64px rgba(0, 0, 0, 0.3),
+            inset 0 1px 0 rgba(255, 255, 255, 0.04);
+          animation: command-bar-enter 350ms var(--ease-out-expo) both;
         }
         .settings-title {
           font-size: 16px;
           font-weight: 600;
           color: var(--text-primary);
-          margin-bottom: 20px;
+          margin-bottom: 22px;
+          letter-spacing: 0.01em;
         }
         .settings-callout {
-          margin-bottom: 18px;
-          padding: 12px;
+          margin-bottom: 20px;
+          padding: 14px;
           border-radius: var(--radius-md);
-          border: 1px solid rgba(159, 184, 255, 0.18);
-          background: rgba(159, 184, 255, 0.08);
+          border: 1px solid rgba(159, 184, 255, 0.14);
+          background: rgba(159, 184, 255, 0.06);
         }
         .settings-callout-title {
           font-size: 12px;
           font-weight: 600;
           color: var(--text-primary);
           margin-bottom: 6px;
+          letter-spacing: 0.01em;
         }
         .settings-callout-copy {
           font-size: 12px;
-          line-height: 1.5;
+          line-height: 1.55;
           color: var(--text-secondary);
           margin: 0;
         }
         .settings-field {
-          margin-bottom: 16px;
+          margin-bottom: 18px;
         }
         .settings-health {
-          margin-bottom: 18px;
-          padding: 12px;
+          margin-bottom: 20px;
+          padding: 14px;
           border-radius: var(--radius-md);
           border: 1px solid var(--border-visible);
-          background: rgba(255, 255, 255, 0.02);
+          background: rgba(255, 255, 255, 0.015);
         }
         .settings-health-issues {
           display: flex;
           flex-direction: column;
           gap: 8px;
-          margin-top: 8px;
+          margin-top: 10px;
         }
         .settings-health-issue {
           font-size: 12px;
           line-height: 1.5;
-          padding: 10px;
-          border-radius: var(--radius-sm);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 10px 12px;
+          border-radius: var(--radius-md);
+          border: 1px solid rgba(255, 255, 255, 0.06);
           color: var(--text-secondary);
         }
         .settings-health-issue.warning {
-          border-color: rgba(240, 198, 54, 0.35);
-          background: rgba(240, 198, 54, 0.08);
+          border-color: rgba(240, 198, 54, 0.28);
+          background: rgba(240, 198, 54, 0.06);
         }
         .settings-health-issue.error {
-          border-color: rgba(255, 108, 91, 0.4);
-          background: rgba(255, 108, 91, 0.08);
+          border-color: rgba(255, 108, 91, 0.32);
+          background: rgba(255, 108, 91, 0.06);
         }
         .settings-label {
           display: block;
@@ -350,6 +356,7 @@ const Settings: Component = () => {
           color: var(--text-secondary);
           margin-bottom: 6px;
           font-weight: 500;
+          letter-spacing: 0.01em;
         }
         .settings-input {
           width: 100%;
@@ -361,39 +368,48 @@ const Settings: Component = () => {
           color: var(--text-primary);
           font-size: 13px;
           font-family: var(--font-mono);
+          transition:
+            border-color var(--duration-normal) var(--ease-in-out),
+            box-shadow var(--duration-normal) var(--ease-in-out);
         }
         .settings-select {
           appearance: none;
         }
         .settings-input:focus {
           border-color: var(--accent-primary);
+          box-shadow: 0 0 0 2px rgba(139, 126, 200, 0.1);
           outline: none;
         }
         .settings-hint {
           font-size: 11px;
           color: var(--text-muted);
-          margin-top: 4px;
+          margin-top: 5px;
+          line-height: 1.5;
         }
         .settings-actions {
           display: flex;
           gap: 8px;
           justify-content: flex-end;
-          margin-top: 20px;
+          margin-top: 24px;
         }
         .settings-toggle {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
           color: var(--text-primary);
           font-size: 13px;
+          cursor: pointer;
+          padding: 6px 0;
         }
         .settings-toggle input {
-          width: 14px;
-          height: 14px;
+          width: 15px;
+          height: 15px;
+          accent-color: var(--accent-primary);
         }
         .settings-status {
-          margin-top: 12px;
+          margin-top: 14px;
           font-size: 12px;
+          line-height: 1.5;
         }
         .settings-status.success {
           color: #84d19a;
@@ -402,11 +418,17 @@ const Settings: Component = () => {
           color: #ff8e8e;
         }
         .settings-save, .settings-close {
-          height: 32px;
-          padding: 0 16px;
+          height: 34px;
+          padding: 0 18px;
           border-radius: var(--radius-md);
           font-size: 12px;
           font-weight: 500;
+          transition:
+            background var(--duration-fast) var(--ease-in-out),
+            transform var(--duration-fast) var(--ease-out-expo);
+        }
+        .settings-save:active, .settings-close:active {
+          transform: scale(0.97);
         }
         .settings-save {
           background: var(--accent-primary);

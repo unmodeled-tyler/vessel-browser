@@ -18,6 +18,7 @@ body,
     font-family: var(--font-ui);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     user-select: none;
 }
 
@@ -27,7 +28,7 @@ body,
 }
 
 ::-webkit-scrollbar {
-    width: 6px;
+    width: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -35,12 +36,12 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-    background: var(--border-visible);
-    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
+    background: rgba(255, 255, 255, 0.14);
 }
 
 input,
@@ -52,11 +53,15 @@ textarea {
     border-radius: var(--radius-sm);
     outline: none;
     font-size: 13px;
+    transition:
+        border-color var(--duration-normal) var(--ease-in-out),
+        box-shadow var(--duration-normal) var(--ease-in-out);
 }
 
 input:focus,
 textarea:focus {
     border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px rgba(139, 126, 200, 0.12);
 }
 
 button {
@@ -66,10 +71,17 @@ button {
     background: none;
     color: var(--text-secondary);
     font-size: 13px;
+    transition:
+        color var(--duration-fast) var(--ease-in-out),
+        background var(--duration-fast) var(--ease-in-out);
 }
 
 button:hover {
     color: var(--text-primary);
+}
+
+button:active:not(:disabled) {
+    transform: scale(0.97);
 }
 
 /* Focus mode: hide chrome */
