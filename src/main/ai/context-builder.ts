@@ -697,7 +697,18 @@ export function buildScopedContext(
       );
       if ((page.structuredData?.length ?? 0) > 0) {
         if (hasOnlyFallbackStructuredData(page)) {
-          sections.push("Structured data: generic page metadata only");
+          const rawSources = [
+            (page.jsonLd?.length ?? 0) > 0 ? `${page.jsonLd!.length} JSON-LD` : "",
+            (page.microdata?.length ?? 0) > 0 ? `${page.microdata!.length} microdata` : "",
+            (page.rdfa?.length ?? 0) > 0 ? `${page.rdfa!.length} RDFa` : "",
+          ].filter(Boolean);
+          if (rawSources.length > 0) {
+            sections.push(
+              `Structured data: generic page metadata only (raw sources present: ${rawSources.join(", ")} — use extract_structured_data or read_page with mode=structured for details)`,
+            );
+          } else {
+            sections.push("Structured data: generic page metadata only");
+          }
         } else {
           sections.push(
             `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,

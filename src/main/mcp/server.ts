@@ -1610,10 +1610,14 @@ function registerTools(
         };
         const usedPageFallback =
           entities.length > 0 && entities.every((entity) => entity.source === "page");
+        const hasRawSources =
+          sourceCounts.json_ld > 0 || sourceCounts.microdata > 0 || sourceCounts.rdfa > 0;
         const message =
           entities.length > 0
             ? usedPageFallback
-              ? "No richer machine-readable schema was detected. Returning a generic page metadata entity synthesized from the current page."
+              ? hasRawSources
+                ? `Raw structured data sources were found (${sourceCounts.json_ld} JSON-LD, ${sourceCounts.microdata} microdata, ${sourceCounts.rdfa} RDFa) but could not be normalized into typed entities. Returning generic page metadata. The raw sources may contain parseable data — check sources_checked counts.`
+                : "No richer machine-readable schema was detected. Returning a generic page metadata entity synthesized from the current page."
               : undefined
             : requestedType
               ? `No structured data entities matched type "${type}".`

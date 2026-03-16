@@ -150,35 +150,46 @@ export async function highlightOnPage(
         var labelBg = ${JSON.stringify(c.label)};
         var labelText = ${JSON.stringify(c.text)};
         var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
+        // Collect matching text nodes first, then wrap — avoids TreeWalker
+        // seeing newly created nodes from surroundContents and re-matching.
+        var textNodes = [];
         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
           acceptNode: function(node) {
             var p = node.parentElement;
             if (!p) return NodeFilter.FILTER_REJECT;
             if (SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
+            if (p.closest('[data-vessel-highlight]')) return NodeFilter.FILTER_REJECT;
             var style = window.getComputedStyle(p);
             if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
             if (p.offsetWidth === 0 && p.offsetHeight === 0) return NodeFilter.FILTER_REJECT;
             return NodeFilter.FILTER_ACCEPT;
           }
         });
-        var count = 0;
-        var firstMark = null;
         var node;
         while ((node = walker.nextNode())) {
           var idx = node.textContent.indexOf(searchText);
-          if (idx === -1) continue;
-          var range = document.createRange();
-          range.setStart(node, idx);
-          range.setEnd(node, idx + searchText.length);
-          var mark = document.createElement('mark');
-          mark.className = '__vessel-highlight-text';
-          mark.style.setProperty('background', bgColor, 'important');
-          mark.style.setProperty('border-bottom-color', solidColor, 'important');
-          mark.setAttribute('data-vessel-highlight', 'true');
-          range.surroundContents(mark);
-          if (!firstMark) firstMark = mark;
-          count++;
-          if (count >= 20) break;
+          if (idx !== -1) {
+            textNodes.push({ node: node, idx: idx });
+            if (textNodes.length >= 20) break;
+          }
+        }
+        var count = 0;
+        var firstMark = null;
+        for (var i = 0; i < textNodes.length; i++) {
+          var match = textNodes[i];
+          try {
+            var range = document.createRange();
+            range.setStart(match.node, match.idx);
+            range.setEnd(match.node, match.idx + searchText.length);
+            var mark = document.createElement('mark');
+            mark.className = '__vessel-highlight-text';
+            mark.style.setProperty('background', bgColor, 'important');
+            mark.style.setProperty('border-bottom-color', solidColor, 'important');
+            mark.setAttribute('data-vessel-highlight', 'true');
+            range.surroundContents(mark);
+            if (!firstMark) firstMark = mark;
+            count++;
+          } catch (_e) {}
         }
         if (count === 0) return 'Text not found: ' + searchText.slice(0, 80);
         if (firstMark) firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
