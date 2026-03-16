@@ -191,9 +191,19 @@ export class TabManager {
     this.broadcastState();
   }
 
+  private lastReapply = new Map<number, { url: string; at: number }>();
+
   private reapplyHighlights(url: string, wc: WebContents): void {
+    const wcId = wc.id;
+    const now = Date.now();
+    const last = this.lastReapply.get(wcId);
+    const normalized = highlightsManager.normalizeUrl(url);
+    if (last && last.url === normalized && now - last.at < 500) return;
+    this.lastReapply.set(wcId, { url: normalized, at: now });
+
     const highlights = highlightsManager.getHighlightsForUrl(url);
     for (const h of highlights) {
+      if (!h.selector && !h.text) continue;
       void highlightOnPage(wc, h.selector ?? null, h.text, h.label).catch(
         () => {},
       );

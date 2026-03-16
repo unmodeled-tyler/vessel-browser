@@ -887,7 +887,6 @@ async function waitForCondition(
     : `Timed out waiting for text "${text.slice(0, 80)}"`;
 }
 
-// Highlight functions extracted to src/main/highlights/inject.ts
 
 function findCheckpoint(
   checkpoints: AgentCheckpoint[],

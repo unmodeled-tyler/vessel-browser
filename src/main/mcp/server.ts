@@ -2549,7 +2549,12 @@ function registerTools(
             durationMs,
           );
 
-          if (persist && !durationMs) {
+          if (
+            persist &&
+            !durationMs &&
+            !result.startsWith("Error") &&
+            !result.includes("not found")
+          ) {
             const url = highlightsManager.normalizeUrl(wc.getURL());
             highlightsManager.addHighlight(
               url,
@@ -2569,14 +2574,18 @@ function registerTools(
     "vessel_clear_highlights",
     {
       title: "Clear Highlights",
-      description: "Remove all visual highlights from the current page.",
+      description:
+        "Remove all visual highlights from the current page, including any saved persistent highlights for this URL.",
     },
     async () => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
-      return withAction(runtime, tabManager, "clear_highlights", {}, async () =>
-        clearHighlights(tab.view.webContents),
-      );
+      return withAction(runtime, tabManager, "clear_highlights", {}, async () => {
+        const wc = tab.view.webContents;
+        const url = highlightsManager.normalizeUrl(wc.getURL());
+        highlightsManager.clearHighlightsForUrl(url);
+        return clearHighlights(wc);
+      });
     },
   );
 

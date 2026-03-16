@@ -26,12 +26,7 @@ function load(): HighlightsState {
 }
 
 function save(): void {
-  fs.mkdirSync(path.dirname(getHighlightsPath()), { recursive: true });
-  fs.writeFileSync(
-    getHighlightsPath(),
-    JSON.stringify(state, null, 2),
-    "utf-8",
-  );
+  fs.writeFileSync(getHighlightsPath(), JSON.stringify(state, null, 2), "utf-8");
 }
 
 function emit(): void {
