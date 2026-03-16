@@ -557,6 +557,34 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       });
     });
 
+    // Extract JSON-LD as fallback when preload bridge is unavailable
+    var jsonLd = [];
+    try {
+      document.querySelectorAll('script[type="application/ld+json"]').forEach(function(script) {
+        try {
+          var parsed = JSON.parse(script.textContent || "");
+          if (Array.isArray(parsed)) {
+            parsed.forEach(function(item) { if (item && typeof item === "object") jsonLd.push(item); });
+          } else if (parsed && typeof parsed === "object") {
+            jsonLd.push(parsed);
+          }
+        } catch (_e) {}
+      });
+    } catch (_e) {}
+
+    // Extract meta tags as fallback
+    var metaTags = {};
+    try {
+      var relevantPrefixes = ["og:", "article:", "product:", "recipe:", "twitter:"];
+      document.querySelectorAll("meta[name], meta[property], meta[itemprop]").forEach(function(meta) {
+        var key = meta.getAttribute("property") || meta.getAttribute("name") || meta.getAttribute("itemprop") || "";
+        var value = meta.getAttribute("content") || "";
+        if (key && value) metaTags[key] = value;
+      });
+      var canonical = document.querySelector('link[rel="canonical"]');
+      if (canonical && canonical.getAttribute("href")) metaTags["canonical"] = canonical.getAttribute("href");
+    } catch (_e) {}
+
     return {
       title: document.title,
       content: document.body?.innerText || document.documentElement?.innerText || "",
@@ -572,6 +600,8 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       overlays: overlays.map(({ element, zIndex, ...overlay }) => overlay),
       dormantOverlays: [],
       landmarks,
+      jsonLd: jsonLd,
+      metaTags: metaTags,
     };
   })()
 `;
