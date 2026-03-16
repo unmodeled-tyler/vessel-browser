@@ -386,3 +386,18 @@ export interface BookmarksState {
   folders: BookmarkFolder[];
   bookmarks: Bookmark[];
 }
+
+// --- Highlights ---
+
+export interface StoredHighlight {
+  id: string;
+  url: string; // hash-stripped canonical URL
+  selector?: string;
+  text?: string;
+  label?: string;
+  createdAt: string; // ISO timestamp
+}
+
+export interface HighlightsState {
+  highlights: StoredHighlight[];
+}

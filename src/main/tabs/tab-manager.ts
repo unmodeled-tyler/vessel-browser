@@ -1,7 +1,9 @@
-import { BaseWindow } from "electron";
+import { BaseWindow, type WebContents } from "electron";
 import { Tab } from "./tab";
 import { randomUUID } from "crypto";
 import type { SessionSnapshot, TabState } from "../../shared/types";
+import * as highlightsManager from "../highlights/manager";
+import { highlightOnPage } from "../highlights/inject";
 
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
@@ -29,6 +31,7 @@ export class TabManager {
       onOpenUrl: ({ url: requestedUrl, background, adBlockingEnabled }) => {
         this.createTab(requestedUrl, { background, adBlockingEnabled });
       },
+      onPageLoad: (pageUrl, wc) => this.reapplyHighlights(pageUrl, wc),
     });
     this.tabs.set(id, tab);
     this.order.push(id);
@@ -186,6 +189,15 @@ export class TabManager {
     this.order = [];
     this.activeTabId = null;
     this.broadcastState();
+  }
+
+  private reapplyHighlights(url: string, wc: WebContents): void {
+    const highlights = highlightsManager.getHighlightsForUrl(url);
+    for (const h of highlights) {
+      void highlightOnPage(wc, h.selector ?? null, h.text, h.label).catch(
+        () => {},
+      );
+    }
   }
 
   private broadcastState(): void {

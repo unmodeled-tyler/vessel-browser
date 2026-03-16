@@ -1,4 +1,4 @@
-import { WebContentsView } from "electron";
+import { WebContentsView, type WebContents } from "electron";
 import path from "path";
 import type { TabState } from "../../shared/types";
 
@@ -16,6 +16,7 @@ export class Tab {
   private _state: TabState;
   private onChange: () => void;
   private onOpenUrl?: (request: OpenUrlRequest) => void;
+  private onPageLoad?: (url: string, wc: WebContents) => void;
 
   // Fully custom URL history — we never rely on Chromium's native back/forward
   // because loadURL() calls (used for anchor clicks, form GETs, etc.) pollute
@@ -32,11 +33,13 @@ export class Tab {
     options?: {
       adBlockingEnabled?: boolean;
       onOpenUrl?: (request: OpenUrlRequest) => void;
+      onPageLoad?: (url: string, wc: WebContents) => void;
     },
   ) {
     this.id = id;
     this.onChange = onChange;
     this.onOpenUrl = options?.onOpenUrl;
+    this.onPageLoad = options?.onPageLoad;
 
     this.view = new WebContentsView({
       webPreferences: {
@@ -128,10 +131,12 @@ export class Tab {
 
     wc.on("did-navigate-in-page", () => {
       syncNavigationState();
+      this.onPageLoad?.(wc.getURL(), wc);
     });
 
     wc.on("did-finish-load", () => {
       syncNavigationState();
+      this.onPageLoad?.(wc.getURL(), wc);
     });
 
     wc.on("dom-ready", () => {
