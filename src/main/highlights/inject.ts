@@ -149,7 +149,18 @@ export async function highlightOnPage(
         var bgColor = ${JSON.stringify(c.bg)};
         var labelBg = ${JSON.stringify(c.label)};
         var labelText = ${JSON.stringify(c.text)};
-        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+        var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+          acceptNode: function(node) {
+            var p = node.parentElement;
+            if (!p) return NodeFilter.FILTER_REJECT;
+            if (SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
+            var style = window.getComputedStyle(p);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
+            if (p.offsetWidth === 0 && p.offsetHeight === 0) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        });
         var count = 0;
         var firstMark = null;
         var node;
