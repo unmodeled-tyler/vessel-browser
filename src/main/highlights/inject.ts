@@ -1,10 +1,15 @@
 import type { WebContents } from "electron";
 import type { HighlightColor } from "../../shared/types";
 
-const HIGHLIGHT_COLORS: Record<
-  string,
-  { solid: string; glow: string; bg: string; label: string; text: string }
-> = {
+interface ColorValues {
+  solid: string;
+  glow: string;
+  bg: string;
+  label: string;
+  text: string;
+}
+
+const HIGHLIGHT_COLORS: Record<string, ColorValues> = {
   yellow: {
     solid: "#f0c636",
     glow: "rgba(240, 198, 54, 0.5)",
@@ -49,23 +54,27 @@ const HIGHLIGHT_COLORS: Record<
   },
 };
 
+function resolveColor(color?: HighlightColor | null): ColorValues {
+  return HIGHLIGHT_COLORS[color ?? "yellow"] ?? HIGHLIGHT_COLORS.yellow;
+}
+
 export const VESSEL_HIGHLIGHT_CSS = `
 .__vessel-highlight {
-  outline: 3px solid var(--vessel-hl-solid, #f0c636) !important;
+  outline: 3px solid #f0c636 !important;
   outline-offset: 2px !important;
-  box-shadow: 0 0 12px var(--vessel-hl-glow, rgba(240, 198, 54, 0.5)) !important;
+  box-shadow: 0 0 12px rgba(240, 198, 54, 0.5) !important;
   transition: outline-color 0.3s, box-shadow 0.3s;
 }
 .__vessel-highlight-text {
-  background: var(--vessel-hl-bg, rgba(240, 198, 54, 0.3)) !important;
-  border-bottom: 2px solid var(--vessel-hl-solid, #f0c636) !important;
+  background: rgba(240, 198, 54, 0.3) !important;
+  border-bottom: 2px solid #f0c636 !important;
   padding: 1px 2px !important;
   border-radius: 2px !important;
 }
 .__vessel-highlight-label {
   position: absolute;
-  background: var(--vessel-hl-label, #f0c636);
-  color: var(--vessel-hl-text, #1a1a1e);
+  background: #f0c636;
+  color: #1a1a1e;
   font-size: 11px;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
   padding: 2px 8px;
@@ -77,11 +86,6 @@ export const VESSEL_HIGHLIGHT_CSS = `
 }
 `;
 
-function getColorVars(color?: HighlightColor | null): string {
-  const c = HIGHLIGHT_COLORS[color ?? "yellow"] ?? HIGHLIGHT_COLORS.yellow;
-  return `--vessel-hl-solid:${c.solid};--vessel-hl-glow:${c.glow};--vessel-hl-bg:${c.bg};--vessel-hl-label:${c.label};--vessel-hl-text:${c.text}`;
-}
-
 export async function highlightOnPage(
   wc: WebContents,
   resolvedSelector?: string | null,
@@ -90,7 +94,7 @@ export async function highlightOnPage(
   durationMs?: number,
   color?: HighlightColor | null,
 ): Promise<string> {
-  const colorStyle = getColorVars(color);
+  const c = resolveColor(color);
 
   await wc.executeJavaScript(`
     (function() {
@@ -109,13 +113,15 @@ export async function highlightOnPage(
         var el = document.querySelector(${JSON.stringify(resolvedSelector)});
         if (!el) return 'Element not found';
         el.classList.add('__vessel-highlight');
-        el.style.cssText += ';' + ${JSON.stringify(colorStyle)};
+        el.style.setProperty('outline-color', ${JSON.stringify(c.solid)}, 'important');
+        el.style.setProperty('box-shadow', '0 0 12px ' + ${JSON.stringify(c.glow)}, 'important');
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         var label = ${JSON.stringify(label || "")};
         if (label) {
           var badge = document.createElement('div');
           badge.className = '__vessel-highlight-label';
-          badge.style.cssText = ${JSON.stringify(colorStyle)};
+          badge.style.background = ${JSON.stringify(c.label)};
+          badge.style.color = ${JSON.stringify(c.text)};
           badge.textContent = label;
           badge.setAttribute('data-vessel-highlight', 'true');
           document.body.appendChild(badge);
@@ -139,7 +145,10 @@ export async function highlightOnPage(
     return wc.executeJavaScript(`
       (function() {
         var searchText = ${JSON.stringify(text)};
-        var colorStyle = ${JSON.stringify(colorStyle)};
+        var solidColor = ${JSON.stringify(c.solid)};
+        var bgColor = ${JSON.stringify(c.bg)};
+        var labelBg = ${JSON.stringify(c.label)};
+        var labelText = ${JSON.stringify(c.text)};
         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
         var count = 0;
         var firstMark = null;
@@ -152,7 +161,8 @@ export async function highlightOnPage(
           range.setEnd(node, idx + searchText.length);
           var mark = document.createElement('mark');
           mark.className = '__vessel-highlight-text';
-          mark.style.cssText = colorStyle;
+          mark.style.setProperty('background', bgColor, 'important');
+          mark.style.setProperty('border-bottom-color', solidColor, 'important');
           mark.setAttribute('data-vessel-highlight', 'true');
           range.surroundContents(mark);
           if (!firstMark) firstMark = mark;
@@ -165,7 +175,8 @@ export async function highlightOnPage(
         if (label && firstMark) {
           var badge = document.createElement('div');
           badge.className = '__vessel-highlight-label';
-          badge.style.cssText = colorStyle;
+          badge.style.background = labelBg;
+          badge.style.color = labelText;
           badge.textContent = label;
           badge.setAttribute('data-vessel-highlight', 'true');
           document.body.appendChild(badge);
@@ -199,6 +210,8 @@ export async function clearHighlights(wc: WebContents): Promise<string> {
       var count = 0;
       document.querySelectorAll('.__vessel-highlight').forEach(function(el) {
         el.classList.remove('__vessel-highlight');
+        el.style.removeProperty('outline-color');
+        el.style.removeProperty('box-shadow');
         count++;
       });
       document.querySelectorAll('mark.__vessel-highlight-text[data-vessel-highlight]').forEach(function(m) {
