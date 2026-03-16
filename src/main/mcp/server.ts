@@ -1047,9 +1047,7 @@ async function submitForm(
       for (const [k, v] of fd.entries()) {
         if (typeof v === 'string') params.append(k, v);
       }
-      if (method === 'GET') {
-        return { action, method, params: params.toString(), found: true };
-      }
+      // Use requestSubmit to fire JS submit handlers for all methods
       if (typeof form.requestSubmit === 'function') {
         try {
           if (
@@ -1063,20 +1061,24 @@ async function submitForm(
         } catch {
           form.requestSubmit();
         }
-        return { submitted: true, method: 'POST' };
+        return { submitted: true, method };
       }
       if (submitter instanceof HTMLElement && typeof submitter.click === 'function') {
         submitter.click();
-        return { submitted: true, method: 'POST' };
+        return { submitted: true, method };
+      }
+      // Last resort: form.submit() bypasses JS handlers but at least submits
+      if (method === 'GET') {
+        return { action, method, params: params.toString(), found: true };
       }
       form.submit();
-      return { submitted: true, method: 'POST' };
+      return { submitted: true, method };
     })()
   `);
 
   if (formInfo.error) return formInfo.error;
 
-  // For GET forms, use loadURL to ensure proper history entry
+  // Fallback for GET when requestSubmit was unavailable
   if (formInfo.found && formInfo.method === "GET") {
     const url = new URL(formInfo.action);
     if (formInfo.params) {
@@ -1094,8 +1096,8 @@ async function submitForm(
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     return afterUrl !== beforeUrl
-      ? `Submitted form via POST -> ${afterUrl}`
-      : "Submitted form via POST";
+      ? `Submitted form via ${formInfo.method} -> ${afterUrl}`
+      : `Submitted form via ${formInfo.method}`;
   }
 
   return "Submitted form";
