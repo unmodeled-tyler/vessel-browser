@@ -14,6 +14,10 @@ import type {
 } from "../../shared/types";
 import type { SessionSnapshot } from "../../shared/types";
 import type { TabManager } from "../tabs/tab-manager";
+import {
+  getMcpStatus,
+  onMcpStatusChange,
+} from "../health/runtime-health";
 
 const MAX_ACTIONS = 120;
 const MAX_CHECKPOINTS = 20;
@@ -90,6 +94,7 @@ function sanitizePersistence(
       ? persisted!.checkpoints.slice(-MAX_CHECKPOINTS)
       : [],
     transcript: [],
+    mcpStatus: "stopped",
   };
 }
 
@@ -100,6 +105,7 @@ export class AgentRuntime {
 
   constructor(private readonly tabManager: TabManager) {
     this.state = this.loadPersistedState();
+    onMcpStatusChange(() => this.emit());
   }
 
   setUpdateListener(
@@ -112,7 +118,9 @@ export class AgentRuntime {
   }
 
   getState(): AgentRuntimeState {
-    return clone(this.state);
+    const snapshot = clone(this.state);
+    snapshot.mcpStatus = getMcpStatus();
+    return snapshot;
   }
 
   onTabStateChanged(): void {

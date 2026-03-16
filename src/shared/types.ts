@@ -273,12 +273,15 @@ export interface AgentTranscriptEntry {
 
 export type AgentTranscriptDisplayMode = "off" | "summary" | "full";
 
+export type McpConnectionStatus = "starting" | "ready" | "error" | "stopped";
+
 export interface AgentRuntimeState {
   session: SessionSnapshot | null;
   supervisor: SupervisorState;
   actions: AgentActionEntry[];
   checkpoints: AgentCheckpoint[];
   transcript: AgentTranscriptEntry[];
+  mcpStatus: McpConnectionStatus;
 }
 
 export interface UIState {

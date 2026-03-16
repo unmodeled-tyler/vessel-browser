@@ -187,8 +187,8 @@
     height: 7px;
     flex-shrink: 0;
     border-radius: 999px;
-    background: var(--accent-primary);
-    box-shadow: 0 0 0 0 rgba(196, 160, 90, 0.45);
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45);
     animation: tab-agent-pulse 1.4s ease-out infinite;
 }
 
@@ -242,15 +242,15 @@
 
 @keyframes tab-agent-pulse {
     0% {
-        box-shadow: 0 0 0 0 rgba(196, 160, 90, 0.42);
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.42);
     }
 
     70% {
-        box-shadow: 0 0 0 6px rgba(196, 160, 90, 0);
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
     }
 
     100% {
-        box-shadow: 0 0 0 0 rgba(196, 160, 90, 0);
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
     }
 }
 
@@ -418,9 +418,10 @@
     white-space: nowrap;
 }
 
+/* Active — green: agent is actively using tools */
 .agent-status-badge.active {
-    border-left-color: rgba(196, 160, 90, 0.15);
-    background: rgba(196, 160, 90, 0.045);
+    border-left-color: rgba(34, 197, 94, 0.18);
+    background: rgba(34, 197, 94, 0.05);
     color: var(--text-primary);
 }
 
@@ -429,7 +430,7 @@
         90deg,
         var(--text-primary) 0%,
         var(--text-primary) 40%,
-        var(--accent-primary) 50%,
+        #22c55e 50%,
         var(--text-primary) 60%,
         var(--text-primary) 100%
     );
@@ -445,7 +446,15 @@
     100% { background-position: -100% 0; }
 }
 
-.agent-status-badge.inactive {
+/* Recent — amber/yellow: MCP connected or recently active */
+.agent-status-badge.recent {
+    border-left-color: rgba(234, 179, 8, 0.14);
+    background: rgba(234, 179, 8, 0.03);
+    color: var(--text-secondary);
+}
+
+/* Idle — gray: no connection */
+.agent-status-badge.idle {
     border-left-color: rgba(113, 113, 122, 0.1);
 }
 
@@ -453,17 +462,23 @@
     width: 6px;
     height: 6px;
     border-radius: 999px;
-    background: currentColor;
-    opacity: 0.42;
+    background: rgba(113, 113, 122, 0.5);
     flex-shrink: 0;
-    transition: opacity var(--duration-slow) var(--ease-in-out);
+    transition:
+        background var(--duration-slow) var(--ease-in-out),
+        box-shadow var(--duration-slow) var(--ease-in-out);
 }
 
+/* Green pulsing dot for active */
 .agent-status-badge.active .agent-status-dot {
-    background: var(--accent-primary);
-    opacity: 1;
-    box-shadow: 0 0 0 0 rgba(196, 160, 90, 0.28);
-    animation: agent-status-pulse 1.8s ease-out infinite;
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.32);
+    animation: agent-status-pulse-green 1.8s ease-out infinite;
+}
+
+/* Steady amber dot for recent/connected */
+.agent-status-badge.recent .agent-status-dot {
+    background: #eab308;
 }
 
 .toolbar-actions {
@@ -670,9 +685,9 @@
     width: 7px;
     height: 7px;
     border-radius: 999px;
-    background: var(--accent-primary);
-    box-shadow: 0 0 0 0 rgba(196, 160, 90, 0.28);
-    animation: agent-status-pulse 1.8s ease-out infinite;
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.28);
+    animation: agent-status-pulse-green 1.8s ease-out infinite;
 }
 
 .agent-transcript-actions {
@@ -794,5 +809,19 @@
 
     100% {
         box-shadow: 0 0 0 0 rgba(196, 160, 90, 0);
+    }
+}
+
+@keyframes agent-status-pulse-green {
+    0% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.36);
+    }
+
+    70% {
+        box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
     }
 }

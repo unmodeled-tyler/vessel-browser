@@ -11,6 +11,7 @@ const DEFAULT_RUNTIME_STATE: AgentRuntimeState = {
   actions: [],
   checkpoints: [],
   transcript: [],
+  mcpStatus: "stopped",
 };
 
 const [runtimeState, setRuntimeState] = createSignal<AgentRuntimeState>(
