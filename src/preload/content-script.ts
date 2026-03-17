@@ -1153,6 +1153,45 @@ function extractRdfa(): Record<string, unknown>[] {
     .filter((entity): entity is Record<string, unknown> => entity !== null);
 }
 
+function withHighlightLabelsRemoved<T>(read: () => T): T {
+  const labels = Array.from(
+    document.querySelectorAll(".__vessel-highlight-label[data-vessel-highlight]"),
+  ).filter((node): node is HTMLElement => node instanceof HTMLElement);
+
+  const removed = labels
+    .map((label) => {
+      const parent = label.parentNode;
+      if (!parent) return null;
+      const nextSibling = label.nextSibling;
+      parent.removeChild(label);
+      return { label, parent, nextSibling };
+    })
+    .filter(
+      (
+        entry,
+      ): entry is {
+        label: HTMLElement;
+        parent: Node;
+        nextSibling: ChildNode | null;
+      } => entry !== null,
+    );
+
+  try {
+    return read();
+  } finally {
+    for (let i = removed.length - 1; i >= 0; i -= 1) {
+      const { label, parent, nextSibling } = removed[i];
+      parent.insertBefore(label, nextSibling);
+    }
+  }
+}
+
+function getVisiblePageText(): string {
+  return withHighlightLabelsRemoved(
+    () => document.body?.innerText || document.documentElement?.innerText || "",
+  );
+}
+
 function vesselExtractContent(): PageContent {
   const extractStructuredContent = (article?: {
     title?: string | null;
@@ -1165,7 +1204,7 @@ function vesselExtractContent(): PageContent {
 
     return {
       title: article?.title || document.title,
-      content: article?.textContent || document.body?.innerText || "",
+      content: article?.textContent || getVisiblePageText(),
       htmlContent: article?.content || "",
       byline: article?.byline || "",
       excerpt: article?.excerpt || "",
