@@ -11,6 +11,7 @@ import {
 } from "./config/settings";
 import { startMcpServer, stopMcpServer } from "./mcp/server";
 import { AgentRuntime } from "./agent/runtime";
+import { setDevToolsPanelListener } from "./devtools/tools";
 import { installAdBlocking } from "./network/ad-blocking";
 import * as bookmarkManager from "./bookmarks/manager";
 import {
@@ -20,7 +21,7 @@ import {
 } from "./health/runtime-health";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
 
-function rendererUrlFor(view: "chrome" | "sidebar"): string | null {
+function rendererUrlFor(view: "chrome" | "sidebar" | "devtools"): string | null {
   if (!process.env.ELECTRON_RENDERER_URL) return null;
   const url = new URL(process.env.ELECTRON_RENDERER_URL);
   url.searchParams.set("view", view);
@@ -131,9 +132,16 @@ async function bootstrap(): Promise<void> {
     runtime?.onTabStateChanged();
   });
 
-  const { chromeView, sidebarView, tabManager } = windowState;
+  const { chromeView, sidebarView, devtoolsPanelView, tabManager } = windowState;
   runtime = new AgentRuntime(tabManager);
   installAdBlocking(tabManager);
+
+  // Wire devtools panel state updates to the devtools panel renderer view
+  setDevToolsPanelListener((state) => {
+    if (!devtoolsPanelView.webContents.isDestroyed()) {
+      devtoolsPanelView.webContents.send(Channels.DEVTOOLS_PANEL_STATE, state);
+    }
+  });
 
   registerIpcHandlers(windowState, runtime);
 
@@ -184,10 +192,12 @@ async function bootstrap(): Promise<void> {
   // Load renderer
   const chromeUrl = rendererUrlFor("chrome");
   const sidebarUrl = rendererUrlFor("sidebar");
+  const devtoolsUrl = rendererUrlFor("devtools");
 
-  if (chromeUrl && sidebarUrl) {
+  if (chromeUrl && sidebarUrl && devtoolsUrl) {
     chromeView.webContents.loadURL(chromeUrl);
     sidebarView.webContents.loadURL(sidebarUrl);
+    devtoolsPanelView.webContents.loadURL(devtoolsUrl);
   } else {
     const rendererFile = path.join(__dirname, "../renderer/index.html");
     chromeView.webContents.loadFile(rendererFile, {
@@ -195,6 +205,9 @@ async function bootstrap(): Promise<void> {
     });
     sidebarView.webContents.loadFile(rendererFile, {
       query: { view: "sidebar" },
+    });
+    devtoolsPanelView.webContents.loadFile(rendererFile, {
+      query: { view: "devtools" },
     });
   }
 

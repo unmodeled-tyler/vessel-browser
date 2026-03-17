@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage } from "../highlights/inject";
+import { destroySession, destroyAllSessions } from "../devtools/manager";
 
 export type HighlightCaptureResult = {
   success: boolean;
@@ -79,6 +80,7 @@ export class TabManager {
     const tab = this.tabs.get(id);
     if (!tab) return;
 
+    destroySession(id);
     this.window.contentView.removeChildView(tab.view);
     tab.destroy();
     this.tabs.delete(id);
@@ -201,6 +203,7 @@ export class TabManager {
   }
 
   private destroyAllTabs(): void {
+    destroyAllSessions();
     for (const id of this.order) {
       const tab = this.tabs.get(id);
       if (!tab) continue;

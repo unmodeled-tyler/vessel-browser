@@ -6,6 +6,7 @@ interface KeyBindingHandlers {
   closeTab: () => void;
   openSettings: () => void;
   captureHighlight: () => void;
+  toggleDevTools?: () => void;
 }
 
 export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
@@ -58,6 +59,13 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     if (ctrl && e.key === 'h' && !e.shiftKey) {
       e.preventDefault();
       handlers.captureHighlight();
+      return;
+    }
+
+    // F12 — toggle DevTools panel
+    if (e.key === 'F12') {
+      e.preventDefault();
+      handlers.toggleDevTools?.();
       return;
     }
   };

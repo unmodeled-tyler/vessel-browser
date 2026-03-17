@@ -56,7 +56,7 @@ export function useAI() {
         const filtered = prev.filter((q) => q !== prompt);
         return [prompt, ...filtered].slice(0, MAX_RECENT_QUERIES);
       });
-      await window.vessel.ai.query(prompt);
+      await window.vessel.ai.query(prompt, messages());
     },
     cancel: () => window.vessel.ai.cancel(),
     clearHistory: () => setMessages([]),

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import type { ProviderConfig } from "../../shared/types";
+import type { AIMessage, ProviderConfig } from "../../shared/types";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
 import { PROVIDERS } from "./providers";
@@ -11,6 +11,7 @@ export interface AIProvider {
     userMessage: string,
     onChunk: (text: string) => void,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void>;
 
   streamAgentQuery?(
@@ -20,6 +21,7 @@ export interface AIProvider {
     onChunk: (text: string) => void,
     onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void>;
 
   cancel(): void;

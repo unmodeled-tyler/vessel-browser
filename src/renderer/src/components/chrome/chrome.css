@@ -330,6 +330,11 @@
     cursor: default;
 }
 
+.nav-btn.active {
+    color: var(--accent-primary);
+    background: rgba(196, 160, 90, 0.12);
+}
+
 .nav-btn.ai-btn {
     color: var(--accent-primary);
 }

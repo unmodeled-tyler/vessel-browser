@@ -18,7 +18,7 @@ import "./chrome.css";
 const AddressBar: Component = () => {
   const { activeTab, navigate, goBack, goForward, reload } = useTabs();
   const { runtimeState } = useRuntime();
-  const { toggleSidebar, openSettings } = useUI();
+  const { toggleSidebar, openSettings, toggleDevTools, devtoolsPanelOpen } = useUI();
   const [inputValue, setInputValue] = createSignal("");
   const [now, setNow] = createSignal(Date.now());
   let inputRef: HTMLInputElement | undefined;
@@ -152,6 +152,7 @@ const AddressBar: Component = () => {
       <div class="toolbar-actions">
         <button
           class="nav-btn"
+          classList={{ active: !!activeTab()?.isReaderMode }}
           onClick={() => window.vessel.content.toggleReader()}
           data-tooltip="Reader Mode"
         >
@@ -189,6 +190,40 @@ const AddressBar: Component = () => {
               y2="9"
               stroke="currentColor"
               stroke-width="1"
+            />
+          </svg>
+        </button>
+        <button
+          class="nav-btn"
+          classList={{ active: devtoolsPanelOpen() }}
+          onClick={toggleDevTools}
+          data-tooltip="Dev Tools"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <polyline
+              points="3,5 1,7 3,9"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <polyline
+              points="11,5 13,7 11,9"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <line
+              x1="8.5"
+              y1="2"
+              x2="5.5"
+              y2="12"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
             />
           </svg>
         </button>

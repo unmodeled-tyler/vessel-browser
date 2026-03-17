@@ -33,6 +33,7 @@ export class Tab {
     color: HighlightColor,
   ) => void;
   private _highlightModeActive = false;
+  private _readerOriginalUrl: string | null = null;
 
   // Fully custom URL history — we never rely on Chromium's native back/forward
   // because loadURL() calls (used for anchor clicks, form GETs, etc.) pollute
@@ -349,6 +350,20 @@ export class Tab {
 
   get highlightModeActive(): boolean {
     return this._highlightModeActive;
+  }
+
+  get readerOriginalUrl(): string | null {
+    return this._readerOriginalUrl;
+  }
+
+  setReaderMode(enabled: boolean, originalUrl?: string): void {
+    this._state.isReaderMode = enabled;
+    if (enabled && originalUrl) {
+      this._readerOriginalUrl = originalUrl;
+    } else if (!enabled) {
+      this._readerOriginalUrl = null;
+    }
+    this.onChange();
   }
 
   setHighlightMode(enabled: boolean): void {

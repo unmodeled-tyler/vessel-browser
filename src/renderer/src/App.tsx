@@ -7,6 +7,7 @@ import HighlightNotifications from "./components/chrome/HighlightNotifications";
 import AgentTranscriptDock from "./components/chrome/AgentTranscriptDock";
 import CommandBar from "./components/ai/CommandBar";
 import Sidebar from "./components/ai/Sidebar";
+import DevToolsPanel from "./components/devtools/DevToolsPanel";
 import Settings from "./components/shared/Settings";
 import { useUI } from "./stores/ui";
 import { useTabs } from "./stores/tabs";
@@ -83,6 +84,9 @@ const App: Component = () => {
       },
       openSettings,
       captureHighlight,
+      toggleDevTools: () => {
+        window.vessel.devtoolsPanel.toggle();
+      },
     });
 
     // Listen for Ctrl+H captures triggered from the page view
@@ -98,6 +102,10 @@ const App: Component = () => {
 
   if (view === "sidebar") {
     return <Sidebar forceOpen />;
+  }
+
+  if (view === "devtools") {
+    return <DevToolsPanel />;
   }
 
   return (

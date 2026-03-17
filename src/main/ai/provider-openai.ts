@@ -1,7 +1,21 @@
 import OpenAI from 'openai';
+import type Anthropic from '@anthropic-ai/sdk';
 import type { AIProvider } from './provider';
-import type { ProviderConfig } from '../../shared/types';
+import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
+
+const MAX_AGENT_ITERATIONS = 15;
+
+function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.ChatCompletionTool[] {
+  return tools.map((t) => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description ?? '',
+      parameters: t.input_schema as Record<string, unknown>,
+    },
+  }));
+}
 
 export class OpenAICompatProvider implements AIProvider {
   private client: OpenAI;
@@ -14,7 +28,7 @@ export class OpenAICompatProvider implements AIProvider {
       config.baseUrl || meta?.defaultBaseUrl || 'https://api.openai.com/v1';
 
     this.client = new OpenAI({
-      apiKey: config.apiKey || 'ollama', // Ollama doesn't need a real key
+      apiKey: config.apiKey || 'ollama',
       baseURL,
     });
     this.model = config.model || meta?.defaultModel || 'gpt-4o';
@@ -25,18 +39,22 @@ export class OpenAICompatProvider implements AIProvider {
     userMessage: string,
     onChunk: (text: string) => void,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void> {
     this.abortController = new AbortController();
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
+      { role: 'user', content: userMessage },
+    ];
 
     try {
       const stream = await this.client.chat.completions.create(
         {
           model: this.model,
           stream: true,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
-          ],
+          messages,
         },
         { signal: this.abortController.signal },
       );
@@ -45,6 +63,114 @@ export class OpenAICompatProvider implements AIProvider {
         const delta = chunk.choices[0]?.delta?.content;
         if (delta) {
           onChunk(delta);
+        }
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        onChunk(`\n\n[Error: ${err.message}]`);
+      }
+    } finally {
+      this.abortController = null;
+      onEnd();
+    }
+  }
+
+  async streamAgentQuery(
+    systemPrompt: string,
+    userMessage: string,
+    tools: Anthropic.Tool[],
+    onChunk: (text: string) => void,
+    onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
+    onEnd: () => void,
+    history?: AIMessage[],
+  ): Promise<void> {
+    this.abortController = new AbortController();
+    const openAITools = toOpenAITools(tools);
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
+      { role: 'user', content: userMessage },
+    ];
+
+    try {
+      for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
+        // Accumulate text and tool calls across streamed chunks
+        let textAccum = '';
+        const toolCallAccums: Record<number, { id: string; name: string; argsJson: string }> = {};
+        let finishReason: string | null = null;
+
+        const stream = await this.client.chat.completions.create(
+          {
+            model: this.model,
+            stream: true,
+            messages,
+            tools: openAITools,
+            tool_choice: 'auto',
+          },
+          { signal: this.abortController.signal },
+        );
+
+        for await (const chunk of stream) {
+          const choice = chunk.choices[0];
+          if (!choice) continue;
+
+          const delta = choice.delta;
+          if (choice.finish_reason) finishReason = choice.finish_reason;
+
+          if (delta.content) {
+            textAccum += delta.content;
+            onChunk(delta.content);
+          }
+
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index;
+              if (!toolCallAccums[idx]) {
+                toolCallAccums[idx] = { id: '', name: '', argsJson: '' };
+              }
+              if (tc.id) toolCallAccums[idx].id = tc.id;
+              if (tc.function?.name) toolCallAccums[idx].name += tc.function.name;
+              if (tc.function?.arguments) toolCallAccums[idx].argsJson += tc.function.arguments;
+            }
+          }
+        }
+
+        const toolCalls = Object.values(toolCallAccums);
+
+        // Build assistant message for history
+        const assistantMsg: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
+          role: 'assistant',
+          content: textAccum || null,
+          ...(toolCalls.length > 0 && {
+            tool_calls: toolCalls.map((tc) => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: { name: tc.name, arguments: tc.argsJson },
+            })),
+          }),
+        };
+        messages.push(assistantMsg);
+
+        // If no tool calls or stop, we're done
+        if (finishReason !== 'tool_calls' || toolCalls.length === 0) break;
+
+        // Execute each tool and collect results
+        for (const tc of toolCalls) {
+          let args: Record<string, any> = {};
+          try {
+            args = JSON.parse(tc.argsJson || '{}');
+          } catch {
+            // leave args empty
+          }
+          const argSummary = args.url || args.text || args.direction || '';
+          onChunk(`\n\`[${tc.name}${argSummary ? ': ' + argSummary : ''}]\` `);
+          const result = await onToolCall(tc.name, args);
+          messages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: result,
+          });
         }
       }
     } catch (err: any) {

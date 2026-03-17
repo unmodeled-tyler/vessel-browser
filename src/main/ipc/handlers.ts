@@ -3,9 +3,13 @@ import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
-import { layoutViews, type WindowState } from "../window";
+import { layoutViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import { getRuntimeHealth } from "../health/runtime-health";
+import { createProvider, fetchProviderModels } from "../ai/provider";
+import type { AIProvider } from "../ai/provider";
+import { handleAIQuery } from "../ai/commands";
 import type {
+  AIMessage,
   ApprovalMode,
   AgentRuntimeState,
   SessionSnapshot,
@@ -16,15 +20,18 @@ import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage } from "../highlights/inject";
 import { startMcpServer, stopMcpServer } from "../mcp/server";
 
+let activeChatProvider: AIProvider | null = null;
+
 export function registerIpcHandlers(
   windowState: WindowState,
   runtime: AgentRuntime,
 ): void {
-  const { tabManager, chromeView, sidebarView, mainWindow } = windowState;
+  const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
 
   const sendToRendererViews = (channel: string, ...args: unknown[]) => {
     chromeView.webContents.send(channel, ...args);
     sidebarView.webContents.send(channel, ...args);
+    devtoolsPanelView.webContents.send(channel, ...args);
   };
 
   runtime.setUpdateListener((state: AgentRuntimeState) => {
@@ -67,20 +74,55 @@ export function registerIpcHandlers(
 
   // --- AI handlers ---
 
-  ipcMain.handle(Channels.AI_QUERY, async (_, query: string) => {
+  ipcMain.handle(Channels.AI_QUERY, async (_, query: string, history?: AIMessage[]) => {
+    const settings = loadSettings();
+    const chatConfig = settings.chatProvider;
+
     sendToRendererViews(Channels.AI_STREAM_START, query);
-    sendToRendererViews(
-      Channels.AI_STREAM_CHUNK,
-      [
-        "Vessel does not run a locally configured model.",
-        "Control it through an external agent harness such as Hermes Agent or OpenClaw.",
-        "Use the sidebar here for runtime visibility, approvals, checkpoints, and bookmarks.",
-      ].join("\n\n"),
-    );
-    sendToRendererViews(Channels.AI_STREAM_END);
+
+    if (!chatConfig) {
+      sendToRendererViews(
+        Channels.AI_STREAM_CHUNK,
+        "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
+      );
+      sendToRendererViews(Channels.AI_STREAM_END);
+      return;
+    }
+
+    try {
+      activeChatProvider = createProvider(chatConfig);
+      const activeTab = tabManager.getActiveTab();
+      await handleAIQuery(
+        query,
+        activeChatProvider,
+        activeTab?.view.webContents,
+        (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
+        () => sendToRendererViews(Channels.AI_STREAM_END),
+        tabManager,
+        runtime,
+        history,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      sendToRendererViews(Channels.AI_STREAM_CHUNK, `\n[Error: ${msg}]`);
+      sendToRendererViews(Channels.AI_STREAM_END);
+    } finally {
+      activeChatProvider = null;
+    }
   });
 
-  ipcMain.handle(Channels.AI_CANCEL, () => undefined);
+  ipcMain.handle(Channels.AI_CANCEL, () => {
+    activeChatProvider?.cancel();
+  });
+
+  ipcMain.handle(Channels.AI_FETCH_MODELS, async (_, config: unknown) => {
+    try {
+      const models = await fetchProviderModels(config as Parameters<typeof fetchProviderModels>[0]);
+      return { ok: true, models };
+    } catch (err: unknown) {
+      return { ok: false, models: [], error: err instanceof Error ? err.message : "Unknown error" };
+    }
+  });
 
   // --- Content handlers ---
 
@@ -94,11 +136,21 @@ export function registerIpcHandlers(
     const activeTab = tabManager.getActiveTab();
     if (!activeTab) return;
 
-    const content = await extractContent(activeTab.view.webContents);
-    const html = generateReaderHTML(content);
-    activeTab.view.webContents.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
-    );
+    if (activeTab.state.isReaderMode) {
+      const originalUrl = activeTab.readerOriginalUrl;
+      activeTab.setReaderMode(false);
+      if (originalUrl) {
+        activeTab.view.webContents.loadURL(originalUrl);
+      }
+    } else {
+      const originalUrl = activeTab.state.url;
+      const content = await extractContent(activeTab.view.webContents);
+      const html = generateReaderHTML(content);
+      activeTab.setReaderMode(true, originalUrl);
+      activeTab.view.webContents.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
+      );
+    }
   });
 
   // --- UI handlers ---
@@ -321,6 +373,21 @@ export function registerIpcHandlers(
     } catch {
       // Silently ignore errors from auto-highlight
     }
+  });
+
+  // --- DevTools panel ---
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, () => {
+    windowState.uiState.devtoolsPanelOpen = !windowState.uiState.devtoolsPanelOpen;
+    layoutViews(windowState);
+    return { open: windowState.uiState.devtoolsPanelOpen };
+  });
+
+  ipcMain.handle("devtools-panel:resize", (_, height: number) => {
+    const clamped = Math.max(MIN_DEVTOOLS_PANEL, Math.min(MAX_DEVTOOLS_PANEL, Math.round(height)));
+    windowState.uiState.devtoolsPanelHeight = clamped;
+    layoutViews(windowState);
+    return clamped;
   });
 
   // --- Window controls ---

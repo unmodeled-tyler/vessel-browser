@@ -7,10 +7,15 @@ import type { UIState } from "../shared/types";
 
 const CHROME_HEIGHT = 110; // title(32) + tabs(36+1border) + address(40+1border)
 
+const DEFAULT_DEVTOOLS_PANEL_HEIGHT = 250;
+const MIN_DEVTOOLS_PANEL = 120;
+const MAX_DEVTOOLS_PANEL = 600;
+
 export interface WindowState {
   mainWindow: BaseWindow;
   chromeView: WebContentsView;
   sidebarView: WebContentsView;
+  devtoolsPanelView: WebContentsView;
   tabManager: TabManager;
   uiState: UIState;
 }
@@ -62,12 +67,26 @@ export function createMainWindow(
   sidebarView.setBackgroundColor("#00000000");
   mainWindow.contentView.addChildView(sidebarView);
 
+  const devtoolsPanelView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  devtoolsPanelView.setBackgroundColor("#00000000");
+  mainWindow.contentView.addChildView(devtoolsPanelView);
+
   const settings = loadSettings();
   const uiState: UIState = {
     sidebarOpen: false,
     sidebarWidth: settings.sidebarWidth,
     focusMode: false,
     settingsOpen: false,
+    devtoolsPanelOpen: false,
+    devtoolsPanelHeight: DEFAULT_DEVTOOLS_PANEL_HEIGHT,
   };
 
   const tabManager = new TabManager(mainWindow, onTabStateChange);
@@ -76,6 +95,7 @@ export function createMainWindow(
     mainWindow,
     chromeView,
     sidebarView,
+    devtoolsPanelView,
     tabManager,
     uiState,
   };
@@ -89,10 +109,11 @@ export function createMainWindow(
 }
 
 export function layoutViews(state: WindowState): void {
-  const { mainWindow, chromeView, sidebarView, tabManager, uiState } = state;
+  const { mainWindow, chromeView, sidebarView, devtoolsPanelView, tabManager, uiState } = state;
   const [width, height] = mainWindow.getContentSize();
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
   const sidebarWidth = uiState.sidebarOpen ? uiState.sidebarWidth : 0;
+  const devtoolsHeight = uiState.devtoolsPanelOpen ? uiState.devtoolsPanelHeight : 0;
   const chromeNeedsFullHeight = uiState.settingsOpen;
 
   if (chromeNeedsFullHeight) {
@@ -112,20 +133,37 @@ export function layoutViews(state: WindowState): void {
     sidebarView.setBounds({ x: width, y: 0, width: 0, height: 0 });
   }
 
-  // Chrome always on top
+  // DevTools panel: bottom of content area, left of sidebar
+  const contentWidth = width - sidebarWidth;
+  if (uiState.devtoolsPanelOpen) {
+    devtoolsPanelView.setBounds({
+      x: 0,
+      y: height - devtoolsHeight,
+      width: contentWidth,
+      height: devtoolsHeight,
+    });
+  } else {
+    devtoolsPanelView.setBounds({ x: 0, y: height, width: 0, height: 0 });
+  }
+
+  // Chrome, sidebar, and devtools panel always on top of tab content
   mainWindow.contentView.removeChildView(chromeView);
   mainWindow.contentView.addChildView(chromeView);
   mainWindow.contentView.removeChildView(sidebarView);
   mainWindow.contentView.addChildView(sidebarView);
+  mainWindow.contentView.removeChildView(devtoolsPanelView);
+  mainWindow.contentView.addChildView(devtoolsPanelView);
 
-  // Active tab content: below chrome, left of sidebar
+  // Active tab content: below chrome, left of sidebar, above devtools panel
   const activeTab = tabManager.getActiveTab();
   if (activeTab) {
     activeTab.view.setBounds({
       x: 0,
       y: chromeHeight,
-      width: width - sidebarWidth,
-      height: height - chromeHeight,
+      width: contentWidth,
+      height: height - chromeHeight - devtoolsHeight,
     });
   }
 }
+
+export { MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL };

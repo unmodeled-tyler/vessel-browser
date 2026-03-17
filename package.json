@@ -1,8 +1,19 @@
 {
-  "name": "vessel",
+  "name": "@quanta-intellect/vessel-browser",
   "version": "0.1.0",
-  "description": "AI-native web browser for Linux",
+  "description": "AI-native web browser for Linux — persistent browser runtime for autonomous agents with human supervision",
   "main": "./out/main/index.js",
+  "bin": {
+    "vessel-browser": "./bin/vessel-browser.js"
+  },
+  "files": [
+    "out/**/*",
+    "bin/**/*",
+    "resources/vessel-icon.png",
+    "package.json",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -10,6 +21,7 @@
     "dist:dir": "npm run build && electron-builder --linux dir --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
     "test:navigation-regression": "electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
     "smoke:test": "node scripts/smoke-test.mjs"
   },
@@ -22,10 +34,21 @@
     "linux",
     "mcp",
     "model-context-protocol",
-    "solidjs"
+    "solidjs",
+    "vessel"
   ],
-  "author": "",
+  "author": "Quanta Intellect",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unmodeled-tyler/quanta-vessel-browser.git"
+  },
+  "peerDependencies": {
+    "electron": ">=30.0.0"
+  },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "@types/node": "^25.3.5",

@@ -9,6 +9,7 @@ const [sidebarWidth, setSidebarWidth] = createSignal(DEFAULT_SIDEBAR_WIDTH);
 const [focusMode, setFocusMode] = createSignal(false);
 const [commandBarOpen, setCommandBarOpen] = createSignal(false);
 const [settingsOpen, setSettingsOpen] = createSignal(false);
+const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
 
 // Throttled IPC for resize — fire at most once per animation frame
 let resizeRafId: number | null = null;
@@ -29,6 +30,7 @@ export function useUI() {
     focusMode,
     commandBarOpen,
     settingsOpen,
+    devtoolsPanelOpen,
     toggleSidebar: async () => {
       const result = await window.vessel.ui.toggleSidebar();
       setSidebarOpen(result.open);
@@ -61,6 +63,10 @@ export function useUI() {
     toggleFocusMode: async () => {
       const result = await window.vessel.ui.toggleFocusMode();
       setFocusMode(result);
+    },
+    toggleDevTools: async () => {
+      const result = await window.vessel.devtoolsPanel.toggle();
+      setDevtoolsPanelOpen(result.open);
     },
     openCommandBar: () => setCommandBarOpen(true),
     closeCommandBar: () => setCommandBarOpen(false),

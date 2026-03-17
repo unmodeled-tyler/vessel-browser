@@ -289,6 +289,8 @@ export interface UIState {
   sidebarWidth: number;
   focusMode: boolean;
   settingsOpen: boolean;
+  devtoolsPanelOpen: boolean;
+  devtoolsPanelHeight: number;
 }
 
 // --- Provider types ---
@@ -342,6 +344,7 @@ export interface VesselSettings {
   obsidianVaultPath: string;
   approvalMode: ApprovalMode;
   agentTranscriptMode: AgentTranscriptDisplayMode;
+  chatProvider: ProviderConfig | null;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";

@@ -1,15 +1,30 @@
 import {
   createEffect,
   createSignal,
+  For,
   Show,
   onMount,
   type Component,
 } from "solid-js";
+
 import { useUI } from "../../stores/ui";
 import type {
   AgentTranscriptDisplayMode,
+  ProviderId,
+  ProviderConfig,
   RuntimeHealthState,
 } from "../../../shared/types";
+
+const CHAT_PROVIDERS: Array<{ id: ProviderId; name: string; requiresKey: boolean; needsBaseUrl: boolean; defaultBaseUrl?: string; keyPlaceholder: string; defaultModel: string; models: string[] }> = [
+  { id: "anthropic", name: "Anthropic", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-ant-...", defaultModel: "claude-sonnet-4-20250514", models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-20250506"] },
+  { id: "openai", name: "OpenAI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "gpt-4o", models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3-mini"] },
+  { id: "openrouter", name: "OpenRouter", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-or-...", defaultModel: "anthropic/claude-sonnet-4", models: ["anthropic/claude-sonnet-4", "openai/gpt-4o", "google/gemini-2.5-pro"] },
+  { id: "ollama", name: "Ollama (Local)", requiresKey: false, needsBaseUrl: false, keyPlaceholder: "", defaultModel: "", models: [] },
+  { id: "mistral", name: "Mistral AI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "mistral-large-latest", models: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"] },
+  { id: "xai", name: "xAI (Grok)", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "xai-...", defaultModel: "grok-3", models: ["grok-3", "grok-3-mini"] },
+  { id: "google", name: "Google Gemini", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "AI...", defaultModel: "gemini-2.5-pro", models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"] },
+  { id: "custom", name: "Custom (OAI-Compatible)", requiresKey: false, needsBaseUrl: true, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "", defaultModel: "", models: [] },
+];
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
@@ -26,6 +41,66 @@ const Settings: Component = () => {
     text: string;
   } | null>(null);
 
+  // Chat provider settings
+  const [chatEnabled, setChatEnabled] = createSignal(false);
+  const [chatProviderId, setChatProviderId] = createSignal<ProviderId>("anthropic");
+  const [chatApiKey, setChatApiKey] = createSignal("");
+  const [chatModel, setChatModel] = createSignal("");
+  const [chatBaseUrl, setChatBaseUrl] = createSignal("");
+
+  const chatProviderMeta = () => CHAT_PROVIDERS.find((p) => p.id === chatProviderId()) ?? CHAT_PROVIDERS[0];
+
+  const [providerModels, setProviderModels] = createSignal<string[]>([]);
+  const [modelFetchState, setModelFetchState] = createSignal<"idle" | "loading" | "error">("idle");
+
+  const doFetchModels = () => {
+    const meta = chatProviderMeta();
+    // Need a key for providers that require one
+    if (meta.requiresKey && !chatApiKey().trim()) {
+      setProviderModels([]);
+      setModelFetchState("idle");
+      return;
+    }
+    setModelFetchState("loading");
+    window.vessel.ai.fetchModels({
+      id: chatProviderId(),
+      apiKey: chatApiKey().trim(),
+      model: "",
+      baseUrl: chatBaseUrl().trim() || meta.defaultBaseUrl || undefined,
+    }).then(({ ok, models }) => {
+      if (ok) {
+        setProviderModels(models.sort());
+        if (models.length > 0 && !chatModel()) setChatModel(models[0]);
+        setModelFetchState("idle");
+      } else {
+        setProviderModels([]);
+        setModelFetchState("error");
+      }
+    }).catch(() => {
+      setProviderModels([]);
+      setModelFetchState("error");
+    });
+  };
+
+  // Auto-fetch when provider switches or when api key is filled in
+  createEffect(() => {
+    if (!chatEnabled()) return;
+    const meta = chatProviderMeta();
+    chatProviderId(); // track
+    if (!meta.requiresKey) {
+      doFetchModels();
+    }
+  });
+
+  // When key is provided for a keyed provider, fetch on provider switch
+  createEffect(() => {
+    if (!chatEnabled()) return;
+    const meta = chatProviderMeta();
+    if (meta.requiresKey && chatApiKey().trim()) {
+      doFetchModels();
+    }
+  });
+
   const loadState = async () => {
     const settings = await window.vessel.settings.get();
     const runtimeHealth = await window.vessel.settings.getHealth();
@@ -35,6 +110,14 @@ const Settings: Component = () => {
     setMcpPort(String(settings.mcpPort ?? 3100));
     setAgentTranscriptMode(settings.agentTranscriptMode ?? "summary");
     setHealth(runtimeHealth);
+    const cp = settings.chatProvider ?? null;
+    setChatEnabled(cp !== null);
+    if (cp) {
+      setChatProviderId(cp.id);
+      setChatApiKey(cp.apiKey);
+      setChatModel(cp.model);
+      setChatBaseUrl(cp.baseUrl ?? "");
+    }
   };
 
   onMount(() => {
@@ -79,6 +162,15 @@ const Settings: Component = () => {
         "agentTranscriptMode",
         agentTranscriptMode(),
       );
+      const chatConfig: ProviderConfig | null = chatEnabled()
+        ? {
+            id: chatProviderId(),
+            apiKey: chatApiKey().trim(),
+            model: chatModel().trim() || chatProviderMeta().defaultModel,
+            baseUrl: chatBaseUrl().trim() || undefined,
+          }
+        : null;
+      await window.vessel.settings.set("chatProvider", chatConfig);
       await loadState();
       setStatus({
         kind: "success",
@@ -256,6 +348,132 @@ const Settings: Component = () => {
               cleared each time Vessel starts.
             </p>
           </div>
+
+          <div class="settings-section-divider" />
+
+          <div class="settings-field">
+            <label class="settings-toggle">
+              <button
+                type="button"
+                class="toggle-switch"
+                classList={{ on: chatEnabled() }}
+                onClick={() => setChatEnabled(!chatEnabled())}
+                role="switch"
+                aria-checked={chatEnabled()}
+              >
+                <span class="toggle-switch-thumb" />
+              </button>
+              <span>Enable Chat Assistant</span>
+            </label>
+            <p class="settings-hint">
+              Adds a Chat tab to the sidebar for conversing with an AI provider of your choice.
+            </p>
+          </div>
+
+          <Show when={chatEnabled()}>
+            <div class="settings-field">
+              <label class="settings-label" for="chat-provider">Provider</label>
+              <select
+                id="chat-provider"
+                class="settings-input settings-select"
+                value={chatProviderId()}
+                onChange={(e) => {
+                  const id = e.currentTarget.value as ProviderId;
+                  setChatProviderId(id);
+                  setChatModel("");
+                  setChatBaseUrl("");
+                  setChatApiKey("");
+                  setProviderModels([]);
+                  setModelFetchState("idle");
+                }}
+              >
+                <For each={CHAT_PROVIDERS}>
+                  {(p) => <option value={p.id}>{p.name}</option>}
+                </For>
+              </select>
+            </div>
+
+            <Show when={chatProviderMeta().requiresKey}>
+              <div class="settings-field">
+                <label class="settings-label" for="chat-api-key">API Key</label>
+                <input
+                  id="chat-api-key"
+                  class="settings-input"
+                  type="password"
+                  value={chatApiKey()}
+                  onInput={(e) => setChatApiKey(e.currentTarget.value)}
+                  placeholder={chatProviderMeta().keyPlaceholder}
+                  spellcheck={false}
+                />
+              </div>
+            </Show>
+
+            <div class="settings-field">
+              <label class="settings-label" for="chat-model">Model</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <Show
+                  when={providerModels().length > 0}
+                  fallback={
+                    <input
+                      id="chat-model"
+                      class="settings-input"
+                      style="flex:1"
+                      value={chatModel()}
+                      onInput={(e) => setChatModel(e.currentTarget.value)}
+                      placeholder={
+                        modelFetchState() === "loading"
+                          ? "Fetching models…"
+                          : chatProviderMeta().requiresKey && !chatApiKey().trim()
+                            ? "Enter API key to load models"
+                            : chatProviderMeta().defaultModel || "model name"
+                      }
+                      spellcheck={false}
+                    />
+                  }
+                >
+                  <select
+                    id="chat-model"
+                    class="settings-input settings-select"
+                    style="flex:1"
+                    value={chatModel()}
+                    onChange={(e) => setChatModel(e.currentTarget.value)}
+                  >
+                    <For each={providerModels()}>
+                      {(m) => <option value={m}>{m}</option>}
+                    </For>
+                  </select>
+                </Show>
+                <button
+                  type="button"
+                  class="settings-refresh-btn"
+                  title="Refresh model list"
+                  disabled={modelFetchState() === "loading"}
+                  onClick={doFetchModels}
+                >
+                  ↺
+                </button>
+              </div>
+              <Show when={modelFetchState() === "error"}>
+                <p class="settings-hint" style="color:var(--error)">
+                  Could not fetch models — check your API key and connection.
+                </p>
+              </Show>
+            </div>
+
+            <Show when={chatProviderMeta().needsBaseUrl || chatProviderId() === "custom"}>
+              <div class="settings-field">
+                <label class="settings-label" for="chat-base-url">Base URL</label>
+                <input
+                  id="chat-base-url"
+                  class="settings-input"
+                  value={chatBaseUrl()}
+                  onInput={(e) => setChatBaseUrl(e.currentTarget.value)}
+                  placeholder={chatProviderMeta().defaultBaseUrl ?? "https://..."}
+                  spellcheck={false}
+                />
+              </div>
+            </Show>
+          </Show>
 
           <div class="settings-actions">
             <button class="settings-save" onClick={handleSave}>
@@ -482,6 +700,31 @@ const Settings: Component = () => {
           color: var(--text-secondary);
         }
         .settings-close:hover { background: var(--border-visible); }
+        .settings-section-divider {
+          height: 1px;
+          background: var(--border-subtle);
+          margin: 22px 0 18px;
+        }
+        .settings-refresh-btn {
+          height: 34px;
+          width: 34px;
+          flex-shrink: 0;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-md);
+          color: var(--text-secondary);
+          font-size: 16px;
+          cursor: pointer;
+          transition: background var(--duration-fast), color var(--duration-fast);
+        }
+        .settings-refresh-btn:hover:not(:disabled) {
+          background: var(--border-visible);
+          color: var(--text-primary);
+        }
+        .settings-refresh-btn:disabled {
+          opacity: 0.4;
+          cursor: default;
+        }
       `}</style>
     </Show>
   );

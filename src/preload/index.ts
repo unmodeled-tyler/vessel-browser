@@ -3,6 +3,7 @@ import { Channels } from "../shared/channels";
 import type {
   AgentCheckpoint,
   AgentRuntimeState,
+  AIMessage,
   ApprovalMode,
   Bookmark,
   BookmarkFolder,
@@ -33,7 +34,7 @@ const api = {
     },
   },
   ai: {
-    query: (prompt: string) => ipcRenderer.invoke(Channels.AI_QUERY, prompt),
+    query: (prompt: string, history?: AIMessage[]) => ipcRenderer.invoke(Channels.AI_QUERY, prompt, history),
     onStreamStart: (cb: (prompt: string) => void): (() => void) => {
       const handler = (_: any, prompt: string) => cb(prompt);
       ipcRenderer.on(Channels.AI_STREAM_START, handler);
@@ -52,6 +53,8 @@ const api = {
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
+    fetchModels: (config: ProviderConfig): Promise<{ ok: boolean; models: string[]; error?: string }> =>
+      ipcRenderer.invoke(Channels.AI_FETCH_MODELS, config),
     getRuntime: (): Promise<AgentRuntimeState> =>
       ipcRenderer.invoke(Channels.AGENT_RUNTIME_GET),
     onRuntimeUpdate: (cb: (state: AgentRuntimeState) => void): (() => void) => {
@@ -155,6 +158,20 @@ const api = {
       ipcRenderer.on(Channels.BOOKMARKS_UPDATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.BOOKMARKS_UPDATE, handler);
+    },
+  },
+  devtoolsPanel: {
+    toggle: (): Promise<{ open: boolean }> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
+    resize: (height: number) =>
+      ipcRenderer.invoke("devtools-panel:resize", height),
+    onStateUpdate: (
+      cb: (state: any) => void,
+    ): (() => void) => {
+      const handler = (_: any, state: any) => cb(state);
+      ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_STATE, handler);
     },
   },
   window: {

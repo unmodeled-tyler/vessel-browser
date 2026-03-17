@@ -1,4 +1,5 @@
 import type { AIProvider } from "./provider";
+import type { AIMessage } from "../../shared/types";
 import {
   buildSummarizePrompt,
   buildQuestionPrompt,
@@ -20,6 +21,7 @@ export async function handleAIQuery(
   onEnd: () => void,
   tabManager?: TabManager,
   runtime?: AgentRuntime,
+  history?: AIMessage[],
 ): Promise<void> {
   const lowerQuery = query.toLowerCase().trim();
 
@@ -86,6 +88,7 @@ Instructions:
         onChunk,
         (name, args) => executeAction(name, args, actionCtx),
         onEnd,
+        history,
       );
       return;
     } catch {
@@ -112,5 +115,5 @@ Instructions:
     prompt = buildGeneralPrompt(query);
   }
 
-  await provider.streamQuery(prompt.system, prompt.user, onChunk, onEnd);
+  await provider.streamQuery(prompt.system, prompt.user, onChunk, onEnd, history);
 }

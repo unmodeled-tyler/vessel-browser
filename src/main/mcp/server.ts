@@ -38,6 +38,7 @@ import {
   writeMemoryNote,
 } from "../memory/obsidian";
 import { setMcpHealth } from "../health/runtime-health";
+import { registerDevTools } from "../devtools/tools";
 
 let httpServer: http.Server | null = null;
 
@@ -3911,6 +3912,7 @@ function createMcpServer(
     version: "0.1.0",
   });
   registerTools(server, tabManager, runtime);
+  registerDevTools(server, tabManager, runtime);
   return server;
 }
 

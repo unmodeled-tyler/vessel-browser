@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AIProvider } from "./provider";
+import type { AIMessage } from "../../shared/types";
 
 const MAX_AGENT_ITERATIONS = 15;
 
@@ -18,8 +19,14 @@ export class AnthropicProvider implements AIProvider {
     userMessage: string,
     onChunk: (text: string) => void,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void> {
     this.abortController = new AbortController();
+
+    const messages: Anthropic.MessageParam[] = [
+      ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as Anthropic.MessageParam)),
+      { role: "user", content: userMessage },
+    ];
 
     try {
       const stream = this.client.messages.stream(
@@ -27,7 +34,7 @@ export class AnthropicProvider implements AIProvider {
           model: this.model,
           max_tokens: 4096,
           system: systemPrompt,
-          messages: [{ role: "user", content: userMessage }],
+          messages,
         },
         { signal: this.abortController.signal },
       );
@@ -57,10 +64,12 @@ export class AnthropicProvider implements AIProvider {
     onChunk: (text: string) => void,
     onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void> {
     this.abortController = new AbortController();
 
     const messages: Anthropic.MessageParam[] = [
+      ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as Anthropic.MessageParam)),
       { role: "user", content: userMessage },
     ];
 
