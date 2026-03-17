@@ -52,9 +52,9 @@ npm run dev
 
 Most browser automation stacks are either headless, stateless, or designed around a human as the primary operator. Vessel is built around the opposite model: the browser is the agent's operating surface, and the human stays in the loop through a visible interface with clear supervisory controls.
 
-<img width="1280" height="800" alt="vessel_2026-03-10_170917_8761" src="https://github.com/user-attachments/assets/ce2c96dc-d1c1-43dc-aba6-19441ca4228d" />
+<img width="1280" height="800" alt="vessel_2026-03-16_144201_7545" src="https://github.com/user-attachments/assets/da7b28ea-6c5f-4aa7-909e-0a255c80d508" />
 
-<img width="1280" height="800" alt="vessel_2026-03-10_204143_6698" src="https://github.com/user-attachments/assets/a50ab3ae-08bf-4696-8e49-91c0976e8c68" />
+<img width="1280" height="785" alt="vessel_2026-03-16_171108_8677" src="https://github.com/user-attachments/assets/613c285f-0253-4344-b335-f74a64e124ac" />
 
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
 
