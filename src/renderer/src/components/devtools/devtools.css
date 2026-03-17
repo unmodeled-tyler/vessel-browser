@@ -329,6 +329,158 @@
   width: 60px;
 }
 
+/* Export dropdown */
+.devtools-export-wrap {
+  position: relative;
+}
+
+.devtools-close-btn.active {
+  color: var(--accent-primary);
+  background: rgba(196, 160, 90, 0.12);
+}
+
+.devtools-export-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 220px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-visible);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 10px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.export-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.export-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.export-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.export-checkbox:hover {
+  color: var(--text-primary);
+}
+
+.export-checkbox input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.export-date-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.export-date-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-ui);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.export-date-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.export-date-btn.active {
+  color: var(--accent-primary);
+  background: rgba(196, 160, 90, 0.12);
+  border-color: rgba(196, 160, 90, 0.3);
+}
+
+.export-date-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.export-date-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-date-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.export-date-input {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  outline: none;
+  color-scheme: dark;
+}
+
+.export-date-input:focus {
+  border-color: rgba(196, 160, 90, 0.4);
+}
+
+.export-submit {
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  color: var(--bg-primary);
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity var(--duration-fast);
+}
+
+.export-submit:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.export-submit:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* Scrollbar styling */
 .devtools-console::-webkit-scrollbar,
 .devtools-network::-webkit-scrollbar,

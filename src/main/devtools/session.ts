@@ -172,7 +172,10 @@ export class DevToolsSession {
   async ensureNetworkDomain(): Promise<void> {
     await this.ensureAttached();
     if (this.networkDomainEnabled) return;
-    await this.cdpSend("Network.enable");
+    await this.cdpSend("Network.enable", {
+      maxTotalBufferSize: 10 * 1024 * 1024,
+      maxResourceBufferSize: 5 * 1024 * 1024,
+    });
     this.networkDomainEnabled = true;
   }
 
@@ -335,19 +338,31 @@ export class DevToolsSession {
     value: string | null,
   ): Promise<string> {
     await this.ensureAttached();
-    const doc = await this.cdpSend("DOM.getDocument", { depth: 0 });
-    const result = await this.cdpSend("DOM.querySelector", {
-      nodeId: doc.root.nodeId as number,
-      selector,
+    const selectorJson = JSON.stringify(selector);
+    const nameJson = JSON.stringify(name);
+    const expression =
+      value === null
+        ? `(function(){var el=document.querySelector(${selectorJson});if(!el)throw new Error('No element found for selector: '+${selectorJson});el.removeAttribute(${nameJson});return true;})()`
+        : `(function(){var el=document.querySelector(${selectorJson});if(!el)throw new Error('No element found for selector: '+${selectorJson});el.setAttribute(${nameJson},${JSON.stringify(value)});return true;})()`;
+
+    const response = await this.cdpSend("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: false,
     });
-    const nodeId = result.nodeId as number;
-    if (!nodeId) throw new Error(`No element found for selector: ${selector}`);
+
+    if (response.exceptionDetails) {
+      const ex = response.exceptionDetails as Record<string, unknown>;
+      const desc =
+        (ex.exception as Record<string, unknown>)?.description ??
+        (ex.exception as Record<string, unknown>)?.value ??
+        "Failed to modify DOM";
+      throw new Error(String(desc));
+    }
 
     if (value === null) {
-      await this.cdpSend("DOM.removeAttribute", { nodeId, name });
       return `Removed attribute "${name}" from ${selector}`;
     }
-    await this.cdpSend("DOM.setAttributeValue", { nodeId, name, value });
     return `Set ${selector} ${name}="${value}"`;
   }
 
