@@ -46,9 +46,13 @@
     "type": "git",
     "url": "https://github.com/unmodeled-tyler/quanta-vessel-browser.git"
   },
+  "peerDependencies": {
+    "electron": ">=30.0.0"
+  },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "@types/node": "^25.3.5",
+    "electron": "^40.8.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "solid-js": "^1.9.11",
@@ -61,7 +65,6 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@mozilla/readability": "^0.6.0",
     "dompurify": "^3.3.2",
-    "electron": "^40.8.0",
     "linkedom": "^0.18.12",
     "openai": "^6.27.0",
     "zod": "^4.3.6"
