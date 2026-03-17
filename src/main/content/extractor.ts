@@ -48,6 +48,26 @@ const PRELOAD_EXTRACTION_SCRIPT = String.raw`
 
 const DIRECT_EXTRACTION_SCRIPT = String.raw`
   (function() {
+    function getCleanBodyText() {
+      var removed = [];
+      document
+        .querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]')
+        .forEach(function(label) {
+          var parent = label.parentNode;
+          if (!parent) return;
+          removed.push({ label: label, parent: parent, nextSibling: label.nextSibling });
+          parent.removeChild(label);
+        });
+      try {
+        return document.body?.innerText || document.documentElement?.innerText || "";
+      } finally {
+        for (var i = removed.length - 1; i >= 0; i--) {
+          var entry = removed[i];
+          entry.parent.insertBefore(entry.label, entry.nextSibling);
+        }
+      }
+    }
+
     function text(value) {
       const trimmed = value == null ? "" : String(value).trim();
       return trimmed || undefined;
@@ -587,7 +607,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
     return {
       title: document.title,
-      content: document.body?.innerText || document.documentElement?.innerText || "",
+      content: getCleanBodyText(),
       htmlContent: "",
       byline: "",
       excerpt: "",
@@ -608,6 +628,26 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
 const SAFE_EXTRACTION_SCRIPT = String.raw`
   (function() {
+    function getCleanBodyText() {
+      var removed = [];
+      document
+        .querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]')
+        .forEach(function(label) {
+          var parent = label.parentNode;
+          if (!parent) return;
+          removed.push({ label: label, parent: parent, nextSibling: label.nextSibling });
+          parent.removeChild(label);
+        });
+      try {
+        return document.body?.innerText || document.documentElement?.innerText || "";
+      } finally {
+        for (var i = removed.length - 1; i >= 0; i--) {
+          var entry = removed[i];
+          entry.parent.insertBefore(entry.label, entry.nextSibling);
+        }
+      }
+    }
+
     function text(value) {
       const trimmed = value == null ? "" : String(value).trim();
       return trimmed || undefined;
@@ -715,7 +755,7 @@ const SAFE_EXTRACTION_SCRIPT = String.raw`
 
     return {
       title: document.title || "",
-      content: document.body?.innerText || document.documentElement?.innerText || "",
+      content: getCleanBodyText(),
       htmlContent: "",
       byline: "",
       excerpt: "",
