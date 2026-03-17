@@ -2,6 +2,15 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
+    name: "current_tab",
+    description:
+      "Get the browser tab the human is actively looking at right now. Use this instead of list_tabs when you only need the focused tab.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
     name: "list_tabs",
     description: "List all open browser tabs with their IDs, titles, and URLs.",
     input_schema: {
@@ -254,7 +263,7 @@ export const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "read_page",
     description:
-      "Re-read the current page content. Use after navigation or interaction to see updated content.",
+      "Re-read the current page content. Includes active text selection and visible unsaved highlights on the active tab when present. Use after navigation or interaction to see updated content.",
     input_schema: {
       type: "object" as const,
       properties: {},

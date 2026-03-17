@@ -10,8 +10,8 @@ import { useTabs } from "../../stores/tabs";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import {
+  getAgentPresence,
   getLatestAgentStatusMessage,
-  hasRecentAgentActivity,
 } from "../../lib/agentActivity";
 import "./chrome.css";
 
@@ -26,8 +26,8 @@ const AddressBar: Component = () => {
   const ticker = setInterval(() => setNow(Date.now()), 1000);
   onCleanup(() => clearInterval(ticker));
 
-  const agentIsActive = createMemo(() =>
-    hasRecentAgentActivity(runtimeState(), now()),
+  const agentPresence = createMemo(() =>
+    getAgentPresence(runtimeState(), now()),
   );
   const agentStatusMessage = createMemo(() =>
     getLatestAgentStatusMessage(runtimeState(), now()),
@@ -127,18 +127,24 @@ const AddressBar: Component = () => {
         </form>
 
         <div
-          class={`agent-status-badge ${agentIsActive() ? "active" : "inactive"}`}
+          class={`agent-status-badge ${agentPresence()}`}
           title={
             agentStatusMessage() ||
-            (agentIsActive()
-              ? "Agent activity detected in the browser"
-              : "No recent agent activity detected")
+            (agentPresence() === "active"
+              ? "Agent is actively using the browser"
+              : agentPresence() === "recent"
+                ? "Agent is connected"
+                : "No agent connection detected")
           }
         >
           <span class="agent-status-dot" aria-hidden="true" />
           <span class="agent-status-text">
             {agentStatusMessage() ||
-              (agentIsActive() ? "Agent Active" : "Agent Inactive")}
+              (agentPresence() === "active"
+                ? "Agent Active"
+                : agentPresence() === "recent"
+                  ? "Agent Connected"
+                  : "Agent Offline")}
           </span>
         </div>
       </div>

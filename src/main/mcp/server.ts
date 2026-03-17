@@ -22,6 +22,12 @@ import {
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
+import * as highlightsManager from "../highlights/manager";
+import { highlightOnPage, clearHighlights } from "../highlights/inject";
+import {
+  captureLiveHighlightSnapshot,
+  formatLiveSelectionSection,
+} from "../highlights/live-snapshot";
 import * as namedSessionManager from "../sessions/manager";
 import {
   appendToMemoryNote,
@@ -58,6 +64,23 @@ function asPromptResponse(text: string) {
         },
       },
     ],
+  };
+}
+
+function getActiveTabSummary(tabManager: TabManager) {
+  const activeTab = tabManager.getActiveTab();
+  const activeTabId = tabManager.getActiveTabId();
+  if (!activeTab || !activeTabId) return null;
+  const state = activeTab.state;
+  return {
+    tabId: activeTabId,
+    title: state.title,
+    url: state.url,
+    isLoading: state.isLoading,
+    canGoBack: state.canGoBack,
+    canGoForward: state.canGoForward,
+    adBlockingEnabled: state.adBlockingEnabled,
+    humanFocused: true,
   };
 }
 
@@ -743,13 +766,14 @@ async function getPostActionState(
   }
 
   if (interactActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, tabId=${tabManager.getActiveTabId()}]`;
+    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, tabId=${tabManager.getActiveTabId()}]`;
   }
 
   if (tabActions.includes(name)) {
     const activeId = tabManager.getActiveTabId();
+    const active = getActiveTabSummary(tabManager);
     const count = tabManager.getAllStates().length;
-    return `\n[state: activeTab=${activeId}, totalTabs=${count}]`;
+    return `\n[state: activeTab=${activeId}, title=${JSON.stringify(active?.title ?? "")}, url=${active?.url ?? ""}, totalTabs=${count}]`;
   }
 
   return "";
@@ -1045,9 +1069,7 @@ async function submitForm(
       for (const [k, v] of fd.entries()) {
         if (typeof v === 'string') params.append(k, v);
       }
-      if (method === 'GET') {
-        return { action, method, params: params.toString(), found: true };
-      }
+      // Use requestSubmit to fire JS submit handlers for all methods
       if (typeof form.requestSubmit === 'function') {
         try {
           if (
@@ -1061,20 +1083,24 @@ async function submitForm(
         } catch {
           form.requestSubmit();
         }
-        return { submitted: true, method: 'POST' };
+        return { submitted: true, method };
       }
       if (submitter instanceof HTMLElement && typeof submitter.click === 'function') {
         submitter.click();
-        return { submitted: true, method: 'POST' };
+        return { submitted: true, method };
+      }
+      // Last resort: form.submit() bypasses JS handlers but at least submits
+      if (method === 'GET') {
+        return { action, method, params: params.toString(), found: true };
       }
       form.submit();
-      return { submitted: true, method: 'POST' };
+      return { submitted: true, method };
     })()
   `);
 
   if (formInfo.error) return formInfo.error;
 
-  // For GET forms, use loadURL to ensure proper history entry
+  // Fallback for GET when requestSubmit was unavailable
   if (formInfo.found && formInfo.method === "GET") {
     const url = new URL(formInfo.action);
     if (formInfo.params) {
@@ -1092,8 +1118,8 @@ async function submitForm(
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     return afterUrl !== beforeUrl
-      ? `Submitted form via POST -> ${afterUrl}`
-      : "Submitted form via POST";
+      ? `Submitted form via ${formInfo.method} -> ${afterUrl}`
+      : `Submitted form via ${formInfo.method}`;
   }
 
   return "Submitted form";
@@ -1219,170 +1245,6 @@ async function waitForCondition(
   });
 }
 
-const VESSEL_HIGHLIGHT_CSS = `
-.__vessel-highlight {
-  outline: 3px solid #f0c636 !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 12px rgba(240, 198, 54, 0.5) !important;
-  transition: outline-color 0.3s, box-shadow 0.3s;
-}
-.__vessel-highlight-text {
-  background: rgba(240, 198, 54, 0.3) !important;
-  border-bottom: 2px solid #f0c636 !important;
-  padding: 1px 2px !important;
-  border-radius: 2px !important;
-}
-.__vessel-highlight-label {
-  position: absolute;
-  background: #f0c636;
-  color: #1a1a1e;
-  font-size: 11px;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  padding: 2px 8px;
-  border-radius: 4px;
-  z-index: 999999;
-  pointer-events: none;
-  white-space: nowrap;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
-`;
-
-async function highlightOnPage(
-  wc: Electron.WebContents,
-  resolvedSelector?: string | null,
-  text?: string,
-  label?: string,
-  durationMs?: number,
-): Promise<string> {
-  // Inject styles once
-  await wc.executeJavaScript(`
-    (function() {
-      if (!document.getElementById('__vessel-highlight-styles')) {
-        var s = document.createElement('style');
-        s.id = '__vessel-highlight-styles';
-        s.textContent = ${JSON.stringify(VESSEL_HIGHLIGHT_CSS)};
-        document.head.appendChild(s);
-      }
-    })()
-  `);
-
-  // Highlight by element selector
-  if (resolvedSelector) {
-    return wc.executeJavaScript(`
-      (function() {
-        var el = document.querySelector(${JSON.stringify(resolvedSelector)});
-        if (!el) return 'Element not found';
-        el.classList.add('__vessel-highlight');
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        var label = ${JSON.stringify(label || "")};
-        if (label) {
-          var badge = document.createElement('div');
-          badge.className = '__vessel-highlight-label';
-          badge.textContent = label;
-          badge.setAttribute('data-vessel-highlight', 'true');
-          document.body.appendChild(badge);
-          var rect = el.getBoundingClientRect();
-          badge.style.top = (window.scrollY + rect.top - badge.offsetHeight - 4) + 'px';
-          badge.style.left = (window.scrollX + rect.left) + 'px';
-        }
-
-        var duration = ${durationMs ?? 0};
-        if (duration > 0) {
-          setTimeout(function() {
-            el.classList.remove('__vessel-highlight');
-            if (badge) badge.remove();
-          }, duration);
-        }
-
-        var desc = (el.textContent || el.tagName).trim().slice(0, 80);
-        return 'Highlighted: ' + desc;
-      })()
-    `);
-  }
-
-  // Highlight by text search
-  if (text) {
-    return wc.executeJavaScript(`
-      (function() {
-        var searchText = ${JSON.stringify(text)};
-        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-        var count = 0;
-        var firstMark = null;
-        var node;
-        while ((node = walker.nextNode())) {
-          var idx = node.textContent.indexOf(searchText);
-          if (idx === -1) continue;
-          var range = document.createRange();
-          range.setStart(node, idx);
-          range.setEnd(node, idx + searchText.length);
-          var mark = document.createElement('mark');
-          mark.className = '__vessel-highlight-text';
-          mark.setAttribute('data-vessel-highlight', 'true');
-          range.surroundContents(mark);
-          if (!firstMark) firstMark = mark;
-          count++;
-          if (count >= 20) break;
-        }
-        if (count === 0) return 'Text not found: ' + searchText.slice(0, 80);
-        if (firstMark) firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-        var label = ${JSON.stringify(label || "")};
-        if (label && firstMark) {
-          var badge = document.createElement('div');
-          badge.className = '__vessel-highlight-label';
-          badge.textContent = label;
-          badge.setAttribute('data-vessel-highlight', 'true');
-          document.body.appendChild(badge);
-          var rect = firstMark.getBoundingClientRect();
-          badge.style.top = (window.scrollY + rect.top - badge.offsetHeight - 4) + 'px';
-          badge.style.left = (window.scrollX + rect.left) + 'px';
-        }
-
-        var duration = ${durationMs ?? 0};
-        if (duration > 0) {
-          setTimeout(function() {
-            document.querySelectorAll('mark.__vessel-highlight-text[data-vessel-highlight]').forEach(function(m) {
-              var parent = m.parentNode;
-              while (m.firstChild) parent.insertBefore(m.firstChild, m);
-              m.remove();
-              parent.normalize();
-            });
-            document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) { b.remove(); });
-          }, duration);
-        }
-
-        return 'Highlighted ' + count + ' occurrence' + (count > 1 ? 's' : '') + ' of: ' + searchText.slice(0, 80);
-      })()
-    `);
-  }
-
-  return "Error: No element or text to highlight";
-}
-
-async function clearHighlights(wc: Electron.WebContents): Promise<string> {
-  return wc.executeJavaScript(`
-    (function() {
-      var count = 0;
-      document.querySelectorAll('.__vessel-highlight').forEach(function(el) {
-        el.classList.remove('__vessel-highlight');
-        count++;
-      });
-      document.querySelectorAll('mark.__vessel-highlight-text[data-vessel-highlight]').forEach(function(m) {
-        var parent = m.parentNode;
-        while (m.firstChild) parent.insertBefore(m.firstChild, m);
-        m.remove();
-        parent.normalize();
-        count++;
-      });
-      document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) { b.remove(); });
-      var style = document.getElementById('__vessel-highlight-styles');
-      if (style) style.remove();
-      return count > 0 ? 'Cleared ' + count + ' highlight' + (count > 1 ? 's' : '') : 'No highlights to clear';
-    })()
-  `);
-}
-
 async function captureScreenshotPayload(
   wc: Electron.WebContents,
 ): Promise<
@@ -1423,6 +1285,7 @@ function registerTools(
     },
     async () => {
       const state = runtime.getState();
+      const activeTab = getActiveTabSummary(tabManager);
       return asPromptResponse(
         [
           "Review the current Vessel runtime state.",
@@ -1430,6 +1293,7 @@ function registerTools(
           `Approval mode: ${state.supervisor.approvalMode}`,
           `Pending approvals: ${state.supervisor.pendingApprovals.length}`,
           `Open tabs: ${state.session?.tabs.length || 0}`,
+          `Human-focused tab: ${activeTab ? `${activeTab.title || "(untitled)"} — ${activeTab.url} [${activeTab.tabId}]` : "none"}`,
           `Recent actions: ${
             state.actions
               .slice(-5)
@@ -1458,6 +1322,39 @@ function registerTools(
         },
       ],
     }),
+  );
+
+  server.registerResource(
+    "vessel-active-tab",
+    "vessel://tabs/active",
+    {
+      title: "Vessel Active Tab",
+      description:
+        "The tab currently visible to the human user, with URL and title.",
+      mimeType: "application/json",
+    },
+    async () => ({
+      contents: [
+        {
+          uri: "vessel://tabs/active",
+          text: JSON.stringify(getActiveTabSummary(tabManager), null, 2),
+        },
+      ],
+    }),
+  );
+
+  server.registerTool(
+    "vessel_current_tab",
+    {
+      title: "Get Active Tab",
+      description:
+        "Return the browser tab the human is actively looking at right now. Use this instead of vessel_list_tabs when you only need the focused tab.",
+    },
+    async () => {
+      const activeTab = getActiveTabSummary(tabManager);
+      if (!activeTab) return asTextResponse("Error: No active tab");
+      return asTextResponse(JSON.stringify(activeTab, null, 2));
+    },
   );
 
   server.registerTool(
@@ -1533,12 +1430,20 @@ function registerTools(
     "results_only",
   ];
 
-  function buildExtractResponse(
+  async function buildExtractResponse(
     pageContent: PageContent,
     mode: ExtractMode,
     adBlockingEnabled: boolean,
-  ): string {
+    wc?: Electron.WebContents,
+  ): Promise<string> {
     const adBlockLine = `**Ad Blocking:** ${adBlockingEnabled ? "On" : "Off"}`;
+    const savedHighlights = highlightsManager.getHighlightsForUrl(pageContent.url);
+    const liveSelectionSection = wc
+      ? formatLiveSelectionSection(
+          await captureLiveHighlightSnapshot(wc, savedHighlights),
+        )
+      : null;
+    const livePrefix = liveSelectionSection ? `\n\n${liveSelectionSection}` : "";
 
     if (mode === "full") {
       const structured = buildStructuredContext(pageContent);
@@ -1546,12 +1451,12 @@ function registerTools(
         pageContent.content.length > 30000
           ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
           : pageContent.content;
-      return `${adBlockLine}\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+      return `${adBlockLine}${livePrefix}\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
     }
     if (mode === "text_only") {
-      return `${adBlockLine}\n\n${buildScopedContext(pageContent, mode)}`;
+      return `${adBlockLine}${livePrefix}\n\n${buildScopedContext(pageContent, mode)}`;
     }
-    return `${adBlockLine}\n\n${buildScopedContext(pageContent, mode)}`;
+    return `${adBlockLine}${livePrefix}\n\n${buildScopedContext(pageContent, mode)}`;
   }
 
   server.registerTool(
@@ -1577,10 +1482,11 @@ function registerTools(
         const pageContent = await extractContent(tab.view.webContents);
         const effectiveMode = (mode || "full") as ExtractMode;
         return asTextResponse(
-          buildExtractResponse(
+          await buildExtractResponse(
             pageContent,
             effectiveMode,
             tab.state.adBlockingEnabled,
+            tab.view.webContents,
           ),
         );
       } catch (error) {
@@ -1596,7 +1502,7 @@ function registerTools(
     {
       title: "Read Page",
       description:
-        "Alias for vessel_extract_content. Supports same modes: full, summary, interactives_only, forms_only, text_only, visible_only, results_only.",
+        "Read the active tab's page content. Includes saved highlights plus any active text selection or visible unsaved highlights on the page. Supports modes: full (default — includes highlights section), summary, interactives_only, forms_only, text_only, visible_only, results_only.",
       inputSchema: {
         mode: z
           .enum(EXTRACT_MODES as [string, ...string[]])
@@ -1614,10 +1520,11 @@ function registerTools(
         const pageContent = await extractContent(tab.view.webContents);
         const effectiveMode = (mode || "full") as ExtractMode;
         return asTextResponse(
-          buildExtractResponse(
+          await buildExtractResponse(
             pageContent,
             effectiveMode,
             tab.state.adBlockingEnabled,
+            tab.view.webContents,
           ),
         );
       } catch (error) {
@@ -1639,10 +1546,11 @@ function registerTools(
       const activeId = tabManager.getActiveTabId();
       const lines = tabManager
         .getAllStates()
-        .map(
-          (tab) =>
-            `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url} [adblock:${tab.adBlockingEnabled ? "on" : "off"}]`,
-        );
+        .map((tab) => {
+          const hlCount = highlightsManager.getHighlightsForUrl(tab.url).length;
+          const hlTag = hlCount > 0 ? ` [highlights:${hlCount}]` : "";
+          return `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url} [adblock:${tab.adBlockingEnabled ? "on" : "off"}]${hlTag}`;
+        });
       return asTextResponse(lines.join("\n") || "No tabs open");
     },
   );
@@ -1770,10 +1678,14 @@ function registerTools(
         };
         const usedPageFallback =
           entities.length > 0 && entities.every((entity) => entity.source === "page");
+        const hasRawSources =
+          sourceCounts.json_ld > 0 || sourceCounts.microdata > 0 || sourceCounts.rdfa > 0;
         const message =
           entities.length > 0
             ? usedPageFallback
-              ? "No richer machine-readable schema was detected. Returning a generic page metadata entity synthesized from the current page."
+              ? hasRawSources
+                ? `Raw structured data sources were found (${sourceCounts.json_ld} JSON-LD, ${sourceCounts.microdata} microdata, ${sourceCounts.rdfa} RDFa) but could not be normalized into typed entities. Returning generic page metadata. The raw sources may contain parseable data — check sources_checked counts.`
+                : "No richer machine-readable schema was detected. Returning a generic page metadata entity synthesized from the current page."
               : undefined
             : requestedType
               ? `No structured data entities matched type "${type}".`
@@ -2658,7 +2570,7 @@ function registerTools(
     {
       title: "Highlight Element",
       description:
-        "Visually highlight an element or text on the page for the user. Use to draw attention to specific parts of the page. Highlights persist until cleared.",
+        "Visually highlight an element or text on the page for the user. Use to draw attention to specific parts of the page. Highlights persist until cleared. Set persist=true to save the highlight so it re-appears when the user revisits this page.",
       inputSchema: {
         index: z
           .number()
@@ -2684,20 +2596,58 @@ function registerTools(
           .describe(
             "Auto-clear after this many milliseconds (omit for permanent)",
           ),
+        persist: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, save this highlight so it re-appears automatically when the user revisits the page. Ignored when durationMs is set.",
+          ),
+        color: z
+          .enum(["yellow", "red", "green", "blue", "purple", "orange"])
+          .optional()
+          .describe(
+            "Highlight color. Use red for problems/errors, green for targets/success, blue for informational, purple for important, orange for warnings. Defaults to yellow.",
+          ),
       },
     },
-    async ({ index, selector, text, label, durationMs }) => {
+    async ({ index, selector, text, label, durationMs, persist, color }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
         runtime,
         tabManager,
         "highlight",
-        { index, selector, text, label, durationMs },
+        { index, selector, text, label, durationMs, persist, color },
         async () => {
           const wc = tab.view.webContents;
           const resolvedSelector = await resolveSelector(wc, index, selector);
-          return highlightOnPage(wc, resolvedSelector, text, label, durationMs);
+          const result = await highlightOnPage(
+            wc,
+            resolvedSelector,
+            text,
+            label,
+            durationMs,
+            color,
+          );
+
+          if (
+            persist &&
+            !durationMs &&
+            !result.startsWith("Error") &&
+            !result.includes("not found")
+          ) {
+            const url = highlightsManager.normalizeUrl(wc.getURL());
+            highlightsManager.addHighlight(
+              url,
+              resolvedSelector ?? undefined,
+              text,
+              label,
+              color,
+              "agent",
+            );
+          }
+
+          return result;
         },
       );
     },
@@ -2707,14 +2657,171 @@ function registerTools(
     "vessel_clear_highlights",
     {
       title: "Clear Highlights",
-      description: "Remove all visual highlights from the current page.",
+      description:
+        "Remove all visual highlights from the current page, including any saved persistent highlights for this URL.",
     },
     async () => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
-      return withAction(runtime, tabManager, "clear_highlights", {}, async () =>
-        clearHighlights(tab.view.webContents),
+      return withAction(runtime, tabManager, "clear_highlights", {}, async () => {
+        const wc = tab.view.webContents;
+        const url = highlightsManager.normalizeUrl(wc.getURL());
+        highlightsManager.clearHighlightsForUrl(url);
+        return clearHighlights(wc);
+      });
+    },
+  );
+
+  server.registerTool(
+    "vessel_list_highlights",
+    {
+      title: "List Highlights",
+      description:
+        "List highlights related to the current browsing session. Includes saved persistent highlights plus the active tab's live text selection and any visible unsaved highlight marks. IMPORTANT: When the user says they highlighted or selected text, call this tool before falling back to screenshots or vision.",
+      inputSchema: {
+        url: z
+          .string()
+          .optional()
+          .describe(
+            "URL to list highlights for. Omit to see active tab highlights first, then all others.",
+          ),
+      },
+    },
+    async ({ url }) => {
+      const state = highlightsManager.getState();
+      const activeTab = tabManager.getActiveTab();
+      const activeUrl = activeTab
+        ? highlightsManager.normalizeUrl(activeTab.view.webContents.getURL())
+        : null;
+      const activeSavedHighlights =
+        activeUrl
+          ? state.highlights.filter((highlight) => highlight.url === activeUrl)
+          : [];
+      const liveSnapshot =
+        activeTab && activeUrl
+          ? await captureLiveHighlightSnapshot(
+              activeTab.view.webContents,
+              activeSavedHighlights,
+            )
+          : { pageHighlights: [] };
+      const unsavedLiveHighlights = liveSnapshot.pageHighlights.filter(
+        (highlight) => !highlight.persisted,
       );
+
+      if (url) {
+        const filtered = state.highlights.filter(
+          (h) => h.url === highlightsManager.normalizeUrl(url),
+        );
+        const normalizedUrl = highlightsManager.normalizeUrl(url);
+        const sections: string[] = [];
+        if (activeUrl && activeUrl === normalizedUrl) {
+          if (liveSnapshot.activeSelection) {
+            sections.push(
+              `## Active selection (${activeUrl})\n${JSON.stringify(liveSnapshot.activeSelection, null, 2)}`,
+            );
+          }
+          if (unsavedLiveHighlights.length > 0) {
+            sections.push(
+              `## Visible unsaved highlights (${activeUrl})\n${JSON.stringify(unsavedLiveHighlights, null, 2)}`,
+            );
+          }
+        }
+        if (filtered.length > 0) {
+          sections.push(
+            `## Saved highlights (${normalizedUrl})\n${JSON.stringify(filtered, null, 2)}`,
+          );
+        }
+        if (sections.length === 0) {
+          return asTextResponse(`No highlights or active selection for ${url}`);
+        }
+        return asTextResponse(sections.join("\n\n"));
+      }
+
+      // No URL filter — show active tab's highlights prominently first
+      const activeHighlights = activeSavedHighlights;
+      const otherHighlights =
+        activeUrl
+          ? state.highlights.filter((h) => h.url !== activeUrl)
+          : state.highlights;
+
+      const sections: string[] = [];
+
+      if (liveSnapshot.activeSelection) {
+        sections.push(
+          `## Active selection (${activeUrl})\n${JSON.stringify(liveSnapshot.activeSelection, null, 2)}`,
+        );
+      }
+
+      if (unsavedLiveHighlights.length > 0) {
+        sections.push(
+          `## Visible unsaved highlights on active tab (${activeUrl})\n${JSON.stringify(unsavedLiveHighlights, null, 2)}`,
+        );
+      }
+
+      if (activeHighlights.length > 0) {
+        sections.push(
+          `## Saved highlights on active tab (${activeUrl})\n${JSON.stringify(activeHighlights, null, 2)}`,
+        );
+      } else if (activeUrl) {
+        sections.push(
+          `## Active tab (${activeUrl})\nNo saved highlights on this page.`,
+        );
+      }
+
+      if (otherHighlights.length > 0) {
+        sections.push(
+          `## Other saved highlights\n${JSON.stringify(otherHighlights, null, 2)}`,
+        );
+      }
+
+      if (sections.length === 0) {
+        return asTextResponse("No saved or live highlights");
+      }
+
+      return asTextResponse(sections.join("\n\n"));
+    },
+  );
+
+  server.registerTool(
+    "vessel_remove_highlight",
+    {
+      title: "Remove Persistent Highlight",
+      description:
+        "Remove a persistent highlight by ID and clear it from any open tab. Use vessel_list_highlights to find IDs.",
+      inputSchema: {
+        id: z.string().describe("ID of the highlight to remove"),
+      },
+    },
+    async ({ id }) => {
+      const removed = highlightsManager.removeHighlight(id);
+      if (!removed) {
+        return asTextResponse(`No highlight found with id ${id}`);
+      }
+
+      // Clear visual highlights and re-apply remaining ones on matching tabs
+      const remaining = highlightsManager.getHighlightsForUrl(removed.url);
+      for (const tabState of tabManager.getAllStates()) {
+        if (highlightsManager.normalizeUrl(tabState.url) !== removed.url) {
+          continue;
+        }
+        const tab = tabManager.getTab(tabState.id);
+        if (!tab) continue;
+        const wc = tab.view.webContents;
+        await clearHighlights(wc);
+        for (const h of remaining) {
+          if (!h.selector && !h.text) continue;
+          void highlightOnPage(
+            wc,
+            h.selector ?? null,
+            h.text,
+            h.label,
+            undefined,
+            h.color,
+          ).catch(() => {});
+        }
+      }
+
+      return asTextResponse(`Removed highlight ${id}`);
     },
   );
 

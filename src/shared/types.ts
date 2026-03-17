@@ -273,12 +273,15 @@ export interface AgentTranscriptEntry {
 
 export type AgentTranscriptDisplayMode = "off" | "summary" | "full";
 
+export type McpConnectionStatus = "starting" | "ready" | "error" | "stopped";
+
 export interface AgentRuntimeState {
   session: SessionSnapshot | null;
   supervisor: SupervisorState;
   actions: AgentActionEntry[];
   checkpoints: AgentCheckpoint[];
   transcript: AgentTranscriptEntry[];
+  mcpStatus: McpConnectionStatus;
 }
 
 export interface UIState {
@@ -385,4 +388,31 @@ export interface BookmarkFolder {
 export interface BookmarksState {
   folders: BookmarkFolder[];
   bookmarks: Bookmark[];
+}
+
+// --- Highlights ---
+
+export type HighlightColor =
+  | "yellow"
+  | "red"
+  | "green"
+  | "blue"
+  | "purple"
+  | "orange";
+
+export type HighlightSource = "agent" | "user";
+
+export interface StoredHighlight {
+  id: string;
+  url: string; // hash-stripped canonical URL
+  selector?: string;
+  text?: string;
+  label?: string;
+  color?: HighlightColor;
+  source?: HighlightSource;
+  createdAt: string; // ISO timestamp
+}
+
+export interface HighlightsState {
+  highlights: StoredHighlight[];
 }

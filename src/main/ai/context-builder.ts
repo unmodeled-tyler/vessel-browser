@@ -2,10 +2,12 @@ import type {
   PageContent,
   InteractiveElement,
   HeadingStructure,
+  StoredHighlight,
   StructuredDataEntity,
   StructuredDataValue,
   PageIssue,
 } from "../../shared/types";
+import * as highlightsManager from "../highlights/manager";
 
 const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
 const MAX_STRUCTURED_ITEMS = 100; // Limit structured elements to keep context manageable
@@ -380,6 +382,35 @@ function formatLargePageHint(page: PageContent): string | null {
   return `Large page detected: ${page.content.length} chars across ${page.headings.length} headings. Prefer summary, results_only, forms_only, or interactives_only before reading raw page text.`;
 }
 
+function formatHighlights(highlights: StoredHighlight[]): string {
+  if (highlights.length === 0) return "No highlights on this page.";
+  return highlights
+    .map((h) => {
+      const parts: string[] = [];
+      const source = h.source === "user" ? "user" : "agent";
+      parts.push(`- [${source}]`);
+      if (h.label) parts.push(`**${h.label}**`);
+      if (h.text) {
+        const preview =
+          h.text.length > 120 ? h.text.slice(0, 117) + "..." : h.text;
+        parts.push(`"${preview}"`);
+      }
+      if (h.selector) parts.push(`(${h.selector})`);
+      if (h.color) parts.push(`color=${h.color}`);
+      parts.push(`id=${h.id}`);
+      return parts.join(" ");
+    })
+    .join("\n");
+}
+
+function getHighlightsForPage(url: string): StoredHighlight[] {
+  try {
+    return highlightsManager.getHighlightsForUrl(url);
+  } catch {
+    return [];
+  }
+}
+
 function formatJsonLd(items: Record<string, unknown>[]): string {
   if (!items || items.length === 0) return "";
 
@@ -692,12 +723,29 @@ export function buildScopedContext(
       sections.push("### Document Outline");
       sections.push(formatHeadings(page.headings));
       sections.push("");
+      const summaryHighlights = getHighlightsForPage(page.url);
       sections.push(
         `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.headings.length} headings, ${page.content.length} chars`,
       );
+      if (summaryHighlights.length > 0) {
+        sections.push("");
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(summaryHighlights));
+      }
       if ((page.structuredData?.length ?? 0) > 0) {
         if (hasOnlyFallbackStructuredData(page)) {
-          sections.push("Structured data: generic page metadata only");
+          const rawSources = [
+            (page.jsonLd?.length ?? 0) > 0 ? `${page.jsonLd!.length} JSON-LD` : "",
+            (page.microdata?.length ?? 0) > 0 ? `${page.microdata!.length} microdata` : "",
+            (page.rdfa?.length ?? 0) > 0 ? `${page.rdfa!.length} RDFa` : "",
+          ].filter(Boolean);
+          if (rawSources.length > 0) {
+            sections.push(
+              `Structured data: generic page metadata only (raw sources present: ${rawSources.join(", ")} — use extract_structured_data or read_page with mode=structured for details)`,
+            );
+          } else {
+            sections.push("Structured data: generic page metadata only");
+          }
         } else {
           sections.push(
             `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,
@@ -723,6 +771,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const interactivesHighlights = getHighlightsForPage(page.url);
+      if (interactivesHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(interactivesHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -758,6 +812,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const formsHighlights = getHighlightsForPage(page.url);
+      if (formsHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(formsHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -788,6 +848,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const textHighlights = getHighlightsForPage(page.url);
+      if (textHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(textHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -815,6 +881,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const visibleHighlights = getHighlightsForPage(page.url);
+      if (visibleHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(visibleHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -860,6 +932,12 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const resultsHighlights = getHighlightsForPage(page.url);
+      if (resultsHighlights.length > 0) {
+        sections.push("### Highlights & Annotations");
+        sections.push(formatHighlights(resultsHighlights));
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -886,6 +964,9 @@ export function buildStructuredContext(page: PageContent): string {
   // Page Overview
   sections.push("## PAGE STRUCTURE");
   sections.push("");
+  sections.push(
+    "**User Focus:** This page is from the active tab currently visible to the human user.",
+  );
   sections.push(`**URL:** ${page.url}`);
   sections.push(`**Title:** ${page.title}`);
   sections.push(`**Viewport:** ${formatViewport(page)}`);
@@ -942,6 +1023,14 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push("### Dormant Consent / Modal UI");
   sections.push(formatDormantOverlays(page.dormantOverlays));
   sections.push("");
+
+  // Highlights (user + agent annotations)
+  const fullHighlights = getHighlightsForPage(page.url);
+  if (fullHighlights.length > 0) {
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(fullHighlights));
+    sections.push("");
+  }
 
   // Interactive Elements
   if (page.interactiveElements.length > 0) {

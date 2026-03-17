@@ -1,7 +1,21 @@
 import type {
+  McpConnectionStatus,
   RuntimeHealthIssue,
   RuntimeHealthState,
 } from "../../shared/types";
+
+type McpStatusChangeListener = (status: McpConnectionStatus) => void;
+let mcpStatusChangeListener: McpStatusChangeListener | null = null;
+
+export function onMcpStatusChange(
+  listener: McpStatusChangeListener | null,
+): void {
+  mcpStatusChangeListener = listener;
+}
+
+export function getMcpStatus(): McpConnectionStatus {
+  return state.mcp.status;
+}
 
 const state: RuntimeHealthState = {
   userDataPath: "",
@@ -59,6 +73,10 @@ export function setMcpHealth(update: {
   if ("endpoint" in update) {
     state.mcp.endpoint = update.endpoint ?? null;
   }
+  const prevStatus = state.mcp.status;
   state.mcp.status = update.status;
   state.mcp.message = update.message;
+  if (prevStatus !== state.mcp.status) {
+    mcpStatusChangeListener?.(state.mcp.status);
+  }
 }

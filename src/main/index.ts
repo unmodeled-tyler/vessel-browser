@@ -1,4 +1,4 @@
-import { app, dialog } from "electron";
+import { app, dialog, globalShortcut, Menu } from "electron";
 import fs from "node:fs";
 import path from "path";
 import { createMainWindow, layoutViews } from "./window";
@@ -136,6 +136,46 @@ async function bootstrap(): Promise<void> {
   installAdBlocking(tabManager);
 
   registerIpcHandlers(windowState, runtime);
+
+  // Register global shortcut for Ctrl+H highlight capture
+  const registerHighlightShortcut = () => {
+    globalShortcut.unregister("CommandOrControl+H");
+    const success = globalShortcut.register("CommandOrControl+H", () => {
+      console.log("[Vessel] Ctrl+H shortcut triggered");
+      const activeTab = tabManager.getActiveTab();
+      if (!activeTab) {
+        console.log("[Vessel] No active tab");
+        return;
+      }
+      tabManager.captureHighlightFromActiveTab();
+    });
+    console.log("[Vessel] Ctrl+H shortcut registered:", success);
+    if (!success) {
+      console.warn("[Vessel] Failed to register Ctrl+H shortcut");
+    }
+  };
+  registerHighlightShortcut();
+
+  // Re-register shortcut when window gains focus (needed on some platforms)
+  windowState.mainWindow.on("focus", registerHighlightShortcut);
+
+  // Application menu with standard edit operations
+  const appMenu = Menu.buildFromTemplate([
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+  ]);
+  Menu.setApplicationMenu(appMenu);
+
   bookmarkManager.subscribe((state) => {
     chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
     sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
@@ -182,6 +222,7 @@ app.whenReady().then(bootstrap).catch((error) => {
 });
 
 app.on("window-all-closed", () => {
+  globalShortcut.unregisterAll();
   void stopMcpServer().finally(() => {
     app.quit();
   });

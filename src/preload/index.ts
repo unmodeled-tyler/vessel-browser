@@ -91,6 +91,18 @@ const api = {
     extract: () => ipcRenderer.invoke(Channels.CONTENT_EXTRACT),
     toggleReader: () => ipcRenderer.invoke(Channels.READER_MODE_TOGGLE),
   },
+  highlights: {
+    capture: (): Promise<{ success: boolean; text?: string; message?: string }> =>
+      ipcRenderer.invoke(Channels.HIGHLIGHT_CAPTURE),
+    onCaptureResult: (
+      cb: (result: { success: boolean; text?: string; message?: string }) => void,
+    ): (() => void) => {
+      const handler = (_: any, result: any) => cb(result);
+      ipcRenderer.on(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
+    },
+  },
   ui: {
     toggleSidebar: () => ipcRenderer.invoke(Channels.SIDEBAR_TOGGLE),
     resizeSidebar: (width: number) =>

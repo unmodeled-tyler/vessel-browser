@@ -6,6 +6,9 @@ import type {
 } from "../../../shared/types";
 
 export const AGENT_ACTIVITY_WINDOW_MS = 6000;
+export const AGENT_RECENT_WINDOW_MS = 30_000;
+
+export type AgentPresence = "active" | "recent" | "idle";
 
 function isAgentActionSource(source: ActionSource): boolean {
   return source === "ai" || source === "mcp";
@@ -139,4 +142,48 @@ export function getLatestAgentStatusMessage(
     })[0];
 
   return recentAction ? summarizeActionText(recentAction) : null;
+}
+
+function hasRecentActivity(
+  state: AgentRuntimeState,
+  windowMs: number,
+  currentTime: number,
+): boolean {
+  for (const action of state.actions) {
+    if (!isAgentActionSource(action.source)) continue;
+    if (action.status === "running" || action.status === "waiting-approval")
+      return true;
+    const ts = action.finishedAt
+      ? new Date(action.finishedAt).getTime()
+      : new Date(action.startedAt).getTime();
+    if (!Number.isNaN(ts) && currentTime - ts < windowMs) return true;
+  }
+  for (const entry of state.transcript) {
+    if (!isAgentActionSource(entry.source)) continue;
+    const ts = new Date(entry.updatedAt).getTime();
+    if (!Number.isNaN(ts) && currentTime - ts < windowMs) return true;
+  }
+  return false;
+}
+
+export function getAgentPresence(
+  state: AgentRuntimeState,
+  currentTime = Date.now(),
+): AgentPresence {
+  // Green: actively using tools right now
+  if (hasRecentAgentActivity(state, currentTime)) {
+    return "active";
+  }
+
+  // Yellow: MCP connected (agent is "there"), or had recent activity within 30s
+  const mcpConnected = state.mcpStatus === "ready";
+  if (
+    mcpConnected ||
+    hasRecentActivity(state, AGENT_RECENT_WINDOW_MS, currentTime)
+  ) {
+    return "recent";
+  }
+
+  // Gray: no connection, no recent activity
+  return "idle";
 }
