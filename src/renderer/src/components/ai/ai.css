@@ -294,17 +294,20 @@
 /* Sidebar section tabs */
 .sidebar-tabs {
     display: flex;
-    padding: 0 14px;
+    padding: 0 10px;
     gap: 2px;
     border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
     background: var(--bg-secondary);
+    overflow: hidden;
 }
 
 .sidebar-tab {
     position: relative;
-    padding: 9px 14px 10px;
+    padding: 9px 10px 10px;
     font-size: 11.5px;
+    flex-shrink: 1;
+    min-width: 0;
     font-weight: 500;
     letter-spacing: 0.01em;
     color: var(--text-muted);
