@@ -12,6 +12,18 @@ Vessel gives external agent harnesses a real browser with durable state, MCP con
 
 *Vessel is in active development and currently makes no security assurances. Use and deploy it with care.*
 
+## What Vessel Gives a Harness
+
+When you point an MCP-capable agent at Vessel, it gets more than generic browser automation:
+
+- **A persistent browser runtime** with cookies, localStorage, tab layout, named sessions, and checkpoints
+- **Human-focused tab awareness** so the agent can cheaply tell which tab the human is currently looking at
+- **Structured page context** with headings, interactives, overlays, forms, and article metadata instead of raw DOM soup
+- **Bidirectional highlights and annotations** that show up both in the visible browser and in model-facing page context
+- **A visible supervisory surface** for approvals, runtime state, bookmarks, checkpoints, and transcript monitoring
+
+In practice, Vessel is meant to be the shared browser surface between the harness and the human, not just a remote-controlled renderer.
+
 ## Quick Start
 
 ### Fastest Install Today
@@ -52,6 +64,10 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 
 - **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
+- **Active tab awareness** — MCP clients can ask for the current human-focused tab directly instead of inferring context from the full tab list
+- **Structured page reads** — `read_page` and extraction modes provide a model-friendly view of the current page, including headings, forms, overlays, structured data, and annotations
+- **Bidirectional highlighting** — saved highlights and current-page annotations are visible in-browser and reflected back into model-facing page context
+- **Transcript monitor** — external harnesses can publish status or reasoning updates directly into Vessel's in-browser transcript dock
 - **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands, not the primary chat interface
 - **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision split into Supervisor, Bookmarks, and Checkpoints panels
 - **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
@@ -94,7 +110,7 @@ That means the product should optimize for:
 Main Process                              Renderer (SolidJS)
 ├── TabManager (WebContentsView[])        ├── TabBar, AddressBar
 ├── AgentRuntime (session + supervision)  ├── CommandBar (secondary surface)
-├── MCP server for external agents        ├── AI Sidebar (resizable)
+├── MCP server for external agents        ├── Supervisor Sidebar (resizable)
 ├── Supervision, bookmarks, checkpoints   └── Signal stores (tabs, ai, ui)
 └── IPC Handlers ◄──contextBridge──► Preload API
 ```
@@ -182,6 +198,11 @@ Notes:
 - The intended control plane is an external harness driving Vessel through MCP
 - If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory MCP tools
 
+Two especially useful MCP surfaces for grounding agent context are:
+
+- `vessel_current_tab` and the `vessel://tabs/active` resource for the tab currently visible to the human user
+- `vessel_read_page` for structured, model-facing page context that includes highlights and annotations
+
 Initial memory tools:
 
 - `vessel_memory_note_create`
@@ -204,8 +225,12 @@ Bookmark and folder tools exposed today include:
 
 Page interaction and recovery tools exposed today include:
 
+- `vessel_current_tab`
 - `vessel_extract_content`
 - `vessel_read_page`
+- `vessel_list_highlights`
+- `vessel_highlight`
+- `vessel_clear_highlights`
 - `vessel_scroll`
 - `vessel_dismiss_popup`
 - `vessel_set_ad_blocking`
@@ -230,6 +255,19 @@ The extraction output can distinguish:
 
 - active blocking overlays
 - dormant consent/modal UI present in the DOM but not active for the current session or region
+- saved highlights plus live page annotations that the agent should consider part of the visible context
+
+MCP resources exposed today include:
+
+- `vessel://tabs/active`
+- `vessel://runtime/state`
+
+Generic Codex / HTTP MCP config:
+
+```toml
+[mcp_servers.vessel]
+url = "http://127.0.0.1:3100/mcp"
+```
 
 Generic HTTP MCP config:
 
@@ -348,7 +386,8 @@ vessel-browser-launch --dry-run
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+L` | AI Command Bar |
-| `Ctrl+Shift+L` | Toggle AI Sidebar |
+| `Ctrl+H` | Capture current text selection as a highlight |
+| `Ctrl+Shift+L` | Toggle Supervisor Sidebar |
 | `Ctrl+Shift+F` | Toggle Focus Mode |
 | `Ctrl+T` | New Tab |
 | `Ctrl+W` | Close Tab |
