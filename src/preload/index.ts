@@ -3,6 +3,7 @@ import { Channels } from "../shared/channels";
 import type {
   AgentCheckpoint,
   AgentRuntimeState,
+  AIMessage,
   ApprovalMode,
   Bookmark,
   BookmarkFolder,
@@ -33,7 +34,7 @@ const api = {
     },
   },
   ai: {
-    query: (prompt: string) => ipcRenderer.invoke(Channels.AI_QUERY, prompt),
+    query: (prompt: string, history?: AIMessage[]) => ipcRenderer.invoke(Channels.AI_QUERY, prompt, history),
     onStreamStart: (cb: (prompt: string) => void): (() => void) => {
       const handler = (_: any, prompt: string) => cb(prompt);
       ipcRenderer.on(Channels.AI_STREAM_START, handler);

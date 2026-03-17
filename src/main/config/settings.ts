@@ -13,6 +13,7 @@ const defaults: VesselSettings = {
   obsidianVaultPath: "",
   approvalMode: "confirm-dangerous",
   agentTranscriptMode: "summary",
+  chatProvider: null,
 };
 
 let settings: VesselSettings | null = null;

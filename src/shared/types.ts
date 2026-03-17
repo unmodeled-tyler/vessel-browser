@@ -344,6 +344,7 @@ export interface VesselSettings {
   obsidianVaultPath: string;
   approvalMode: ApprovalMode;
   agentTranscriptMode: AgentTranscriptDisplayMode;
+  chatProvider: ProviderConfig | null;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";

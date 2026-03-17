@@ -133,6 +133,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     hasFirstChunk,
     streamStartedAt,
     clearHistory,
+    query,
+    cancel,
   } = useAI();
   const {
     runtimeState,
@@ -160,7 +162,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     removeFolder,
     renameFolder,
   } = useBookmarks();
-  const [sidebarTab, setSidebarTab] = createSignal<"supervisor" | "bookmarks" | "checkpoints">("supervisor");
+  const [sidebarTab, setSidebarTab] = createSignal<"supervisor" | "bookmarks" | "checkpoints" | "chat">("supervisor");
+  const [chatInput, setChatInput] = createSignal("");
+
+  const handleChatSend = async () => {
+    const prompt = chatInput().trim();
+    if (!prompt || isStreaming()) return;
+    setChatInput("");
+    await query(prompt);
+  };
   const [checkpointName, setCheckpointName] = createSignal("");
   const [bookmarkNote, setBookmarkNote] = createSignal("");
   const [bookmarkSaveExpanded, setBookmarkSaveExpanded] = createSignal(false);
@@ -505,6 +515,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             onClick={() => setSidebarTab("checkpoints")}
           >
             Checkpoints
+          </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "chat" }}
+            role="tab"
+            aria-selected={sidebarTab() === "chat"}
+            onClick={() => setSidebarTab("chat")}
+          >
+            Chat
           </button>
         </div>
 
@@ -1005,68 +1024,103 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           </section>
           </Show>
 
-          <For each={messages()}>
-            {(msg) => (
-              <div class={`message message-${msg.role}`}>
-                <MarkdownMessage content={msg.content} />
-              </div>
-            )}
-          </For>
+          <Show when={sidebarTab() === "chat"}>
+            <For each={messages()}>
+              {(msg) => (
+                <div class={`message message-${msg.role}`}>
+                  <MarkdownMessage content={msg.content} />
+                </div>
+              )}
+            </For>
 
-          <Show when={isStreaming()}>
-            <div class="message message-assistant">
-              <div class="message-content">
-                <Show
-                  when={hasFirstChunk()}
-                  fallback={
-                    <div class="thinking-state">
-                      <div class="thinking-orb" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
+            <Show when={isStreaming()}>
+              <div class="message message-assistant">
+                <div class="message-content">
+                  <Show
+                    when={hasFirstChunk()}
+                    fallback={
+                      <div class="thinking-state">
+                        <div class="thinking-orb" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        <div class="thinking-copy">
+                          <div class="thinking-title">Thinking</div>
+                        </div>
                       </div>
-                      <div class="thinking-copy">
-                        <div class="thinking-title">Thinking</div>
+                    }
+                  >
+                    <div>
+                      <MarkdownMessage content={streamingText()} />
+                      <div class="streaming-status">
+                        <span class="streaming-pulse" aria-hidden="true" />
+                        <span>Generating</span>
+                        <Show when={elapsedSeconds() > 0}>
+                          <span>{` • ${elapsedSeconds()}s`}</span>
+                        </Show>
                       </div>
                     </div>
-                  }
-                >
-                  <div>
-                    <MarkdownMessage content={streamingText()} />
-                    <div class="streaming-status">
-                      <span class="streaming-pulse" aria-hidden="true" />
-                      <span>Generating</span>
-                      <Show when={elapsedSeconds() > 0}>
-                        <span>{` • ${elapsedSeconds()}s`}</span>
-                      </Show>
-                    </div>
-                  </div>
-                </Show>
+                  </Show>
+                </div>
               </div>
-            </div>
-          </Show>
+            </Show>
 
-          <Show when={messages().length === 0 && !isStreaming()}>
-            <div class="sidebar-empty">
-              <svg class="sidebar-empty-icon" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
-                <circle cx="24" cy="24" r="20" fill="none" stroke="var(--border-visible)" stroke-width="1.5" />
-                <circle cx="24" cy="24" r="12" fill="none" stroke="var(--accent-primary)" stroke-width="1" opacity="0.3" />
-                <circle cx="24" cy="24" r="4" fill="none" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.6" />
-                <line x1="24" y1="4" x2="24" y2="12" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
-                <line x1="24" y1="36" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
-                <line x1="4" y1="24" x2="12" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
-                <line x1="36" y1="24" x2="44" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
-              </svg>
-              <p class="sidebar-empty-title">Vessel is ready</p>
-              <p class="sidebar-empty-hint">
-                External harnesses drive this browser. Use the tabs above to
-                watch runtime state, approvals, checkpoints, and bookmarks.
-              </p>
-            </div>
+            <Show when={messages().length === 0 && !isStreaming()}>
+              <div class="sidebar-empty">
+                <svg class="sidebar-empty-icon" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
+                  <circle cx="24" cy="24" r="20" fill="none" stroke="var(--border-visible)" stroke-width="1.5" />
+                  <circle cx="24" cy="24" r="12" fill="none" stroke="var(--accent-primary)" stroke-width="1" opacity="0.3" />
+                  <circle cx="24" cy="24" r="4" fill="none" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.6" />
+                  <line x1="24" y1="4" x2="24" y2="12" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                  <line x1="24" y1="36" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                  <line x1="4" y1="24" x2="12" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                  <line x1="36" y1="24" x2="44" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                </svg>
+                <p class="sidebar-empty-title">Your move.</p>
+                <p class="sidebar-empty-hint">
+                  Configure a provider in Settings (Ctrl+,) then ask anything about the current page or beyond.
+                </p>
+              </div>
+            </Show>
           </Show>
 
           <div ref={messagesEndRef} />
         </div>
+
+        <Show when={sidebarTab() === "chat"}>
+          <div class="sidebar-input-area">
+            <textarea
+              class="sidebar-input"
+              rows={2}
+              placeholder="Ask anything..."
+              value={chatInput()}
+              onInput={(e) => setChatInput(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleChatSend();
+                }
+              }}
+            />
+            <Show
+              when={isStreaming()}
+              fallback={
+                <button
+                  class="sidebar-send"
+                  disabled={!chatInput().trim()}
+                  onClick={() => void handleChatSend()}
+                >
+                  Send
+                </button>
+              }
+            >
+              <button class="sidebar-cancel" onClick={() => cancel()}>
+                Stop
+              </button>
+            </Show>
+          </div>
+        </Show>
       </div>
     </Show>
   );

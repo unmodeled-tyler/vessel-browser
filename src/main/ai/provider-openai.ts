@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import type { AIProvider } from './provider';
-import type { ProviderConfig } from '../../shared/types';
+import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
 
 export class OpenAICompatProvider implements AIProvider {
@@ -25,18 +25,22 @@ export class OpenAICompatProvider implements AIProvider {
     userMessage: string,
     onChunk: (text: string) => void,
     onEnd: () => void,
+    history?: AIMessage[],
   ): Promise<void> {
     this.abortController = new AbortController();
+
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
+      { role: 'user', content: userMessage },
+    ];
 
     try {
       const stream = await this.client.chat.completions.create(
         {
           model: this.model,
           stream: true,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
-          ],
+          messages,
         },
         { signal: this.abortController.signal },
       );

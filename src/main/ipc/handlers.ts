@@ -5,7 +5,10 @@ import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
 import { layoutViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import { getRuntimeHealth } from "../health/runtime-health";
+import { createProvider } from "../ai/provider";
+import type { AIProvider } from "../ai/provider";
 import type {
+  AIMessage,
   ApprovalMode,
   AgentRuntimeState,
   SessionSnapshot,
@@ -15,6 +18,8 @@ import * as bookmarkManager from "../bookmarks/manager";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage } from "../highlights/inject";
 import { startMcpServer, stopMcpServer } from "../mcp/server";
+
+let activeChatProvider: AIProvider | null = null;
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -68,20 +73,42 @@ export function registerIpcHandlers(
 
   // --- AI handlers ---
 
-  ipcMain.handle(Channels.AI_QUERY, async (_, query: string) => {
+  ipcMain.handle(Channels.AI_QUERY, async (_, query: string, history?: AIMessage[]) => {
+    const settings = loadSettings();
+    const chatConfig = settings.chatProvider;
+
     sendToRendererViews(Channels.AI_STREAM_START, query);
-    sendToRendererViews(
-      Channels.AI_STREAM_CHUNK,
-      [
-        "Vessel does not run a locally configured model.",
-        "Control it through an external agent harness such as Hermes Agent or OpenClaw.",
-        "Use the sidebar here for runtime visibility, approvals, checkpoints, and bookmarks.",
-      ].join("\n\n"),
-    );
-    sendToRendererViews(Channels.AI_STREAM_END);
+
+    if (!chatConfig) {
+      sendToRendererViews(
+        Channels.AI_STREAM_CHUNK,
+        "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
+      );
+      sendToRendererViews(Channels.AI_STREAM_END);
+      return;
+    }
+
+    try {
+      activeChatProvider = createProvider(chatConfig);
+      await activeChatProvider.streamQuery(
+        "You are a helpful AI assistant integrated into the Vessel browser. Be concise and helpful.",
+        query,
+        (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
+        () => sendToRendererViews(Channels.AI_STREAM_END),
+        history,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      sendToRendererViews(Channels.AI_STREAM_CHUNK, `\n[Error: ${msg}]`);
+      sendToRendererViews(Channels.AI_STREAM_END);
+    } finally {
+      activeChatProvider = null;
+    }
   });
 
-  ipcMain.handle(Channels.AI_CANCEL, () => undefined);
+  ipcMain.handle(Channels.AI_CANCEL, () => {
+    activeChatProvider?.cancel();
+  });
 
   // --- Content handlers ---
 
