@@ -53,6 +53,8 @@ const api = {
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
+    fetchModels: (config: ProviderConfig): Promise<{ ok: boolean; models: string[]; error?: string }> =>
+      ipcRenderer.invoke(Channels.AI_FETCH_MODELS, config),
     getRuntime: (): Promise<AgentRuntimeState> =>
       ipcRenderer.invoke(Channels.AGENT_RUNTIME_GET),
     onRuntimeUpdate: (cb: (state: AgentRuntimeState) => void): (() => void) => {

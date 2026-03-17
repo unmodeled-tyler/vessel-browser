@@ -15,6 +15,7 @@ export const Channels = {
   AI_STREAM_CHUNK: "ai:stream-chunk",
   AI_STREAM_END: "ai:stream-end",
   AI_CANCEL: "ai:cancel",
+  AI_FETCH_MODELS: "ai:fetch-models",
   AGENT_RUNTIME_GET: "agent-runtime:get",
   AGENT_RUNTIME_UPDATE: "agent-runtime:update",
   AGENT_PAUSE: "agent:pause",

@@ -5,7 +5,7 @@ import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
 import { layoutViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import { getRuntimeHealth } from "../health/runtime-health";
-import { createProvider } from "../ai/provider";
+import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import type {
   AIMessage,
@@ -108,6 +108,15 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.AI_CANCEL, () => {
     activeChatProvider?.cancel();
+  });
+
+  ipcMain.handle(Channels.AI_FETCH_MODELS, async (_, config: unknown) => {
+    try {
+      const models = await fetchProviderModels(config as Parameters<typeof fetchProviderModels>[0]);
+      return { ok: true, models };
+    } catch (err: unknown) {
+      return { ok: false, models: [], error: err instanceof Error ? err.message : "Unknown error" };
+    }
   });
 
   // --- Content handlers ---
