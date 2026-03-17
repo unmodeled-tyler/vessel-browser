@@ -72,7 +72,7 @@ export const VESSEL_HIGHLIGHT_CSS = `
   border-radius: 2px !important;
 }
 .__vessel-highlight-label {
-  position: absolute;
+  position: fixed;
   background: #f0c636;
   color: #1a1a1e;
   font-size: 11px;
@@ -81,7 +81,10 @@ export const VESSEL_HIGHLIGHT_CSS = `
   border-radius: 4px;
   z-index: 999999;
   pointer-events: none;
-  white-space: nowrap;
+  max-width: min(240px, calc(100vw - 16px));
+  white-space: normal;
+  line-height: 1.3;
+  overflow-wrap: break-word;
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
 }
 `;
@@ -104,6 +107,89 @@ export async function highlightOnPage(
         s.textContent = ${JSON.stringify(VESSEL_HIGHLIGHT_CSS)};
         document.head.appendChild(s);
       }
+      if (!window.__vesselHighlightLabelManager) {
+        var overlap = function(a, b) {
+          return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+        };
+        var manager = {
+          rafId: 0,
+          observer: null,
+          schedule: function() {
+            if (manager.rafId) return;
+            manager.rafId = window.requestAnimationFrame(function() {
+              manager.rafId = 0;
+              manager.positionAll();
+            });
+          },
+          positionLabel: function(label) {
+            if (!label) return null;
+            var anchor = label.__vesselAnchor;
+            if (!anchor || !anchor.isConnected) {
+              label.style.opacity = '0';
+              return null;
+            }
+            var rect = anchor.getBoundingClientRect();
+            var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (!viewportWidth || !viewportHeight || rect.width === 0 && rect.height === 0) {
+              label.style.opacity = '0';
+              return null;
+            }
+            var margin = 8;
+            var labelWidth = label.offsetWidth || 0;
+            var labelHeight = label.offsetHeight || 0;
+            var top = rect.top - labelHeight - 6;
+            if (top < margin) {
+              top = rect.bottom + 6;
+            }
+            var maxTop = Math.max(margin, viewportHeight - labelHeight - margin);
+            top = Math.min(Math.max(margin, top), maxTop);
+            var left = Math.min(Math.max(margin, rect.left), Math.max(margin, viewportWidth - labelWidth - margin));
+            var visible = rect.bottom >= 0 && rect.top <= viewportHeight && rect.right >= 0 && rect.left <= viewportWidth;
+            label.style.top = top + 'px';
+            label.style.left = left + 'px';
+            label.style.opacity = visible ? '1' : '0';
+            return {
+              left: left,
+              top: top,
+              right: left + labelWidth,
+              bottom: top + labelHeight,
+              height: labelHeight,
+            };
+          },
+          positionAll: function() {
+            var labels = Array.prototype.slice.call(document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]'));
+            var placed = [];
+            labels.forEach(function(label) {
+              var box = manager.positionLabel(label);
+              if (!box) return;
+              for (var i = 0; i < placed.length; i++) {
+                if (!overlap(box, placed[i])) continue;
+                var adjustedTop = placed[i].bottom + 4;
+                var maxTop = Math.max(8, (window.innerHeight || 0) - box.height - 8);
+                box.top = Math.min(adjustedTop, maxTop);
+                box.bottom = box.top + box.height;
+                label.style.top = box.top + 'px';
+              }
+              placed.push(box);
+            });
+          },
+        };
+        window.__vesselHighlightLabelManager = manager;
+        window.addEventListener('resize', manager.schedule, { passive: true });
+        window.addEventListener('scroll', manager.schedule, true);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', manager.schedule, { passive: true });
+          window.visualViewport.addEventListener('scroll', manager.schedule, { passive: true });
+        }
+        if (window.ResizeObserver) {
+          manager.observer = new window.ResizeObserver(function() {
+            manager.schedule();
+          });
+          manager.observer.observe(document.documentElement);
+          if (document.body) manager.observer.observe(document.body);
+        }
+      }
     })()
   `);
 
@@ -117,17 +203,17 @@ export async function highlightOnPage(
         el.style.setProperty('box-shadow', '0 0 12px ' + ${JSON.stringify(c.glow)}, 'important');
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         var label = ${JSON.stringify(label || "")};
+        var badge = null;
         if (label) {
-          var badge = document.createElement('div');
+          badge = document.createElement('div');
           badge.className = '__vessel-highlight-label';
           badge.style.background = ${JSON.stringify(c.label)};
           badge.style.color = ${JSON.stringify(c.text)};
           badge.textContent = label;
           badge.setAttribute('data-vessel-highlight', 'true');
+          badge.__vesselAnchor = el;
           document.body.appendChild(badge);
-          var rect = el.getBoundingClientRect();
-          badge.style.top = (window.scrollY + rect.top - badge.offsetHeight - 4) + 'px';
-          badge.style.left = (window.scrollX + rect.left) + 'px';
+          window.__vesselHighlightLabelManager.positionAll();
         }
         var duration = ${durationMs ?? 0};
         if (duration > 0) {
@@ -194,17 +280,17 @@ export async function highlightOnPage(
         if (count === 0) return 'Text not found: ' + searchText.slice(0, 80);
         if (firstMark) firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
         var label = ${JSON.stringify(label || "")};
+        var badge = null;
         if (label && firstMark) {
-          var badge = document.createElement('div');
+          badge = document.createElement('div');
           badge.className = '__vessel-highlight-label';
           badge.style.background = labelBg;
           badge.style.color = labelText;
           badge.textContent = label;
           badge.setAttribute('data-vessel-highlight', 'true');
+          badge.__vesselAnchor = firstMark;
           document.body.appendChild(badge);
-          var rect = firstMark.getBoundingClientRect();
-          badge.style.top = (window.scrollY + rect.top - badge.offsetHeight - 4) + 'px';
-          badge.style.left = (window.scrollX + rect.left) + 'px';
+          window.__vesselHighlightLabelManager.positionAll();
         }
         var duration = ${durationMs ?? 0};
         if (duration > 0) {
