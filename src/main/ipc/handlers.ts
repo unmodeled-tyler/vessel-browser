@@ -3,7 +3,7 @@ import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting } from "../config/settings";
-import { layoutViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
+import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import { getRuntimeHealth } from "../health/runtime-health";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
@@ -164,12 +164,21 @@ export function registerIpcHandlers(
     };
   });
 
+  ipcMain.handle(Channels.SIDEBAR_RESIZE_START, () => {
+    // Expand sidebar view to full window width so pointer capture works across the drag range
+    const [width, height] = windowState.mainWindow.getContentSize();
+    windowState.sidebarView.setBounds({ x: 0, y: 0, width, height });
+  });
+
   ipcMain.handle(Channels.SIDEBAR_RESIZE, (_, width: number) => {
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
-    setSetting("sidebarWidth", clamped);
-    layoutViews(windowState);
     return clamped;
+  });
+
+  ipcMain.handle(Channels.SIDEBAR_RESIZE_COMMIT, () => {
+    setSetting("sidebarWidth", windowState.uiState.sidebarWidth);
+    layoutViews(windowState);
   });
 
   ipcMain.handle(Channels.FOCUS_MODE_TOGGLE, () => {
