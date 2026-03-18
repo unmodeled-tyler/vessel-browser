@@ -23,6 +23,19 @@ The preferred MVP install path is the Linux AppImage from GitHub Releases:
 3. Launch it: `./Vessel-*.AppImage`
 4. Open Settings (`Ctrl+,`) and confirm the MCP endpoint shown there
 
+### Install via npm
+
+```bash
+npm install -g @quanta-intellect/vessel-browser
+vessel-browser
+```
+
+Or run it directly without installing:
+
+```bash
+npx @quanta-intellect/vessel-browser
+```
+
 ### Source Install
 
 ```bash
