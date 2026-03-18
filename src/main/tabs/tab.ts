@@ -91,6 +91,19 @@ export class Tab {
       adBlockingEnabled: options?.adBlockingEnabled ?? true,
     };
 
+    // Ensure clipboard shortcuts work in tab content
+    this.view.webContents.on("before-input-event", (event, input) => {
+      if (!input.control && !input.meta) return;
+      const key = input.key.toLowerCase();
+      const wc = this.view.webContents;
+      if (input.type === "keyDown") {
+        if (key === "c") { wc.copy(); event.preventDefault(); }
+        else if (key === "v") { wc.paste(); event.preventDefault(); }
+        else if (key === "x") { wc.cut(); event.preventDefault(); }
+        else if (key === "a") { wc.selectAll(); event.preventDefault(); }
+      }
+    });
+
     this.setupListeners();
     if (url) {
       this.lastCommittedUrl = url;

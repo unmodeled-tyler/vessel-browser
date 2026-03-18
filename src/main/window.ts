@@ -5,6 +5,24 @@ import { TabManager } from "./tabs/tab-manager";
 import { loadSettings } from "./config/settings";
 import type { UIState } from "../shared/types";
 
+/**
+ * Ensure clipboard keyboard shortcuts (Ctrl+C/V/X/A) work in a WebContentsView.
+ * Electron doesn't always route these to the focused view with multiple views.
+ */
+function enableClipboardShortcuts(view: WebContentsView): void {
+  view.webContents.on("before-input-event", (event, input) => {
+    if (!input.control && !input.meta) return;
+    const key = input.key.toLowerCase();
+    const wc = view.webContents;
+    if (input.type === "keyDown") {
+      if (key === "c") { wc.copy(); event.preventDefault(); }
+      else if (key === "v") { wc.paste(); event.preventDefault(); }
+      else if (key === "x") { wc.cut(); event.preventDefault(); }
+      else if (key === "a") { wc.selectAll(); event.preventDefault(); }
+    }
+  });
+}
+
 const CHROME_HEIGHT = 110; // title(32) + tabs(36+1border) + address(40+1border)
 
 const DEFAULT_DEVTOOLS_PANEL_HEIGHT = 250;
@@ -78,6 +96,11 @@ export function createMainWindow(
 
   devtoolsPanelView.setBackgroundColor("#00000000");
   mainWindow.contentView.addChildView(devtoolsPanelView);
+
+  // Ensure clipboard shortcuts work in all views
+  enableClipboardShortcuts(chromeView);
+  enableClipboardShortcuts(sidebarView);
+  enableClipboardShortcuts(devtoolsPanelView);
 
   const settings = loadSettings();
   const uiState: UIState = {
