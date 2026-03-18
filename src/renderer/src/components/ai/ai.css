@@ -1213,6 +1213,7 @@
     max-width: 92%;
     white-space: pre-wrap;
     word-break: break-word;
+    user-select: text;
     animation: message-enter 300ms var(--ease-out-expo) both;
 }
 
