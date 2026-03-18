@@ -53,7 +53,11 @@ npm run dev
 
 Most browser automation stacks are either headless, stateless, or designed around a human as the primary operator. Vessel is built around the opposite model: the browser is the agent's operating surface, and the human stays in the loop through a visible interface with clear supervisory controls.
 
+<img width="1280" height="800" alt="@quanta-intellectvessel-browser_2026-03-17_200224_6613" src="https://github.com/user-attachments/assets/8e208ee1-cb89-4318-87a2-9561a7d9aecf" />
 <img width="1280" height="800" alt="vessel_2026-03-16_144201_7545" src="https://github.com/user-attachments/assets/da7b28ea-6c5f-4aa7-909e-0a255c80d508" />
+<img width="1280" height="800" alt="@quanta-intellectvessel-browser_2026-03-17_195754_6624" src="https://github.com/user-attachments/assets/3b3d2033-5a59-4806-bbc1-359efb7b43a9" />
+
+
 
 <img width="1280" height="800" alt="vessel_2026-03-17_145154_5389" src="https://github.com/user-attachments/assets/b1c08d6c-bcdf-4c9a-8429-a71a23a61903" />
 
