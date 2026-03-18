@@ -122,11 +122,12 @@ export function layoutViews(state: WindowState): void {
     chromeView.setBounds({ x: 0, y: 0, width, height: chromeHeight });
   }
 
+  const resizeHandleOverlap = 6;
   if (uiState.sidebarOpen) {
     sidebarView.setBounds({
-      x: width - sidebarWidth,
+      x: width - sidebarWidth - resizeHandleOverlap,
       y: 0,
-      width: sidebarWidth,
+      width: sidebarWidth + resizeHandleOverlap,
       height,
     });
   } else {
@@ -155,6 +156,46 @@ export function layoutViews(state: WindowState): void {
   mainWindow.contentView.addChildView(devtoolsPanelView);
 
   // Active tab content: below chrome, left of sidebar, above devtools panel
+  const activeTab = tabManager.getActiveTab();
+  if (activeTab) {
+    activeTab.view.setBounds({
+      x: 0,
+      y: chromeHeight,
+      width: contentWidth,
+      height: height - chromeHeight - devtoolsHeight,
+    });
+  }
+}
+
+/**
+ * Lightweight sidebar-only resize — skips view re-stacking to avoid flicker.
+ * Only repositions the sidebar, active tab, and devtools panel width.
+ */
+export function resizeSidebarViews(state: WindowState): void {
+  const { mainWindow, sidebarView, devtoolsPanelView, tabManager, uiState } = state;
+  const [width, height] = mainWindow.getContentSize();
+  const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
+  const sidebarWidth = uiState.sidebarOpen ? uiState.sidebarWidth : 0;
+  const devtoolsHeight = uiState.devtoolsPanelOpen ? uiState.devtoolsPanelHeight : 0;
+  const resizeHandleOverlap = 6;
+  const contentWidth = width - sidebarWidth;
+
+  sidebarView.setBounds({
+    x: width - sidebarWidth - resizeHandleOverlap,
+    y: 0,
+    width: sidebarWidth + resizeHandleOverlap,
+    height,
+  });
+
+  if (uiState.devtoolsPanelOpen) {
+    devtoolsPanelView.setBounds({
+      x: 0,
+      y: height - devtoolsHeight,
+      width: contentWidth,
+      height: devtoolsHeight,
+    });
+  }
+
   const activeTab = tabManager.getActiveTab();
   if (activeTab) {
     activeTab.view.setBounds({

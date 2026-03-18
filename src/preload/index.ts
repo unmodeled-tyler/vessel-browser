@@ -108,8 +108,12 @@ const api = {
   },
   ui: {
     toggleSidebar: () => ipcRenderer.invoke(Channels.SIDEBAR_TOGGLE),
+    startSidebarResize: () =>
+      ipcRenderer.invoke(Channels.SIDEBAR_RESIZE_START),
     resizeSidebar: (width: number) =>
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE, width),
+    commitSidebarResize: () =>
+      ipcRenderer.invoke(Channels.SIDEBAR_RESIZE_COMMIT),
     toggleFocusMode: () => ipcRenderer.invoke(Channels.FOCUS_MODE_TOGGLE),
     setSettingsVisibility: (open: boolean) =>
       ipcRenderer.invoke(Channels.SETTINGS_VISIBILITY, open),

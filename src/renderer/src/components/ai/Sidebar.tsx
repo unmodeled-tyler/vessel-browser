@@ -334,30 +334,39 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     onCleanup(() => window.clearInterval(intervalId));
   });
 
-  const startResize = (e: MouseEvent) => {
-    if (props.forceOpen) return;
-
+  const startResize = (e: PointerEvent) => {
     e.preventDefault();
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
     setIsDragging(true);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
 
-    const onMouseMove = (e: MouseEvent) => {
-      const newWidth = window.innerWidth - e.clientX;
-      resizeSidebar(newWidth);
+    // Expand the sidebar view to full window so pointer capture works across the drag
+    window.vessel.ui.startSidebarResize();
+
+    // Capture initial state so the reference frame stays fixed during drag
+    const startX = e.screenX;
+    const startWidth = sidebarWidth();
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const delta = startX - ev.screenX;
+      resizeSidebar(startWidth + delta);
     };
 
-    const onMouseUp = () => {
+    const onPointerUp = () => {
       setIsDragging(false);
       commitResize();
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
+      target.removeEventListener("pointermove", onPointerMove);
+      target.removeEventListener("pointerup", onPointerUp);
+      target.removeEventListener("lostpointercapture", onPointerUp);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
 
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
+    target.addEventListener("pointermove", onPointerMove);
+    target.addEventListener("pointerup", onPointerUp);
+    target.addEventListener("lostpointercapture", onPointerUp);
   };
 
   const formatBookmarkDate = (savedAt: string) =>
@@ -437,15 +446,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     <Show when={props.forceOpen || sidebarOpen()}>
       <div
         class="sidebar"
-        style={{ width: props.forceOpen ? "100%" : `${sidebarWidth()}px` }}
+        style={{ width: `${sidebarWidth()}px` }}
       >
-        <Show when={!props.forceOpen}>
-          <div
-            class="sidebar-resize-handle"
-            classList={{ dragging: isDragging() }}
-            onMouseDown={startResize}
-          />
-        </Show>
+        <div
+          class="sidebar-resize-handle"
+          classList={{ dragging: isDragging() }}
+          onPointerDown={startResize}
+        />
         <div class="sidebar-header">
           <div class="sidebar-brand">
             <img class="sidebar-logo" src={vesselLogo} alt="Vessel" />

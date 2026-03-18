@@ -59,6 +59,7 @@ export function useUI() {
         window.vessel.ui.resizeSidebar(pendingWidth);
         pendingWidth = null;
       }
+      window.vessel.ui.commitSidebarResize();
     },
     toggleFocusMode: async () => {
       const result = await window.vessel.ui.toggleFocusMode();
