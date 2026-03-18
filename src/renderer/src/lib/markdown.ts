@@ -32,7 +32,7 @@ function sanitizeUrl(url: string): string | null {
 function applyInlineMarkdown(text: string): string {
   const codeSpans: string[] = [];
   let withCodeTokens = text.replace(/`([^`]+)`/g, (_, code: string) => {
-    const token = `@@CODE_SPAN_${codeSpans.length}@@`;
+    const token = `\x00CS${codeSpans.length}\x00`;
     codeSpans.push(`<code>${escapeHtml(code)}</code>`);
     return token;
   });
@@ -58,7 +58,7 @@ function applyInlineMarkdown(text: string): string {
 
   return codeSpans.reduce(
     (output, snippet, index) =>
-      output.replace(`@@CODE_SPAN_${index}@@`, snippet),
+      output.replace(`\x00CS${index}\x00`, snippet),
     html,
   );
 }
@@ -79,7 +79,7 @@ function renderBlock(block: string): string {
   const trimmed = block.trim();
   if (!trimmed) return "";
 
-  const codeMatch = trimmed.match(/^@@CODE_BLOCK_(\d+)@@$/);
+  const codeMatch = trimmed.match(/^\x00CB\d+\x00$/);
   if (codeMatch) {
     return trimmed;
   }
@@ -124,7 +124,7 @@ export function renderMarkdown(source: string): string {
     .replace(
       /```([\w-]+)?\n([\s\S]*?)```/g,
       (_, language: string | undefined, code: string) => {
-        const token = `@@CODE_BLOCK_${codeBlocks.length}@@`;
+        const token = `\x00CB${codeBlocks.length}\x00`;
         const langAttr = language
           ? ` data-language="${escapeHtml(language)}"`
           : "";
@@ -143,7 +143,7 @@ export function renderMarkdown(source: string): string {
 
   const withCodeBlocks = codeBlocks.reduce(
     (output, snippet, index) =>
-      output.replace(`@@CODE_BLOCK_${index}@@`, snippet),
+      output.replace(`\x00CB${index}\x00`, snippet),
     rendered,
   );
 

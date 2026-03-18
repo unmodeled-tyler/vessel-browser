@@ -152,8 +152,9 @@ export class OpenAICompatProvider implements AIProvider {
         };
         messages.push(assistantMsg);
 
-        // If no tool calls or stop, we're done
-        if (finishReason !== 'tool_calls' || toolCalls.length === 0) break;
+        // If no tool calls were requested, we're done
+        // (Some providers like Ollama send finish_reason "stop" even with tool calls)
+        if (toolCalls.length === 0) break;
 
         // Execute each tool and collect results
         for (const tc of toolCalls) {

@@ -171,6 +171,17 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     setChatInput("");
     await query(prompt);
   };
+
+  const handleRetry = () => {
+    const msgs = messages();
+    // Find the last user message and re-send it
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") {
+        void query(msgs[i].content);
+        return;
+      }
+    }
+  };
   const [checkpointName, setCheckpointName] = createSignal("");
   const [bookmarkNote, setBookmarkNote] = createSignal("");
   const [bookmarkSaveExpanded, setBookmarkSaveExpanded] = createSignal(false);
@@ -1096,6 +1107,27 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
         </div>
 
         <Show when={sidebarTab() === "chat"}>
+          <Show when={isStreaming() || messages().length > 0}>
+            <div class="chat-actions">
+              <Show when={isStreaming()}>
+                <button class="chat-action-btn" onClick={() => cancel()} title="Stop generating">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <rect x="2" y="2" width="10" height="10" rx="1.5" fill="currentColor" />
+                  </svg>
+                  Stop
+                </button>
+              </Show>
+              <Show when={!isStreaming() && messages().length > 0}>
+                <button class="chat-action-btn" onClick={handleRetry} title="Retry last prompt">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    <path d="M10.5 1v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  Retry
+                </button>
+              </Show>
+            </div>
+          </Show>
           <div class="sidebar-input-area">
             <textarea
               class="sidebar-input"
@@ -1110,22 +1142,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 }
               }}
             />
-            <Show
-              when={isStreaming()}
-              fallback={
-                <button
-                  class="sidebar-send"
-                  disabled={!chatInput().trim()}
-                  onClick={() => void handleChatSend()}
-                >
-                  Send
-                </button>
-              }
+            <button
+              class="sidebar-send"
+              disabled={!chatInput().trim() || isStreaming()}
+              onClick={() => void handleChatSend()}
             >
-              <button class="sidebar-cancel" onClick={() => cancel()}>
-                Stop
-              </button>
-            </Show>
+              Send
+            </button>
           </div>
         </Show>
       </div>

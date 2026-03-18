@@ -170,6 +170,13 @@ export class Tab {
 
     wc.on("dom-ready", () => {
       syncNavigationState();
+      wc.insertCSS(`
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+        ::-webkit-scrollbar-corner { background: transparent; }
+      `).catch(() => {});
     });
 
     wc.on("page-favicon-updated", (_, favicons) => {

@@ -1213,6 +1213,7 @@
     max-width: 92%;
     white-space: pre-wrap;
     word-break: break-word;
+    user-select: text;
     animation: message-enter 300ms var(--ease-out-expo) both;
 }
 
@@ -1494,6 +1495,34 @@
     opacity: 0.55;
     line-height: 1.55;
     max-width: 240px;
+}
+
+.chat-actions {
+    display: flex;
+    gap: 6px;
+    padding: 6px 14px;
+    flex-shrink: 0;
+}
+
+.chat-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-in-out),
+                border-color var(--duration-fast) var(--ease-in-out);
+}
+
+.chat-action-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-visible);
 }
 
 .sidebar-input-area {
