@@ -275,6 +275,27 @@ export type AgentTranscriptDisplayMode = "off" | "summary" | "full";
 
 export type McpConnectionStatus = "starting" | "ready" | "error" | "stopped";
 
+// --- Speedee Flow State ---
+
+export type FlowStepStatus = "pending" | "done" | "skipped" | "failed";
+
+export interface FlowStep {
+  label: string;
+  status: FlowStepStatus;
+  detail?: string;
+}
+
+export interface FlowState {
+  id: string;
+  goal: string;
+  steps: FlowStep[];
+  currentStepIndex: number;
+  startedAt: string;
+  updatedAt: string;
+  startUrl?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface AgentRuntimeState {
   session: SessionSnapshot | null;
   supervisor: SupervisorState;
@@ -282,6 +303,7 @@ export interface AgentRuntimeState {
   checkpoints: AgentCheckpoint[];
   transcript: AgentTranscriptEntry[];
   mcpStatus: McpConnectionStatus;
+  flowState: FlowState | null;
 }
 
 export interface UIState {

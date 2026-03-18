@@ -10,9 +10,12 @@ import type {
   AgentTranscriptKind,
   AgentRuntimeState,
   ApprovalMode,
+  FlowState,
+  FlowStep,
+  FlowStepStatus,
   PendingApproval,
+  SessionSnapshot,
 } from "../../shared/types";
-import type { SessionSnapshot } from "../../shared/types";
 import type { TabManager } from "../tabs/tab-manager";
 import {
   getMcpStatus,
@@ -95,6 +98,7 @@ function sanitizePersistence(
       : [],
     transcript: [],
     mcpStatus: "stopped",
+    flowState: null,
   };
 }
 
@@ -240,6 +244,76 @@ export class AgentRuntime {
     this.state.transcript = [];
     this.emit();
     return this.getState();
+  }
+
+  // --- Speedee Flow State ---
+
+  startFlow(goal: string, steps: string[], startUrl?: string): FlowState {
+    const flow: FlowState = {
+      id: randomUUID(),
+      goal,
+      steps: steps.map((label) => ({ label, status: "pending" as FlowStepStatus })),
+      currentStepIndex: 0,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      startUrl,
+    };
+    this.state.flowState = flow;
+    this.emit();
+    return clone(flow);
+  }
+
+  advanceFlow(detail?: string): FlowState | null {
+    const flow = this.state.flowState;
+    if (!flow) return null;
+    const step = flow.steps[flow.currentStepIndex];
+    if (step) {
+      step.status = "done";
+      step.detail = detail;
+    }
+    flow.currentStepIndex = Math.min(flow.currentStepIndex + 1, flow.steps.length);
+    flow.updatedAt = new Date().toISOString();
+    this.emit();
+    return clone(flow);
+  }
+
+  failFlowStep(detail?: string): FlowState | null {
+    const flow = this.state.flowState;
+    if (!flow) return null;
+    const step = flow.steps[flow.currentStepIndex];
+    if (step) {
+      step.status = "failed";
+      step.detail = detail;
+    }
+    flow.updatedAt = new Date().toISOString();
+    this.emit();
+    return clone(flow);
+  }
+
+  getFlowState(): FlowState | null {
+    return this.state.flowState ? clone(this.state.flowState) : null;
+  }
+
+  clearFlow(): void {
+    this.state.flowState = null;
+    this.emit();
+  }
+
+  getFlowContext(): string {
+    const flow = this.state.flowState;
+    if (!flow) return "";
+    const progress = flow.steps
+      .map((s, i) => {
+        const marker =
+          s.status === "done" ? "\u2713" :
+          s.status === "failed" ? "\u2717" :
+          s.status === "skipped" ? "-" :
+          i === flow.currentStepIndex ? "\u2192" : " ";
+        const detail = s.detail ? ` (${s.detail})` : "";
+        return `[${marker}] ${s.label}${detail}`;
+      })
+      .join("\n");
+    return `\n--- Active Flow ---\nGoal: ${flow.goal}\n${progress}\n---`;
   }
 
   async runControlledAction({

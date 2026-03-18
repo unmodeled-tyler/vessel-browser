@@ -715,6 +715,11 @@ export function buildScopedContext(
       const largePageHint = formatLargePageHint(page);
       if (largePageHint) sections.push(`**Reading Hint:** ${largePageHint}`);
       sections.push("");
+      const summaryIntent = analyzePageIntent(page);
+      if (summaryIntent) {
+        sections.push(summaryIntent);
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -771,6 +776,11 @@ export function buildScopedContext(
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
       sections.push("");
+      const interactivesIntent = analyzePageIntent(page);
+      if (interactivesIntent) {
+        sections.push(interactivesIntent);
+        sections.push("");
+      }
       const interactivesHighlights = getHighlightsForPage(page.url);
       if (interactivesHighlights.length > 0) {
         sections.push("### Highlights & Annotations");
@@ -958,6 +968,99 @@ export function buildScopedContext(
   }
 }
 
+/**
+ * Speedee System — Semantic Page Analysis
+ * Detects page intent and suggests the most relevant actions,
+ * so agents spend zero tokens deciding *which* tool to use.
+ */
+function analyzePageIntent(page: PageContent): string {
+  const hints: string[] = [];
+  const url = page.url.toLowerCase();
+  const title = (page.title || "").toLowerCase();
+  const hasPasswordField = page.forms.some((f) =>
+    f.fields.some((el) => el.inputType === "password"),
+  );
+  const hasSearchInput =
+    page.interactiveElements.some(
+      (el) =>
+        el.inputType === "search" ||
+        el.name === "q" ||
+        el.name === "query" ||
+        el.name === "search" ||
+        (el.placeholder || "").toLowerCase().includes("search"),
+    ) ||
+    page.forms.some((f) =>
+      f.fields.some(
+        (el) =>
+          el.inputType === "search" ||
+          el.name === "q" ||
+          el.name === "query",
+      ),
+    );
+  const formCount = page.forms.length;
+  const hasCart =
+    page.interactiveElements.some(
+      (el) =>
+        (el.text || "").toLowerCase().includes("cart") ||
+        (el.text || "").toLowerCase().includes("checkout"),
+    ) ||
+    url.includes("cart") ||
+    url.includes("checkout");
+  const hasResults =
+    page.interactiveElements.filter((el) => el.type === "link").length > 10;
+  const hasPagination = page.interactiveElements.some(
+    (el) =>
+      (el.text || "").toLowerCase() === "next" ||
+      el.text === "›" ||
+      el.text === "»" ||
+      (el.label || "").toLowerCase().includes("next page"),
+  );
+
+  // Detect page type and suggest actions
+  if (hasPasswordField) {
+    hints.push("Page type: LOGIN/SIGNUP");
+    hints.push("Suggested: vessel_login or vessel_fill_form → auto-fills credentials and submits");
+    const userField = page.forms
+      .flatMap((f) => f.fields)
+      .find(
+        (el) =>
+          el.inputType === "email" ||
+          el.name === "email" ||
+          el.name === "username" ||
+          el.autocomplete === "username",
+      );
+    if (userField) {
+      hints.push(`Username field: #${userField.index} [${userField.label || userField.name || userField.placeholder || "input"}]`);
+    }
+  } else if (hasSearchInput && !hasResults) {
+    hints.push("Page type: SEARCH READY");
+    hints.push("Suggested: vessel_search → auto-finds search box, types query, and submits");
+  } else if (hasResults && hasSearchInput) {
+    hints.push("Page type: SEARCH RESULTS");
+    hints.push("Suggested: click a result link, or vessel_paginate for more results");
+    if (hasPagination) hints.push("Pagination detected — vessel_paginate available");
+  } else if (hasCart) {
+    hints.push("Page type: SHOPPING/CHECKOUT");
+    hints.push("Suggested: vessel_fill_form for payment/address fields");
+  } else if (formCount > 0 && !hasPasswordField) {
+    const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
+    hints.push(`Page type: FORM (${formCount} form${formCount > 1 ? "s" : ""}, ${totalFields} fields)`);
+    hints.push("Suggested: vessel_fill_form → fill all fields in one call");
+  } else if (hasPagination) {
+    hints.push("Page type: PAGINATED LIST");
+    hints.push("Suggested: vessel_paginate to navigate between pages");
+  } else if (
+    page.content.length > 3000 &&
+    page.interactiveElements.length < 10
+  ) {
+    hints.push("Page type: ARTICLE/CONTENT");
+    hints.push("Suggested: vessel_extract_content for readable text");
+  }
+
+  if (hints.length === 0) return "";
+  return `### Page Intent (Speedee)\n${hints.join("\n")}`;
+}
+
 export function buildStructuredContext(page: PageContent): string {
   const sections: string[] = [];
 
@@ -973,6 +1076,13 @@ export function buildStructuredContext(page: PageContent): string {
   if (page.byline) sections.push(`**Author:** ${page.byline}`);
   if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
   sections.push("");
+
+  // Speedee semantic hints
+  const pageIntent = analyzePageIntent(page);
+  if (pageIntent) {
+    sections.push(pageIntent);
+    sections.push("");
+  }
 
   if ((page.pageIssues?.length ?? 0) > 0) {
     sections.push("### Page Access Warnings");
