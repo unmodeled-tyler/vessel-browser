@@ -1087,13 +1087,43 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             <Show when={messages().length === 0 && !isStreaming()}>
               <div class="sidebar-empty">
                 <svg class="sidebar-empty-icon" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
-                  <circle cx="24" cy="24" r="20" fill="none" stroke="var(--border-visible)" stroke-width="1.5" />
-                  <circle cx="24" cy="24" r="12" fill="none" stroke="var(--accent-primary)" stroke-width="1" opacity="0.3" />
-                  <circle cx="24" cy="24" r="4" fill="none" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.6" />
-                  <line x1="24" y1="4" x2="24" y2="12" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
-                  <line x1="24" y1="36" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
-                  <line x1="4" y1="24" x2="12" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
-                  <line x1="36" y1="24" x2="44" y2="24" stroke="var(--border-visible)" stroke-width="1" stroke-linecap="round" />
+                  {/* Edges — outer connections */}
+                  <line x1="8" y1="8" x2="24" y2="5" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
+                  <line x1="24" y1="5" x2="40" y2="10" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
+                  <line x1="8" y1="8" x2="6" y2="24" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
+                  <line x1="40" y1="10" x2="44" y2="26" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
+                  <line x1="6" y1="24" x2="10" y2="38" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
+                  <line x1="44" y1="26" x2="38" y2="40" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
+                  <line x1="10" y1="38" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" opacity="0.35" />
+                  <line x1="38" y1="40" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" opacity="0.35" />
+                  {/* Edges — inner web */}
+                  <line x1="8" y1="8" x2="20" y2="18" stroke="var(--border-visible)" stroke-width="1" opacity="0.5" />
+                  <line x1="24" y1="5" x2="20" y2="18" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
+                  <line x1="40" y1="10" x2="32" y2="20" stroke="var(--border-visible)" stroke-width="1" opacity="0.5" />
+                  <line x1="20" y1="18" x2="32" y2="20" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.3" />
+                  <line x1="6" y1="24" x2="18" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
+                  <line x1="20" y1="18" x2="18" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
+                  <line x1="32" y1="20" x2="36" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
+                  <line x1="44" y1="26" x2="36" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
+                  <line x1="18" y1="30" x2="36" y2="30" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.25" />
+                  <line x1="18" y1="30" x2="10" y2="38" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
+                  <line x1="36" y1="30" x2="38" y2="40" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
+                  <line x1="18" y1="30" x2="24" y2="44" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.2" />
+                  <line x1="36" y1="30" x2="24" y2="44" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.2" />
+                  {/* Nodes — outer ring */}
+                  <circle cx="8" cy="8" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.55" />
+                  <circle cx="24" cy="5" r="2" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.45" />
+                  <circle cx="40" cy="10" r="3" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.7" />
+                  <circle cx="6" cy="24" r="2" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.5" />
+                  <circle cx="44" cy="26" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.55" />
+                  <circle cx="10" cy="38" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.5" />
+                  <circle cx="38" cy="40" r="2" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.45" />
+                  <circle cx="24" cy="44" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.5" />
+                  {/* Nodes — inner core */}
+                  <circle cx="20" cy="18" r="3.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.85" />
+                  <circle cx="32" cy="20" r="4" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.9" />
+                  <circle cx="18" cy="30" r="3" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.75" />
+                  <circle cx="36" cy="30" r="3.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.8" />
                 </svg>
                 <p class="sidebar-empty-title">Your move.</p>
                 <p class="sidebar-empty-hint">
