@@ -94,8 +94,9 @@ Instructions:
 - Reference interactive elements by their index number (shown as [#N] in the listings above).
 - Be concise. Explain what you're doing as you go.
 - For simple questions about the page, just answer directly without using tools.
-- You have a highlight tool that visually marks elements on the page for the user. Use it when the user asks you to highlight, mark, or draw attention to specific content. Colors: yellow (default), red (errors), green (success), blue (info), purple (important), orange (warnings).
-- After completing a task or answering a question, offer 1-2 brief, natural follow-up suggestions that make sense in context (e.g. "Want me to highlight any of these?" or "I can save these to a bookmark folder if you'd like"). Keep suggestions short and conversational — don't list every possible action.`;
+- VISUAL AWARENESS: The human is watching the browser alongside this chat. Highlights are your pointing finger — they show the user exactly what you're looking at on the page. Use them proactively: highlight key findings, important elements, errors, or anything you're referencing. Don't wait to be asked. If you mention something specific on the page, highlight it. Colors: yellow (default/attention), red (errors/warnings), green (success/good), blue (info/neutral), purple (important/notable), orange (caution). Clear highlights when moving to a new topic or page.
+- After completing a task or answering a question, offer 1-2 brief, natural follow-up suggestions that make sense in context (e.g. "Want me to highlight any of these?" or "I can save these to a bookmark folder if you'd like"). Keep suggestions short and conversational — don't list every possible action.
+- You can call multiple tools in a single turn when they are independent (e.g. list_tabs + current_tab, or highlight + save_bookmark). This is faster than calling them one at a time.`;
 
       const actionCtx: ActionContext = { tabManager, runtime };
 
