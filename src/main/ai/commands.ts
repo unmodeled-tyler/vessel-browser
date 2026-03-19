@@ -5,9 +5,11 @@ import {
   buildQuestionPrompt,
   buildGeneralPrompt,
   buildStructuredContext,
+  detectPageType,
 } from "./context-builder";
 import { extractContent } from "../content/extractor";
 import { AGENT_TOOLS } from "./tools";
+import { pruneToolsForContext } from "../tools/pruner";
 import { executeAction, type ActionContext } from "./page-actions";
 import type { TabManager } from "../tabs/tab-manager";
 import type { WebContents } from "electron";
@@ -97,10 +99,14 @@ Instructions:
 
       const actionCtx: ActionContext = { tabManager, runtime };
 
+      // Speedee: dynamically reorder tools based on current page context
+      const pageType = detectPageType(pageContent);
+      const contextualTools = pruneToolsForContext(AGENT_TOOLS, pageType);
+
       await provider.streamAgentQuery(
         systemPrompt,
         query,
-        AGENT_TOOLS,
+        contextualTools,
         onChunk,
         (name, args) => executeAction(name, args, actionCtx),
         onEnd,

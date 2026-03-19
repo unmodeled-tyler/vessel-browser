@@ -325,6 +325,23 @@ async function clickResolvedSelector(
     return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
   }
 
+  // Shadow-piercing selector path
+  if (selector.includes(" >>> ")) {
+    const beforeUrl = wc.getURL();
+    const result = await wc.executeJavaScript(`
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (el instanceof HTMLElement) { el.focus(); el.click(); }
+        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
+      })()
+    `);
+    if (typeof result === "string" && result.startsWith("Error")) return result;
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+  }
+
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
@@ -616,6 +633,14 @@ async function resolveSelector(
     `,
   );
   if (typeof authoritativeSelector === "string" && authoritativeSelector) {
+    // Shadow-piercing selector (contains " >>> ") — resolve via __vessel
+    if (authoritativeSelector.includes(" >>> ")) {
+      const resolves = await wc.executeJavaScript(
+        `!!window.__vessel?.resolveShadowSelector?.(${JSON.stringify(authoritativeSelector)})`,
+      );
+      if (resolves) return authoritativeSelector;
+      return `__vessel_idx:${index}`;
+    }
     // Verify the selector resolves in light DOM — shadow DOM elements need direct interaction
     const resolves = await wc.executeJavaScript(
       `!!document.querySelector(${JSON.stringify(authoritativeSelector)})`,
@@ -753,6 +778,23 @@ async function setElementValue(
     return wc.executeJavaScript(
       `window.__vessel?.interactByIndex?.(${idx}, "value", ${JSON.stringify(value)}) || "Error: interactByIndex not available"`,
     );
+  }
+  // Shadow-piercing selector — use interactByIndex-style value setter via __vessel
+  if (selector.includes(" >>> ")) {
+    return wc.executeJavaScript(`
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return "Error[not-input]: Element is not a text input";
+        var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        var desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) { desc.set.call(el, ${JSON.stringify(value)}); } else { el.value = ${JSON.stringify(value)}; }
+        el.focus();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return "Typed into: " + (el.getAttribute("aria-label") || el.placeholder || el.name || "input");
+      })()
+    `);
   }
   return wc.executeJavaScript(`
     (function() {
@@ -2304,6 +2346,137 @@ export async function executeAction(
           return afterUrl !== beforeUrl
             ? `Paginated ${args.direction} → ${afterUrl}`
             : `Clicked ${args.direction} (page may have updated dynamically)`;
+        }
+
+        case "accept_cookies": {
+          if (!wc) return "Error: No active tab";
+          const dismissed = await wc.executeJavaScript(`
+            (function() {
+              // Common cookie consent selectors — OneTrust, CookieBot, GDPR banners
+              var selectors = [
+                '#onetrust-accept-btn-handler',
+                '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+                '[data-cookiefirst-action="accept"]',
+                '.cookie-consent-accept-all',
+                '#accept-cookies',
+                '.cc-accept',
+                '.cc-btn.cc-allow',
+                '[aria-label="Accept cookies"]',
+                '[aria-label="Accept all cookies"]',
+                '[data-testid="cookie-accept"]',
+              ];
+              // Also try text-matching on buttons
+              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'consent'];
+              for (var i = 0; i < selectors.length; i++) {
+                var el = document.querySelector(selectors[i]);
+                if (el && el instanceof HTMLElement) { el.click(); return "Dismissed cookie banner via: " + selectors[i]; }
+              }
+              var buttons = document.querySelectorAll('button, a[role="button"], [type="submit"]');
+              for (var j = 0; j < buttons.length; j++) {
+                var btn = buttons[j];
+                var text = (btn.textContent || '').trim().toLowerCase();
+                for (var k = 0; k < textPatterns.length; k++) {
+                  if (text === textPatterns[k] || text.startsWith(textPatterns[k])) {
+                    btn.click();
+                    return "Dismissed cookie banner via text match: " + text;
+                  }
+                }
+              }
+              return null;
+            })()
+          `);
+          return dismissed || "No cookie consent banner detected. Try dismiss_popup for other overlays.";
+        }
+
+        case "extract_table": {
+          if (!wc) return "Error: No active tab";
+          const selector = args.selector
+            ? args.selector
+            : args.index != null
+              ? await resolveSelector(wc, args.index, undefined)
+              : null;
+          const tableJson = await wc.executeJavaScript(`
+            (function() {
+              var table = ${selector ? `document.querySelector(${JSON.stringify(selector)})` : "document.querySelector('table')"};
+              if (!table) return null;
+              var headers = [];
+              var headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+              if (headerRow) {
+                headerRow.querySelectorAll('th, td').forEach(function(cell) {
+                  headers.push(cell.textContent.trim());
+                });
+              }
+              var rows = [];
+              var bodyRows = table.querySelectorAll('tbody tr');
+              if (bodyRows.length === 0) bodyRows = table.querySelectorAll('tr');
+              bodyRows.forEach(function(tr, idx) {
+                if (idx === 0 && headers.length > 0 && !table.querySelector('thead')) return;
+                var row = {};
+                tr.querySelectorAll('td, th').forEach(function(cell, ci) {
+                  var key = headers[ci] || ("col_" + ci);
+                  row[key] = cell.textContent.trim();
+                });
+                if (Object.keys(row).length > 0) rows.push(row);
+              });
+              return { headers: headers, rows: rows, rowCount: rows.length };
+            })()
+          `);
+          if (!tableJson) return "Error: No table found on the page.";
+          return `Extracted table (${tableJson.rowCount} rows):\n${JSON.stringify(tableJson, null, 2)}`;
+        }
+
+        case "metrics": {
+          const m = ctx.runtime.getMetrics();
+          const lines = [
+            `Session Metrics:`,
+            `  Total actions: ${m.totalActions}`,
+            `  Completed: ${m.completedActions}`,
+            `  Failed: ${m.failedActions}`,
+            `  Average duration: ${m.averageDurationMs}ms`,
+            ``,
+            `Tool breakdown:`,
+          ];
+          for (const [name, stats] of Object.entries(m.toolBreakdown)) {
+            lines.push(`  ${name}: ${stats.count} calls, avg ${stats.avgMs}ms${stats.errors > 0 ? `, ${stats.errors} errors` : ""}`);
+          }
+          return lines.join("\n");
+        }
+
+        case "scroll_to_element": {
+          if (!wc) return "Error: No active tab";
+          const sel = await resolveSelector(wc, args.index, args.selector);
+          if (!sel) return "Error: Provide an index or selector for the element to scroll to.";
+          const block = args.position === "top" ? "start" : args.position === "bottom" ? "end" : "center";
+          if (sel.startsWith("__vessel_idx:")) {
+            const idx = Number(sel.slice("__vessel_idx:".length));
+            return wc.executeJavaScript(`
+              (function() {
+                var el = window.__vessel?.interactByIndex && Object.values(window.__vessel)[2];
+                var ref = (function() { try { return document.querySelector('[data-vessel-idx="${idx}"]'); } catch(e) { return null; } })();
+                if (!ref) return "Error: Element not found";
+                ref.scrollIntoView({ behavior: "smooth", block: "${block}" });
+                return "Scrolled to element #${idx}";
+              })()
+            `);
+          }
+          if (sel.includes(" >>> ")) {
+            return wc.executeJavaScript(`
+              (function() {
+                var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(sel)});
+                if (!el) return "Error: Shadow DOM element not found";
+                el.scrollIntoView({ behavior: "smooth", block: "${block}" });
+                return "Scrolled to shadow DOM element";
+              })()
+            `);
+          }
+          return wc.executeJavaScript(`
+            (function() {
+              var el = document.querySelector(${JSON.stringify(sel)});
+              if (!el) return "Error: Element not found";
+              el.scrollIntoView({ behavior: "smooth", block: "${block}" });
+              return "Scrolled to element";
+            })()
+          `);
         }
 
         default:

@@ -227,6 +227,7 @@ export interface AgentActionEntry {
   status: ActionStatus;
   startedAt: string;
   finishedAt?: string;
+  durationMs?: number;
   tabId?: string | null;
   resultSummary?: string;
   error?: string;

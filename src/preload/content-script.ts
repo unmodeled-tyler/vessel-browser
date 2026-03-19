@@ -121,47 +121,107 @@ let activeOverlays: OverlayCandidate[] = [];
 /**
  * querySelectorAll that pierces open Shadow DOM roots.
  * Finds elements inside web components (Internet Archive, etc.)
- * Performance-bounded: only walks known shadow hosts, not every element.
+ * Uses a TreeWalker for efficient traversal with generous limits.
  */
-function deepQuerySelectorAll(selector: string, root: ParentNode = document): Element[] {
-  const results: Element[] = [];
-  // Get matches in the light DOM
-  root.querySelectorAll(selector).forEach((el) => results.push(el));
+const MAX_SHADOW_HOSTS = 150;
+const MAX_SHADOW_DEPTH = 5;
+const MAX_WALK_ELEMENTS = 10000;
 
-  // Collect shadow roots efficiently — walk the tree once looking for
-  // elements with shadowRoot, but limit traversal depth and count
-  const MAX_SHADOW_HOSTS = 50;
-  const MAX_DEPTH = 3;
+function collectShadowRoots(root: ParentNode): ShadowRoot[] {
   const shadowRoots: ShadowRoot[] = [];
+  let walked = 0;
 
-  const findShadowRoots = (node: ParentNode, depth: number) => {
-    if (depth > MAX_DEPTH || shadowRoots.length >= MAX_SHADOW_HOSTS) return;
-    // Only check direct children of the node for shadow roots,
-    // then recurse into found shadow roots (not the entire subtree)
-    const children = node.children;
-    for (let i = 0; i < children.length && shadowRoots.length < MAX_SHADOW_HOSTS; i++) {
-      const el = children[i];
-      if (el.shadowRoot) {
-        shadowRoots.push(el.shadowRoot);
-        findShadowRoots(el.shadowRoot, depth + 1);
+  const walk = (node: ParentNode, depth: number) => {
+    if (depth > MAX_SHADOW_DEPTH || shadowRoots.length >= MAX_SHADOW_HOSTS) return;
+    const tw = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+    let el: Node | null = tw.nextNode();
+    while (el && walked < MAX_WALK_ELEMENTS && shadowRoots.length < MAX_SHADOW_HOSTS) {
+      walked++;
+      if ((el as Element).shadowRoot) {
+        shadowRoots.push((el as Element).shadowRoot!);
+        walk((el as Element).shadowRoot!, depth + 1);
       }
-      // Also check grandchildren — custom elements are often shallow
-      if (el.children.length > 0 && el.children.length < 200) {
-        findShadowRoots(el, depth);
-      }
+      el = tw.nextNode();
     }
   };
 
-  findShadowRoots(root, 0);
+  walk(root, 0);
+  return shadowRoots;
+}
 
-  for (const sr of shadowRoots) {
+function deepQuerySelectorAll(selector: string, root: ParentNode = document): Element[] {
+  const results: Element[] = [];
+  root.querySelectorAll(selector).forEach((el) => results.push(el));
+
+  for (const sr of collectShadowRoots(root)) {
     sr.querySelectorAll(selector).forEach((el) => results.push(el));
   }
 
   return results;
 }
 
+/**
+ * Check whether an element lives inside a shadow DOM tree.
+ */
+function isInShadowDom(el: Element): boolean {
+  return el.getRootNode() instanceof ShadowRoot;
+}
+
+/**
+ * Build a shadow-piercing selector path for an element inside shadow DOM.
+ * Format: "hostSelector >>> innerSelector >>> deeperSelector"
+ * Falls back to null if a stable path can't be built.
+ */
+function generateShadowPiercingSelector(el: Element): string | null {
+  const segments: string[] = [];
+  let current: Element | null = el;
+
+  while (current) {
+    const rootNode = current.getRootNode();
+    const innerSel = generateStableSelector(current);
+
+    if (rootNode instanceof ShadowRoot) {
+      segments.unshift(innerSel);
+      current = rootNode.host;
+    } else {
+      // We've reached the document root
+      segments.unshift(innerSel);
+      break;
+    }
+  }
+
+  if (segments.length <= 1) return null; // not actually in shadow DOM
+  return segments.join(" >>> ");
+}
+
+/**
+ * Resolve a shadow-piercing selector path ("host >>> inner >>> deeper")
+ * by walking through shadow roots at each boundary.
+ */
+function resolveShadowSelector(selectorPath: string): Element | null {
+  const segments = selectorPath.split(" >>> ").map((s) => s.trim());
+  let scope: ParentNode = document;
+
+  for (let i = 0; i < segments.length; i++) {
+    const el = scope.querySelector(segments[i]);
+    if (!el) return null;
+    if (i < segments.length - 1) {
+      // Need to enter shadow root for next segment
+      if (!el.shadowRoot) return null;
+      scope = el.shadowRoot;
+    } else {
+      return el;
+    }
+  }
+  return null;
+}
+
 function generateSelector(el: Element): string {
+  // For shadow DOM elements, try to build a piercing selector path
+  if (isInShadowDom(el)) {
+    const shadowPath = generateShadowPiercingSelector(el);
+    if (shadowPath) return shadowPath;
+  }
   return generateStableSelector(el);
 }
 
@@ -990,7 +1050,7 @@ function extractLandmarks(): Array<{
   ];
 
   selectors.forEach((selector) => {
-    document.querySelectorAll(selector).forEach((el) => {
+    deepQuerySelectorAll(selector).forEach((el) => {
       const tag = el.tagName.toLowerCase();
       const role =
         el.getAttribute("role") ||
@@ -1377,6 +1437,7 @@ contextBridge.exposeInMainWorld("__vessel", {
   extractContent: vesselExtractContent,
   getElementSelector: resolveElementSelector,
   interactByIndex,
+  resolveShadowSelector,
   notifyHighlightSelection: (text: string) => {
     if (typeof text === "string" && text.trim()) {
       ipcRenderer.send("vessel:highlight-selection", text.trim());

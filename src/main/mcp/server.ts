@@ -448,6 +448,23 @@ async function clickResolvedSelector(
     return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
   }
 
+  // Shadow-piercing selector path
+  if (selector.includes(" >>> ")) {
+    const beforeUrl = wc.getURL();
+    const result = await wc.executeJavaScript(`
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (el instanceof HTMLElement) { el.focus(); el.click(); }
+        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
+      })()
+    `);
+    if (typeof result === "string" && result.startsWith("Error")) return result;
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+  }
+
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
@@ -847,12 +864,29 @@ async function setElementValue(
   selector: string,
   value: string,
 ): Promise<string> {
-  // Shadow DOM direct interaction
+  // Shadow DOM direct interaction via stored element reference
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     return wc.executeJavaScript(
       `window.__vessel?.interactByIndex?.(${idx}, "value", ${JSON.stringify(value)}) || "Error: interactByIndex not available"`,
     );
+  }
+  // Shadow-piercing selector path
+  if (selector.includes(" >>> ")) {
+    return wc.executeJavaScript(`
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return "Error[not-input]: Element is not a text input";
+        var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        var desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) { desc.set.call(el, ${JSON.stringify(value)}); } else { el.value = ${JSON.stringify(value)}; }
+        el.focus();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return "Typed into: " + (el.getAttribute("aria-label") || el.placeholder || el.name || "input");
+      })()
+    `);
   }
   return wc.executeJavaScript(`
     (function() {
@@ -4284,6 +4318,203 @@ function registerTools(
       );
     },
   );
+
+  // --- Speedee: accept_cookies ---
+  server.registerTool(
+    "vessel_accept_cookies",
+    {
+      title: "Accept Cookies",
+      description:
+        "Dismiss cookie consent banners (OneTrust, CookieBot, GDPR popups, etc.).",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      return withAction(
+        tabManager,
+        runtime,
+        "vessel_accept_cookies",
+        {},
+        async (wc) => {
+          const dismissed = await wc.executeJavaScript(`
+            (function() {
+              var selectors = [
+                '#onetrust-accept-btn-handler',
+                '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+                '[data-cookiefirst-action="accept"]',
+                '.cookie-consent-accept-all',
+                '#accept-cookies',
+                '.cc-accept',
+                '.cc-btn.cc-allow',
+                '[aria-label="Accept cookies"]',
+                '[aria-label="Accept all cookies"]',
+                '[data-testid="cookie-accept"]',
+              ];
+              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'consent'];
+              for (var i = 0; i < selectors.length; i++) {
+                var el = document.querySelector(selectors[i]);
+                if (el && el instanceof HTMLElement) { el.click(); return "Dismissed cookie banner via: " + selectors[i]; }
+              }
+              var buttons = document.querySelectorAll('button, a[role="button"], [type="submit"]');
+              for (var j = 0; j < buttons.length; j++) {
+                var btn = buttons[j];
+                var text = (btn.textContent || '').trim().toLowerCase();
+                for (var k = 0; k < textPatterns.length; k++) {
+                  if (text === textPatterns[k] || text.startsWith(textPatterns[k])) {
+                    btn.click();
+                    return "Dismissed cookie banner via text match: " + text;
+                  }
+                }
+              }
+              return null;
+            })()
+          `);
+          return dismissed || "No cookie consent banner detected. Try vessel_dismiss_popup for other overlays.";
+        },
+      );
+    },
+  );
+
+  // --- Speedee: extract_table ---
+  server.registerTool(
+    "vessel_extract_table",
+    {
+      title: "Extract Table",
+      description:
+        "Extract a table from the page as structured JSON rows with headers.",
+      inputSchema: z.object({
+        index: z.number().optional().describe("Element index of the table"),
+        selector: z.string().optional().describe("CSS selector for the table"),
+      }),
+    },
+    async ({ index, selector: rawSelector }) => {
+      return withAction(
+        tabManager,
+        runtime,
+        "vessel_extract_table",
+        { index, selector: rawSelector },
+        async (wc) => {
+          const sel = rawSelector || (index != null ? await resolveSelector(wc, index) : null);
+          const tableJson = await wc.executeJavaScript(`
+            (function() {
+              var table = ${sel ? `document.querySelector(${JSON.stringify(sel)})` : "document.querySelector('table')"};
+              if (!table) return null;
+              var headers = [];
+              var headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+              if (headerRow) {
+                headerRow.querySelectorAll('th, td').forEach(function(cell) {
+                  headers.push(cell.textContent.trim());
+                });
+              }
+              var rows = [];
+              var bodyRows = table.querySelectorAll('tbody tr');
+              if (bodyRows.length === 0) bodyRows = table.querySelectorAll('tr');
+              bodyRows.forEach(function(tr, idx) {
+                if (idx === 0 && headers.length > 0 && !table.querySelector('thead')) return;
+                var row = {};
+                tr.querySelectorAll('td, th').forEach(function(cell, ci) {
+                  var key = headers[ci] || ("col_" + ci);
+                  row[key] = cell.textContent.trim();
+                });
+                if (Object.keys(row).length > 0) rows.push(row);
+              });
+              return { headers: headers, rows: rows, rowCount: rows.length };
+            })()
+          `);
+          if (!tableJson) return "Error: No table found on the page.";
+          return `Extracted table (${tableJson.rowCount} rows):\n${JSON.stringify(tableJson, null, 2)}`;
+        },
+      );
+    },
+  );
+
+  // --- Speedee: scroll_to_element ---
+  server.registerTool(
+    "vessel_scroll_to_element",
+    {
+      title: "Scroll To Element",
+      description:
+        "Scroll a specific element into view by index or selector.",
+      inputSchema: z.object({
+        index: z.number().optional().describe("Element index to scroll to"),
+        selector: z.string().optional().describe("CSS selector to scroll to"),
+        position: z.enum(["center", "top", "bottom"]).optional().describe("Viewport position (default center)"),
+      }),
+    },
+    async ({ index, selector: rawSelector, position }) => {
+      return withAction(
+        tabManager,
+        runtime,
+        "vessel_scroll_to_element",
+        { index, selector: rawSelector, position },
+        async (wc) => {
+          const sel = rawSelector || (index != null ? await resolveSelector(wc, index) : null);
+          if (!sel) return "Error: Provide an index or selector.";
+          const block = position === "top" ? "start" : position === "bottom" ? "end" : "center";
+
+          if (sel.startsWith("__vessel_idx:")) {
+            const idx = Number(sel.slice("__vessel_idx:".length));
+            return wc.executeJavaScript(`
+              (function() {
+                var refs = window.__vessel;
+                if (!refs || !refs.interactByIndex) return "Error: __vessel not available";
+                // Use stored ref directly
+                var el = document.querySelector('[data-vessel-idx="${idx}"]');
+                if (!el) return "Error: Element #${idx} not found";
+                el.scrollIntoView({ behavior: "smooth", block: "${block}" });
+                return "Scrolled to element #${idx}";
+              })()
+            `);
+          }
+
+          if (sel.includes(" >>> ")) {
+            return wc.executeJavaScript(`
+              (function() {
+                var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(sel)});
+                if (!el) return "Error: Shadow DOM element not found";
+                el.scrollIntoView({ behavior: "smooth", block: "${block}" });
+                return "Scrolled to shadow DOM element";
+              })()
+            `);
+          }
+
+          return wc.executeJavaScript(`
+            (function() {
+              var el = document.querySelector(${JSON.stringify(sel)});
+              if (!el) return "Error: Element not found";
+              el.scrollIntoView({ behavior: "smooth", block: "${block}" });
+              return "Scrolled to element";
+            })()
+          `);
+        },
+      );
+    },
+  );
+  // --- Speedee: metrics ---
+  server.registerTool(
+    "vessel_metrics",
+    {
+      title: "Session Metrics",
+      description:
+        "Show performance metrics: total tool calls, average duration, per-tool breakdown.",
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const m = runtime.getMetrics();
+      const lines = [
+        `Session Metrics:`,
+        `  Total actions: ${m.totalActions}`,
+        `  Completed: ${m.completedActions}`,
+        `  Failed: ${m.failedActions}`,
+        `  Average duration: ${m.averageDurationMs}ms`,
+        ``,
+        `Tool breakdown:`,
+      ];
+      for (const [name, stats] of Object.entries(m.toolBreakdown)) {
+        lines.push(`  ${name}: ${stats.count} calls, avg ${stats.avgMs}ms${stats.errors > 0 ? `, ${stats.errors} errors` : ""}`);
+      }
+      return asTextResponse(lines.join("\n"));
+    },
+  );
 }
 
 function waitForLoad(wc: Electron.WebContents, timeout = 10000): Promise<void> {
@@ -4344,6 +4575,14 @@ async function resolveSelector(
     `,
   );
   if (typeof authoritativeSelector === "string" && authoritativeSelector) {
+    // Shadow-piercing selector (contains " >>> ") — resolve via __vessel
+    if (authoritativeSelector.includes(" >>> ")) {
+      const resolves = await wc.executeJavaScript(
+        `!!window.__vessel?.resolveShadowSelector?.(${JSON.stringify(authoritativeSelector)})`,
+      );
+      if (resolves) return authoritativeSelector;
+      return `__vessel_idx:${index}`;
+    }
     // Verify the selector actually resolves — if not, the element may be in shadow DOM
     const resolves = await wc.executeJavaScript(
       `!!document.querySelector(${JSON.stringify(authoritativeSelector)})`,

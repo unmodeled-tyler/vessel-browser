@@ -516,12 +516,54 @@ export class AgentRuntime {
     resultSummary?: string,
     error?: string,
   ): void {
+    const finishedAt = new Date().toISOString();
+    const action = this.state.actions.find((a) => a.id === actionId);
+    const durationMs = action
+      ? new Date(finishedAt).getTime() - new Date(action.startedAt).getTime()
+      : undefined;
     this.updateAction(actionId, {
       status,
-      finishedAt: new Date().toISOString(),
+      finishedAt,
+      durationMs,
       resultSummary,
       error,
     });
+  }
+
+  /** Aggregate metrics for all completed actions in this session. */
+  getMetrics(): {
+    totalActions: number;
+    completedActions: number;
+    failedActions: number;
+    averageDurationMs: number;
+    toolBreakdown: Record<string, { count: number; avgMs: number; errors: number }>;
+  } {
+    const completed = this.state.actions.filter((a) => a.status === "completed");
+    const failed = this.state.actions.filter((a) => a.status === "error");
+    const durations = completed.filter((a) => a.durationMs != null).map((a) => a.durationMs!);
+    const avgDuration = durations.length > 0 ? durations.reduce((s, d) => s + d, 0) / durations.length : 0;
+
+    const toolBreakdown: Record<string, { count: number; totalMs: number; avgMs: number; errors: number }> = {};
+    for (const action of this.state.actions) {
+      const name = action.name;
+      if (!toolBreakdown[name]) toolBreakdown[name] = { count: 0, totalMs: 0, avgMs: 0, errors: 0 };
+      toolBreakdown[name].count++;
+      if (action.durationMs != null) toolBreakdown[name].totalMs += action.durationMs;
+      if (action.status === "error") toolBreakdown[name].errors++;
+    }
+    for (const entry of Object.values(toolBreakdown)) {
+      entry.avgMs = entry.count > 0 ? Math.round(entry.totalMs / entry.count) : 0;
+    }
+
+    return {
+      totalActions: this.state.actions.length,
+      completedActions: completed.length,
+      failedActions: failed.length,
+      averageDurationMs: Math.round(avgDuration),
+      toolBreakdown: Object.fromEntries(
+        Object.entries(toolBreakdown).map(([k, v]) => [k, { count: v.count, avgMs: v.avgMs, errors: v.errors }]),
+      ),
+    };
   }
 
   private getApprovalReason(dangerous: boolean): string | null {
