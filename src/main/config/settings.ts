@@ -14,6 +14,7 @@ const defaults: VesselSettings = {
   approvalMode: "confirm-dangerous",
   agentTranscriptMode: "summary",
   chatProvider: null,
+  maxToolIterations: 200,
 };
 
 let settings: VesselSettings | null = null;

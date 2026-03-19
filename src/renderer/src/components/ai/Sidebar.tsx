@@ -1084,6 +1084,45 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </div>
             </Show>
 
+            <Show when={runtimeState().supervisor.pendingApprovals.length > 0}>
+              <For each={runtimeState().supervisor.pendingApprovals}>
+                {(approval) => (
+                  <div class="chat-approval">
+                    <div class="chat-approval-icon" aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 4.75a.75.75 0 011.5 0v3.5a.75.75 0 01-1.5 0v-3.5zM8 11.5a.75.75 0 110-1.5.75.75 0 010 1.5z" fill="currentColor"/>
+                      </svg>
+                    </div>
+                    <div class="chat-approval-body">
+                      <div class="chat-approval-title">
+                        Approval needed: <strong>{approval.name}</strong>
+                      </div>
+                      <Show when={approval.argsSummary}>
+                        <div class="chat-approval-detail">{approval.argsSummary}</div>
+                      </Show>
+                      <div class="chat-approval-detail">{approval.reason}</div>
+                      <div class="chat-approval-actions">
+                        <button
+                          class="chat-approval-btn chat-approval-approve"
+                          type="button"
+                          onClick={() => void resolveApproval(approval.id, true)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          class="chat-approval-btn chat-approval-reject"
+                          type="button"
+                          onClick={() => void resolveApproval(approval.id, false)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </Show>
+
             <Show when={messages().length === 0 && !isStreaming()}>
               <div class="sidebar-empty">
                 <svg class="sidebar-empty-icon" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">

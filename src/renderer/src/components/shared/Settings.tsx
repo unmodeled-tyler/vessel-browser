@@ -33,6 +33,7 @@ const Settings: Component = () => {
     createSignal(false);
   const [obsidianVaultPath, setObsidianVaultPath] = createSignal("");
   const [mcpPort, setMcpPort] = createSignal("3100");
+  const [maxToolIterations, setMaxToolIterations] = createSignal("200");
   const [agentTranscriptMode, setAgentTranscriptMode] =
     createSignal<AgentTranscriptDisplayMode>("summary");
   const [health, setHealth] = createSignal<RuntimeHealthState | null>(null);
@@ -108,6 +109,7 @@ const Settings: Component = () => {
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
     setMcpPort(String(settings.mcpPort ?? 3100));
+    setMaxToolIterations(String(settings.maxToolIterations ?? 200));
     setAgentTranscriptMode(settings.agentTranscriptMode ?? "summary");
     setHealth(runtimeHealth);
     const cp = settings.chatProvider ?? null;
@@ -158,6 +160,11 @@ const Settings: Component = () => {
         obsidianVaultPath(),
       );
       await window.vessel.settings.set("mcpPort", parsedPort);
+      const parsedIterations = Number(maxToolIterations().trim()) || 200;
+      await window.vessel.settings.set(
+        "maxToolIterations",
+        Math.max(10, Math.min(1000, parsedIterations)),
+      );
       await window.vessel.settings.set(
         "agentTranscriptMode",
         agentTranscriptMode(),
@@ -225,6 +232,28 @@ const Settings: Component = () => {
               {" "}
               <code>http://127.0.0.1:&lt;port&gt;/mcp</code>. Changing this
               value restarts the MCP server immediately.
+            </p>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="max-tool-iterations">
+              Max Tool Iterations
+            </label>
+            <input
+              id="max-tool-iterations"
+              class="settings-input"
+              type="number"
+              min="10"
+              max="1000"
+              value={maxToolIterations()}
+              onInput={(e) => setMaxToolIterations(e.currentTarget.value)}
+              placeholder="200"
+            />
+            <p class="settings-hint">
+              Maximum number of tool calls the AI agent can make per
+              conversation turn before pausing. Higher values let the agent
+              complete longer multi-step workflows without stopping.
+              Range: 10–1000.
             </p>
           </div>
 

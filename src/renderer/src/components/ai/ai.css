@@ -1351,6 +1351,178 @@
     margin: 14px 0;
 }
 
+.markdown-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.markdown-content thead {
+    border-bottom: 2px solid rgba(255, 255, 255, 0.12);
+}
+
+.markdown-content th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding: 6px 10px;
+}
+
+.markdown-content td {
+    padding: 5px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+}
+
+.markdown-content tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+
+/* ═══════════════════════════════════════
+   Tool call action chips
+   ═══════════════════════════════════════ */
+
+.tool-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px 3px 7px;
+    margin: 3px 0;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 2px solid rgba(196, 160, 90, 0.4);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    transition: background var(--duration-fast) var(--ease-in-out);
+}
+
+.tool-chip:hover {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.tool-chip-icon {
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: rgba(196, 160, 90, 0.7);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.tool-chip-name {
+    color: var(--text-secondary);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+.tool-chip-args {
+    color: var(--text-muted);
+    opacity: 0.7;
+    font-weight: 400;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-chip-args::before {
+    content: "·";
+    margin-right: 5px;
+    opacity: 0.4;
+}
+
+
+/* ═══════════════════════════════════════
+   Inline approval prompts (chat tab)
+   ═══════════════════════════════════════ */
+
+.chat-approval {
+    display: flex;
+    gap: 10px;
+    margin: 8px 14px;
+    padding: 10px 12px;
+    background: rgba(224, 180, 80, 0.08);
+    border: 1px solid rgba(224, 180, 80, 0.2);
+    border-radius: var(--radius-md);
+    animation: approval-appear 0.25s var(--ease-out-back);
+}
+
+@keyframes approval-appear {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-approval-icon {
+    flex-shrink: 0;
+    color: #e0b450;
+    margin-top: 1px;
+}
+
+.chat-approval-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.chat-approval-title {
+    font-size: 12.5px;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.chat-approval-detail {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-approval-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.chat-approval-btn {
+    font-size: 11.5px;
+    padding: 4px 14px;
+    border-radius: var(--radius-sm);
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition:
+        background var(--duration-fast) var(--ease-in-out),
+        transform var(--duration-fast) var(--ease-out-back);
+}
+
+.chat-approval-btn:active {
+    transform: scale(0.95);
+}
+
+.chat-approval-approve {
+    background: rgba(224, 180, 80, 0.18);
+    color: #e0c070;
+}
+
+.chat-approval-approve:hover {
+    background: rgba(224, 180, 80, 0.28);
+}
+
+.chat-approval-reject {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+}
+
+.chat-approval-reject:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+}
+
 
 /* ═══════════════════════════════════════
    Thinking & streaming states

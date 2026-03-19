@@ -45,7 +45,21 @@ export async function handleAIQuery(
         .map((item) => `- ${item.name} (${item.id})`)
         .join("\n");
 
+      const activeTabTitle = pageContent.title || "(untitled)";
+      const activeTabUrl = pageContent.url || activeWebContents.getURL();
+      const allTabs = tabManager.getAllStates();
+      const activeTabId = tabManager.getActiveTabId();
+      const tabSummary = allTabs.length > 1
+        ? `\nAll open tabs: ${allTabs.map((t) => `${t.id === activeTabId ? "→ " : ""}${t.title || "New Tab"} (${t.url})`).join(" | ")}`
+        : "";
+
       const systemPrompt = `You are Vessel, an AI agent embedded in a web browser. You can see the current page and interact with it using tools.
+
+THE USER IS CURRENTLY LOOKING AT:
+  Title: ${activeTabTitle}
+  URL: ${activeTabUrl}${tabSummary}
+
+When the user says "this page", "this article", "this site", or asks about what they're viewing, they mean the page above. The content below is from that page — answer directly without needing to call read_page or current_tab first.
 
 Current page context:
 ${structuredContext}
@@ -77,7 +91,9 @@ Instructions:
 - If the page context reports a rate limit, human verification, or access warning, stop using that page and switch to a different source.
 - Reference interactive elements by their index number (shown as [#N] in the listings above).
 - Be concise. Explain what you're doing as you go.
-- For simple questions about the page, just answer directly without using tools.`;
+- For simple questions about the page, just answer directly without using tools.
+- You have a highlight tool that visually marks elements on the page for the user. Use it when the user asks you to highlight, mark, or draw attention to specific content. Colors: yellow (default), red (errors), green (success), blue (info), purple (important), orange (warnings).
+- After completing a task or answering a question, offer 1-2 brief, natural follow-up suggestions that make sense in context (e.g. "Want me to highlight any of these?" or "I can save these to a bookmark folder if you'd like"). Keep suggestions short and conversational — don't list every possible action.`;
 
       const actionCtx: ActionContext = { tabManager, runtime };
 

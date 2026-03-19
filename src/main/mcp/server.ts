@@ -435,6 +435,19 @@ async function clickResolvedSelector(
   wc: Electron.WebContents,
   selector: string,
 ): Promise<string> {
+  // Shadow DOM direct interaction via stored element reference
+  if (selector.startsWith("__vessel_idx:")) {
+    const idx = Number(selector.slice("__vessel_idx:".length));
+    const beforeUrl = wc.getURL();
+    const result = await wc.executeJavaScript(
+      `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
+    );
+    if (typeof result === "string" && result.startsWith("Error")) return result;
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+  }
+
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
@@ -549,6 +562,10 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
         document.querySelectorAll("dialog, [role='dialog'], [role='alertdialog'], [aria-modal='true']").forEach((el) => {
           if (isVisible(el)) nodes.push(el);
         });
+        // Detect known consent manager containers
+        document.querySelectorAll("#onetrust-consent-sdk, #onetrust-banner-sdk, [id*='onetrust'], [class*='onetrust'], #CybotCookiebotDialog, #truste-consent-track, [id*='cookie-banner'], [id*='consent-banner'], [class*='cookie-consent'], [class*='consent-banner'], [id*='gdpr'], [class*='gdpr']").forEach((el) => {
+          if (el instanceof HTMLElement && isVisible(el)) nodes.push(el);
+        });
         document.querySelectorAll("body *").forEach((el) => {
           if (!(el instanceof HTMLElement) || !isVisible(el)) return;
           const style = window.getComputedStyle(el);
@@ -578,14 +595,17 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
             el.textContent ||
             el.getAttribute("value"),
         ).toLowerCase();
-        const classText = text(el.className).toLowerCase();
+        const classText = text(typeof el.className === "string" ? el.className : "").toLowerCase();
         const idText = text(el.id).toLowerCase();
+        const combined = classText + " " + idText;
         let score = rooted ? 30 : 0;
         if (/^x$|^×$/.test(label)) score += 120;
-        if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you/.test(label)) score += 100;
-        if (/close|dismiss|modal-close|overlay-close/.test(classText + " " + idText)) score += 90;
+        if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you|reject|decline/.test(label)) score += 100;
+        if (/close|dismiss|modal-close|overlay-close/.test(combined)) score += 90;
+        if (/onetrust-close|onetrust-reject|cookie.*close|consent.*close|cookie.*reject|consent.*reject/.test(combined)) score += 110;
+        if (/onetrust-accept|cookie.*accept|consent.*accept/.test(combined)) score += 80;
         if (el.getAttribute("aria-label")) score += 20;
-        if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label)) score -= 80;
+        if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label) && !/cookie|consent|onetrust/.test(combined)) score -= 80;
         const rect = el.getBoundingClientRect();
         if (rect.top < 120) score += 10;
         if (rect.right > (window.innerWidth || 0) - 120) score += 15;
@@ -601,13 +621,25 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
           if (!(el instanceof HTMLElement) || !isVisible(el)) return;
           const candidateSelector = selectorFor(el);
           if (!candidateSelector) return;
-          const label = text(
+          var label = text(
             el.getAttribute("aria-label") ||
               el.getAttribute("title") ||
               el.textContent ||
               el.getAttribute("value"),
           );
-          if (!label) return;
+          if (!label) {
+            var idLower = (el.id || "").toLowerCase();
+            var classLower = (typeof el.className === "string" ? el.className : "").toLowerCase();
+            var combined = idLower + " " + classLower;
+            if (/onetrust|consent|cookie|banner|gdpr|trustarc|cookiebot/.test(combined)) {
+              label = idLower.includes("accept") ? "Accept cookies"
+                : idLower.includes("reject") ? "Reject cookies"
+                : idLower.includes("close") || classLower.includes("close") ? "Close"
+                : "Consent button";
+            } else {
+              return;
+            }
+          }
           results.push({
             selector: candidateSelector,
             label: label.slice(0, 120),
@@ -697,6 +729,10 @@ function isDangerousAction(name: string): boolean {
     "switch_tab",
     "close_tab",
     "restore_checkpoint",
+    "login",
+    "fill_form",
+    "search",
+    "paginate",
   ].includes(name);
 }
 
@@ -797,7 +833,8 @@ async function withAction(
       executor,
     });
     const stateInfo = await getPostActionState(tabManager, name);
-    return asTextResponse(result + stateInfo);
+    const flowCtx = runtime.getFlowContext();
+    return asTextResponse(result + stateInfo + flowCtx);
   } catch (error) {
     return asTextResponse(
       `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -810,6 +847,13 @@ async function setElementValue(
   selector: string,
   value: string,
 ): Promise<string> {
+  // Shadow DOM direct interaction
+  if (selector.startsWith("__vessel_idx:")) {
+    const idx = Number(selector.slice("__vessel_idx:".length));
+    return wc.executeJavaScript(
+      `window.__vessel?.interactByIndex?.(${idx}, "value", ${JSON.stringify(value)}) || "Error: interactByIndex not available"`,
+    );
+  }
   return wc.executeJavaScript(`
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -3758,6 +3802,488 @@ function registerTools(
       );
     },
   );
+
+  // ═══════════════════════════════════════════════════════════════
+  // Speedee System — Flow State & Composable Macros
+  // ═══════════════════════════════════════════════════════════════
+
+  server.registerTool(
+    "vessel_flow_start",
+    {
+      title: "Start Workflow",
+      description:
+        "Begin tracking a multi-step web workflow. Vessel will show progress after every action so you always know where you are in the flow.",
+      inputSchema: {
+        goal: z.string().describe("What this workflow accomplishes (e.g. 'Purchase item from Amazon')"),
+        steps: z
+          .array(z.string())
+          .describe("Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])"),
+      },
+    },
+    async ({ goal, steps }) => {
+      const tab = tabManager.getActiveTab();
+      const flow = runtime.startFlow(goal, steps, tab?.view.webContents.getURL());
+      return asTextResponse(
+        `Flow started: ${flow.goal}\n${flow.steps.map((s, i) => `  ${i === 0 ? "→" : " "} ${s.label}`).join("\n")}`,
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_flow_advance",
+    {
+      title: "Advance Workflow Step",
+      description:
+        "Mark the current workflow step as done and move to the next one. Call this after completing each step.",
+      inputSchema: {
+        detail: z.string().optional().describe("Brief note about what was accomplished"),
+      },
+    },
+    async ({ detail }) => {
+      const flow = runtime.advanceFlow(detail);
+      if (!flow) return asTextResponse("No active flow to advance");
+      const ctx = runtime.getFlowContext();
+      return asTextResponse(`Step completed.${ctx}`);
+    },
+  );
+
+  server.registerTool(
+    "vessel_flow_status",
+    {
+      title: "Workflow Status",
+      description: "Check the current workflow progress.",
+    },
+    async () => {
+      const flow = runtime.getFlowState();
+      if (!flow) return asTextResponse("No active workflow.");
+      return asTextResponse(runtime.getFlowContext());
+    },
+  );
+
+  server.registerTool(
+    "vessel_flow_end",
+    {
+      title: "End Workflow",
+      description: "Clear the active workflow tracker.",
+    },
+    async () => {
+      runtime.clearFlow();
+      return asTextResponse("Workflow ended.");
+    },
+  );
+
+  // --- Speedee Suggestion Engine ---
+
+  server.registerTool(
+    "vessel_suggest",
+    {
+      title: "What Should I Do?",
+      description:
+        "Analyze the current page and return the most relevant tools and suggested next actions. Call this when you're unsure what to do next — it reads the page context and tells you the optimal approach.",
+    },
+    async () => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("No active tab. Use vessel_navigate to open a page.");
+
+      const wc = tab.view.webContents;
+      let page: PageContent;
+      try {
+        page = await extractContent(wc);
+      } catch {
+        return asTextResponse("Could not read page. Try vessel_navigate to a working URL.");
+      }
+
+      const suggestions: string[] = [];
+      suggestions.push(`Page: ${page.title || "(untitled)"}`);
+      suggestions.push(`URL: ${page.url}`);
+      suggestions.push("");
+
+      // Flow context
+      const flowCtx = runtime.getFlowContext();
+      if (flowCtx) {
+        suggestions.push(flowCtx);
+        suggestions.push("");
+      }
+
+      // Page intent analysis
+      const url = page.url.toLowerCase();
+      const hasPasswordField = page.forms.some((f) =>
+        f.fields.some((el) => el.inputType === "password"),
+      );
+      const hasSearchInput = page.interactiveElements.some(
+        (el) =>
+          el.inputType === "search" ||
+          el.name === "q" ||
+          el.name === "query" ||
+          (el.placeholder || "").toLowerCase().includes("search"),
+      );
+      const formCount = page.forms.length;
+      const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
+      const linkCount = page.interactiveElements.filter((el) => el.type === "link").length;
+      const hasPagination = page.interactiveElements.some(
+        (el) =>
+          (el.text || "").toLowerCase() === "next" ||
+          el.text === "›" ||
+          el.text === "»",
+      );
+      const hasOverlays = page.overlays.some((o) => o.blocksInteraction);
+
+      // Priority suggestions
+      if (hasOverlays) {
+        suggestions.push("⚠ BLOCKING OVERLAY detected — dismiss it first:");
+        suggestions.push("  → vessel_dismiss_popup or vessel_click on close/accept button");
+        suggestions.push("");
+      }
+
+      if (hasPasswordField) {
+        suggestions.push("🔑 LOGIN PAGE detected:");
+        suggestions.push("  → vessel_login(username, password) — handles the full flow");
+        suggestions.push("  → Or vessel_fill_form + vessel_submit_form for manual control");
+      } else if (hasSearchInput && linkCount < 10) {
+        suggestions.push("🔍 SEARCH PAGE detected:");
+        suggestions.push("  → vessel_search(query) — finds the box, types, submits");
+      } else if (hasSearchInput && linkCount >= 10) {
+        suggestions.push("📋 SEARCH RESULTS detected:");
+        suggestions.push("  → vessel_click on a result link");
+        if (hasPagination) {
+          suggestions.push("  → vessel_paginate('next') for more results");
+        }
+      } else if (formCount > 0) {
+        suggestions.push(`📝 FORM detected (${totalFields} fields):`);
+        suggestions.push("  → vessel_fill_form(fields) — fill all fields at once");
+        suggestions.push("  → Or vessel_type for individual fields");
+      } else if (hasPagination) {
+        suggestions.push("📄 PAGINATED CONTENT:");
+        suggestions.push("  → vessel_extract_content to read this page");
+        suggestions.push("  → vessel_paginate('next') for the next page");
+      } else if (page.content.length > 3000 && page.interactiveElements.length < 10) {
+        suggestions.push("📖 ARTICLE/CONTENT page:");
+        suggestions.push("  → vessel_extract_content for readable text");
+        suggestions.push("  → vessel_scroll to see more");
+      } else {
+        suggestions.push("🌐 GENERAL PAGE:");
+        suggestions.push("  → vessel_extract_content to understand the page structure");
+        suggestions.push("  → vessel_click on any element by index");
+        suggestions.push("  → vessel_navigate to go somewhere new");
+      }
+
+      suggestions.push("");
+      suggestions.push(`Available: ${page.interactiveElements.length} interactive elements, ${formCount} forms, ${linkCount} links`);
+
+      return asTextResponse(suggestions.join("\n"));
+    },
+  );
+
+  // --- Composable Macros ---
+
+  server.registerTool(
+    "vessel_fill_form",
+    {
+      title: "Fill Form",
+      description:
+        "Fill multiple form fields at once. Provide a map of field identifiers to values. Fields are matched by index, name, label, or placeholder. Much faster than calling type for each field individually.",
+      inputSchema: {
+        fields: z
+          .array(
+            z.object({
+              index: z.number().optional().describe("Element index from page content"),
+              selector: z.string().optional().describe("CSS selector fallback"),
+              value: z.string().describe("Value to enter"),
+            }),
+          )
+          .describe("Fields to fill"),
+        submit: z
+          .boolean()
+          .optional()
+          .describe("Submit the form after filling (default false)"),
+      },
+    },
+    async ({ fields, submit }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "fill_form",
+        { fieldCount: fields.length, submit },
+        async () => {
+          const wc = tab.view.webContents;
+          const results: string[] = [];
+          for (const field of fields) {
+            const sel = await resolveSelector(wc, field.index, field.selector);
+            if (!sel) {
+              results.push(`Skipped: no selector for index=${field.index}`);
+              continue;
+            }
+            const result = await setElementValue(wc, sel, field.value);
+            results.push(result);
+          }
+          if (submit) {
+            // Find and submit the form containing the first field
+            const firstSel = await resolveSelector(wc, fields[0]?.index, fields[0]?.selector);
+            if (firstSel) {
+              const beforeUrl = wc.getURL();
+              const submitResult = await submitForm(wc, undefined, firstSel);
+              await waitForPotentialNavigation(wc, beforeUrl);
+              const afterUrl = wc.getURL();
+              results.push(
+                afterUrl !== beforeUrl
+                  ? `Submitted → ${afterUrl}`
+                  : submitResult,
+              );
+            }
+          }
+          return `Filled ${results.length} field(s):\n${results.join("\n")}`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_login",
+    {
+      title: "Login",
+      description:
+        "Compound action: navigate to a login page, fill credentials, and submit. Handles the full login flow in one call.",
+      inputSchema: {
+        url: z.string().optional().describe("Login page URL (skip if already on login page)"),
+        username: z.string().describe("Username or email"),
+        password: z.string().describe("Password"),
+        username_selector: z
+          .string()
+          .optional()
+          .describe("CSS selector for username field (auto-detected if omitted)"),
+        password_selector: z
+          .string()
+          .optional()
+          .describe("CSS selector for password field (auto-detected if omitted)"),
+        submit_selector: z
+          .string()
+          .optional()
+          .describe("CSS selector for submit button (auto-detected if omitted)"),
+      },
+    },
+    async ({ url, username, password, username_selector, password_selector, submit_selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "login",
+        { url, username: username.slice(0, 3) + "***" },
+        async () => {
+          const wc = tab.view.webContents;
+          const steps: string[] = [];
+
+          // Step 1: Navigate if URL provided
+          if (url) {
+            const id = tabManager.getActiveTabId()!;
+            tabManager.navigateTab(id, url);
+            await waitForLoad(wc);
+            steps.push(`Navigated to ${wc.getURL()}`);
+          }
+
+          // Step 2: Find form fields
+          const userSel =
+            username_selector ||
+            (await wc.executeJavaScript(`
+              (function() {
+                var el = document.querySelector('input[type="email"], input[name="email"], input[name="username"], input[name="user"], input[autocomplete="username"], input[autocomplete="email"], input[type="text"]:not([name="search"]):not([name="q"])');
+                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+              })()
+            `));
+          if (!userSel) return "Error: Could not find username/email field. Try providing username_selector.";
+
+          const passSel =
+            password_selector ||
+            (await wc.executeJavaScript(`
+              (function() {
+                var el = document.querySelector('input[type="password"]');
+                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+              })()
+            `));
+          if (!passSel) return "Error: Could not find password field. Try providing password_selector.";
+
+          // Step 3: Fill credentials
+          const userResult = await setElementValue(wc, userSel, username);
+          steps.push(userResult);
+          const passResult = await setElementValue(wc, passSel, password);
+          steps.push(passResult);
+
+          // Step 4: Submit
+          const beforeUrl = wc.getURL();
+          if (submit_selector) {
+            await clickResolvedSelector(wc, submit_selector);
+          } else {
+            // Try to find and click a submit button
+            const clicked = await wc.executeJavaScript(`
+              (function() {
+                var btn = document.querySelector('button[type="submit"], input[type="submit"], form button:not([type="button"])');
+                if (btn) { btn.click(); return true; }
+                var form = document.querySelector('input[type="password"]')?.closest('form');
+                if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); return true; }
+                return false;
+              })()
+            `);
+            if (!clicked) return steps.join("\n") + "\nWarning: Could not find submit button. Credentials filled but form not submitted.";
+          }
+
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          steps.push(
+            afterUrl !== beforeUrl
+              ? `Submitted → ${afterUrl}`
+              : "Form submitted (same page)",
+          );
+
+          return `Login flow complete:\n${steps.join("\n")}`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_search",
+    {
+      title: "Search",
+      description:
+        "Compound action: find a search box on the current page, type a query, and submit. Returns the resulting page state.",
+      inputSchema: {
+        query: z.string().describe("Search query text"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector for search input (auto-detected if omitted)"),
+      },
+    },
+    async ({ query, selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "search",
+        { query },
+        async () => {
+          const wc = tab.view.webContents;
+
+          // Find search input
+          const searchSel =
+            selector ||
+            (await wc.executeJavaScript(`
+              (function() {
+                var el = document.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]');
+                if (!el) {
+                  var inputs = document.querySelectorAll('input[type="text"]');
+                  for (var i = 0; i < inputs.length; i++) {
+                    var form = inputs[i].closest('form');
+                    if (form && (form.getAttribute('role') === 'search' || form.action?.includes('search'))) {
+                      el = inputs[i];
+                      break;
+                    }
+                  }
+                }
+                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+              })()
+            `));
+          if (!searchSel) return "Error: Could not find search input. Try providing a selector.";
+
+          // Type query
+          await setElementValue(wc, searchSel, query);
+
+          // Focus input and press Enter via native Chromium input events
+          // (JS dispatchEvent doesn't work on sites like Google that use custom handlers)
+          await wc.executeJavaScript(`
+            (function() {
+              var el = document.querySelector(${JSON.stringify(searchSel)});
+              if (el) el.focus();
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 50));
+          const beforeUrl = wc.getURL();
+          wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+          await new Promise((r) => setTimeout(r, 16));
+          wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl
+            ? `Searched "${query}" → ${afterUrl}`
+            : `Searched "${query}" (same page — results may have loaded dynamically)`;
+        },
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_paginate",
+    {
+      title: "Paginate",
+      description:
+        "Navigate to the next or previous page of results. Auto-detects pagination controls.",
+      inputSchema: {
+        direction: z
+          .enum(["next", "prev"])
+          .describe("Pagination direction"),
+        selector: z
+          .string()
+          .optional()
+          .describe("CSS selector for the pagination link (auto-detected if omitted)"),
+      },
+    },
+    async ({ direction, selector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "paginate",
+        { direction },
+        async () => {
+          const wc = tab.view.webContents;
+          const beforeUrl = wc.getURL();
+
+          if (selector) {
+            return clickResolvedSelector(wc, selector);
+          }
+
+          // Auto-detect pagination
+          const isNext = direction === "next";
+          const clicked = await wc.executeJavaScript(`
+            (function() {
+              var patterns = ${isNext
+                ? '["next", "Next", "›", "»", "→", ">", "Next Page", "Load More"]'
+                : '["prev", "Prev", "Previous", "‹", "«", "←", "<", "Previous Page"]'
+              };
+              var links = document.querySelectorAll('a, button');
+              for (var i = 0; i < links.length; i++) {
+                var el = links[i];
+                var text = (el.textContent || '').trim();
+                var ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+                var rel = (el.getAttribute('rel') || '').toLowerCase();
+                if (rel === '${isNext ? "next" : "prev"}') { el.click(); return true; }
+                for (var j = 0; j < patterns.length; j++) {
+                  if (text === patterns[j] || ariaLabel.includes(patterns[j].toLowerCase())) {
+                    el.click();
+                    return true;
+                  }
+                }
+              }
+              return false;
+            })()
+          `);
+
+          if (!clicked) return `Error: Could not find ${direction} pagination control. Try providing a selector.`;
+
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl
+            ? `Paginated ${direction} → ${afterUrl}`
+            : `Clicked ${direction} (page may have updated dynamically)`;
+        },
+      );
+    },
+  );
 }
 
 function waitForLoad(wc: Electron.WebContents, timeout = 10000): Promise<void> {
@@ -3818,7 +4344,13 @@ async function resolveSelector(
     `,
   );
   if (typeof authoritativeSelector === "string" && authoritativeSelector) {
-    return authoritativeSelector;
+    // Verify the selector actually resolves — if not, the element may be in shadow DOM
+    const resolves = await wc.executeJavaScript(
+      `!!document.querySelector(${JSON.stringify(authoritativeSelector)})`,
+    );
+    if (resolves) return authoritativeSelector;
+    // Shadow DOM element — return index-based marker for direct interaction
+    return `__vessel_idx:${index}`;
   }
 
   const page = await extractContent(wc);

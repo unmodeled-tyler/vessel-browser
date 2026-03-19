@@ -3,8 +3,9 @@ import type Anthropic from '@anthropic-ai/sdk';
 import type { AIProvider } from './provider';
 import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
+import { loadSettings } from '../config/settings';
 
-const MAX_AGENT_ITERATIONS = 15;
+const DEFAULT_MAX_ITERATIONS = 200;
 
 function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.ChatCompletionTool[] {
   return tools.map((t) => ({
@@ -94,7 +95,10 @@ export class OpenAICompatProvider implements AIProvider {
     ];
 
     try {
-      for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
+      const maxIterations = loadSettings().maxToolIterations || DEFAULT_MAX_ITERATIONS;
+      let iterationsUsed = 0;
+      for (let i = 0; i < maxIterations; i++) {
+        iterationsUsed = i + 1;
         // Accumulate text and tool calls across streamed chunks
         let textAccum = '';
         const toolCallAccums: Record<number, { id: string; name: string; argsJson: string }> = {};
@@ -165,7 +169,7 @@ export class OpenAICompatProvider implements AIProvider {
             // leave args empty
           }
           const argSummary = args.url || args.text || args.direction || '';
-          onChunk(`\n\`[${tc.name}${argSummary ? ': ' + argSummary : ''}]\` `);
+          onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
           const result = await onToolCall(tc.name, args);
           messages.push({
             role: 'tool',
@@ -173,6 +177,9 @@ export class OpenAICompatProvider implements AIProvider {
             content: result,
           });
         }
+      }
+      if (iterationsUsed >= maxIterations) {
+        onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {

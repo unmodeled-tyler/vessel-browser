@@ -1,8 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
+import { loadSettings } from "../config/settings";
 
-const MAX_AGENT_ITERATIONS = 15;
+const DEFAULT_MAX_ITERATIONS = 200;
 
 export class AnthropicProvider implements AIProvider {
   private client: Anthropic;
@@ -74,7 +75,10 @@ export class AnthropicProvider implements AIProvider {
     ];
 
     try {
-      for (let i = 0; i < MAX_AGENT_ITERATIONS; i++) {
+      const maxIterations = loadSettings().maxToolIterations || DEFAULT_MAX_ITERATIONS;
+      let iterationsUsed = 0;
+      for (let i = 0; i < maxIterations; i++) {
+        iterationsUsed = i + 1;
         const stream = this.client.messages.stream(
           {
             model: this.model,
@@ -153,10 +157,7 @@ export class AnthropicProvider implements AIProvider {
         messages.push({ role: "assistant", content: assistantContent });
 
         // If no tool calls, we're done
-        if (
-          finalMessage.stop_reason !== "tool_use" ||
-          toolUseBlocks.length === 0
-        ) {
+        if (toolUseBlocks.length === 0) {
           break;
         }
 
@@ -164,7 +165,7 @@ export class AnthropicProvider implements AIProvider {
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
         for (const tb of toolUseBlocks) {
           const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
-          onChunk(`\n\`[${tb.name}${argSummary ? ": " + argSummary : ""}]\` `);
+          onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
           const result = await onToolCall(tb.name, tb.input);
           toolResults.push({
             type: "tool_result",
@@ -173,6 +174,9 @@ export class AnthropicProvider implements AIProvider {
           });
         }
         messages.push({ role: "user", content: toolResults });
+      }
+      if (iterationsUsed >= maxIterations) {
+        onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
       }
     } catch (err: any) {
       if (err.name !== "AbortError") {

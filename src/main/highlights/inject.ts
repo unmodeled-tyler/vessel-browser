@@ -60,10 +60,12 @@ function resolveColor(color?: HighlightColor | null): ColorValues {
 
 export const VESSEL_HIGHLIGHT_CSS = `
 .__vessel-highlight {
-  outline: 3px solid #f0c636 !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 12px rgba(240, 198, 54, 0.5) !important;
-  transition: outline-color 0.3s, box-shadow 0.3s;
+  background: rgba(240, 198, 54, 0.3) !important;
+  outline: 2px solid rgba(240, 198, 54, 0.6) !important;
+  outline-offset: 1px !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 8px rgba(240, 198, 54, 0.3) !important;
+  transition: background 0.3s, outline-color 0.3s, box-shadow 0.3s;
 }
 .__vessel-highlight-text {
   background: rgba(240, 198, 54, 0.3) !important;
@@ -86,6 +88,11 @@ export const VESSEL_HIGHLIGHT_CSS = `
   line-height: 1.3;
   overflow-wrap: break-word;
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+.__vessel-highlight-label.visible {
+  opacity: 1;
 }
 `;
 
@@ -125,14 +132,14 @@ export async function highlightOnPage(
             if (!label) return null;
             var anchor = label.__vesselAnchor;
             if (!anchor || !anchor.isConnected) {
-              label.style.opacity = '0';
+              label.classList.remove('visible');
               return null;
             }
             var rect = anchor.getBoundingClientRect();
             var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
             var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
             if (!viewportWidth || !viewportHeight || rect.width === 0 && rect.height === 0) {
-              label.style.opacity = '0';
+              label.classList.remove('visible');
               return null;
             }
             var margin = 8;
@@ -148,7 +155,7 @@ export async function highlightOnPage(
             var visible = rect.bottom >= 0 && rect.top <= viewportHeight && rect.right >= 0 && rect.left <= viewportWidth;
             label.style.top = top + 'px';
             label.style.left = left + 'px';
-            label.style.opacity = visible ? '1' : '0';
+            if (!visible) label.classList.remove('visible');
             return {
               left: left,
               top: top,
@@ -198,9 +205,14 @@ export async function highlightOnPage(
       (function() {
         var el = document.querySelector(${JSON.stringify(resolvedSelector)});
         if (!el) return 'Element not found';
+        // Remove any existing badge on this element to avoid duplicates
+        document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
+          if (b.__vesselAnchor === el) b.remove();
+        });
         el.classList.add('__vessel-highlight');
+        el.style.setProperty('background', ${JSON.stringify(c.bg)}, 'important');
         el.style.setProperty('outline-color', ${JSON.stringify(c.solid)}, 'important');
-        el.style.setProperty('box-shadow', '0 0 12px ' + ${JSON.stringify(c.glow)}, 'important');
+        el.style.setProperty('box-shadow', '0 0 8px ' + ${JSON.stringify(c.glow)}, 'important');
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         var label = ${JSON.stringify(label || "")};
         var badge = null;
@@ -214,6 +226,8 @@ export async function highlightOnPage(
           badge.__vesselAnchor = el;
           document.body.appendChild(badge);
           window.__vesselHighlightLabelManager.positionAll();
+          el.addEventListener('mouseenter', function() { badge.classList.add('visible'); });
+          el.addEventListener('mouseleave', function() { badge.classList.remove('visible'); });
         }
         var duration = ${durationMs ?? 0};
         if (duration > 0) {
@@ -235,6 +249,10 @@ export async function highlightOnPage(
         var bgColor = ${JSON.stringify(c.bg)};
         var labelBg = ${JSON.stringify(c.label)};
         var labelText = ${JSON.stringify(c.text)};
+        // Remove any existing badges whose text matches to avoid duplicates
+        document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
+          if (b.textContent === ${JSON.stringify(label || "")}) b.remove();
+        });
         var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
         // Collect matching text nodes first, then wrap — avoids TreeWalker
         // seeing newly created nodes from surroundContents and re-matching.
@@ -291,6 +309,11 @@ export async function highlightOnPage(
           badge.__vesselAnchor = firstMark;
           document.body.appendChild(badge);
           window.__vesselHighlightLabelManager.positionAll();
+          var marks = document.querySelectorAll('mark.__vessel-highlight-text[data-vessel-highlight]');
+          marks.forEach(function(m) {
+            m.addEventListener('mouseenter', function() { if (badge) { badge.__vesselAnchor = m; window.__vesselHighlightLabelManager.positionAll(); badge.classList.add('visible'); } });
+            m.addEventListener('mouseleave', function() { if (badge) badge.classList.remove('visible'); });
+          });
         }
         var duration = ${durationMs ?? 0};
         if (duration > 0) {
