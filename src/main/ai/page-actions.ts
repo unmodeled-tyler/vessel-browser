@@ -2048,12 +2048,29 @@ export async function executeAction(
         case "highlight": {
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
+          const highlightColor = args.color || "yellow";
+          const url = wc.getURL();
+
+          // Persist highlight to database so it survives navigation/reload
+          if (url && url !== "about:blank") {
+            const highlightText = typeof args.text === "string" ? args.text : undefined;
+            highlightsManager.addHighlight(
+              url,
+              typeof selector === "string" ? selector : undefined,
+              highlightText,
+              typeof args.label === "string" ? args.label : undefined,
+              highlightColor,
+              "agent",
+            );
+          }
+
           return highlightOnPage(
             wc,
             selector,
             args.text,
             args.label,
             args.durationMs,
+            highlightColor,
           );
         }
 
