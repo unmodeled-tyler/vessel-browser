@@ -165,7 +165,7 @@ export class AnthropicProvider implements AIProvider {
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
         for (const tb of toolUseBlocks) {
           const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
-          onChunk(`\n\`[${tb.name}${argSummary ? ": " + argSummary : ""}]\` `);
+          onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
           const result = await onToolCall(tb.name, tb.input);
           toolResults.push({
             type: "tool_result",

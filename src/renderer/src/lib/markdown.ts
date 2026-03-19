@@ -185,11 +185,69 @@ function renderBlock(block: string): string {
   return `<p>${applyInlineMarkdown(trimmed).replace(/\n/g, "<br>")}</p>`;
 }
 
+/** Map tool names to icons (single-char symbols) */
+const TOOL_ICONS: Record<string, string> = {
+  navigate: "→",
+  go_back: "←",
+  go_forward: "→",
+  reload: "↻",
+  click: "◉",
+  type_text: "⌨",
+  select_option: "▾",
+  submit_form: "⏎",
+  press_key: "⌥",
+  scroll: "↕",
+  hover: "◌",
+  focus: "◎",
+  read_page: "◫",
+  search: "⌕",
+  login: "🔑",
+  fill_form: "⌨",
+  paginate: "⟫",
+  suggest: "✦",
+  highlight: "🖍",
+  clear_highlights: "✕",
+  flow_start: "▶",
+  flow_advance: "▸",
+  flow_status: "◈",
+  flow_end: "■",
+  dismiss_popup: "✕",
+  wait_for: "◴",
+  create_tab: "+",
+  switch_tab: "⇥",
+  close_tab: "✕",
+  current_tab: "◉",
+  list_tabs: "≡",
+  save_bookmark: "★",
+  list_bookmarks: "☆",
+  create_checkpoint: "⚑",
+  restore_checkpoint: "⟲",
+};
+
+function renderToolChip(name: string, args: string): string {
+  const icon = TOOL_ICONS[name] || "⚙";
+  const displayName = name.replace(/_/g, " ");
+  const argsHtml = args
+    ? `<span class="tool-chip-args">${escapeHtml(args.length > 60 ? args.slice(0, 57) + "..." : args)}</span>`
+    : "";
+  return `<div class="tool-chip"><span class="tool-chip-icon">${icon}</span><span class="tool-chip-name">${escapeHtml(displayName)}</span>${argsHtml}</div>`;
+}
+
 export function renderMarkdown(source: string): string {
   const codeBlocks: string[] = [];
+  const toolChips: string[] = [];
 
   const normalized = source
     .replace(/\r\n?/g, "\n")
+    // Extract tool call tokens before any other processing
+    .replace(
+      /<<tool:([^:>\n]+)(?::([^>\n]*))?>>/g,
+      (_, name: string, args: string | undefined) => {
+        const token = `\x00TC${toolChips.length}\x00`;
+        toolChips.push(renderToolChip(name.trim(), (args || "").trim()));
+        return `\n\n${token}\n\n`;
+      },
+    )
     .replace(
       /```([\w-]+)?\n([\s\S]*?)```/g,
       (_, language: string | undefined, code: string) => {
@@ -206,22 +264,32 @@ export function renderMarkdown(source: string): string {
 
   const rendered = normalized
     .split(/\n{2,}/)
-    .map(renderBlock)
+    .map((block) => {
+      const trimmed = block.trim();
+      // Tool chip tokens pass through as-is
+      if (/^\x00TC\d+\x00$/.test(trimmed)) return trimmed;
+      return renderBlock(block);
+    })
     .filter(Boolean)
     .join("");
 
-  const withCodeBlocks = codeBlocks.reduce(
-    (output, snippet, index) =>
-      output.replace(`\x00CB${index}\x00`, snippet),
-    rendered,
+  let output = rendered;
+  output = codeBlocks.reduce(
+    (out, snippet, index) => out.replace(`\x00CB${index}\x00`, snippet),
+    output,
+  );
+  output = toolChips.reduce(
+    (out, snippet, index) => out.replace(`\x00TC${index}\x00`, snippet),
+    output,
   );
 
-  return DOMPurify.sanitize(withCodeBlocks, {
+  return DOMPurify.sanitize(output, {
     ALLOWED_TAGS: [
       "a",
       "blockquote",
       "br",
       "code",
+      "div",
       "em",
       "h1",
       "h2",
@@ -234,6 +302,7 @@ export function renderMarkdown(source: string): string {
       "ol",
       "p",
       "pre",
+      "span",
       "strong",
       "table",
       "tbody",
@@ -243,6 +312,6 @@ export function renderMarkdown(source: string): string {
       "tr",
       "ul",
     ],
-    ALLOWED_ATTR: ["href", "target", "rel", "data-language", "style"],
+    ALLOWED_ATTR: ["href", "target", "rel", "data-language", "style", "class"],
   });
 }

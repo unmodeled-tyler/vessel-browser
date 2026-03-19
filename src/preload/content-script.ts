@@ -121,21 +121,43 @@ let activeOverlays: OverlayCandidate[] = [];
 /**
  * querySelectorAll that pierces open Shadow DOM roots.
  * Finds elements inside web components (Internet Archive, etc.)
+ * Performance-bounded: only walks known shadow hosts, not every element.
  */
 function deepQuerySelectorAll(selector: string, root: ParentNode = document): Element[] {
   const results: Element[] = [];
   // Get matches in the light DOM
   root.querySelectorAll(selector).forEach((el) => results.push(el));
-  // Traverse shadow roots
-  const walkShadows = (node: ParentNode) => {
-    node.querySelectorAll("*").forEach((el) => {
+
+  // Collect shadow roots efficiently — walk the tree once looking for
+  // elements with shadowRoot, but limit traversal depth and count
+  const MAX_SHADOW_HOSTS = 50;
+  const MAX_DEPTH = 3;
+  const shadowRoots: ShadowRoot[] = [];
+
+  const findShadowRoots = (node: ParentNode, depth: number) => {
+    if (depth > MAX_DEPTH || shadowRoots.length >= MAX_SHADOW_HOSTS) return;
+    // Only check direct children of the node for shadow roots,
+    // then recurse into found shadow roots (not the entire subtree)
+    const children = node.children;
+    for (let i = 0; i < children.length && shadowRoots.length < MAX_SHADOW_HOSTS; i++) {
+      const el = children[i];
       if (el.shadowRoot) {
-        el.shadowRoot.querySelectorAll(selector).forEach((inner) => results.push(inner));
-        walkShadows(el.shadowRoot);
+        shadowRoots.push(el.shadowRoot);
+        findShadowRoots(el.shadowRoot, depth + 1);
       }
-    });
+      // Also check grandchildren — custom elements are often shallow
+      if (el.children.length > 0 && el.children.length < 200) {
+        findShadowRoots(el, depth);
+      }
+    }
   };
-  walkShadows(root);
+
+  findShadowRoots(root, 0);
+
+  for (const sr of shadowRoots) {
+    sr.querySelectorAll(selector).forEach((el) => results.push(el));
+  }
+
   return results;
 }
 

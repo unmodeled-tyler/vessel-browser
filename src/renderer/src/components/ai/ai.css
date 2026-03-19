@@ -1382,6 +1382,62 @@
 
 
 /* ═══════════════════════════════════════
+   Tool call action chips
+   ═══════════════════════════════════════ */
+
+.tool-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px 3px 7px;
+    margin: 3px 0;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 2px solid rgba(196, 160, 90, 0.4);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    transition: background var(--duration-fast) var(--ease-in-out);
+}
+
+.tool-chip:hover {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.tool-chip-icon {
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: rgba(196, 160, 90, 0.7);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.tool-chip-name {
+    color: var(--text-secondary);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+.tool-chip-args {
+    color: var(--text-muted);
+    opacity: 0.7;
+    font-weight: 400;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-chip-args::before {
+    content: "·";
+    margin-right: 5px;
+    opacity: 0.4;
+}
+
+
+/* ═══════════════════════════════════════
    Inline approval prompts (chat tab)
    ═══════════════════════════════════════ */
 

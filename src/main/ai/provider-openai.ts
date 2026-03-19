@@ -169,7 +169,7 @@ export class OpenAICompatProvider implements AIProvider {
             // leave args empty
           }
           const argSummary = args.url || args.text || args.direction || '';
-          onChunk(`\n\`[${tc.name}${argSummary ? ': ' + argSummary : ''}]\` `);
+          onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
           const result = await onToolCall(tc.name, args);
           messages.push({
             role: 'tool',
