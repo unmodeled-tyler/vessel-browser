@@ -12,6 +12,12 @@ Vessel gives external agent harnesses a real browser with durable state, MCP con
 
 *Vessel is in active development and currently makes no security assurances. Use and deploy it with care.*
 
+
+
+https://github.com/user-attachments/assets/0a72b48a-873a-4eb0-b8f2-23e34d8472c4
+
+
+
 ## Quick Start
 
 ### Fastest Install Today
