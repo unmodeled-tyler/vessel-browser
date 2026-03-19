@@ -83,6 +83,8 @@ export function createMainWindow(
   });
 
   sidebarView.setBackgroundColor("#00000000");
+  // Suppress Electron's default context menu so custom menus in the sidebar work
+  sidebarView.webContents.on("context-menu", (e) => e.preventDefault());
   mainWindow.contentView.addChildView(sidebarView);
 
   const devtoolsPanelView = new WebContentsView({
