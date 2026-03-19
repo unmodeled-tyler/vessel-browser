@@ -1271,9 +1271,38 @@ async function submitForm(
   if (formInfo.submitted) {
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl
-      ? `Submitted form via ${formInfo.method} -> ${afterUrl}`
-      : `Submitted form via ${formInfo.method}`;
+    if (afterUrl !== beforeUrl) {
+      return `Submitted form via ${formInfo.method} -> ${afterUrl}`;
+    }
+
+    // Form submitted but URL didn't change — JS-heavy sites like Google
+    // intercept requestSubmit. Try pressing Enter on the active input as fallback.
+    await wc.executeJavaScript(`
+      (function() {
+        var active = document.activeElement;
+        if (!active || active === document.body) {
+          var inputs = document.querySelectorAll('input[type="text"], input[type="search"], input:not([type])');
+          for (var i = 0; i < inputs.length; i++) {
+            if (inputs[i].value) { active = inputs[i]; active.focus(); break; }
+          }
+        }
+        if (active && active !== document.body) {
+          active.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+          active.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+          active.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+        }
+      })()
+    `);
+    // Also send native Enter via Electron input events for sites that listen at the browser level
+    wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    await new Promise((r) => setTimeout(r, 50));
+    wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+
+    await waitForPotentialNavigation(wc, beforeUrl, 3000);
+    const finalUrl = wc.getURL();
+    return finalUrl !== beforeUrl
+      ? `Submitted form (Enter fallback) -> ${finalUrl}`
+      : `Submitted form via ${formInfo.method} (page may have updated dynamically)`;
   }
 
   return "Submitted form";
