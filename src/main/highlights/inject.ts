@@ -132,14 +132,14 @@ export async function highlightOnPage(
             if (!label) return null;
             var anchor = label.__vesselAnchor;
             if (!anchor || !anchor.isConnected) {
-              label.style.opacity = '0';
+              label.classList.remove('visible');
               return null;
             }
             var rect = anchor.getBoundingClientRect();
             var viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
             var viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
             if (!viewportWidth || !viewportHeight || rect.width === 0 && rect.height === 0) {
-              label.style.opacity = '0';
+              label.classList.remove('visible');
               return null;
             }
             var margin = 8;
@@ -155,7 +155,7 @@ export async function highlightOnPage(
             var visible = rect.bottom >= 0 && rect.top <= viewportHeight && rect.right >= 0 && rect.left <= viewportWidth;
             label.style.top = top + 'px';
             label.style.left = left + 'px';
-            label.style.opacity = visible ? '1' : '0';
+            if (!visible) label.classList.remove('visible');
             return {
               left: left,
               top: top,
@@ -205,6 +205,10 @@ export async function highlightOnPage(
       (function() {
         var el = document.querySelector(${JSON.stringify(resolvedSelector)});
         if (!el) return 'Element not found';
+        // Remove any existing badge on this element to avoid duplicates
+        document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
+          if (b.__vesselAnchor === el) b.remove();
+        });
         el.classList.add('__vessel-highlight');
         el.style.setProperty('background', ${JSON.stringify(c.bg)}, 'important');
         el.style.setProperty('outline-color', ${JSON.stringify(c.solid)}, 'important');
@@ -245,6 +249,10 @@ export async function highlightOnPage(
         var bgColor = ${JSON.stringify(c.bg)};
         var labelBg = ${JSON.stringify(c.label)};
         var labelText = ${JSON.stringify(c.text)};
+        // Remove any existing badges whose text matches to avoid duplicates
+        document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
+          if (b.textContent === ${JSON.stringify(label || "")}) b.remove();
+        });
         var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
         // Collect matching text nodes first, then wrap — avoids TreeWalker
         // seeing newly created nodes from surroundContents and re-matching.
