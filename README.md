@@ -67,9 +67,6 @@ Most browser automation stacks are either headless, stateless, or designed aroun
 
 <img width="1280" height="800" alt="vessel_2026-03-17_145154_5389" src="https://github.com/user-attachments/assets/b1c08d6c-bcdf-4c9a-8429-a71a23a61903" />
 
-<img width="1280" height="785" alt="vessel_2026-03-16_171108_8677" src="https://github.com/user-attachments/assets/613c285f-0253-4344-b335-f74a64e124ac" />
-
-
 Vessel is built for persistent web agents that need a real browser, durable state, and a human-visible interface. The agent is the primary operator. The human follows along in the live browser UI, audits what the agent is doing, and steers when needed.
 
 Today, Vessel provides the browser shell, page visibility, and supervisory surfaces needed to support that model. The long-term goal is not "a browser with AI features," but a browser runtime for autonomous agents with a clear supervisory experience for humans.
