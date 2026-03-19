@@ -36,6 +36,7 @@ export const Channels = {
   SIDEBAR_RESIZE: "ui:sidebar-resize",
   SIDEBAR_RESIZE_START: "ui:sidebar-resize-start",
   SIDEBAR_RESIZE_COMMIT: "ui:sidebar-resize-commit",
+  SIDEBAR_CONTEXT_MENU: "ui:sidebar-context-menu",
   FOCUS_MODE_TOGGLE: "ui:focus-mode-toggle",
   SETTINGS_VISIBILITY: "ui:settings-visibility",
 
@@ -62,6 +63,7 @@ export const Channels = {
   HIGHLIGHT_NAV_SCROLL: "highlights:nav-scroll",
   HIGHLIGHT_NAV_REMOVE: "highlights:nav-remove",
   HIGHLIGHT_NAV_CLEAR: "highlights:nav-clear",
+  SIDEBAR_HIGHLIGHT_ACTION: "highlights:sidebar-action",
 
   // DevTools panel
   DEVTOOLS_PANEL_TOGGLE: "devtools-panel:toggle",
