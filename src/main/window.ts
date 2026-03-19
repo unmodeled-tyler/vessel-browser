@@ -1,8 +1,9 @@
-import { BaseWindow, WebContentsView, app } from "electron";
+import { BaseWindow, Menu, MenuItem, WebContentsView, app } from "electron";
 import { existsSync } from "fs";
 import path from "path";
 import { TabManager } from "./tabs/tab-manager";
 import { loadSettings } from "./config/settings";
+import { Channels } from "../shared/channels";
 import type { UIState } from "../shared/types";
 
 /**
@@ -36,6 +37,123 @@ export interface WindowState {
   devtoolsPanelView: WebContentsView;
   tabManager: TabManager;
   uiState: UIState;
+}
+
+type SidebarContextTarget = {
+  inHighlightNav: boolean;
+  canRemoveCurrent: boolean;
+};
+
+async function getSidebarContextTarget(
+  sidebarView: WebContentsView,
+  x: number,
+  y: number,
+): Promise<SidebarContextTarget> {
+  try {
+    return await sidebarView.webContents.executeJavaScript(
+      `(() => {
+        const el = document.elementFromPoint(${x}, ${y});
+        const nav = el && typeof el.closest === "function"
+          ? el.closest(".highlight-nav")
+          : null;
+        const label = nav?.querySelector(".highlight-nav-label")?.textContent?.trim() || "";
+        return {
+          inHighlightNav: !!nav,
+          canRemoveCurrent: /\\d+\\s*\\/\\s*\\d+/.test(label),
+        };
+      })()`,
+      true,
+    );
+  } catch {
+    return { inHighlightNav: false, canRemoveCurrent: false };
+  }
+}
+
+async function showSidebarContextMenu(
+  mainWindow: BaseWindow,
+  sidebarView: WebContentsView,
+  params: Electron.ContextMenuParams,
+): Promise<void> {
+  const target = await getSidebarContextTarget(sidebarView, params.x, params.y);
+  const menu = new Menu();
+
+  if (target.inHighlightNav) {
+    if (target.canRemoveCurrent) {
+      menu.append(
+        new MenuItem({
+          label: "Remove Current Highlight",
+          click: () =>
+            sidebarView.webContents.send(
+              Channels.SIDEBAR_HIGHLIGHT_ACTION,
+              "remove-current",
+            ),
+        }),
+      );
+    }
+    menu.append(
+      new MenuItem({
+        label: "Clear All Highlights",
+        click: () =>
+          sidebarView.webContents.send(
+            Channels.SIDEBAR_HIGHLIGHT_ACTION,
+            "clear-all",
+          ),
+      }),
+    );
+  }
+
+  if (params.isEditable) {
+    if (menu.items.length > 0) {
+      menu.append(new MenuItem({ type: "separator" }));
+    }
+    menu.append(
+      new MenuItem({
+        role: "undo",
+        enabled: params.editFlags.canUndo,
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        role: "redo",
+        enabled: params.editFlags.canRedo,
+      }),
+    );
+    menu.append(new MenuItem({ type: "separator" }));
+    menu.append(
+      new MenuItem({
+        role: "cut",
+        enabled: params.editFlags.canCut,
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        role: "copy",
+        enabled: params.editFlags.canCopy,
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        role: "paste",
+        enabled: params.editFlags.canPaste,
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        role: "selectAll",
+        enabled: params.editFlags.canSelectAll,
+      }),
+    );
+  } else if (params.selectionText?.trim()) {
+    if (menu.items.length > 0) {
+      menu.append(new MenuItem({ type: "separator" }));
+    }
+    menu.append(new MenuItem({ role: "copy" }));
+  }
+
+  if (menu.items.length === 0) return;
+
+  sidebarView.webContents.focus();
+  menu.popup({ window: mainWindow });
 }
 
 function getWindowIconPath(): string | undefined {
@@ -83,8 +201,11 @@ export function createMainWindow(
   });
 
   sidebarView.setBackgroundColor("#00000000");
-  // Suppress Electron's default context menu so custom menus in the sidebar work
-  sidebarView.webContents.on("context-menu", (e) => e.preventDefault());
+  // Replace Electron's default menu with a native sidebar-aware context menu.
+  sidebarView.webContents.on("context-menu", (event, params) => {
+    event.preventDefault();
+    void showSidebarContextMenu(mainWindow, sidebarView, params);
+  });
   mainWindow.contentView.addChildView(sidebarView);
 
   const devtoolsPanelView = new WebContentsView({
