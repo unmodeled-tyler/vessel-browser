@@ -60,10 +60,12 @@ function resolveColor(color?: HighlightColor | null): ColorValues {
 
 export const VESSEL_HIGHLIGHT_CSS = `
 .__vessel-highlight {
-  outline: 3px solid #f0c636 !important;
-  outline-offset: 2px !important;
-  box-shadow: 0 0 12px rgba(240, 198, 54, 0.5) !important;
-  transition: outline-color 0.3s, box-shadow 0.3s;
+  background: rgba(240, 198, 54, 0.3) !important;
+  outline: 2px solid rgba(240, 198, 54, 0.6) !important;
+  outline-offset: 1px !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 8px rgba(240, 198, 54, 0.3) !important;
+  transition: background 0.3s, outline-color 0.3s, box-shadow 0.3s;
 }
 .__vessel-highlight-text {
   background: rgba(240, 198, 54, 0.3) !important;
@@ -86,6 +88,11 @@ export const VESSEL_HIGHLIGHT_CSS = `
   line-height: 1.3;
   overflow-wrap: break-word;
   box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+.__vessel-highlight-label.visible {
+  opacity: 1;
 }
 `;
 
@@ -199,8 +206,9 @@ export async function highlightOnPage(
         var el = document.querySelector(${JSON.stringify(resolvedSelector)});
         if (!el) return 'Element not found';
         el.classList.add('__vessel-highlight');
+        el.style.setProperty('background', ${JSON.stringify(c.bg)}, 'important');
         el.style.setProperty('outline-color', ${JSON.stringify(c.solid)}, 'important');
-        el.style.setProperty('box-shadow', '0 0 12px ' + ${JSON.stringify(c.glow)}, 'important');
+        el.style.setProperty('box-shadow', '0 0 8px ' + ${JSON.stringify(c.glow)}, 'important');
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         var label = ${JSON.stringify(label || "")};
         var badge = null;
@@ -214,6 +222,8 @@ export async function highlightOnPage(
           badge.__vesselAnchor = el;
           document.body.appendChild(badge);
           window.__vesselHighlightLabelManager.positionAll();
+          el.addEventListener('mouseenter', function() { badge.classList.add('visible'); });
+          el.addEventListener('mouseleave', function() { badge.classList.remove('visible'); });
         }
         var duration = ${durationMs ?? 0};
         if (duration > 0) {
@@ -291,6 +301,11 @@ export async function highlightOnPage(
           badge.__vesselAnchor = firstMark;
           document.body.appendChild(badge);
           window.__vesselHighlightLabelManager.positionAll();
+          var marks = document.querySelectorAll('mark.__vessel-highlight-text[data-vessel-highlight]');
+          marks.forEach(function(m) {
+            m.addEventListener('mouseenter', function() { if (badge) { badge.__vesselAnchor = m; window.__vesselHighlightLabelManager.positionAll(); badge.classList.add('visible'); } });
+            m.addEventListener('mouseleave', function() { if (badge) badge.classList.remove('visible'); });
+          });
         }
         var duration = ${durationMs ?? 0};
         if (duration > 0) {
