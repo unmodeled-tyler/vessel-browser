@@ -695,6 +695,10 @@ function isDangerousAction(name: string): boolean {
     "switch_tab",
     "restore_checkpoint",
     "load_session",
+    "login",
+    "fill_form",
+    "search",
+    "paginate",
   ].includes(name);
 }
 
@@ -1254,8 +1258,11 @@ async function getPostActionState(
     "submit_form",
     "reload",
     "press_key",
+    "login",
+    "search",
+    "paginate",
   ];
-  const interactActions = ["type_text", "select_option", "hover", "focus"];
+  const interactActions = ["type_text", "select_option", "hover", "focus", "fill_form"];
   const tabActions = [
     "create_tab",
     "switch_tab",
@@ -1338,6 +1345,11 @@ export async function executeAction(
       "organize_bookmark",
       "archive_bookmark",
       "open_bookmark",
+      "flow_start",
+      "flow_advance",
+      "flow_status",
+      "flow_end",
+      "suggest",
     ].includes(name)
   ) {
     return "Error: No active tab";
@@ -1961,11 +1973,295 @@ export async function executeAction(
           return clearHighlights(wc);
         }
 
+        // --- Speedee System ---
+
+        case "flow_start": {
+          const goal = typeof args.goal === "string" ? args.goal : "";
+          const steps = Array.isArray(args.steps) ? args.steps.map(String) : [];
+          if (!goal || steps.length === 0) return "Error: goal and steps are required";
+          const flow = ctx.runtime.startFlow(goal, steps, wc?.getURL());
+          return `Flow started: ${flow.goal}\n${flow.steps.map((s, i) => `  ${i === 0 ? "→" : " "} ${s.label}`).join("\n")}`;
+        }
+
+        case "flow_advance": {
+          const flow = ctx.runtime.advanceFlow(
+            typeof args.detail === "string" ? args.detail : undefined,
+          );
+          if (!flow) return "No active flow to advance";
+          return `Step completed.${ctx.runtime.getFlowContext()}`;
+        }
+
+        case "flow_status": {
+          const flow = ctx.runtime.getFlowState();
+          if (!flow) return "No active workflow.";
+          return ctx.runtime.getFlowContext();
+        }
+
+        case "flow_end": {
+          ctx.runtime.clearFlow();
+          return "Workflow ended.";
+        }
+
+        case "suggest": {
+          if (!wc) return "No active tab. Use navigate to open a page.";
+          let page;
+          try {
+            page = await extractContent(wc);
+          } catch {
+            return "Could not read page. Try navigate to a working URL.";
+          }
+
+          const suggestions: string[] = [];
+          suggestions.push(`Page: ${page.title || "(untitled)"}`);
+          suggestions.push(`URL: ${page.url}`);
+          suggestions.push("");
+
+          const flowCtx = ctx.runtime.getFlowContext();
+          if (flowCtx) {
+            suggestions.push(flowCtx);
+            suggestions.push("");
+          }
+
+          const hasPasswordField = page.forms.some((f) =>
+            f.fields.some((el) => el.inputType === "password"),
+          );
+          const hasSearchInput = page.interactiveElements.some(
+            (el) =>
+              el.inputType === "search" ||
+              el.name === "q" ||
+              el.name === "query" ||
+              (el.placeholder || "").toLowerCase().includes("search"),
+          );
+          const formCount = page.forms.length;
+          const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
+          const linkCount = page.interactiveElements.filter((el) => el.type === "link").length;
+          const hasPagination = page.interactiveElements.some(
+            (el) =>
+              (el.text || "").toLowerCase() === "next" ||
+              el.text === "›" ||
+              el.text === "»",
+          );
+          const hasOverlays = page.overlays.some((o) => o.blocksInteraction);
+
+          if (hasOverlays) {
+            suggestions.push("BLOCKING OVERLAY detected — dismiss it first:");
+            suggestions.push("  → dismiss_popup or click on close/accept button");
+            suggestions.push("");
+          }
+
+          if (hasPasswordField) {
+            suggestions.push("LOGIN PAGE detected:");
+            suggestions.push("  → login(username, password) — handles the full flow");
+            suggestions.push("  → Or fill_form + submit_form for manual control");
+          } else if (hasSearchInput && linkCount < 10) {
+            suggestions.push("SEARCH PAGE detected:");
+            suggestions.push("  → search(query) — finds the box, types, submits");
+          } else if (hasSearchInput && linkCount >= 10) {
+            suggestions.push("SEARCH RESULTS detected:");
+            suggestions.push("  → click on a result link");
+            if (hasPagination) suggestions.push("  → paginate('next') for more results");
+          } else if (formCount > 0) {
+            suggestions.push(`FORM detected (${totalFields} fields):`);
+            suggestions.push("  → fill_form(fields) — fill all fields at once");
+          } else if (hasPagination) {
+            suggestions.push("PAGINATED CONTENT:");
+            suggestions.push("  → read_page to read this page");
+            suggestions.push("  → paginate('next') for the next page");
+          } else if (page.content.length > 3000 && page.interactiveElements.length < 10) {
+            suggestions.push("ARTICLE/CONTENT page:");
+            suggestions.push("  → read_page for readable text");
+            suggestions.push("  → scroll to see more");
+          } else {
+            suggestions.push("GENERAL PAGE:");
+            suggestions.push("  → read_page to understand the page structure");
+            suggestions.push("  → click on any element by index");
+            suggestions.push("  → navigate to go somewhere new");
+          }
+
+          suggestions.push("");
+          suggestions.push(`Available: ${page.interactiveElements.length} interactive elements, ${formCount} forms, ${linkCount} links`);
+          return suggestions.join("\n");
+        }
+
+        case "fill_form": {
+          if (!wc) return "Error: No active tab";
+          const fields = Array.isArray(args.fields) ? args.fields : [];
+          if (fields.length === 0) return "Error: No fields provided";
+          const results: string[] = [];
+          for (const field of fields) {
+            const sel = await resolveSelector(wc, field.index, field.selector);
+            if (!sel) {
+              results.push(`Skipped: no selector for index=${field.index}`);
+              continue;
+            }
+            const result = await setElementValue(wc, sel, String(field.value || ""));
+            results.push(result);
+          }
+          if (args.submit) {
+            const firstSel = await resolveSelector(wc, fields[0]?.index, fields[0]?.selector);
+            if (firstSel) {
+              const beforeUrl = wc.getURL();
+              const submitResult = await submitForm(wc, { selector: firstSel });
+              await waitForPotentialNavigation(wc, beforeUrl);
+              const afterUrl = wc.getURL();
+              results.push(
+                afterUrl !== beforeUrl ? `Submitted → ${afterUrl}` : submitResult,
+              );
+            }
+          }
+          return `Filled ${results.length} field(s):\n${results.join("\n")}`;
+        }
+
+        case "login": {
+          if (!wc) return "Error: No active tab";
+          const steps: string[] = [];
+
+          if (typeof args.url === "string" && args.url.trim()) {
+            const id = ctx.tabManager.getActiveTabId()!;
+            ctx.tabManager.navigateTab(id, args.url);
+            await waitForLoad(wc);
+            steps.push(`Navigated to ${wc.getURL()}`);
+          }
+
+          const userSel =
+            args.username_selector ||
+            (await wc.executeJavaScript(`
+              (function() {
+                var el = document.querySelector('input[type="email"], input[name="email"], input[name="username"], input[name="user"], input[autocomplete="username"], input[autocomplete="email"], input[type="text"]:not([name="search"]):not([name="q"])');
+                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+              })()
+            `));
+          if (!userSel) return "Error: Could not find username/email field. Try providing username_selector.";
+
+          const passSel =
+            args.password_selector ||
+            (await wc.executeJavaScript(`
+              (function() {
+                var el = document.querySelector('input[type="password"]');
+                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+              })()
+            `));
+          if (!passSel) return "Error: Could not find password field. Try providing password_selector.";
+
+          const userResult = await setElementValue(wc, userSel, String(args.username || ""));
+          steps.push(userResult);
+          const passResult = await setElementValue(wc, passSel, String(args.password || ""));
+          steps.push(passResult);
+
+          const beforeUrl = wc.getURL();
+          if (args.submit_selector) {
+            await clickResolvedSelector(wc, args.submit_selector);
+          } else {
+            const clicked = await wc.executeJavaScript(`
+              (function() {
+                var btn = document.querySelector('button[type="submit"], input[type="submit"], form button:not([type="button"])');
+                if (btn) { btn.click(); return true; }
+                var form = document.querySelector('input[type="password"]')?.closest('form');
+                if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); return true; }
+                return false;
+              })()
+            `);
+            if (!clicked) return steps.join("\n") + "\nWarning: Could not find submit button. Credentials filled but form not submitted.";
+          }
+
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          steps.push(
+            afterUrl !== beforeUrl ? `Submitted → ${afterUrl}` : "Form submitted (same page)",
+          );
+          return `Login flow complete:\n${steps.join("\n")}`;
+        }
+
+        case "search": {
+          if (!wc) return "Error: No active tab";
+          const searchSel =
+            args.selector ||
+            (await wc.executeJavaScript(`
+              (function() {
+                var el = document.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]');
+                if (!el) {
+                  var inputs = document.querySelectorAll('input[type="text"]');
+                  for (var i = 0; i < inputs.length; i++) {
+                    var form = inputs[i].closest('form');
+                    if (form && (form.getAttribute('role') === 'search' || form.action?.includes('search'))) {
+                      el = inputs[i];
+                      break;
+                    }
+                  }
+                }
+                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+              })()
+            `));
+          if (!searchSel) return "Error: Could not find search input. Try providing a selector.";
+
+          await setElementValue(wc, searchSel, String(args.query || ""));
+
+          const beforeUrl = wc.getURL();
+          await wc.executeJavaScript(`
+            (function() {
+              var el = document.querySelector(${JSON.stringify(searchSel)});
+              if (!el) return;
+              var form = el.closest('form');
+              if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); return; }
+              el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+            })()
+          `);
+
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl
+            ? `Searched "${args.query}" → ${afterUrl}`
+            : `Searched "${args.query}" (same page — results may have loaded dynamically)`;
+        }
+
+        case "paginate": {
+          if (!wc) return "Error: No active tab";
+          const beforeUrl = wc.getURL();
+
+          if (args.selector) {
+            return clickResolvedSelector(wc, args.selector);
+          }
+
+          const isNext = args.direction === "next";
+          const clicked = await wc.executeJavaScript(`
+            (function() {
+              var patterns = ${isNext
+                ? '["next", "Next", "›", "»", "→", ">", "Next Page", "Load More"]'
+                : '["prev", "Prev", "Previous", "‹", "«", "←", "<", "Previous Page"]'
+              };
+              var links = document.querySelectorAll('a, button');
+              for (var i = 0; i < links.length; i++) {
+                var el = links[i];
+                var text = (el.textContent || '').trim();
+                var ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+                var rel = (el.getAttribute('rel') || '').toLowerCase();
+                if (rel === '${isNext ? "next" : "prev"}') { el.click(); return true; }
+                for (var j = 0; j < patterns.length; j++) {
+                  if (text === patterns[j] || ariaLabel.includes(patterns[j].toLowerCase())) {
+                    el.click();
+                    return true;
+                  }
+                }
+              }
+              return false;
+            })()
+          `);
+
+          if (!clicked) return `Error: Could not find ${args.direction} pagination control. Try providing a selector.`;
+
+          await waitForPotentialNavigation(wc, beforeUrl);
+          const afterUrl = wc.getURL();
+          return afterUrl !== beforeUrl
+            ? `Paginated ${args.direction} → ${afterUrl}`
+            : `Clicked ${args.direction} (page may have updated dynamically)`;
+        }
+
         default:
           return `Unknown tool: ${name}`;
       }
     },
   });
 
-  return result + (await getPostActionState(ctx, name));
+  const flowCtx = ctx.runtime.getFlowContext();
+  return result + (await getPostActionState(ctx, name)) + flowCtx;
 }
