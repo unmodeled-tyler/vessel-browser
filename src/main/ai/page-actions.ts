@@ -1407,11 +1407,41 @@ async function getPostActionState(
   return "";
 }
 
+/** All known tool names — used to detect concatenated tool calls from models */
+const KNOWN_TOOLS = new Set([
+  "current_tab", "list_tabs", "switch_tab", "create_tab",
+  "navigate", "go_back", "go_forward", "reload",
+  "click", "type_text", "select_option", "submit_form", "press_key",
+  "scroll", "hover", "focus",
+  "set_ad_blocking", "dismiss_popup", "read_page", "wait_for",
+  "create_checkpoint", "restore_checkpoint",
+  "save_session", "load_session", "list_sessions", "delete_session",
+  "list_bookmarks", "search_bookmarks", "create_bookmark_folder",
+  "save_bookmark", "organize_bookmark", "archive_bookmark", "open_bookmark",
+  "highlight", "clear_highlights",
+  "flow_start", "flow_advance", "flow_status", "flow_end",
+  "suggest", "fill_form", "login", "search", "paginate",
+  "accept_cookies", "extract_table", "scroll_to_element", "metrics",
+]);
+
 export async function executeAction(
   name: string,
   args: Record<string, any>,
   ctx: ActionContext,
 ): Promise<string> {
+  // Detect concatenated tool names (e.g. "create_checkpointcurrent_tablist_tabs")
+  // from models that don't properly support parallel tool calls
+  if (!KNOWN_TOOLS.has(name)) {
+    // Try to find the first matching tool name at the start
+    for (const known of KNOWN_TOOLS) {
+      if (name.startsWith(known) && name.length > known.length) {
+        const remaining = name.slice(known.length);
+        const otherTools = [...KNOWN_TOOLS].filter((t) => remaining.includes(t));
+        return `Error: It looks like you tried to call multiple tools at once (${known}, ${otherTools.join(", ")}). Please call them one at a time — send one tool call per message.`;
+      }
+    }
+  }
+
   const tab = ctx.tabManager.getActiveTab();
   const tabId = ctx.tabManager.getActiveTabId();
 
