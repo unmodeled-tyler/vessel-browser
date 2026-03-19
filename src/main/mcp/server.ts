@@ -549,6 +549,10 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
         document.querySelectorAll("dialog, [role='dialog'], [role='alertdialog'], [aria-modal='true']").forEach((el) => {
           if (isVisible(el)) nodes.push(el);
         });
+        // Detect known consent manager containers
+        document.querySelectorAll("#onetrust-consent-sdk, #onetrust-banner-sdk, [id*='onetrust'], [class*='onetrust'], #CybotCookiebotDialog, #truste-consent-track, [id*='cookie-banner'], [id*='consent-banner'], [class*='cookie-consent'], [class*='consent-banner'], [id*='gdpr'], [class*='gdpr']").forEach((el) => {
+          if (el instanceof HTMLElement && isVisible(el)) nodes.push(el);
+        });
         document.querySelectorAll("body *").forEach((el) => {
           if (!(el instanceof HTMLElement) || !isVisible(el)) return;
           const style = window.getComputedStyle(el);
@@ -578,14 +582,17 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
             el.textContent ||
             el.getAttribute("value"),
         ).toLowerCase();
-        const classText = text(el.className).toLowerCase();
+        const classText = text(typeof el.className === "string" ? el.className : "").toLowerCase();
         const idText = text(el.id).toLowerCase();
+        const combined = classText + " " + idText;
         let score = rooted ? 30 : 0;
         if (/^x$|^×$/.test(label)) score += 120;
-        if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you/.test(label)) score += 100;
-        if (/close|dismiss|modal-close|overlay-close/.test(classText + " " + idText)) score += 90;
+        if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you|reject|decline/.test(label)) score += 100;
+        if (/close|dismiss|modal-close|overlay-close/.test(combined)) score += 90;
+        if (/onetrust-close|onetrust-reject|cookie.*close|consent.*close|cookie.*reject|consent.*reject/.test(combined)) score += 110;
+        if (/onetrust-accept|cookie.*accept|consent.*accept/.test(combined)) score += 80;
         if (el.getAttribute("aria-label")) score += 20;
-        if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label)) score -= 80;
+        if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label) && !/cookie|consent|onetrust/.test(combined)) score -= 80;
         const rect = el.getBoundingClientRect();
         if (rect.top < 120) score += 10;
         if (rect.right > (window.innerWidth || 0) - 120) score += 15;
@@ -601,13 +608,25 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
           if (!(el instanceof HTMLElement) || !isVisible(el)) return;
           const candidateSelector = selectorFor(el);
           if (!candidateSelector) return;
-          const label = text(
+          var label = text(
             el.getAttribute("aria-label") ||
               el.getAttribute("title") ||
               el.textContent ||
               el.getAttribute("value"),
           );
-          if (!label) return;
+          if (!label) {
+            var idLower = (el.id || "").toLowerCase();
+            var classLower = (typeof el.className === "string" ? el.className : "").toLowerCase();
+            var combined = idLower + " " + classLower;
+            if (/onetrust|consent|cookie|banner|gdpr|trustarc|cookiebot/.test(combined)) {
+              label = idLower.includes("accept") ? "Accept cookies"
+                : idLower.includes("reject") ? "Reject cookies"
+                : idLower.includes("close") || classLower.includes("close") ? "Close"
+                : "Consent button";
+            } else {
+              return;
+            }
+          }
           results.push({
             selector: candidateSelector,
             label: label.slice(0, 120),
@@ -4152,17 +4171,19 @@ function registerTools(
           // Type query
           await setElementValue(wc, searchSel, query);
 
-          // Submit
-          const beforeUrl = wc.getURL();
+          // Focus input and press Enter via native Chromium input events
+          // (JS dispatchEvent doesn't work on sites like Google that use custom handlers)
           await wc.executeJavaScript(`
             (function() {
               var el = document.querySelector(${JSON.stringify(searchSel)});
-              if (!el) return;
-              var form = el.closest('form');
-              if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); return; }
-              el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+              if (el) el.focus();
             })()
           `);
+          await new Promise((r) => setTimeout(r, 50));
+          const beforeUrl = wc.getURL();
+          wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+          await new Promise((r) => setTimeout(r, 16));
+          wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
 
           await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();

@@ -153,10 +153,7 @@ export class AnthropicProvider implements AIProvider {
         messages.push({ role: "assistant", content: assistantContent });
 
         // If no tool calls, we're done
-        if (
-          finalMessage.stop_reason !== "tool_use" ||
-          toolUseBlocks.length === 0
-        ) {
+        if (toolUseBlocks.length === 0) {
           break;
         }
 
