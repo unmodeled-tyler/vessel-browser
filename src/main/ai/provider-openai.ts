@@ -142,10 +142,15 @@ export class OpenAICompatProvider implements AIProvider {
 
         const toolCalls = Object.values(toolCallAccums);
 
+        // Ensure every tool call has an ID (some providers like Ollama omit them)
+        for (const tc of Object.values(toolCallAccums)) {
+          if (!tc.id) tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        }
+
         // Build assistant message for history
         const assistantMsg: OpenAI.Chat.ChatCompletionAssistantMessageParam = {
           role: 'assistant',
-          content: textAccum || null,
+          content: textAccum || '',
           ...(toolCalls.length > 0 && {
             tool_calls: toolCalls.map((tc) => ({
               id: tc.id,
@@ -166,7 +171,14 @@ export class OpenAICompatProvider implements AIProvider {
           try {
             args = JSON.parse(tc.argsJson || '{}');
           } catch {
-            // leave args empty
+            // Malformed tool arguments — send error back to model for retry
+            onChunk(`\n<<tool:${tc.name}:⚠ invalid args>>\n`);
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: `Error: Invalid JSON in tool arguments. Please retry with valid JSON. Raw: ${tc.argsJson}`,
+            });
+            continue;
           }
           const argSummary = args.url || args.text || args.direction || '';
           onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
