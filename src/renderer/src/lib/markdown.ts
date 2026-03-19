@@ -149,10 +149,20 @@ function renderBlock(block: string): string {
     return trimmed;
   }
 
-  const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
-  if (heading) {
-    const level = heading[1].length;
-    return `<h${level}>${applyInlineMarkdown(heading[2].trim())}</h${level}>`;
+  // Single-line heading
+  const headingSingle = trimmed.match(/^(#{1,6})\s+(.+)$/);
+  if (headingSingle) {
+    const level = headingSingle[1].length;
+    return `<h${level}>${applyInlineMarkdown(headingSingle[2].trim())}</h${level}>`;
+  }
+
+  // Heading followed by other content (no blank line between them)
+  const headingMulti = trimmed.match(/^(#{1,6})\s+(.+)\n([\s\S]+)$/);
+  if (headingMulti) {
+    const level = headingMulti[1].length;
+    const headingHtml = `<h${level}>${applyInlineMarkdown(headingMulti[2].trim())}</h${level}>`;
+    const rest = renderBlock(headingMulti[3]);
+    return headingHtml + rest;
   }
 
   if (
