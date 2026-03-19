@@ -468,6 +468,46 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 
+  // --- Highlights ---
+  {
+    name: "highlight",
+    title: "Highlight Element",
+    description:
+      "Visually highlight an element or text on the page for the user. Use to draw attention to specific content. Highlights persist until cleared.",
+    inputSchema: {
+      index: z
+        .number()
+        .optional()
+        .describe("Element index from page content to highlight"),
+      selector: z
+        .string()
+        .optional()
+        .describe("CSS selector of element to highlight"),
+      text: z
+        .string()
+        .optional()
+        .describe("Text to find and highlight on the page (all occurrences)"),
+      label: z
+        .string()
+        .optional()
+        .describe("Annotation label to display near the highlight"),
+      durationMs: z
+        .number()
+        .optional()
+        .describe("Auto-clear after this many milliseconds (omit for permanent)"),
+      color: z
+        .enum(["yellow", "red", "green", "blue", "purple", "orange"])
+        .optional()
+        .describe("Highlight color (default yellow)"),
+    },
+  },
+  {
+    name: "clear_highlights",
+    title: "Clear Highlights",
+    description:
+      "Remove all visual highlights from the current page.",
+  },
+
   // --- Speedee System: Flow State ---
   {
     name: "flow_start",
