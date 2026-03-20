@@ -813,6 +813,8 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const EXECUTE_SCRIPT_TIMEOUT_MS = 1500;
+
 async function waitForDomReady(
   webContents: WebContents,
   timeoutMs = 1500,
@@ -845,10 +847,20 @@ async function executeScript(
     return null;
   }
 
+  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    return await webContents.executeJavaScript(script);
+    return await Promise.race([
+      webContents.executeJavaScript(script),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), EXECUTE_SCRIPT_TIMEOUT_MS);
+      }),
+    ]);
   } catch {
     return null;
+  } finally {
+    if (typeof timer !== "undefined" && timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -956,7 +968,7 @@ function mergePageContent(
   const normalizedStructuredData =
     mergedBase.structuredData.length > 0
       ? mergedBase.structuredData
-        : extractStructuredDataFromJsonLd(
+      : extractStructuredDataFromJsonLd(
           mergedBase.jsonLd,
           mergedBase.microdata,
           mergedBase.rdfa,
@@ -1012,7 +1024,10 @@ export async function extractContent(
     return await Promise.race([
       extractContentInner(webContents),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("extractContent timeout")), EXTRACT_TIMEOUT_MS),
+        setTimeout(
+          () => reject(new Error("extractContent timeout")),
+          EXTRACT_TIMEOUT_MS,
+        ),
       ),
     ]);
   } catch {
