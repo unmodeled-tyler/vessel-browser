@@ -988,29 +988,33 @@ function mergePageContent(
 
 const EXTRACT_TIMEOUT_MS = 8000;
 
+async function extractContentInner(
+  webContents: WebContents,
+): Promise<PageContent> {
+  await waitForDomReady(webContents);
+
+  const [preloadResult, directResult, safeResult] = await Promise.all([
+    executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT),
+    executeScript(webContents, DIRECT_EXTRACTION_SCRIPT),
+    executeScript(webContents, SAFE_EXTRACTION_SCRIPT),
+  ]);
+
+  return mergePageContent(
+    [preloadResult, directResult, safeResult],
+    webContents,
+  );
+}
+
 export async function extractContent(
   webContents: WebContents,
 ): Promise<PageContent> {
   try {
-    await waitForDomReady(webContents);
-
-    const extraction = Promise.all([
-      executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT),
-      executeScript(webContents, DIRECT_EXTRACTION_SCRIPT),
-      executeScript(webContents, SAFE_EXTRACTION_SCRIPT),
-    ]);
-
-    const [preloadResult, directResult, safeResult] = await Promise.race([
-      extraction,
+    return await Promise.race([
+      extractContentInner(webContents),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("extractContent timeout")), EXTRACT_TIMEOUT_MS),
       ),
     ]);
-
-    return mergePageContent(
-      [preloadResult, directResult, safeResult],
-      webContents,
-    );
   } catch {
     return {
       ...EMPTY_PAGE_CONTENT,
