@@ -16,6 +16,8 @@ export interface ToolDefinition {
   relevance?: PageType[];
   /** Priority tier: 0 = core (always first), 1 = contextual, 2 = utility (deprioritized when irrelevant). Default 1. */
   tier?: 0 | 1 | 2;
+  /** If true, hide from the default AI tool belt unless explicitly surfaced by intent. */
+  hiddenByDefault?: boolean;
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -229,6 +231,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Dismiss a modal, popup, newsletter gate, cookie banner, or overlay using common close/decline actions.",
     tier: 1,
+  },
+  {
+    name: "inspect_element",
+    title: "Inspect Element",
+    description:
+      "Inspect one element and its nearest local UI region such as a product card, result row, form section, or modal. Use this instead of reading the whole page when you only need local context.",
+    inputSchema: {
+      index: z.number().optional().describe("Element index to inspect"),
+      selector: z.string().optional().describe("CSS selector to inspect"),
+      limit: z
+        .number()
+        .optional()
+        .describe("Maximum nearby controls to include (default 8)"),
+    },
+    tier: 1,
+    relevance: ["SEARCH_RESULTS", "SHOPPING", "FORM"],
   },
   {
     name: "read_page",
@@ -574,6 +592,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         ),
     },
     tier: 1,
+    hiddenByDefault: true,
   },
   {
     name: "flow_advance",
@@ -587,18 +606,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .describe("Brief note about what was accomplished"),
     },
     tier: 1,
+    hiddenByDefault: true,
   },
   {
     name: "flow_status",
     title: "Workflow Status",
     description: "Check the current workflow progress.",
     tier: 2,
+    hiddenByDefault: true,
   },
   {
     name: "flow_end",
     title: "End Workflow",
     description: "Clear the active workflow tracker.",
     tier: 2,
+    hiddenByDefault: true,
   },
 
   // --- Speedee System: Suggestion Engine ---
@@ -608,6 +630,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Analyze the current page and return the most relevant tools and suggested next actions. Call this when unsure what to do.",
     tier: 1,
+    hiddenByDefault: true,
   },
 
   // --- Speedee System: Composable Macros ---
@@ -757,6 +780,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .describe("Maximum time to wait in milliseconds (default 10000)"),
     },
     tier: 1,
+    hiddenByDefault: true,
   },
 
   // --- Speedee System: Metrics ---
@@ -766,5 +790,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Show performance metrics for this session: total tool calls, average duration, per-tool breakdown, and error rates.",
     tier: 2,
+    hiddenByDefault: true,
   },
 ];

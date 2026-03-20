@@ -518,6 +518,208 @@ async function describeElementForClick(
   };
 }
 
+async function inspectElement(
+  wc: WebContents,
+  selector: string,
+  limit = 8,
+): Promise<string> {
+  const result = await executePageScript<{
+    target?: {
+      label: string;
+      tag: string;
+      text?: string;
+      href?: string;
+      value?: string;
+    };
+    region?: {
+      tag: string;
+      label: string;
+      text?: string;
+    };
+    nearby?: Array<{
+      label: string;
+      type: string;
+      selector: string;
+      href?: string;
+    }>;
+    error?: string;
+  }>(
+    wc,
+    `
+    (function() {
+      function text(value) {
+        const trimmed = value == null ? "" : String(value).trim();
+        return trimmed || undefined;
+      }
+
+      function escapeSelectorValue(value) {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+          return CSS.escape(value);
+        }
+        return String(value).replace(/["\\\\]/g, "\\\\$&");
+      }
+
+      function uniqueSelector(candidate) {
+        if (!candidate) return null;
+        try {
+          return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function uniqueAttributeSelector(el, attribute) {
+        const value = text(el.getAttribute && el.getAttribute(attribute));
+        if (!value) return null;
+        const candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
+        return uniqueSelector(candidate);
+      }
+
+      function selectorFor(el) {
+        if (!el) return null;
+        if (el.id) return "#" + escapeSelectorValue(el.id);
+        for (const attribute of ["data-testid", "name", "form", "aria-label", "title"]) {
+          const candidate = uniqueAttributeSelector(el, attribute);
+          if (candidate) return candidate;
+        }
+        const parts = [];
+        let current = el;
+        while (current) {
+          if (current.id) {
+            parts.unshift("#" + escapeSelectorValue(current.id));
+            break;
+          }
+          const tag = current.tagName.toLowerCase();
+          const parent = current.parentElement;
+          if (!parent) { parts.unshift(tag); break; }
+          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+          const index = siblings.indexOf(current) + 1;
+          parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
+          current = parent;
+        }
+        const selector = parts.join(" > ");
+        return uniqueSelector(selector) || selector;
+      }
+
+      function isVisible(el) {
+        if (!(el instanceof HTMLElement)) return true;
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+          return false;
+        }
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+
+      function labelFor(el) {
+        return text(
+          el.getAttribute("aria-label") ||
+          el.getAttribute("title") ||
+          el.getAttribute("name") ||
+          el.getAttribute("placeholder") ||
+          el.textContent ||
+          el.getAttribute("value") ||
+          el.tagName
+        ) || "element";
+      }
+
+      function chooseRegion(target) {
+        const preferred = target.closest(
+          "[data-testid], article, [role='article'], [role='listitem'], li, tr, form, section, aside, dialog, [role='dialog']"
+        );
+        if (preferred) return preferred;
+        let current = target.parentElement;
+        let depth = 0;
+        while (current && depth < 5) {
+          const count = current.querySelectorAll("a[href], button, input, select, textarea").length;
+          if (count >= 2 && count <= 16) return current;
+          current = current.parentElement;
+          depth += 1;
+        }
+        return target.parentElement || target;
+      }
+
+      const target = document.querySelector(${JSON.stringify(selector)});
+      if (!target) return { error: "Element not found" };
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+      }
+
+      const region = chooseRegion(target);
+      const nearby = [];
+      const seen = new Set();
+      region.querySelectorAll("a[href], button, input:not([type='hidden']), select, textarea").forEach((el) => {
+        if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+        const candidateSelector = selectorFor(el);
+        if (!candidateSelector || seen.has(candidateSelector)) return;
+        seen.add(candidateSelector);
+        nearby.push({
+          label: labelFor(el).slice(0, 100),
+          type: el.tagName.toLowerCase(),
+          selector: candidateSelector,
+          href: el instanceof HTMLAnchorElement ? text(el.href) : undefined,
+        });
+      });
+
+      return {
+        target: {
+          label: labelFor(target).slice(0, 120),
+          tag: target.tagName.toLowerCase(),
+          text: text(target.textContent)?.slice(0, 240),
+          href: target instanceof HTMLAnchorElement ? text(target.href) : undefined,
+          value: target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement
+            ? text(target.value)?.slice(0, 120)
+            : undefined,
+        },
+        region: {
+          tag: region.tagName.toLowerCase(),
+          label: labelFor(region).slice(0, 120),
+          text: text(region.textContent)?.slice(0, 400),
+        },
+        nearby: nearby.slice(0, ${Math.max(1, Math.min(20, limit))}),
+      };
+    })()
+  `,
+    {
+      timeoutMs: 2000,
+      label: "inspect element",
+    },
+  );
+
+  if (result === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("inspect_element");
+  }
+  if (!result || typeof result !== "object") {
+    return "Error: Could not inspect element";
+  }
+  if ("error" in result && typeof result.error === "string") {
+    return `Error: ${result.error}`;
+  }
+
+  const lines: string[] = [];
+  if (result.target) {
+    lines.push(`Target: ${result.target.label} <${result.target.tag}>`);
+    if (result.target.text) lines.push(`Target text: ${result.target.text}`);
+    if (result.target.href) lines.push(`Target href: ${result.target.href}`);
+    if (result.target.value) lines.push(`Target value: ${result.target.value}`);
+  }
+  if (result.region) {
+    lines.push(`Region: ${result.region.label} <${result.region.tag}>`);
+    if (result.region.text) lines.push(`Region text: ${result.region.text}`);
+  }
+  if (Array.isArray(result.nearby) && result.nearby.length > 0) {
+    lines.push("Nearby controls:");
+    for (const item of result.nearby) {
+      const hrefSuffix = item.href ? ` -> ${item.href}` : "";
+      lines.push(
+        `- ${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}`,
+      );
+    }
+  }
+
+  return lines.join("\n");
+}
+
 async function clickResolvedSelector(
   wc: WebContents,
   selector: string,
@@ -1752,6 +1954,7 @@ async function getPostActionState(
     "hover",
     "focus",
     "fill_form",
+    "inspect_element",
   ];
   const tabActions = [
     "create_tab",
@@ -1796,6 +1999,7 @@ const KNOWN_TOOLS = new Set([
   "go_forward",
   "reload",
   "click",
+  "inspect_element",
   "type_text",
   "select_option",
   "submit_form",
@@ -2006,6 +2210,17 @@ export async function executeAction(
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
           return clickResolvedSelector(wc, selector);
+        }
+
+        case "inspect_element": {
+          if (!wc) return "Error: No active tab";
+          const selector = await resolveSelector(wc, args.index, args.selector);
+          if (!selector) return "Error: No element index or selector provided";
+          return inspectElement(
+            wc,
+            selector,
+            typeof args.limit === "number" ? args.limit : 8,
+          );
         }
 
         case "type_text": {
@@ -2727,6 +2942,9 @@ export async function executeAction(
             );
           } else if (hasSearchInput && linkCount >= 10) {
             suggestions.push("SEARCH RESULTS detected:");
+            suggestions.push(
+              "  → inspect_element(index) to inspect one result card",
+            );
             suggestions.push("  → click on a result link");
             if (hasPagination)
               suggestions.push("  → paginate('next') for more results");
