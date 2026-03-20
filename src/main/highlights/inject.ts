@@ -256,26 +256,46 @@ export async function highlightOnPage(
         var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
         // Collect matching text nodes first, then wrap — avoids TreeWalker
         // seeing newly created nodes from surroundContents and re-matching.
-        var textNodes = [];
-        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-          acceptNode: function(node) {
-            var p = node.parentElement;
-            if (!p) return NodeFilter.FILTER_REJECT;
-            if (SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
-            if (p.closest('[data-vessel-highlight]')) return NodeFilter.FILTER_REJECT;
-            var style = window.getComputedStyle(p);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
-            if (p.offsetWidth === 0 && p.offsetHeight === 0) return NodeFilter.FILTER_REJECT;
-            return NodeFilter.FILTER_ACCEPT;
+        // Prioritize main content area over nav/sidebar/captions.
+        var contentRoots = ['main', 'article', '[role="main"]', '#mw-content-text', '.mw-parser-output', '#content', '.post-content', '.entry-content', '.article-body'];
+        var contentRoot = null;
+        for (var cr = 0; cr < contentRoots.length; cr++) {
+          contentRoot = document.querySelector(contentRoots[cr]);
+          if (contentRoot) break;
+        }
+        var NAV_ANCESTORS = 'nav, aside, footer, header, [role="navigation"], [role="complementary"], .sidebar, .navbox, .infobox, figcaption, .thumbcaption, .mw-jump-link';
+
+        function collectMatches(root, limit) {
+          var matches = [];
+          var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: function(n) {
+              var p = n.parentElement;
+              if (!p) return NodeFilter.FILTER_REJECT;
+              if (SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
+              if (p.closest('[data-vessel-highlight]')) return NodeFilter.FILTER_REJECT;
+              if (p.closest(NAV_ANCESTORS)) return NodeFilter.FILTER_REJECT;
+              var style = window.getComputedStyle(p);
+              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
+              if (p.offsetWidth === 0 && p.offsetHeight === 0) return NodeFilter.FILTER_REJECT;
+              return NodeFilter.FILTER_ACCEPT;
+            }
+          });
+          var n;
+          while ((n = w.nextNode())) {
+            var idx = n.textContent.indexOf(searchText);
+            if (idx !== -1) {
+              matches.push({ node: n, idx: idx });
+              if (matches.length >= limit) break;
+            }
           }
-        });
-        var node;
-        while ((node = walker.nextNode())) {
-          var idx = node.textContent.indexOf(searchText);
-          if (idx !== -1) {
-            textNodes.push({ node: node, idx: idx });
-            if (textNodes.length >= 20) break;
-          }
+          return matches;
+        }
+
+        // First try: match inside main content area (skip nav/sidebar/captions)
+        var textNodes = contentRoot ? collectMatches(contentRoot, 20) : [];
+        // Fallback: if no matches in content area, search the whole body
+        if (textNodes.length === 0) {
+          textNodes = collectMatches(document.body, 20);
         }
         var count = 0;
         var firstMark = null;

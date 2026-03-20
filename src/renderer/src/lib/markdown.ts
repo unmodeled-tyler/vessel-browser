@@ -149,10 +149,20 @@ function renderBlock(block: string): string {
     return trimmed;
   }
 
-  const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
-  if (heading) {
-    const level = heading[1].length;
-    return `<h${level}>${applyInlineMarkdown(heading[2].trim())}</h${level}>`;
+  // Single-line heading
+  const headingSingle = trimmed.match(/^(#{1,6})\s+(.+)$/);
+  if (headingSingle) {
+    const level = headingSingle[1].length;
+    return `<h${level}>${applyInlineMarkdown(headingSingle[2].trim())}</h${level}>`;
+  }
+
+  // Heading followed by other content (no blank line between them)
+  const headingMulti = trimmed.match(/^(#{1,6})\s+(.+)\n([\s\S]+)$/);
+  if (headingMulti) {
+    const level = headingMulti[1].length;
+    const headingHtml = `<h${level}>${applyInlineMarkdown(headingMulti[2].trim())}</h${level}>`;
+    const rest = renderBlock(headingMulti[3]);
+    return headingHtml + rest;
   }
 
   if (
@@ -170,8 +180,40 @@ function renderBlock(block: string): string {
     return "<hr />";
   }
 
+  // Check if block IS a table
   if (isTableBlock(trimmed)) {
     return renderTable(trimmed);
+  }
+
+  // Check if block CONTAINS a table mixed with other text
+  // (model sometimes doesn't put a blank line before the table)
+  const lines = trimmed.split("\n");
+  const tableStartIdx = lines.findIndex(
+    (l, i) =>
+      l.trim().includes("|") &&
+      i + 1 < lines.length &&
+      /^\|?\s*[-:]+[-|\s:]*$/.test(lines[i + 1].trim()),
+  );
+  if (tableStartIdx >= 0) {
+    const beforeTable = lines.slice(0, tableStartIdx).join("\n").trim();
+    const tableLines = lines.slice(tableStartIdx);
+    // Find where table ends (first line without pipes)
+    const tableEndIdx = tableLines.findIndex(
+      (l, i) => i > 1 && !l.trim().includes("|"),
+    );
+    const tableBlock =
+      tableEndIdx > 0
+        ? tableLines.slice(0, tableEndIdx).join("\n")
+        : tableLines.join("\n");
+    const afterTable =
+      tableEndIdx > 0
+        ? tableLines.slice(tableEndIdx).join("\n").trim()
+        : "";
+    let result = "";
+    if (beforeTable) result += `<p>${applyInlineMarkdown(beforeTable).replace(/\n/g, "<br>")}</p>`;
+    result += renderTable(tableBlock);
+    if (afterTable) result += `<p>${applyInlineMarkdown(afterTable).replace(/\n/g, "<br>")}</p>`;
+    return result;
   }
 
   if (trimmed.split("\n").every((line) => /^[-*+]\s+/.test(line))) {

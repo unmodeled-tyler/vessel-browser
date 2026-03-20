@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PageType } from "../ai/context-builder";
 
 export interface ToolDefinition {
   /** Base name without prefix, e.g. "navigate" */
@@ -11,6 +12,10 @@ export interface ToolDefinition {
   inputSchema?: z.ZodRawShape;
   /** If true, only register for MCP (not internal AI). */
   mcpOnly?: boolean;
+  /** Page types where this tool is most relevant. Omit = always relevant (core tool). */
+  relevance?: PageType[];
+  /** Priority tier: 0 = core (always first), 1 = contextual, 2 = utility (deprioritized when irrelevant). Default 1. */
+  tier?: 0 | 1 | 2;
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -20,11 +25,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     title: "Get Active Tab",
     description:
       "Get the browser tab the human is actively looking at right now. Use this instead of list_tabs when you only need the focused tab.",
+    tier: 0,
   },
   {
     name: "list_tabs",
     title: "List Tabs",
     description: "List all open browser tabs with their IDs, titles, and URLs.",
+    tier: 2,
   },
   {
     name: "switch_tab",
@@ -36,10 +43,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       match: z
         .string()
         .optional()
-        .describe(
-          "Case-insensitive partial match against tab title or URL",
-        ),
+        .describe("Case-insensitive partial match against tab title or URL"),
     },
+    tier: 2,
   },
   {
     name: "create_tab",
@@ -48,6 +54,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       url: z.string().optional().describe("Optional URL to open"),
     },
+    tier: 2,
   },
 
   // --- Navigation ---
@@ -58,21 +65,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       url: z.string().describe("The URL to navigate to"),
     },
+    tier: 0,
   },
   {
     name: "go_back",
     title: "Go Back",
     description: "Go back to the previous page in browser history.",
+    tier: 1,
   },
   {
     name: "go_forward",
     title: "Go Forward",
     description: "Go forward in browser history.",
+    tier: 2,
   },
   {
     name: "reload",
     title: "Reload",
     description: "Reload the current page.",
+    tier: 2,
   },
 
   // --- Interaction ---
@@ -88,6 +99,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .describe("Element index from the page content listing"),
       selector: z.string().optional().describe("CSS selector as fallback"),
     },
+    tier: 0,
   },
   {
     name: "type_text",
@@ -105,6 +117,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           '"default" sets value directly. "keystroke" simulates character-by-character key events.',
         ),
     },
+    tier: 0,
+    relevance: ["LOGIN", "FORM", "SEARCH_READY"],
   },
   {
     name: "select_option",
@@ -112,17 +126,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description:
       "Select an option in a dropdown by visible label or option value.",
     inputSchema: {
-      index: z
-        .number()
-        .optional()
-        .describe("The select element index number"),
+      index: z.number().optional().describe("The select element index number"),
       selector: z.string().optional().describe("CSS selector as fallback"),
       label: z.string().optional().describe("Visible option label to match"),
-      value: z
-        .string()
-        .optional()
-        .describe("Option value attribute to match"),
+      value: z.string().optional().describe("Option value attribute to match"),
     },
+    tier: 1,
+    relevance: ["FORM", "SHOPPING"],
   },
   {
     name: "submit_form",
@@ -139,17 +149,19 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Form or submit button selector"),
     },
+    tier: 1,
+    relevance: ["LOGIN", "FORM", "SEARCH_READY", "SHOPPING"],
   },
   {
     name: "press_key",
     title: "Press Key",
-    description:
-      "Press a keyboard key, optionally after focusing an element.",
+    description: "Press a keyboard key, optionally after focusing an element.",
     inputSchema: {
       key: z.string().describe("Keyboard key such as Enter or Escape"),
       index: z.number().optional().describe("Element index to focus first"),
       selector: z.string().optional().describe("CSS selector to focus first"),
     },
+    tier: 1,
   },
   {
     name: "scroll",
@@ -157,11 +169,10 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Scroll the page up or down.",
     inputSchema: {
       direction: z.enum(["up", "down"]).describe("Scroll direction"),
-      amount: z
-        .number()
-        .optional()
-        .describe("Pixels to scroll (default 500)"),
+      amount: z.number().optional().describe("Pixels to scroll (default 500)"),
     },
+    tier: 0,
+    relevance: ["ARTICLE", "SEARCH_RESULTS", "PAGINATED_LIST"],
   },
   {
     name: "hover",
@@ -172,6 +183,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       index: z.number().optional().describe("Element index number"),
       selector: z.string().optional().describe("CSS selector as fallback"),
     },
+    tier: 2,
   },
   {
     name: "focus",
@@ -182,6 +194,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       index: z.number().optional().describe("Element index number"),
       selector: z.string().optional().describe("CSS selector as fallback"),
     },
+    tier: 2,
+    relevance: ["FORM", "LOGIN"],
   },
 
   // --- Page & Content ---
@@ -201,26 +215,44 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       match: z
         .string()
         .optional()
-        .describe(
-          "Case-insensitive partial match against tab title or URL",
-        ),
+        .describe("Case-insensitive partial match against tab title or URL"),
       reload: z
         .boolean()
         .optional()
         .describe("Reload the tab after changing (default true)"),
     },
+    tier: 2,
   },
   {
     name: "dismiss_popup",
     title: "Dismiss Popup",
     description:
       "Dismiss a modal, popup, newsletter gate, cookie banner, or overlay using common close/decline actions.",
+    tier: 1,
   },
   {
     name: "read_page",
     title: "Read Page",
     description:
-      "Re-read the current page content. Includes active text selection and visible unsaved highlights. Use after navigation or interaction to see updated content.",
+      "Read the current page using a scoped mode. Defaults to a minimal navigation-focused brief; use mode='debug' only when narrower modes are insufficient.",
+    inputSchema: {
+      mode: z
+        .enum([
+          "summary",
+          "interactives_only",
+          "forms_only",
+          "text_only",
+          "visible_only",
+          "results_only",
+          "full",
+          "debug",
+        ])
+        .optional()
+        .describe(
+          "Read mode: visible_only/results_only/forms_only/summary/text_only for narrow reads, full/debug for the complete page dump",
+        ),
+    },
+    tier: 0,
   },
   {
     name: "wait_for",
@@ -241,6 +273,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Maximum time to wait in milliseconds (default 5000)"),
     },
+    tier: 2,
   },
 
   // --- Checkpoints & Sessions ---
@@ -256,6 +289,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Optional note about why this checkpoint matters"),
     },
+    tier: 2,
   },
   {
     name: "restore_checkpoint",
@@ -268,6 +302,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Checkpoint name to match if ID is unknown"),
     },
+    tier: 2,
   },
   {
     name: "save_session",
@@ -277,6 +312,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       name: z.string().describe("Session name such as github-logged-in"),
     },
+    tier: 2,
+    relevance: ["LOGIN"],
   },
   {
     name: "load_session",
@@ -286,12 +323,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       name: z.string().describe("Previously saved session name"),
     },
+    tier: 2,
   },
   {
     name: "list_sessions",
     title: "List Sessions",
     description:
       "List previously saved named browser sessions with cookie and storage counts.",
+    tier: 2,
   },
   {
     name: "delete_session",
@@ -300,6 +339,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       name: z.string().describe("Saved session name to delete"),
     },
+    tier: 2,
   },
 
   // --- Bookmarks ---
@@ -318,6 +358,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Exact bookmark folder name to filter by"),
     },
+    tier: 2,
   },
   {
     name: "search_bookmarks",
@@ -329,6 +370,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .string()
         .describe("Search term to match against saved bookmarks"),
     },
+    tier: 2,
   },
   {
     name: "create_bookmark_folder",
@@ -342,6 +384,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Optional one-sentence summary for this folder"),
     },
+    tier: 2,
   },
   {
     name: "save_bookmark",
@@ -362,14 +405,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .string()
         .optional()
         .describe("CSS selector of a link to bookmark without opening"),
-      folderId: z
-        .string()
-        .optional()
-        .describe("Folder ID to save into"),
+      folderId: z.string().optional().describe("Folder ID to save into"),
       folderName: z
         .string()
         .optional()
-        .describe("Folder name to save into. Created automatically if missing."),
+        .describe(
+          "Folder name to save into. Created automatically if missing.",
+        ),
       folderSummary: z
         .string()
         .optional()
@@ -387,6 +429,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("How to handle duplicate URLs in the same folder"),
     },
+    tier: 1,
   },
   {
     name: "organize_bookmark",
@@ -408,10 +451,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .string()
         .optional()
         .describe("CSS selector of a link to organize"),
-      folderId: z
-        .string()
-        .optional()
-        .describe("Target folder ID"),
+      folderId: z.string().optional().describe("Target folder ID"),
       folderName: z
         .string()
         .optional()
@@ -430,6 +470,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe('If true, organize into the default "Archive" folder'),
     },
+    tier: 2,
   },
   {
     name: "archive_bookmark",
@@ -453,6 +494,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .describe("CSS selector of a link to archive"),
       note: z.string().optional().describe("Optional note"),
     },
+    tier: 2,
   },
   {
     name: "open_bookmark",
@@ -466,6 +508,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Open in a new tab instead of the current tab"),
     },
+    tier: 2,
   },
 
   // --- Highlights ---
@@ -494,18 +537,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       durationMs: z
         .number()
         .optional()
-        .describe("Auto-clear after this many milliseconds (omit for permanent)"),
+        .describe(
+          "Auto-clear after this many milliseconds (omit for permanent)",
+        ),
       color: z
         .enum(["yellow", "red", "green", "blue", "purple", "orange"])
         .optional()
         .describe("Highlight color (default yellow)"),
     },
+    tier: 1,
+    relevance: ["ARTICLE", "SEARCH_RESULTS"],
   },
   {
     name: "clear_highlights",
     title: "Clear Highlights",
-    description:
-      "Remove all visual highlights from the current page.",
+    description: "Remove all visual highlights from the current page.",
+    tier: 2,
   },
 
   // --- Speedee System: Flow State ---
@@ -517,13 +564,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     inputSchema: {
       goal: z
         .string()
-        .describe("What this workflow accomplishes (e.g. 'Purchase item from Amazon')"),
+        .describe(
+          "What this workflow accomplishes (e.g. 'Purchase item from Amazon')",
+        ),
       steps: z
         .array(z.string())
         .describe(
           "Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])",
         ),
     },
+    tier: 1,
   },
   {
     name: "flow_advance",
@@ -536,16 +586,19 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Brief note about what was accomplished"),
     },
+    tier: 1,
   },
   {
     name: "flow_status",
     title: "Workflow Status",
     description: "Check the current workflow progress.",
+    tier: 2,
   },
   {
     name: "flow_end",
     title: "End Workflow",
     description: "Clear the active workflow tracker.",
+    tier: 2,
   },
 
   // --- Speedee System: Suggestion Engine ---
@@ -554,6 +607,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     title: "What Should I Do?",
     description:
       "Analyze the current page and return the most relevant tools and suggested next actions. Call this when unsure what to do.",
+    tier: 1,
   },
 
   // --- Speedee System: Composable Macros ---
@@ -570,10 +624,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               .number()
               .optional()
               .describe("Element index from page content"),
-            selector: z
-              .string()
-              .optional()
-              .describe("CSS selector fallback"),
+            selector: z.string().optional().describe("CSS selector fallback"),
             value: z.string().describe("Value to enter"),
           }),
         )
@@ -583,6 +634,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("Submit the form after filling (default false)"),
     },
+    tier: 1,
+    relevance: ["FORM", "LOGIN", "SHOPPING"],
   },
   {
     name: "login",
@@ -609,6 +662,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("CSS selector for submit button (auto-detected if omitted)"),
     },
+    tier: 1,
+    relevance: ["LOGIN"],
   },
   {
     name: "search",
@@ -622,6 +677,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .optional()
         .describe("CSS selector for search input (auto-detected if omitted)"),
     },
+    tier: 1,
+    relevance: ["SEARCH_READY", "SEARCH_RESULTS"],
   },
   {
     name: "paginate",
@@ -633,7 +690,81 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       selector: z
         .string()
         .optional()
-        .describe("CSS selector for pagination link (auto-detected if omitted)"),
+        .describe(
+          "CSS selector for pagination link (auto-detected if omitted)",
+        ),
     },
+    tier: 1,
+    relevance: ["SEARCH_RESULTS", "PAGINATED_LIST"],
+  },
+
+  // --- Speedee System: Expanded Macros ---
+  {
+    name: "accept_cookies",
+    title: "Accept Cookies",
+    description:
+      "Dismiss cookie consent banners (OneTrust, CookieBot, GDPR popups, etc.). More targeted than dismiss_popup for consent-specific overlays.",
+    tier: 1,
+  },
+  {
+    name: "extract_table",
+    title: "Extract Table",
+    description:
+      "Extract a table from the page as structured JSON rows. Returns column headers and cell values.",
+    inputSchema: {
+      index: z
+        .number()
+        .optional()
+        .describe("Element index of the table to extract"),
+      selector: z
+        .string()
+        .optional()
+        .describe(
+          "CSS selector for the table (auto-detected if omitted — uses first table)",
+        ),
+    },
+    tier: 1,
+    relevance: ["SEARCH_RESULTS", "ARTICLE"],
+  },
+  {
+    name: "scroll_to_element",
+    title: "Scroll To Element",
+    description:
+      "Scroll a specific element into view by index or selector. Useful for navigating to off-screen content.",
+    inputSchema: {
+      index: z.number().optional().describe("Element index to scroll to"),
+      selector: z.string().optional().describe("CSS selector to scroll to"),
+      position: z
+        .enum(["center", "top", "bottom"])
+        .optional()
+        .describe(
+          "Where to position the element in the viewport (default center)",
+        ),
+    },
+    tier: 1,
+  },
+
+  // --- Navigation Primitives ---
+  {
+    name: "wait_for_navigation",
+    title: "Wait For Navigation",
+    description:
+      "Wait for the current page to finish loading after a click or form submission. Use when you clicked a link and need to wait for the new page before reading it.",
+    inputSchema: {
+      timeoutMs: z
+        .number()
+        .optional()
+        .describe("Maximum time to wait in milliseconds (default 10000)"),
+    },
+    tier: 1,
+  },
+
+  // --- Speedee System: Metrics ---
+  {
+    name: "metrics",
+    title: "Session Metrics",
+    description:
+      "Show performance metrics for this session: total tool calls, average duration, per-tool breakdown, and error rates.",
+    tier: 2,
   },
 ];

@@ -26,6 +26,8 @@ function renderPage(title: string, body: string): string {
       <a href="/get-form">GET form</a>
       <a href="/post-form">POST form</a>
       <a href="/external-submit">External submit</a>
+      <a href="/same-page-action">Same-page action</a>
+      <a href="/trusted-enter-source">Trusted Enter</a>
     </nav>
     <main>
       ${body}
@@ -42,12 +44,20 @@ async function readRequestBody(req: http.IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function sendHtml(res: http.ServerResponse, html: string, statusCode = 200): void {
+function sendHtml(
+  res: http.ServerResponse,
+  html: string,
+  statusCode = 200,
+): void {
   res.writeHead(statusCode, { "content-type": "text/html; charset=utf-8" });
   res.end(html);
 }
 
-function sendRedirect(res: http.ServerResponse, location: string, statusCode = 303): void {
+function sendRedirect(
+  res: http.ServerResponse,
+  location: string,
+  statusCode = 303,
+): void {
   res.writeHead(statusCode, { location });
   res.end();
 }
@@ -311,6 +321,70 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
           `
             <h1>External Result</h1>
             <p id="external-value">${value}</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/same-page-action") {
+      sendHtml(
+        res,
+        renderPage(
+          "same-page-action",
+          `
+            <h1>Same Page Action</h1>
+            <p id="status">idle</p>
+            <button
+              id="update-same-page"
+              type="button"
+              onclick="
+                document.title = 'same-page-action-updated';
+                document.getElementById('status').textContent = 'updated';
+              "
+            >
+              Update without navigating
+            </button>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/trusted-enter-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "trusted-enter-source",
+          `
+            <h1>Trusted Enter Source</h1>
+            <label>
+              Search
+              <input id="trusted-search" name="q" />
+            </label>
+            <script>
+              const input = document.getElementById('trusted-search');
+              input?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && event.isTrusted) {
+                  window.location.href = '/trusted-enter-result?q=' + encodeURIComponent(input.value);
+                }
+              });
+            </script>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/trusted-enter-result") {
+      const value = url.searchParams.get("q") || "";
+      sendHtml(
+        res,
+        renderPage(
+          "trusted-enter-result",
+          `
+            <h1>Trusted Enter Result</h1>
+            <p id="trusted-enter-value">${value}</p>
           `,
         ),
       );

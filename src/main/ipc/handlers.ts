@@ -384,6 +384,118 @@ export function registerIpcHandlers(
     }
   });
 
+  // --- Highlight navigation ---
+
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_COUNT, () => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return 0;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return 0;
+    try {
+      return wc.executeJavaScript(
+        `document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text').length`,
+      );
+    } catch {
+      return 0;
+    }
+  });
+
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (_, index: number) => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return false;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return false;
+    try {
+      return wc.executeJavaScript(`
+        (function() {
+          var highlights = document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text');
+          if (${index} < 0 || ${index} >= highlights.length) return false;
+          // Remove focus ring from all highlights
+          highlights.forEach(function(h) { h.style.removeProperty('outline'); h.style.removeProperty('outline-offset'); });
+          var target = highlights[${index}];
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add focus ring to current highlight
+          target.style.setProperty('outline', '2px solid rgba(255, 255, 255, 0.9)', 'important');
+          target.style.setProperty('outline-offset', '2px', 'important');
+          return true;
+        })()
+      `);
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, (_, index: number) => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return false;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return false;
+    try {
+      return wc.executeJavaScript(`
+        (function() {
+          var highlights = document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text');
+          if (${index} < 0 || ${index} >= highlights.length) return false;
+          var el = highlights[${index}];
+          // Remove associated label if any
+          document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
+            if (b.__vesselAnchor === el) b.remove();
+          });
+          // Unwrap text highlights, remove class from element highlights
+          if (el.tagName === 'MARK' && el.classList.contains('__vessel-highlight-text')) {
+            var parent = el.parentNode;
+            while (el.firstChild) parent.insertBefore(el.firstChild, el);
+            parent.removeChild(el);
+            parent.normalize();
+          } else {
+            el.classList.remove('__vessel-highlight');
+            el.style.removeProperty('background');
+            el.style.removeProperty('outline-color');
+            el.style.removeProperty('box-shadow');
+            el.style.removeProperty('outline');
+            el.style.removeProperty('outline-offset');
+          }
+          return true;
+        })()
+      `);
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, () => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return false;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return false;
+    try {
+      return wc.executeJavaScript(`
+        (function() {
+          // Remove all labels
+          document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) { b.remove(); });
+          // Unwrap text highlights
+          document.querySelectorAll('.__vessel-highlight-text').forEach(function(mark) {
+            var parent = mark.parentNode;
+            while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+            parent.removeChild(mark);
+            parent.normalize();
+          });
+          // Remove element highlights
+          document.querySelectorAll('.__vessel-highlight').forEach(function(el) {
+            el.classList.remove('__vessel-highlight');
+            el.style.removeProperty('background');
+            el.style.removeProperty('outline-color');
+            el.style.removeProperty('box-shadow');
+            el.style.removeProperty('outline');
+            el.style.removeProperty('outline-offset');
+          });
+          return true;
+        })()
+      `);
+    } catch {
+      return false;
+    }
+  });
+
   // --- DevTools panel ---
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, () => {

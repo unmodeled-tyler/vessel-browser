@@ -92,16 +92,19 @@ export class Tab {
     };
 
     // Ensure clipboard shortcuts work in tab content
-    this.view.webContents.on("before-input-event", (event, input) => {
+    // Don't preventDefault — let the page handle clipboard natively.
+    // Only intercept as fallback when the focused view doesn't route the event.
+    this.view.webContents.on("before-input-event", (_event, input) => {
       if (!input.control && !input.meta) return;
+      if (input.type !== "keyDown") return;
       const key = input.key.toLowerCase();
       const wc = this.view.webContents;
-      if (input.type === "keyDown") {
-        if (key === "c") { wc.copy(); event.preventDefault(); }
-        else if (key === "v") { wc.paste(); event.preventDefault(); }
-        else if (key === "x") { wc.cut(); event.preventDefault(); }
-        else if (key === "a") { wc.selectAll(); event.preventDefault(); }
-      }
+      // Use Electron's clipboard methods but don't block the event —
+      // this lets pages with custom clipboard handlers still work.
+      if (key === "c") wc.copy();
+      else if (key === "v") wc.paste();
+      else if (key === "x") wc.cut();
+      else if (key === "a") wc.selectAll();
     });
 
     this.setupListeners();

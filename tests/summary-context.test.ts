@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildScopedContext, buildStructuredContext } from "../src/main/ai/context-builder";
+import {
+  buildScopedContext,
+  buildStructuredContext,
+  chooseAgentReadMode,
+} from "../src/main/ai/context-builder";
 import type { PageContent } from "../src/shared/types";
 
 function buildPage(overrides: Partial<PageContent>): PageContent {
@@ -64,7 +68,10 @@ test("summary mode flags large pages and generic metadata fallback", () => {
     /\*\*Reading Hint:\*\* Large page detected: 15032 chars across 3 headings/i,
   );
   assert.match(context, /Structured data: generic page metadata only/);
-  assert.match(context, /Stats: 0 interactives, 0 forms, 0 nav links, 3 headings, 15032 chars/);
+  assert.match(
+    context,
+    /Stats: 0 interactives, 0 forms, 0 nav links, 3 headings, 15032 chars/,
+  );
 });
 
 test("full context labels page-only fallback as page metadata", () => {
@@ -88,4 +95,67 @@ test("full context labels page-only fallback as page metadata", () => {
 
   assert.match(context, /### Page Metadata/);
   assert.doesNotMatch(context, /### Structured Data/);
+});
+
+test("agent default read mode stays narrow for navigation-heavy pages", () => {
+  const searchReady = chooseAgentReadMode(
+    buildPage({
+      title: "Newegg",
+      url: "https://www.newegg.com/",
+      interactiveElements: [
+        {
+          type: "input",
+          label: "Search",
+          inputType: "search",
+          placeholder: "Search",
+          index: 1,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+    }),
+  );
+  const resultsPage = chooseAgentReadMode(
+    buildPage({
+      title: "GPU Search Results",
+      url: "https://www.newegg.com/p/pl?d=rtx+4060",
+      interactiveElements: [
+        {
+          type: "input",
+          label: "Search",
+          inputType: "search",
+          placeholder: "Search",
+          index: 1,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        ...Array.from({ length: 12 }, (_, i) => ({
+          type: "link" as const,
+          text: `Result ${i + 1}`,
+          href: `https://example.com/result-${i + 1}`,
+          context: "content",
+          selector: `a.result-${i + 1}`,
+          index: i + 2,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        })),
+      ],
+    }),
+  );
+  const articlePage = chooseAgentReadMode(
+    buildPage({
+      title: "Long Article",
+      url: "https://example.com/article",
+      content: "x".repeat(5000),
+      headings: [{ level: 1, text: "Long Article" }],
+      interactiveElements: [],
+    }),
+  );
+
+  assert.equal(searchReady, "visible_only");
+  assert.equal(resultsPage, "results_only");
+  assert.equal(articlePage, "summary");
 });

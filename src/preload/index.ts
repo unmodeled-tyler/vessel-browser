@@ -105,6 +105,25 @@ const api = {
       return () =>
         ipcRenderer.removeListener(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
     },
+    getCount: (): Promise<number> =>
+      ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_COUNT),
+    scrollTo: (index: number): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_SCROLL, index),
+    remove: (index: number): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_REMOVE, index),
+    clearAll: (): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_CLEAR),
+    onSidebarAction: (
+      cb: (action: "remove-current" | "clear-all") => void,
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        action: "remove-current" | "clear-all",
+      ) => cb(action);
+      ipcRenderer.on(Channels.SIDEBAR_HIGHLIGHT_ACTION, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SIDEBAR_HIGHLIGHT_ACTION, handler);
+    },
   },
   ui: {
     toggleSidebar: () => ipcRenderer.invoke(Channels.SIDEBAR_TOGGLE),
@@ -114,6 +133,15 @@ const api = {
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE, width),
     commitSidebarResize: () =>
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE_COMMIT),
+    onSidebarContextMenu: (
+      cb: (position: { x: number; y: number }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, position: { x: number; y: number }) =>
+        cb(position);
+      ipcRenderer.on(Channels.SIDEBAR_CONTEXT_MENU, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SIDEBAR_CONTEXT_MENU, handler);
+    },
     toggleFocusMode: () => ipcRenderer.invoke(Channels.FOCUS_MODE_TOGGLE),
     setSettingsVisibility: (open: boolean) =>
       ipcRenderer.invoke(Channels.SETTINGS_VISIBILITY, open),

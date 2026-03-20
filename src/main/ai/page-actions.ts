@@ -10,7 +10,7 @@ import {
   formatLiveSelectionSection,
 } from "../highlights/live-snapshot";
 import { extractContent } from "../content/extractor";
-import { getRecoverableAccessIssue } from "../content/page-access-issues";
+
 import { findSelectorByIndex } from "../mcp/indexed-selector";
 import {
   formatDeadLinkMessage,
@@ -18,16 +18,124 @@ import {
 } from "../network/link-validation";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
-import { buildStructuredContext } from "./context-builder";
+import {
+  buildScopedContext,
+  buildStructuredContext,
+  chooseAgentReadMode,
+  type ExtractMode,
+} from "./context-builder";
 
 export interface ActionContext {
   tabManager: TabManager;
   runtime: AgentRuntime;
 }
 
+const DEFAULT_PAGE_SCRIPT_TIMEOUT_MS = 1500;
+const QUIET_NAVIGATION_WINDOW_MS = 1200;
+const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
+
+function pageBusyError(action: string): string {
+  return `Error: Page is still busy; ${action} timed out waiting for page scripts. Retry in a moment.`;
+}
+
+function normalizeReadPageMode(
+  mode: unknown,
+  pageContent?: Awaited<ReturnType<typeof extractContent>>,
+): ExtractMode | "debug" {
+  if (typeof mode === "string") {
+    const normalized = mode.trim().toLowerCase();
+    if (normalized === "debug") return "debug";
+    if (
+      normalized === "full" ||
+      normalized === "summary" ||
+      normalized === "interactives_only" ||
+      normalized === "forms_only" ||
+      normalized === "text_only" ||
+      normalized === "visible_only" ||
+      normalized === "results_only"
+    ) {
+      return normalized;
+    }
+  }
+
+  return pageContent ? chooseAgentReadMode(pageContent) : "visible_only";
+}
+
+async function executePageScript<T>(
+  wc: WebContents,
+  script: string,
+  options?: {
+    timeoutMs?: number;
+    userGesture?: boolean;
+    label?: string;
+  },
+): Promise<T | typeof PAGE_SCRIPT_TIMEOUT | null> {
+  if (wc.isDestroyed()) return null;
+
+  const timeoutMs = Math.max(
+    150,
+    options?.timeoutMs ?? DEFAULT_PAGE_SCRIPT_TIMEOUT_MS,
+  );
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    const result = await Promise.race([
+      wc.executeJavaScript(script, options?.userGesture ?? false) as Promise<T>,
+      new Promise<typeof PAGE_SCRIPT_TIMEOUT>((resolve) => {
+        timer = setTimeout(() => resolve(PAGE_SCRIPT_TIMEOUT), timeoutMs);
+      }),
+    ]);
+
+    if (result === PAGE_SCRIPT_TIMEOUT) {
+      console.log(
+        `[Vessel pageScript] timed out after ${timeoutMs}ms (${options?.label || "page-script"})`,
+      );
+      return PAGE_SCRIPT_TIMEOUT;
+    }
+
+    return result as T;
+  } catch {
+    return null;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * Probe the page's JS thread until it responds.  Heavy SPAs (Newegg,
+ * Wikipedia) can keep the JS thread busy for 10-20s after the HTML
+ * loads while React/Vue hydrate, ads initialise, etc.  Any
+ * executeJavaScript call made during that window queues behind the
+ * busy work and hangs.  This function polls with a tiny script until
+ * the thread is free, so subsequent tool calls work immediately.
+ */
+async function waitForJsReady(wc: WebContents, timeout = 8000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const ready = await executePageScript<number>(wc, "1", {
+      timeoutMs: 250,
+      userGesture: true,
+      label: "js-ready probe",
+    });
+    if (ready === 1) {
+      console.log(`[Vessel] JS thread ready after ${Date.now() - start}ms`);
+      return;
+    }
+    await sleep(250);
+  }
+  console.log(
+    `[Vessel] JS thread not ready after ${timeout}ms, continuing anyway`,
+  );
+}
+
 function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
   return new Promise((resolve) => {
     let finished = false;
+    console.log(
+      `[Vessel waitForLoad] started, isLoading=${wc.isLoading()}, timeout=${timeout}`,
+    );
 
     const cleanup = () => {
       wc.removeListener("did-finish-load", onLoadEvent);
@@ -35,24 +143,29 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
       wc.removeListener("did-fail-load", onLoadEvent);
     };
 
-    const finish = () => {
+    const finish = (reason: string) => {
       if (finished) return;
       finished = true;
+      console.log(`[Vessel waitForLoad] finished: ${reason}`);
       clearTimeout(timer);
       cleanup();
       resolve();
     };
 
     const onLoadEvent = () => {
-      if (!wc.isLoading()) {
-        finish();
+      const loading = wc.isLoading();
+      console.log(
+        `[Vessel waitForLoad] load event fired, isLoading=${loading}`,
+      );
+      if (!loading) {
+        finish("load event");
       }
     };
 
-    const timer = setTimeout(finish, timeout);
+    const timer = setTimeout(() => finish("timeout"), timeout);
 
     if (!wc.isLoading()) {
-      finish();
+      finish("already loaded");
       return;
     }
 
@@ -65,44 +178,76 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
 function waitForPotentialNavigation(
   wc: WebContents,
   beforeUrl: string,
-  timeout = 4000,
+  timeout = 2500,
 ): Promise<void> {
   return new Promise((resolve) => {
     let done = false;
+    let waitingForLoad = false;
+    const beforeTitle = wc.getTitle();
     const finish = () => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      clearInterval(poller);
       wc.removeListener("did-start-loading", onStart);
       wc.removeListener("did-navigate", onNavigate);
       wc.removeListener("did-navigate-in-page", onNavigateInPage);
+      wc.removeListener("did-stop-loading", onNativeChange);
+      wc.removeListener("page-title-updated", onNativeChange);
       resolve();
     };
-    const onStart = () => {
-      // Wait for did-navigate (history commit) then load finish, not just load
-      wc.removeListener("did-navigate", onNavigate);
-      wc.once("did-navigate", () => {
-        void waitForLoad(wc, timeout).then(finish);
-      });
-      // Safety: if did-navigate never fires, still resolve on load finish
+    const finishAfterLoad = () => {
+      if (waitingForLoad) return;
+      waitingForLoad = true;
       void waitForLoad(wc, timeout).then(finish);
+    };
+    const onNativeChange = () => {
+      if (wc.isLoading()) {
+        finishAfterLoad();
+        return;
+      }
+      if (wc.getURL() !== beforeUrl || wc.getTitle() !== beforeTitle) {
+        finish();
+      }
+    };
+    const onStart = () => {
+      finishAfterLoad();
     };
     const onNavigate = () => {
-      // Navigation committed to history — wait for load to complete
-      void waitForLoad(wc, timeout).then(finish);
+      finishAfterLoad();
     };
     const onNavigateInPage = () => finish();
-    const timer = setTimeout(finish, timeout);
+    const timer = setTimeout(
+      finish,
+      Math.min(timeout, QUIET_NAVIGATION_WINDOW_MS),
+    );
+    const poller = setInterval(onNativeChange, 100);
 
-    if (wc.getURL() !== beforeUrl || wc.isLoading()) {
-      void waitForLoad(wc, timeout).then(finish);
+    if (
+      wc.getURL() !== beforeUrl ||
+      wc.getTitle() !== beforeTitle ||
+      wc.isLoading()
+    ) {
+      onNativeChange();
       return;
     }
 
     wc.once("did-start-loading", onStart);
     wc.once("did-navigate", onNavigate);
     wc.once("did-navigate-in-page", onNavigateInPage);
+    wc.on("did-stop-loading", onNativeChange);
+    wc.on("page-title-updated", onNativeChange);
   });
+}
+
+/**
+ * Grab just the page title — no JS execution in the page context at all.
+ * Electron exposes getTitle() on WebContents natively, so this never blocks
+ * on a busy page JS thread.
+ */
+function getPostNavSummary(wc: WebContents): string {
+  const title = wc.getTitle();
+  return title ? `\nPage title: ${title}` : "";
 }
 
 async function scrollPage(
@@ -113,8 +258,10 @@ async function scrollPage(
   afterY: number;
   movedY: number;
 }> {
-  const getScrollY = () =>
-    wc.executeJavaScript(`
+  const getScrollY = async () => {
+    const scrollY = await executePageScript<number>(
+      wc,
+      `
       (function() {
         return Math.max(
           window.scrollY || 0,
@@ -124,10 +271,29 @@ async function scrollPage(
           document.body?.scrollTop || 0,
         );
       })()
-    `);
+    `,
+      {
+        label: "read scroll position",
+      },
+    );
+    return typeof scrollY === "number" ? scrollY : 0;
+  };
 
   const beforeY = await getScrollY();
-  await wc.executeJavaScript(`window.scrollBy(0, ${deltaY})`);
+  const scrolled = await executePageScript(
+    wc,
+    `window.scrollBy(0, ${deltaY})`,
+    {
+      label: "scroll page",
+    },
+  );
+  if (scrolled === PAGE_SCRIPT_TIMEOUT) {
+    return {
+      beforeY,
+      afterY: beforeY,
+      movedY: 0,
+    };
+  }
   await sleep(100);
   const afterY = await getScrollY();
   return {
@@ -145,7 +311,15 @@ async function clickElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
-  const target = await wc.executeJavaScript(`
+  const target = await executePageScript<{
+    x: number;
+    y: number;
+    obstructed: boolean;
+    hiddenWindow: boolean;
+    error?: string;
+  }>(
+    wc,
+    `
     (async function() {
       function matchesTarget(candidate, el) {
         return !!candidate && (candidate === el || el.contains(candidate) || candidate.contains(el));
@@ -209,7 +383,16 @@ async function clickElement(
         hiddenWindow: document.visibilityState !== "visible",
       };
     })()
-  `);
+  `,
+    {
+      timeoutMs: 2000,
+      label: "resolve click target",
+    },
+  );
+
+  if (target === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("click");
+  }
 
   if (!target || typeof target !== "object") {
     return "Error: Could not resolve click target";
@@ -250,7 +433,9 @@ async function activateElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
-  const activated = await wc.executeJavaScript(`
+  const activated = await executePageScript<{ ok?: boolean; error?: string }>(
+    wc,
+    `
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return { error: "Element not found" };
@@ -263,7 +448,15 @@ async function activateElement(
       }
       return { error: "Element is not clickable" };
     })()
-  `);
+  `,
+    {
+      label: "activate element",
+    },
+  );
+
+  if (activated === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("activate");
+  }
 
   if (!activated || typeof activated !== "object") {
     return "Error: Could not activate element";
@@ -279,7 +472,13 @@ async function describeElementForClick(
   wc: WebContents,
   selector: string,
 ): Promise<{ text: string; href?: string } | { error: string }> {
-  const result = await wc.executeJavaScript(`
+  const result = await executePageScript<{
+    text?: string;
+    href?: string;
+    error?: string;
+  }>(
+    wc,
+    `
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return { error: "Element not found" };
@@ -290,7 +489,15 @@ async function describeElementForClick(
         href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
       };
     })()
-  `);
+  `,
+    {
+      label: "describe element",
+    },
+  );
+
+  if (result === PAGE_SCRIPT_TIMEOUT) {
+    return { error: "Page is still busy" };
+  }
 
   if (!result || typeof result !== "object") {
     return { error: "Element not found" };
@@ -304,7 +511,10 @@ async function describeElementForClick(
       "text" in result && typeof result.text === "string"
         ? result.text
         : "Element",
-    href: "href" in result && typeof result.href === "string" ? result.href : undefined,
+    href:
+      "href" in result && typeof result.href === "string"
+        ? result.href
+        : undefined,
   };
 }
 
@@ -316,9 +526,38 @@ async function clickResolvedSelector(
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     const beforeUrl = wc.getURL();
-    const result = await wc.executeJavaScript(
+    const result = await executePageScript<string>(
+      wc,
       `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
+      {
+        label: "shadow click by index",
+      },
     );
+    if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
+    if (typeof result === "string" && result.startsWith("Error")) return result;
+    await waitForPotentialNavigation(wc, beforeUrl);
+    const afterUrl = wc.getURL();
+    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+  }
+
+  // Shadow-piercing selector path
+  if (selector.includes(" >>> ")) {
+    const beforeUrl = wc.getURL();
+    const result = await executePageScript<string>(
+      wc,
+      `
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (el instanceof HTMLElement) { el.focus(); el.click(); }
+        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
+      })()
+    `,
+      {
+        label: "shadow click selector",
+      },
+    );
+    if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
@@ -365,7 +604,11 @@ async function dismissPopup(wc: WebContents): Promise<string> {
   ).length;
   const initialDormant = before.dormantOverlays.length;
 
-  const candidates = await wc.executeJavaScript(`
+  const candidates = await executePageScript<
+    Array<{ selector: string; label?: string; score: number }>
+  >(
+    wc,
+    `
     (function() {
       function text(value) {
         const trimmed = value == null ? "" : String(value).trim();
@@ -544,7 +787,16 @@ async function dismissPopup(wc: WebContents): Promise<string> {
         .sort((a, b) => b.score - a.score)
         .slice(0, 8);
     })()
-  `);
+  `,
+    {
+      timeoutMs: 2000,
+      label: "inspect popup candidates",
+    },
+  );
+
+  if (candidates === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("dismiss_popup");
+  }
 
   if (Array.isArray(candidates)) {
     for (const candidate of candidates) {
@@ -606,7 +858,8 @@ async function resolveSelector(
   if (selector) return selector;
   if (index == null) return null;
 
-  const authoritativeSelector = await wc.executeJavaScript(
+  const authoritativeSelector = await executePageScript<string | null>(
+    wc,
     `
       (function() {
         return window.__vessel?.getElementSelector
@@ -616,19 +869,26 @@ async function resolveSelector(
     `,
   );
   if (typeof authoritativeSelector === "string" && authoritativeSelector) {
+    // Shadow-piercing selector (contains " >>> ") — resolve via __vessel
+    if (authoritativeSelector.includes(" >>> ")) {
+      const resolves = await executePageScript<boolean>(
+        wc,
+        `!!window.__vessel?.resolveShadowSelector?.(${JSON.stringify(authoritativeSelector)})`,
+      );
+      if (resolves) return authoritativeSelector;
+      return `__vessel_idx:${index}`;
+    }
     // Verify the selector resolves in light DOM — shadow DOM elements need direct interaction
-    const resolves = await wc.executeJavaScript(
+    const resolves = await executePageScript<boolean>(
+      wc,
       `!!document.querySelector(${JSON.stringify(authoritativeSelector)})`,
     );
     if (resolves) return authoritativeSelector;
     return `__vessel_idx:${index}`;
   }
 
-  const page = await extractContent(wc);
-  const extractedSelector = findSelectorByIndex(page, index);
-  if (extractedSelector) return extractedSelector;
-
-  return wc.executeJavaScript(
+  const fallbackSelector = await executePageScript<string | null>(
+    wc,
     `
       (function() {
         // Final fallback: replicate the legacy extraction order.
@@ -704,6 +964,15 @@ async function resolveSelector(
       })()
     `,
   );
+  if (typeof fallbackSelector === "string" && fallbackSelector) {
+    return fallbackSelector;
+  }
+
+  const page = await extractContent(wc);
+  const extractedSelector = findSelectorByIndex(page, index);
+  if (extractedSelector) return extractedSelector;
+
+  return null;
 }
 
 function getTabByMatch(
@@ -750,11 +1019,43 @@ async function setElementValue(
 ): Promise<string> {
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
-    return wc.executeJavaScript(
+    const result = await executePageScript<string>(
+      wc,
       `window.__vessel?.interactByIndex?.(${idx}, "value", ${JSON.stringify(value)}) || "Error: interactByIndex not available"`,
     );
+    return result === PAGE_SCRIPT_TIMEOUT
+      ? pageBusyError("type_text")
+      : result || "Error: interactByIndex not available";
   }
-  return wc.executeJavaScript(`
+  // Shadow-piercing selector — use interactByIndex-style value setter via __vessel
+  if (selector.includes(" >>> ")) {
+    const result = await executePageScript<string>(
+      wc,
+      `
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return "Error[not-input]: Element is not a text input";
+        var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        var desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && desc.set) { desc.set.call(el, ${JSON.stringify(value)}); } else { el.value = ${JSON.stringify(value)}; }
+        el.focus();
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return "Typed into: " + (el.getAttribute("aria-label") || el.placeholder || el.name || "input");
+      })()
+    `,
+      {
+        label: "type text in shadow input",
+      },
+    );
+    return result === PAGE_SCRIPT_TIMEOUT
+      ? pageBusyError("type_text")
+      : result || "Error: Could not type into element";
+  }
+  const result = await executePageScript<string>(
+    wc,
+    `
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
@@ -787,7 +1088,14 @@ async function setElementValue(
         (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
         ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
     })()
-  `);
+  `,
+    {
+      label: "type text",
+    },
+  );
+  return result === PAGE_SCRIPT_TIMEOUT
+    ? pageBusyError("type_text")
+    : result || "Error: Could not type into element";
 }
 
 async function typeKeystroke(
@@ -795,7 +1103,9 @@ async function typeKeystroke(
   selector: string,
   value: string,
 ): Promise<string> {
-  return wc.executeJavaScript(`
+  const result = await executePageScript<string>(
+    wc,
+    `
     (async function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
@@ -832,7 +1142,15 @@ async function typeKeystroke(
         (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
         ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
     })()
-  `);
+  `,
+    {
+      timeoutMs: 2000,
+      label: "type keystrokes",
+    },
+  );
+  return result === PAGE_SCRIPT_TIMEOUT
+    ? pageBusyError("type_text")
+    : result || "Error: Could not type into element";
 }
 
 async function hoverElement(
@@ -863,7 +1181,8 @@ async function hoverElement(
   if ("error" in pos && typeof pos.error === "string") return pos.error;
   const x = typeof pos.x === "number" ? pos.x : null;
   const y = typeof pos.y === "number" ? pos.y : null;
-  if (x == null || y == null) return "Error: Could not resolve hover coordinates";
+  if (x == null || y == null)
+    return "Error: Could not resolve hover coordinates";
 
   wc.sendInputEvent({ type: "mouseMove", x, y });
   const label = typeof pos.label === "string" ? pos.label : "element";
@@ -911,7 +1230,9 @@ async function waitForCondition(
 
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const result = await wc.executeJavaScript(`
+    const result = await executePageScript<string>(
+      wc,
+      `
       (function() {
         var selector = ${JSON.stringify(selector)};
         var text = ${JSON.stringify(text)};
@@ -925,7 +1246,14 @@ async function waitForCondition(
         if (text && document.body && document.body.innerText && document.body.innerText.includes(text)) return 'text';
         return '';
       })()
-    `);
+    `,
+      {
+        label: "wait_for probe",
+      },
+    );
+    if (result === PAGE_SCRIPT_TIMEOUT) {
+      return pageBusyError("wait_for");
+    }
     if (result === "selector") {
       return `Matched selector ${selector}`;
     }
@@ -942,7 +1270,6 @@ async function waitForCondition(
     ? `Timed out waiting for selector ${selector}`
     : `Timed out waiting for text "${text.slice(0, 80)}"`;
 }
-
 
 function findCheckpoint(
   checkpoints: AgentCheckpoint[],
@@ -966,9 +1293,7 @@ function findCheckpoint(
   return null;
 }
 
-function resolveBookmarkFolderTarget(
-  args: Record<string, any>,
-): {
+function resolveBookmarkFolderTarget(args: Record<string, any>): {
   folderId?: string;
   folderName: string;
   createdFolder?: string;
@@ -1063,7 +1388,9 @@ async function selectOption(
   const selector = await resolveSelector(wc, args.index, args.selector);
   if (!selector) return "Error: No select element index or selector provided";
 
-  return wc.executeJavaScript(`
+  const result = await executePageScript<string>(
+    wc,
+    `
     (function() {
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!(el instanceof HTMLSelectElement)) {
@@ -1087,7 +1414,14 @@ async function selectOption(
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return 'Selected: ' + ((option.textContent || option.value).trim().slice(0, 100));
     })()
-  `);
+  `,
+    {
+      label: "select option",
+    },
+  );
+  return result === PAGE_SCRIPT_TIMEOUT
+    ? pageBusyError("select_option")
+    : result || "Error: Could not select option";
 }
 
 async function submitForm(
@@ -1099,7 +1433,9 @@ async function submitForm(
 
   // If no index/selector provided, find the first visible form on the page
   if (!selector) {
-    selector = await wc.executeJavaScript(`
+    const discoveredSelector = await executePageScript<string | null>(
+      wc,
+      `
       (function() {
         var forms = document.querySelectorAll('form');
         for (var i = 0; i < forms.length; i++) {
@@ -1109,12 +1445,22 @@ async function submitForm(
         }
         return forms.length > 0 ? 'form' : null;
       })()
-    `);
+    `,
+      {
+        label: "discover form",
+      },
+    );
+    if (discoveredSelector === PAGE_SCRIPT_TIMEOUT) {
+      return pageBusyError("submit_form");
+    }
+    selector = discoveredSelector || null;
     if (!selector) return "Error: No form found on the page";
   }
 
   // Get form info to determine submission method
-  const formInfo = await wc.executeJavaScript(`
+  const formInfo = await executePageScript<Record<string, any>>(
+    wc,
+    `
     (function() {
       const target = document.querySelector(${JSON.stringify(selector)});
       if (!target) return { error: 'Target not found' };
@@ -1208,7 +1554,19 @@ async function submitForm(
       form.submit();
       return { submitted: true, method };
     })()
-  `);
+  `,
+    {
+      timeoutMs: 2000,
+      label: "submit form",
+    },
+  );
+
+  if (formInfo === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("submit_form");
+  }
+  if (!formInfo || typeof formInfo !== "object") {
+    return "Error: Could not inspect form";
+  }
 
   if (formInfo.error) return formInfo.error;
 
@@ -1229,15 +1587,50 @@ async function submitForm(
   if (formInfo.submitted) {
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl
-      ? `Submitted form via ${formInfo.method} -> ${afterUrl}`
-      : `Submitted form via ${formInfo.method}`;
+    if (afterUrl !== beforeUrl) {
+      return `Submitted form via ${formInfo.method} -> ${afterUrl}`;
+    }
+
+    // Form submitted but URL didn't change — JS-heavy sites like Google
+    // intercept requestSubmit. Try pressing Enter on the active input as fallback.
+    await executePageScript(
+      wc,
+      `
+      (function() {
+        var active = document.activeElement;
+        if (!active || active === document.body) {
+          var inputs = document.querySelectorAll('input[type="text"], input[type="search"], input:not([type])');
+          for (var i = 0; i < inputs.length; i++) {
+            if (inputs[i].value) { active = inputs[i]; active.focus(); break; }
+          }
+        }
+        if (active && active !== document.body) {
+          active.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+          active.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+          active.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+        }
+      })()
+    `,
+      {
+        label: "submit form enter fallback",
+      },
+    );
+    // Also send native Enter via Electron input events for sites that listen at the browser level
+    wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+    await new Promise((r) => setTimeout(r, 50));
+    wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+
+    await waitForPotentialNavigation(wc, beforeUrl, 3000);
+    const finalUrl = wc.getURL();
+    return finalUrl !== beforeUrl
+      ? `Submitted form (Enter fallback) -> ${finalUrl}`
+      : `Submitted form via ${formInfo.method} (page may have updated dynamically)`;
   }
 
   return "Submitted form";
 }
 
-export { waitForLoad, setElementValue };
+export { waitForLoad, setElementValue, pressKey };
 
 export async function clickElementBySelector(
   wc: WebContents,
@@ -1261,31 +1654,75 @@ async function pressKey(
   if (!key) return "Error: No key provided";
 
   const selector = await resolveSelector(wc, args.index, args.selector);
-
-  return wc.executeJavaScript(`
+  const focusResult = await executePageScript<{
+    ok?: boolean;
+    error?: string;
+    label?: string;
+  }>(
+    wc,
+    `
     (function() {
-      const key = ${JSON.stringify(key)};
       const selector = ${JSON.stringify(selector)};
       const target =
         selector ? document.querySelector(selector) : document.activeElement;
       if (!target || !(target instanceof HTMLElement)) {
-        return selector ? 'Target not found' : 'No focused element';
+        return { error: selector ? 'Target not found' : 'No focused element' };
       }
-      target.focus();
-      const eventInit = { key, bubbles: true, cancelable: true };
-      target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
-      target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
-      const tag = target.tagName;
-      const type = target instanceof HTMLInputElement ? target.type : '';
-      if (key === 'Enter' &&
-          typeof target.click === 'function' &&
-          (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button')))) {
-        target.click();
-      }
-      target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
-      return 'Pressed key: ' + key;
+      target.focus({ preventScroll: false });
+      return {
+        ok: true,
+        label:
+          target.getAttribute('aria-label') ||
+          target.getAttribute('name') ||
+          target.getAttribute('placeholder') ||
+          target.textContent?.trim().slice(0, 60) ||
+          target.tagName.toLowerCase(),
+      };
     })()
-  `);
+  `,
+    {
+      label: "focus before key press",
+    },
+  );
+  if (focusResult === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("press_key");
+  }
+  if (!focusResult || typeof focusResult !== "object") {
+    return "Error: Could not prepare key press";
+  }
+  if ("error" in focusResult && typeof focusResult.error === "string") {
+    return focusResult.error;
+  }
+
+  wc.focus();
+
+  const normalizedKey =
+    key.length === 1 ? key : key[0].toUpperCase() + key.slice(1);
+  const electronKeyCode =
+    normalizedKey === "Enter"
+      ? "Return"
+      : normalizedKey === "ArrowUp"
+        ? "Up"
+        : normalizedKey === "ArrowDown"
+          ? "Down"
+          : normalizedKey === "ArrowLeft"
+            ? "Left"
+            : normalizedKey === "ArrowRight"
+              ? "Right"
+              : normalizedKey;
+
+  wc.sendInputEvent({ type: "keyDown", keyCode: electronKeyCode });
+  if (key.length === 1) {
+    wc.sendInputEvent({ type: "char", keyCode: key });
+  }
+  await sleep(16);
+  wc.sendInputEvent({ type: "keyUp", keyCode: electronKeyCode });
+
+  const label =
+    "label" in focusResult && typeof focusResult.label === "string"
+      ? focusResult.label
+      : null;
+  return label ? `Pressed key: ${key} on ${label}` : `Pressed key: ${key}`;
 }
 
 async function getPostActionState(
@@ -1309,7 +1746,13 @@ async function getPostActionState(
     "search",
     "paginate",
   ];
-  const interactActions = ["type_text", "select_option", "hover", "focus", "fill_form"];
+  const interactActions = [
+    "type_text",
+    "select_option",
+    "hover",
+    "focus",
+    "fill_form",
+  ];
   const tabActions = [
     "create_tab",
     "switch_tab",
@@ -1318,35 +1761,12 @@ async function getPostActionState(
   ];
 
   if (navActions.includes(name)) {
-    let warning = "";
-
-    try {
-      const page = await extractContent(wc);
-      const issue = getRecoverableAccessIssue(page);
-      if (issue) {
-        const blockedUrl = wc.getURL();
-        const canRecover =
-          [
-            "navigate",
-            "open_bookmark",
-            "click",
-            "submit_form",
-            "reload",
-            "press_key",
-          ].includes(name) && tab.canGoBack();
-
-        if (canRecover && tab.goBack()) {
-          await waitForLoad(wc);
-          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""} Automatically returned to ${wc.getURL()} after landing on ${blockedUrl}.]`;
-        } else {
-          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
-        }
-      }
-    } catch {
-      // Best-effort post-action warning only
+    // If the page is still loading (spinner visible), wait for it to
+    // finish — just like a human waits for the spinner to stop.
+    if (wc.isLoading()) {
+      await waitForLoad(wc);
     }
-
-    return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
   }
 
   if (interactActions.includes(name)) {
@@ -1365,11 +1785,79 @@ async function getPostActionState(
   return "";
 }
 
+/** All known tool names — used to detect concatenated tool calls from models */
+const KNOWN_TOOLS = new Set([
+  "current_tab",
+  "list_tabs",
+  "switch_tab",
+  "create_tab",
+  "navigate",
+  "go_back",
+  "go_forward",
+  "reload",
+  "click",
+  "type_text",
+  "select_option",
+  "submit_form",
+  "press_key",
+  "scroll",
+  "hover",
+  "focus",
+  "set_ad_blocking",
+  "dismiss_popup",
+  "read_page",
+  "wait_for",
+  "create_checkpoint",
+  "restore_checkpoint",
+  "save_session",
+  "load_session",
+  "list_sessions",
+  "delete_session",
+  "list_bookmarks",
+  "search_bookmarks",
+  "create_bookmark_folder",
+  "save_bookmark",
+  "organize_bookmark",
+  "archive_bookmark",
+  "open_bookmark",
+  "highlight",
+  "clear_highlights",
+  "flow_start",
+  "flow_advance",
+  "flow_status",
+  "flow_end",
+  "suggest",
+  "fill_form",
+  "login",
+  "search",
+  "paginate",
+  "accept_cookies",
+  "extract_table",
+  "scroll_to_element",
+  "metrics",
+  "wait_for_navigation",
+]);
+
 export async function executeAction(
   name: string,
   args: Record<string, any>,
   ctx: ActionContext,
 ): Promise<string> {
+  // Detect concatenated tool names (e.g. "create_checkpointcurrent_tablist_tabs")
+  // from models that don't properly support parallel tool calls
+  if (!KNOWN_TOOLS.has(name)) {
+    // Try to find the first matching tool name at the start
+    for (const known of KNOWN_TOOLS) {
+      if (name.startsWith(known) && name.length > known.length) {
+        const remaining = name.slice(known.length);
+        const otherTools = [...KNOWN_TOOLS].filter((t) =>
+          remaining.includes(t),
+        );
+        return `Error: It looks like you tried to call multiple tools at once (${known}, ${otherTools.join(", ")}). Please call them one at a time — send one tool call per message.`;
+      }
+    }
+  }
+
   const tab = ctx.tabManager.getActiveTab();
   const tabId = ctx.tabManager.getActiveTabId();
 
@@ -1466,6 +1954,7 @@ export async function executeAction(
           const created = ctx.tabManager.getActiveTab();
           if (created) {
             await waitForLoad(created.view.webContents);
+            return `Created tab ${createdId}${getPostNavSummary(created.view.webContents)}`;
           }
           return `Created tab ${createdId}`;
         }
@@ -1474,7 +1963,7 @@ export async function executeAction(
           if (!wc || !tabId) return "Error: No active tab";
           ctx.tabManager.navigateTab(tabId, args.url);
           await waitForLoad(wc);
-          return `Navigated to ${wc.getURL()}`;
+          return `Navigated to ${wc.getURL()}${getPostNavSummary(wc)}`;
         }
 
         case "go_back": {
@@ -1487,7 +1976,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went back to ${afterUrl}`
+            ? `Went back to ${afterUrl}${getPostNavSummary(wc)}`
             : `Back action completed but page stayed on ${afterUrl}`;
         }
 
@@ -1501,7 +1990,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went forward to ${afterUrl}`
+            ? `Went forward to ${afterUrl}${getPostNavSummary(wc)}`
             : `Forward action completed but page stayed on ${afterUrl}`;
         }
 
@@ -1523,8 +2012,7 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
-          const mode =
-            typeof args.mode === "string" ? args.mode : "default";
+          const mode = typeof args.mode === "string" ? args.mode : "default";
           if (mode === "keystroke") {
             return typeKeystroke(wc, selector, String(args.text || ""));
           }
@@ -1631,27 +2119,123 @@ export async function executeAction(
 
         case "read_page": {
           if (!wc) return "Error: No active tab";
-          const content = await extractContent(wc);
-          const liveSelectionSection = formatLiveSelectionSection(
-            await captureLiveHighlightSnapshot(
-              wc,
-              highlightsManager.getHighlightsForUrl(content.url),
-            ),
+
+          // Try full extraction first; if the page JS thread is busy
+          // (common on heavy SPAs after navigation), fall back to a
+          // lightweight native-only read so the agent isn't blocked.
+          console.log("[Vessel read_page] starting extraction with 6s timeout");
+          let content: Awaited<ReturnType<typeof extractContent>> | null = null;
+          try {
+            content = await Promise.race([
+              extractContent(wc),
+              new Promise<null>((resolve) =>
+                setTimeout(() => {
+                  console.log("[Vessel read_page] timeout fired, falling back");
+                  resolve(null);
+                }, 6000),
+              ),
+            ]);
+          } catch {
+            content = null;
+          }
+          console.log(
+            `[Vessel read_page] extraction result: ${content ? `content=${content.content.length}` : "null (timeout)"}`,
           );
-          const structured = buildStructuredContext(content);
-          const truncated =
-            content.content.length > 20000
-              ? content.content.slice(0, 20000) + "\n[Content truncated...]"
-              : content.content;
-          const livePrefix = liveSelectionSection
-            ? `${liveSelectionSection}\n\n`
-            : "";
-          return `${livePrefix}${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+
+          if (content) {
+            const liveSelectionSection = formatLiveSelectionSection(
+              await captureLiveHighlightSnapshot(
+                wc,
+                highlightsManager.getHighlightsForUrl(content.url),
+              ),
+            );
+            const livePrefix = liveSelectionSection
+              ? `${liveSelectionSection}\n\n`
+              : "";
+            const requestedMode = normalizeReadPageMode(args.mode, content);
+
+            if (requestedMode === "debug" || requestedMode === "full") {
+              const structured = buildStructuredContext(content);
+              const truncated =
+                content.content.length > 20000
+                  ? content.content.slice(0, 20000) + "\n[Content truncated...]"
+                  : content.content;
+              return `${livePrefix}[read_page mode=debug]\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
+            }
+
+            const scoped = buildScopedContext(content, requestedMode);
+            return [
+              livePrefix ? livePrefix.trimEnd() : "",
+              `[read_page mode=${requestedMode}]`,
+              "",
+              scoped,
+              "",
+              `Need more detail? Escalate with read_page(mode="debug") only if the narrow modes are insufficient.`,
+            ]
+              .filter(Boolean)
+              .join("\n\n");
+          }
+
+          // Fallback: native Electron APIs only — no executeJavaScript
+          const title = wc.getTitle() || "(untitled)";
+          const url = wc.getURL();
+          return [
+            `# ${title}`,
+            `URL: ${url}`,
+            "",
+            "[Page content extraction timed out — the page JS thread is busy.]",
+            "[Use the search tool to search the site, or type_text/click to interact directly.]",
+            "[You can retry read_page in a few seconds once the page finishes loading.]",
+          ].join("\n");
         }
 
         case "wait_for": {
           if (!wc) return "Error: No active tab";
           return waitForCondition(wc, args);
+        }
+
+        case "wait_for_navigation": {
+          if (!wc) return "Error: No active tab";
+          const timeout =
+            typeof args.timeoutMs === "number" ? args.timeoutMs : 10000;
+          const beforeUrl = wc.getURL();
+          if (wc.isLoading()) {
+            // Page is currently loading — wait for it to finish
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, timeout);
+              wc.once("did-stop-loading", () => {
+                clearTimeout(timer);
+                resolve();
+              });
+            });
+          } else {
+            // Page already loaded — wait briefly in case a navigation is about to start
+            await new Promise<void>((resolve) => {
+              let navigated = false;
+              const timer = setTimeout(
+                () => {
+                  if (!navigated) resolve();
+                },
+                Math.min(timeout, 2000),
+              );
+              wc.once("did-start-loading", () => {
+                navigated = true;
+                clearTimeout(timer);
+                // Now wait for it to finish
+                const loadTimer = setTimeout(resolve, timeout);
+                wc.once("did-stop-loading", () => {
+                  clearTimeout(loadTimer);
+                  resolve();
+                });
+              });
+            });
+          }
+          const afterUrl = wc.getURL();
+          const title = wc.getTitle();
+          if (afterUrl !== beforeUrl) {
+            return `Navigation complete: ${title} (${afterUrl})`;
+          }
+          return `Page loaded: ${title} (${afterUrl})`;
         }
 
         case "create_checkpoint": {
@@ -1800,7 +2384,9 @@ export async function executeAction(
 
         case "save_bookmark": {
           const resolvedSelector =
-            wc && (typeof args.index === "number" || typeof args.selector === "string")
+            wc &&
+            (typeof args.index === "number" ||
+              typeof args.selector === "string")
               ? await resolveSelector(wc, args.index, args.selector)
               : null;
           const source = await resolveBookmarkSourceDraft(wc, {
@@ -1858,7 +2444,9 @@ export async function executeAction(
               ? args.note.trim()
               : undefined;
           const resolvedSelector =
-            wc && (typeof args.index === "number" || typeof args.selector === "string")
+            wc &&
+            (typeof args.index === "number" ||
+              typeof args.selector === "string")
               ? await resolveSelector(wc, args.index, args.selector)
               : null;
           const source = await resolveBookmarkSourceDraft(wc, {
@@ -1919,7 +2507,9 @@ export async function executeAction(
               ? args.note.trim()
               : undefined;
           const resolvedSelector =
-            wc && (typeof args.index === "number" || typeof args.selector === "string")
+            wc &&
+            (typeof args.index === "number" ||
+              typeof args.selector === "string")
               ? await resolveSelector(wc, args.index, args.selector)
               : null;
           const source = await resolveBookmarkSourceDraft(wc, {
@@ -2006,12 +2596,30 @@ export async function executeAction(
         case "highlight": {
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
+          const highlightColor = args.color || "yellow";
+          const url = wc.getURL();
+
+          // Persist highlight to database so it survives navigation/reload
+          if (url && url !== "about:blank") {
+            const highlightText =
+              typeof args.text === "string" ? args.text : undefined;
+            highlightsManager.addHighlight(
+              url,
+              typeof selector === "string" ? selector : undefined,
+              highlightText,
+              typeof args.label === "string" ? args.label : undefined,
+              highlightColor,
+              "agent",
+            );
+          }
+
           return highlightOnPage(
             wc,
             selector,
             args.text,
             args.label,
             args.durationMs,
+            highlightColor,
           );
         }
 
@@ -2025,7 +2633,8 @@ export async function executeAction(
         case "flow_start": {
           const goal = typeof args.goal === "string" ? args.goal : "";
           const steps = Array.isArray(args.steps) ? args.steps.map(String) : [];
-          if (!goal || steps.length === 0) return "Error: goal and steps are required";
+          if (!goal || steps.length === 0)
+            return "Error: goal and steps are required";
           const flow = ctx.runtime.startFlow(goal, steps, wc?.getURL());
           return `Flow started: ${flow.goal}\n${flow.steps.map((s, i) => `  ${i === 0 ? "→" : " "} ${s.label}`).join("\n")}`;
         }
@@ -2080,8 +2689,13 @@ export async function executeAction(
               (el.placeholder || "").toLowerCase().includes("search"),
           );
           const formCount = page.forms.length;
-          const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
-          const linkCount = page.interactiveElements.filter((el) => el.type === "link").length;
+          const totalFields = page.forms.reduce(
+            (n, f) => n + f.fields.length,
+            0,
+          );
+          const linkCount = page.interactiveElements.filter(
+            (el) => el.type === "link",
+          ).length;
           const hasPagination = page.interactiveElements.some(
             (el) =>
               (el.text || "").toLowerCase() === "next" ||
@@ -2092,41 +2706,62 @@ export async function executeAction(
 
           if (hasOverlays) {
             suggestions.push("BLOCKING OVERLAY detected — dismiss it first:");
-            suggestions.push("  → dismiss_popup or click on close/accept button");
+            suggestions.push(
+              "  → dismiss_popup or click on close/accept button",
+            );
             suggestions.push("");
           }
 
           if (hasPasswordField) {
             suggestions.push("LOGIN PAGE detected:");
-            suggestions.push("  → login(username, password) — handles the full flow");
-            suggestions.push("  → Or fill_form + submit_form for manual control");
+            suggestions.push(
+              "  → login(username, password) — handles the full flow",
+            );
+            suggestions.push(
+              "  → Or fill_form + submit_form for manual control",
+            );
           } else if (hasSearchInput && linkCount < 10) {
             suggestions.push("SEARCH PAGE detected:");
-            suggestions.push("  → search(query) — finds the box, types, submits");
+            suggestions.push(
+              "  → search(query) — finds the box, types, submits",
+            );
           } else if (hasSearchInput && linkCount >= 10) {
             suggestions.push("SEARCH RESULTS detected:");
             suggestions.push("  → click on a result link");
-            if (hasPagination) suggestions.push("  → paginate('next') for more results");
+            if (hasPagination)
+              suggestions.push("  → paginate('next') for more results");
           } else if (formCount > 0) {
             suggestions.push(`FORM detected (${totalFields} fields):`);
             suggestions.push("  → fill_form(fields) — fill all fields at once");
           } else if (hasPagination) {
             suggestions.push("PAGINATED CONTENT:");
-            suggestions.push("  → read_page to read this page");
+            suggestions.push(
+              "  → read_page(mode='results_only') to inspect likely results",
+            );
             suggestions.push("  → paginate('next') for the next page");
-          } else if (page.content.length > 3000 && page.interactiveElements.length < 10) {
+          } else if (
+            page.content.length > 3000 &&
+            page.interactiveElements.length < 10
+          ) {
             suggestions.push("ARTICLE/CONTENT page:");
-            suggestions.push("  → read_page for readable text");
+            suggestions.push("  → read_page(mode='summary') for a fast brief");
+            suggestions.push(
+              "  → read_page(mode='text_only') for readable text",
+            );
             suggestions.push("  → scroll to see more");
           } else {
             suggestions.push("GENERAL PAGE:");
-            suggestions.push("  → read_page to understand the page structure");
+            suggestions.push(
+              "  → read_page(mode='visible_only') to inspect active controls",
+            );
             suggestions.push("  → click on any element by index");
             suggestions.push("  → navigate to go somewhere new");
           }
 
           suggestions.push("");
-          suggestions.push(`Available: ${page.interactiveElements.length} interactive elements, ${formCount} forms, ${linkCount} links`);
+          suggestions.push(
+            `Available: ${page.interactiveElements.length} interactive elements, ${formCount} forms, ${linkCount} links`,
+          );
           return suggestions.join("\n");
         }
 
@@ -2141,18 +2776,28 @@ export async function executeAction(
               results.push(`Skipped: no selector for index=${field.index}`);
               continue;
             }
-            const result = await setElementValue(wc, sel, String(field.value || ""));
+            const result = await setElementValue(
+              wc,
+              sel,
+              String(field.value || ""),
+            );
             results.push(result);
           }
           if (args.submit) {
-            const firstSel = await resolveSelector(wc, fields[0]?.index, fields[0]?.selector);
+            const firstSel = await resolveSelector(
+              wc,
+              fields[0]?.index,
+              fields[0]?.selector,
+            );
             if (firstSel) {
               const beforeUrl = wc.getURL();
               const submitResult = await submitForm(wc, { selector: firstSel });
               await waitForPotentialNavigation(wc, beforeUrl);
               const afterUrl = wc.getURL();
               results.push(
-                afterUrl !== beforeUrl ? `Submitted → ${afterUrl}` : submitResult,
+                afterUrl !== beforeUrl
+                  ? `Submitted → ${afterUrl}`
+                  : submitResult,
               );
             }
           }
@@ -2172,34 +2817,58 @@ export async function executeAction(
 
           const userSel =
             args.username_selector ||
-            (await wc.executeJavaScript(`
+            (await executePageScript<string | null>(
+              wc,
+              `
               (function() {
                 var el = document.querySelector('input[type="email"], input[name="email"], input[name="username"], input[name="user"], input[autocomplete="username"], input[autocomplete="email"], input[type="text"]:not([name="search"]):not([name="q"])');
                 return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
               })()
-            `));
-          if (!userSel) return "Error: Could not find username/email field. Try providing username_selector.";
+            `,
+              {
+                label: "find username field",
+              },
+            ));
+          if (!userSel)
+            return "Error: Could not find username/email field. Try providing username_selector.";
 
           const passSel =
             args.password_selector ||
-            (await wc.executeJavaScript(`
+            (await executePageScript<string | null>(
+              wc,
+              `
               (function() {
                 var el = document.querySelector('input[type="password"]');
                 return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
               })()
-            `));
-          if (!passSel) return "Error: Could not find password field. Try providing password_selector.";
+            `,
+              {
+                label: "find password field",
+              },
+            ));
+          if (!passSel)
+            return "Error: Could not find password field. Try providing password_selector.";
 
-          const userResult = await setElementValue(wc, userSel, String(args.username || ""));
+          const userResult = await setElementValue(
+            wc,
+            userSel,
+            String(args.username || ""),
+          );
           steps.push(userResult);
-          const passResult = await setElementValue(wc, passSel, String(args.password || ""));
+          const passResult = await setElementValue(
+            wc,
+            passSel,
+            String(args.password || ""),
+          );
           steps.push(passResult);
 
           const beforeUrl = wc.getURL();
           if (args.submit_selector) {
             await clickResolvedSelector(wc, args.submit_selector);
           } else {
-            const clicked = await wc.executeJavaScript(`
+            const clicked = await executePageScript<boolean>(
+              wc,
+              `
               (function() {
                 var btn = document.querySelector('button[type="submit"], input[type="submit"], form button:not([type="button"])');
                 if (btn) { btn.click(); return true; }
@@ -2207,61 +2876,182 @@ export async function executeAction(
                 if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); return true; }
                 return false;
               })()
-            `);
-            if (!clicked) return steps.join("\n") + "\nWarning: Could not find submit button. Credentials filled but form not submitted.";
+            `,
+              {
+                label: "submit login form",
+              },
+            );
+            if (clicked === PAGE_SCRIPT_TIMEOUT) {
+              return pageBusyError("login");
+            }
+            if (!clicked)
+              return (
+                steps.join("\n") +
+                "\nWarning: Could not find submit button. Credentials filled but form not submitted."
+              );
           }
 
           await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();
           steps.push(
-            afterUrl !== beforeUrl ? `Submitted → ${afterUrl}` : "Form submitted (same page)",
+            afterUrl !== beforeUrl
+              ? `Submitted → ${afterUrl}`
+              : "Form submitted (same page)",
           );
           return `Login flow complete:\n${steps.join("\n")}`;
         }
 
         case "search": {
           if (!wc) return "Error: No active tab";
-          const searchSel =
-            args.selector ||
-            (await wc.executeJavaScript(`
+          const query = String(args.query || "");
+          if (!query) return "Error: No search query provided.";
+
+          // Step 1: Find the search input — polls inside the page for up
+          // to 5 seconds so we catch it as soon as the framework renders
+          // it, without needing the JS thread to be fully idle.
+          const searchInfo = args.selector
+            ? { selector: args.selector, formAction: null, formMethod: null }
+            : await executePageScript<{
+                selector: string;
+                formAction: string | null;
+                formMethod: string | null;
+                inputName?: string;
+              } | null>(
+                wc,
+                `
               (function() {
-                var el = document.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]');
-                if (!el) {
-                  var inputs = document.querySelectorAll('input[type="text"]');
-                  for (var i = 0; i < inputs.length; i++) {
-                    var form = inputs[i].closest('form');
-                    if (form && (form.getAttribute('role') === 'search' || form.action?.includes('search'))) {
-                      el = inputs[i];
-                      break;
+                var SELECTORS = 'input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]';
+                function find() {
+                  var el = document.querySelector(SELECTORS);
+                  if (!el) {
+                    var inputs = document.querySelectorAll('input[type="text"]');
+                    for (var i = 0; i < inputs.length; i++) {
+                      var form = inputs[i].closest('form');
+                      if (form && (form.getAttribute('role') === 'search' || (form.action && form.action.includes('search')))) {
+                        el = inputs[i];
+                        break;
+                      }
                     }
                   }
+                  if (!el) return null;
+                  var sel = el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null;
+                  var form = el.closest('form');
+                  return {
+                    selector: sel,
+                    formAction: form ? form.action : null,
+                    formMethod: form ? (form.method || 'GET').toUpperCase() : null,
+                    inputName: el.name || 'q',
+                  };
                 }
-                return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
+                return new Promise(function(resolve) {
+                  var result = find();
+                  if (result) { resolve(result); return; }
+                  var attempts = 0;
+                  var timer = setInterval(function() {
+                    result = find();
+                    if (result || ++attempts >= 20) {
+                      clearInterval(timer);
+                      resolve(result);
+                    }
+                  }, 250);
+                });
               })()
-            `));
-          if (!searchSel) return "Error: Could not find search input. Try providing a selector.";
+            `,
+                {
+                  timeoutMs: 1800,
+                  label: "find search input",
+                },
+              );
+          if (searchInfo === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("search");
+          }
+          if (!searchInfo?.selector)
+            return "Error: Could not find search input. Try providing a selector.";
 
-          await setElementValue(wc, searchSel, String(args.query || ""));
+          // Step 2: Fill the search box
+          const fillResult = await setElementValue(
+            wc,
+            searchInfo.selector,
+            query,
+          );
+          if (fillResult.startsWith("Error:")) {
+            return fillResult;
+          }
+          await sleep(100); // Let autocomplete/JS process the input
 
-          // Focus the input and press Enter via native Chromium input events
-          // (JS dispatchEvent doesn't work on sites like Google that use custom handlers)
-          await wc.executeJavaScript(`
+          // Step 3: Focus and press Enter via native input events
+          const focusResult = await executePageScript(
+            wc,
+            `
             (function() {
-              var el = document.querySelector(${JSON.stringify(searchSel)});
+              var el = document.querySelector(${JSON.stringify(searchInfo.selector)});
               if (el) el.focus();
             })()
-          `);
+          `,
+            {
+              label: "focus search input",
+            },
+          );
+          if (focusResult === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("search");
+          }
           await sleep(50);
           const beforeUrl = wc.getURL();
           wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
           await sleep(16);
           wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
 
-          await waitForPotentialNavigation(wc, beforeUrl);
-          const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl
-            ? `Searched "${args.query}" → ${afterUrl}`
-            : `Searched "${args.query}" (same page — results may have loaded dynamically)`;
+          await waitForPotentialNavigation(wc, beforeUrl, 3000);
+          let afterUrl = wc.getURL();
+          if (afterUrl !== beforeUrl) {
+            return `Searched "${query}" → ${afterUrl}`;
+          }
+
+          // Step 4: Enter didn't navigate — try clicking the submit/search button
+          const clickedSubmit = await executePageScript<boolean>(
+            wc,
+            `
+            (function() {
+              var form = document.querySelector(${JSON.stringify(searchInfo.selector)})?.closest('form');
+              if (!form) return false;
+              var btn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
+              if (btn) { btn.click(); return true; }
+              // Try any button in the form
+              var anyBtn = form.querySelector('button');
+              if (anyBtn) { anyBtn.click(); return true; }
+              return false;
+            })()
+          `,
+            {
+              label: "click search submit",
+            },
+          );
+          if (clickedSubmit === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("search");
+          }
+          if (clickedSubmit) {
+            await waitForPotentialNavigation(wc, beforeUrl, 3000);
+            afterUrl = wc.getURL();
+            if (afterUrl !== beforeUrl) {
+              return `Searched "${query}" (via submit button) → ${afterUrl}`;
+            }
+          }
+
+          // Step 5: Button click didn't work either — construct URL directly for GET forms
+          if (searchInfo.formAction && searchInfo.formMethod === "GET") {
+            try {
+              const url = new URL(searchInfo.formAction);
+              url.searchParams.set(searchInfo.inputName || "q", query);
+              wc.loadURL(url.toString());
+              await waitForPotentialNavigation(wc, beforeUrl);
+              afterUrl = wc.getURL();
+              return `Searched "${query}" (via direct URL) → ${afterUrl}`;
+            } catch {
+              // URL construction failed, continue to final fallback
+            }
+          }
+
+          return `Searched "${query}" (same page — results may have loaded dynamically)`;
         }
 
         case "paginate": {
@@ -2273,11 +3063,14 @@ export async function executeAction(
           }
 
           const isNext = args.direction === "next";
-          const clicked = await wc.executeJavaScript(`
+          const clicked = await executePageScript<boolean>(
+            wc,
+            `
             (function() {
-              var patterns = ${isNext
-                ? '["next", "Next", "›", "»", "→", ">", "Next Page", "Load More"]'
-                : '["prev", "Prev", "Previous", "‹", "«", "←", "<", "Previous Page"]'
+              var patterns = ${
+                isNext
+                  ? '["next", "Next", "›", "»", "→", ">", "Next Page", "Load More"]'
+                  : '["prev", "Prev", "Previous", "‹", "«", "←", "<", "Previous Page"]'
               };
               var links = document.querySelectorAll('a, button');
               for (var i = 0; i < links.length; i++) {
@@ -2295,15 +3088,174 @@ export async function executeAction(
               }
               return false;
             })()
-          `);
+          `,
+            {
+              label: "paginate",
+            },
+          );
+          if (clicked === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("paginate");
+          }
 
-          if (!clicked) return `Error: Could not find ${args.direction} pagination control. Try providing a selector.`;
+          if (!clicked)
+            return `Error: Could not find ${args.direction} pagination control. Try providing a selector.`;
 
           await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
             ? `Paginated ${args.direction} → ${afterUrl}`
             : `Clicked ${args.direction} (page may have updated dynamically)`;
+        }
+
+        case "accept_cookies": {
+          if (!wc) return "Error: No active tab";
+          const dismissed = await executePageScript<string | null>(
+            wc,
+            `
+            (function() {
+              // Common cookie consent selectors — OneTrust, CookieBot, GDPR banners
+              var selectors = [
+                '#onetrust-accept-btn-handler',
+                '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+                '[data-cookiefirst-action="accept"]',
+                '.cookie-consent-accept-all',
+                '#accept-cookies',
+                '.cc-accept',
+                '.cc-btn.cc-allow',
+                '[aria-label="Accept cookies"]',
+                '[aria-label="Accept all cookies"]',
+                '[data-testid="cookie-accept"]',
+              ];
+              // Also try text-matching on buttons
+              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'consent'];
+              for (var i = 0; i < selectors.length; i++) {
+                var el = document.querySelector(selectors[i]);
+                if (el && el instanceof HTMLElement) { el.click(); return "Dismissed cookie banner via: " + selectors[i]; }
+              }
+              var buttons = document.querySelectorAll('button, a[role="button"], [type="submit"]');
+              for (var j = 0; j < buttons.length; j++) {
+                var btn = buttons[j];
+                var text = (btn.textContent || '').trim().toLowerCase();
+                for (var k = 0; k < textPatterns.length; k++) {
+                  if (text === textPatterns[k] || text.startsWith(textPatterns[k])) {
+                    btn.click();
+                    return "Dismissed cookie banner via text match: " + text;
+                  }
+                }
+              }
+              return null;
+            })()
+          `,
+            {
+              label: "accept cookies",
+            },
+          );
+          if (dismissed === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("accept_cookies");
+          }
+          return (
+            dismissed ||
+            "No cookie consent banner detected. Try dismiss_popup for other overlays."
+          );
+        }
+
+        case "extract_table": {
+          if (!wc) return "Error: No active tab";
+          const selector = args.selector
+            ? args.selector
+            : args.index != null
+              ? await resolveSelector(wc, args.index, undefined)
+              : null;
+          const tableJson = await wc.executeJavaScript(`
+            (function() {
+              var table = ${selector ? `document.querySelector(${JSON.stringify(selector)})` : "document.querySelector('table')"};
+              if (!table) return null;
+              var headers = [];
+              var headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+              if (headerRow) {
+                headerRow.querySelectorAll('th, td').forEach(function(cell) {
+                  headers.push(cell.textContent.trim());
+                });
+              }
+              var rows = [];
+              var bodyRows = table.querySelectorAll('tbody tr');
+              if (bodyRows.length === 0) bodyRows = table.querySelectorAll('tr');
+              bodyRows.forEach(function(tr, idx) {
+                if (idx === 0 && headers.length > 0 && !table.querySelector('thead')) return;
+                var row = {};
+                tr.querySelectorAll('td, th').forEach(function(cell, ci) {
+                  var key = headers[ci] || ("col_" + ci);
+                  row[key] = cell.textContent.trim();
+                });
+                if (Object.keys(row).length > 0) rows.push(row);
+              });
+              return { headers: headers, rows: rows, rowCount: rows.length };
+            })()
+          `);
+          if (!tableJson) return "Error: No table found on the page.";
+          return `Extracted table (${tableJson.rowCount} rows):\n${JSON.stringify(tableJson, null, 2)}`;
+        }
+
+        case "metrics": {
+          const m = ctx.runtime.getMetrics();
+          const lines = [
+            `Session Metrics:`,
+            `  Total actions: ${m.totalActions}`,
+            `  Completed: ${m.completedActions}`,
+            `  Failed: ${m.failedActions}`,
+            `  Average duration: ${m.averageDurationMs}ms`,
+            ``,
+            `Tool breakdown:`,
+          ];
+          for (const [name, stats] of Object.entries(m.toolBreakdown)) {
+            lines.push(
+              `  ${name}: ${stats.count} calls, avg ${stats.avgMs}ms${stats.errors > 0 ? `, ${stats.errors} errors` : ""}`,
+            );
+          }
+          return lines.join("\n");
+        }
+
+        case "scroll_to_element": {
+          if (!wc) return "Error: No active tab";
+          const sel = await resolveSelector(wc, args.index, args.selector);
+          if (!sel)
+            return "Error: Provide an index or selector for the element to scroll to.";
+          const block =
+            args.position === "top"
+              ? "start"
+              : args.position === "bottom"
+                ? "end"
+                : "center";
+          if (sel.startsWith("__vessel_idx:")) {
+            const idx = Number(sel.slice("__vessel_idx:".length));
+            return wc.executeJavaScript(`
+              (function() {
+                var el = window.__vessel?.interactByIndex && Object.values(window.__vessel)[2];
+                var ref = (function() { try { return document.querySelector('[data-vessel-idx="${idx}"]'); } catch(e) { return null; } })();
+                if (!ref) return "Error: Element not found";
+                ref.scrollIntoView({ behavior: "smooth", block: "${block}" });
+                return "Scrolled to element #${idx}";
+              })()
+            `);
+          }
+          if (sel.includes(" >>> ")) {
+            return wc.executeJavaScript(`
+              (function() {
+                var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(sel)});
+                if (!el) return "Error: Shadow DOM element not found";
+                el.scrollIntoView({ behavior: "smooth", block: "${block}" });
+                return "Scrolled to shadow DOM element";
+              })()
+            `);
+          }
+          return wc.executeJavaScript(`
+            (function() {
+              var el = document.querySelector(${JSON.stringify(sel)});
+              if (!el) return "Error: Element not found";
+              el.scrollIntoView({ behavior: "smooth", block: "${block}" });
+              return "Scrolled to element";
+            })()
+          `);
         }
 
         default:

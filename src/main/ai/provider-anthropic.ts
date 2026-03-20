@@ -79,6 +79,10 @@ export class AnthropicProvider implements AIProvider {
       let iterationsUsed = 0;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
+        const msgTokenEstimate = JSON.stringify(messages).length;
+        const sysTokenEstimate = systemPrompt.length;
+        console.log(`[Vessel Agent] iteration=${i} messages=${messages.length} msgChars=${msgTokenEstimate} sysChars=${sysTokenEstimate} tools=${tools.length}`);
+        const streamStartTime = Date.now();
         const stream = this.client.messages.stream(
           {
             model: this.model,
@@ -102,44 +106,63 @@ export class AnthropicProvider implements AIProvider {
           inputJson: string;
         } | null = null;
 
-        for await (const event of stream) {
-          if (event.type === "content_block_start") {
-            if (event.content_block.type === "tool_use") {
-              currentToolUse = {
-                id: event.content_block.id,
-                name: event.content_block.name,
-                inputJson: "",
-              };
+        // Idle timeout: if no streaming events arrive for 30s, abort.
+        // Prevents the agent from hanging indefinitely on slow API responses.
+        const STREAM_IDLE_TIMEOUT_MS = 30_000;
+        let idleTimer: ReturnType<typeof setTimeout> | null = null;
+        const resetIdleTimer = () => {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            this.abortController?.abort();
+          }, STREAM_IDLE_TIMEOUT_MS);
+        };
+        resetIdleTimer();
+
+        try {
+          for await (const event of stream) {
+            resetIdleTimer();
+            if (event.type === "content_block_start") {
+              if (event.content_block.type === "tool_use") {
+                currentToolUse = {
+                  id: event.content_block.id,
+                  name: event.content_block.name,
+                  inputJson: "",
+                };
+              }
+            } else if (event.type === "content_block_delta") {
+              if (event.delta.type === "text_delta") {
+                textContent += event.delta.text;
+                onChunk(event.delta.text);
+              } else if (
+                event.delta.type === "input_json_delta" &&
+                currentToolUse
+              ) {
+                currentToolUse.inputJson += event.delta.partial_json;
+              }
+            } else if (event.type === "content_block_stop" && currentToolUse) {
+              try {
+                toolUseBlocks.push({
+                  id: currentToolUse.id,
+                  name: currentToolUse.name,
+                  input: JSON.parse(currentToolUse.inputJson || "{}"),
+                });
+              } catch {
+                toolUseBlocks.push({
+                  id: currentToolUse.id,
+                  name: currentToolUse.name,
+                  input: {},
+                });
+              }
+              currentToolUse = null;
             }
-          } else if (event.type === "content_block_delta") {
-            if (event.delta.type === "text_delta") {
-              textContent += event.delta.text;
-              onChunk(event.delta.text);
-            } else if (
-              event.delta.type === "input_json_delta" &&
-              currentToolUse
-            ) {
-              currentToolUse.inputJson += event.delta.partial_json;
-            }
-          } else if (event.type === "content_block_stop" && currentToolUse) {
-            try {
-              toolUseBlocks.push({
-                id: currentToolUse.id,
-                name: currentToolUse.name,
-                input: JSON.parse(currentToolUse.inputJson || "{}"),
-              });
-            } catch {
-              toolUseBlocks.push({
-                id: currentToolUse.id,
-                name: currentToolUse.name,
-                input: {},
-              });
-            }
-            currentToolUse = null;
           }
+        } finally {
+          if (idleTimer) clearTimeout(idleTimer);
         }
 
+        console.log(`[Vessel Agent] stream complete in ${Date.now() - streamStartTime}ms, toolCalls=${toolUseBlocks.length} textLen=${textContent.length}`);
         const finalMessage = await stream.finalMessage();
+        console.log(`[Vessel Agent] finalMessage received, stop_reason=${finalMessage.stop_reason}`);
 
         // Build assistant message content for history
         const assistantContent: Anthropic.ContentBlockParam[] = [];
@@ -166,7 +189,15 @@ export class AnthropicProvider implements AIProvider {
         for (const tb of toolUseBlocks) {
           const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
           onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
-          const result = await onToolCall(tb.name, tb.input);
+          let result: string;
+          const toolStartTime = Date.now();
+          console.log(`[Vessel Agent] executing tool: ${tb.name}`);
+          try {
+            result = await onToolCall(tb.name, tb.input);
+          } catch (toolErr: any) {
+            result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
+          }
+          console.log(`[Vessel Agent] tool ${tb.name} completed in ${Date.now() - toolStartTime}ms, resultLen=${result.length}`);
           toolResults.push({
             type: "tool_result",
             tool_use_id: tb.id,

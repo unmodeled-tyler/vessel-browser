@@ -48,6 +48,14 @@ const PRELOAD_EXTRACTION_SCRIPT = String.raw`
 
 const DIRECT_EXTRACTION_SCRIPT = String.raw`
   (function() {
+    // Time budget: stop expensive DOM traversals after this many ms so heavy
+    // pages (Newegg, Wikipedia, etc.) don't stall the agent for 30-60s+.
+    var BUDGET_MS = 5000;
+    var _budgetStart = performance.now();
+    function withinBudget() {
+      return (performance.now() - _budgetStart) < BUDGET_MS;
+    }
+
     function getCleanBodyText() {
       var removed = [];
       document
@@ -205,20 +213,40 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       const viewportArea = Math.max(1, viewportWidth() * viewportHeight());
       const overlays = [];
 
-      Array.from(document.body.querySelectorAll("*")).forEach((node) => {
+      // Use targeted selectors instead of querySelectorAll("*") to avoid
+      // expensive getComputedStyle/getBoundingClientRect on every DOM element.
+      // On heavy SPAs (e.g. Newegg) the wildcard could hit 10,000+ elements.
+      var candidates = new Set();
+
+      // Semantic overlays: dialogs, modals, aria-modal
+      document.body.querySelectorAll(
+        "dialog, [role='dialog'], [role='alertdialog'], [aria-modal='true']"
+      ).forEach(function(el) { candidates.add(el); });
+
+      // Fixed/sticky elements are the other overlay category — walk only
+      // direct children of body and high-level containers (depth ≤ 3)
+      // since real overlays are almost always near the top of the DOM tree.
+      var MAX_CANDIDATES = 2000;
+      var allElements = document.body.querySelectorAll("*");
+      for (var ci = 0; ci < allElements.length && candidates.size < MAX_CANDIDATES; ci++) {
+        candidates.add(allElements[ci]);
+      }
+
+      candidates.forEach(function(node) {
+        if (!withinBudget()) return;
         if (!(node instanceof HTMLElement)) return;
         if (!visible(node)) return;
 
-        const style = window.getComputedStyle(node);
+        var style = window.getComputedStyle(node);
         if (style.pointerEvents === "none") return;
 
-        const rect = node.getBoundingClientRect();
+        var rect = node.getBoundingClientRect();
         if (!inViewport(rect)) return;
 
-        const type = overlayType(node);
-        const dialogLike = type === "dialog" || type === "modal";
-        const areaRatio = (rect.width * rect.height) / viewportArea;
-        const blocksInteraction = dialogLike ||
+        var type = overlayType(node);
+        var dialogLike = type === "dialog" || type === "modal";
+        var areaRatio = (rect.width * rect.height) / viewportArea;
+        var blocksInteraction = dialogLike ||
           ((style.position === "fixed" || style.position === "sticky") &&
             parseZIndex(style) >= 10 &&
             areaRatio >= 0.3 &&
@@ -228,17 +256,17 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
         overlays.push({
           element: node,
-          type,
+          type: type,
           role: text(node.getAttribute("role")),
           label: overlayLabel(node),
           selector: selectorFor(node),
           text: text(node.textContent)?.slice(0, 160),
-          blocksInteraction,
+          blocksInteraction: blocksInteraction,
           zIndex: parseZIndex(style),
         });
       });
 
-      return overlays.sort((a, b) => {
+      return overlays.sort(function(a, b) {
         if ((a.blocksInteraction ? 1 : 0) !== (b.blocksInteraction ? 1 : 0)) {
           return (b.blocksInteraction ? 1 : 0) - (a.blocksInteraction ? 1 : 0);
         }
@@ -495,6 +523,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
     const navigation = [];
     document.querySelectorAll("nav a[href], [role='navigation'] a[href], header nav a[href]").forEach((el) => {
+      if (!withinBudget()) return;
       const item = serializeInteractive(el, "link");
       if (!item.text || !item.href || item.href.startsWith("#")) return;
       item.context = "nav";
@@ -510,14 +539,17 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
 
     const interactiveElements = [];
     document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']").forEach((el) => {
+      if (!withinBudget()) return;
       interactiveElements.push(serializeInteractive(el, "button"));
     });
     document.querySelectorAll("a[href]").forEach((el) => {
+      if (!withinBudget()) return;
       const item = serializeInteractive(el, "link");
       if (!item.text || !item.href || item.href.startsWith("#") || item.context === "nav") return;
       interactiveElements.push(item);
     });
     document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea").forEach((el) => {
+      if (!withinBudget()) return;
       const tag = el.tagName.toLowerCase();
       interactiveElements.push(
         serializeInteractive(el, tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input"),
@@ -542,7 +574,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
           serializeInteractive(el, tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input"),
         );
       });
-      Array.from(document.querySelectorAll("button, input[type='submit'], input[type='image']"))
+      Array.from(form.querySelectorAll("button, input[type='submit'], input[type='image']"))
         .filter((el) => isSubmitControlForForm(el, form))
         .forEach((el) => {
         fields.push(serializeInteractive(el, "button"));
@@ -781,6 +813,8 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const EXECUTE_SCRIPT_TIMEOUT_MS = 1500;
+
 async function waitForDomReady(
   webContents: WebContents,
   timeoutMs = 1500,
@@ -813,10 +847,20 @@ async function executeScript(
     return null;
   }
 
+  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    return await webContents.executeJavaScript(script);
+    return await Promise.race([
+      webContents.executeJavaScript(script),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), EXECUTE_SCRIPT_TIMEOUT_MS);
+      }),
+    ]);
   } catch {
     return null;
+  } finally {
+    if (typeof timer !== "undefined" && timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -924,7 +968,7 @@ function mergePageContent(
   const normalizedStructuredData =
     mergedBase.structuredData.length > 0
       ? mergedBase.structuredData
-        : extractStructuredDataFromJsonLd(
+      : extractStructuredDataFromJsonLd(
           mergedBase.jsonLd,
           mergedBase.microdata,
           mergedBase.rdfa,
@@ -954,22 +998,38 @@ function mergePageContent(
   };
 }
 
+const EXTRACT_TIMEOUT_MS = 8000;
+
+async function extractContentInner(
+  webContents: WebContents,
+): Promise<PageContent> {
+  await waitForDomReady(webContents);
+
+  const [preloadResult, directResult, safeResult] = await Promise.all([
+    executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT),
+    executeScript(webContents, DIRECT_EXTRACTION_SCRIPT),
+    executeScript(webContents, SAFE_EXTRACTION_SCRIPT),
+  ]);
+
+  return mergePageContent(
+    [preloadResult, directResult, safeResult],
+    webContents,
+  );
+}
+
 export async function extractContent(
   webContents: WebContents,
 ): Promise<PageContent> {
   try {
-    await waitForDomReady(webContents);
-
-    const [preloadResult, directResult, safeResult] = await Promise.all([
-      executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT),
-      executeScript(webContents, DIRECT_EXTRACTION_SCRIPT),
-      executeScript(webContents, SAFE_EXTRACTION_SCRIPT),
+    return await Promise.race([
+      extractContentInner(webContents),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("extractContent timeout")),
+          EXTRACT_TIMEOUT_MS,
+        ),
+      ),
     ]);
-
-    return mergePageContent(
-      [preloadResult, directResult, safeResult],
-      webContents,
-    );
   } catch {
     return {
       ...EMPTY_PAGE_CONTENT,
