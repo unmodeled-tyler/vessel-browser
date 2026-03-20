@@ -6,6 +6,17 @@ const MAX_SIDEBAR = 800;
 
 const [sidebarOpen, setSidebarOpen] = createSignal(false);
 const [sidebarWidth, setSidebarWidth] = createSignal(DEFAULT_SIDEBAR_WIDTH);
+
+// Sync initial sidebar width from persisted settings so the sidebar view
+// (a separate WebContentsView) renders at the correct width on first open
+// instead of using the hardcoded default.
+window.vessel?.settings?.get().then((settings: any) => {
+  if (settings?.sidebarWidth && typeof settings.sidebarWidth === "number") {
+    setSidebarWidth(
+      Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, settings.sidebarWidth)),
+    );
+  }
+}).catch(() => {/* settings unavailable — keep default */});
 const [focusMode, setFocusMode] = createSignal(false);
 const [commandBarOpen, setCommandBarOpen] = createSignal(false);
 const [settingsOpen, setSettingsOpen] = createSignal(false);
