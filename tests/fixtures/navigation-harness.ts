@@ -28,6 +28,7 @@ function renderPage(title: string, body: string): string {
       <a href="/external-submit">External submit</a>
       <a href="/same-page-action">Same-page action</a>
       <a href="/trusted-enter-source">Trusted Enter</a>
+      <a href="/language-popup">Language popup</a>
     </nav>
     <main>
       ${body}
@@ -385,6 +386,59 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
           `
             <h1>Trusted Enter Result</h1>
             <p id="trusted-enter-value">${value}</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/language-popup") {
+      sendHtml(
+        res,
+        renderPage(
+          "language-popup",
+          `
+            <h1>Language Popup</h1>
+            <p id="language-state">English storefront</p>
+            <div
+              id="popup-backdrop"
+              style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 50;"
+            ></div>
+            <section
+              id="language-modal"
+              role="dialog"
+              aria-modal="true"
+              style="position: fixed; top: 120px; left: 50%; transform: translateX(-50%); width: 320px; padding: 20px; background: white; border: 1px solid #ccc; z-index: 60;"
+            >
+              <h2>Choose your storefront</h2>
+              <p>One control closes the popup. The other silently swaps the locale.</p>
+              <div style="display: flex; gap: 12px;">
+                <button
+                  id="switch-language"
+                  type="button"
+                  onclick="
+                    document.documentElement.lang = 'ja';
+                    document.title = 'language-popup-ja';
+                    document.getElementById('language-state').textContent = 'Japanese storefront';
+                    document.getElementById('language-modal').remove();
+                    document.getElementById('popup-backdrop').remove();
+                  "
+                >
+                  日本語
+                </button>
+                <button
+                  id="close-language-popup"
+                  type="button"
+                  aria-label="Close dialog"
+                  onclick="
+                    document.getElementById('language-modal').remove();
+                    document.getElementById('popup-backdrop').remove();
+                  "
+                >
+                  No thanks
+                </button>
+              </div>
+            </section>
           `,
         ),
       );

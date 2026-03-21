@@ -720,6 +720,106 @@ async function inspectElement(
   return lines.join("\n");
 }
 
+async function getLocaleSnapshot(
+  wc: WebContents,
+): Promise<{ lang: string; url: string; title: string } | null> {
+  const snapshot = await executePageScript<{
+    lang?: string;
+    url?: string;
+    title?: string;
+  }>(
+    wc,
+    `
+    (function() {
+      return {
+        lang:
+          document.documentElement?.lang ||
+          document.body?.lang ||
+          navigator.language ||
+          "",
+        url: window.location.href || "",
+        title: document.title || "",
+      };
+    })()
+  `,
+    {
+      label: "locale snapshot",
+    },
+  );
+
+  if (
+    !snapshot ||
+    snapshot === PAGE_SCRIPT_TIMEOUT ||
+    typeof snapshot !== "object"
+  ) {
+    return null;
+  }
+
+  return {
+    lang: typeof snapshot.lang === "string" ? snapshot.lang.trim() : "",
+    url: typeof snapshot.url === "string" ? snapshot.url : wc.getURL(),
+    title: typeof snapshot.title === "string" ? snapshot.title : wc.getTitle(),
+  };
+}
+
+function primaryLanguageTag(value: string): string {
+  return value.trim().toLowerCase().split(/[-_]/)[0] || "";
+}
+
+function localeChanged(
+  before: { lang: string; url: string; title: string } | null,
+  after: { lang: string; url: string; title: string } | null,
+): boolean {
+  if (!before || !after) return false;
+  const beforeLang = primaryLanguageTag(before.lang);
+  const afterLang = primaryLanguageTag(after.lang);
+  if (beforeLang && afterLang && beforeLang !== afterLang) {
+    return true;
+  }
+  const localeHint =
+    /[?&](lang|locale|language|hl)=|\/(ja|jp|en|fr|de|es|it|ko|zh)(\/|$)/i;
+  return before.url !== after.url && localeHint.test(after.url);
+}
+
+async function restoreLocaleSnapshot(
+  wc: WebContents,
+  snapshot: { lang: string; url: string; title: string } | null,
+): Promise<void> {
+  if (!snapshot || wc.isDestroyed()) return;
+
+  try {
+    if (typeof wc.canGoBack === "function" && wc.canGoBack()) {
+      wc.goBack();
+      await waitForLoad(wc, 3000);
+      const reverted = await getLocaleSnapshot(wc);
+      if (!localeChanged(snapshot, reverted)) {
+        return;
+      }
+    }
+  } catch {
+    // Fall back to reloading the last known-good URL below.
+  }
+
+  if (snapshot.url && snapshot.url !== wc.getURL()) {
+    try {
+      await wc.loadURL(snapshot.url);
+      await waitForLoad(wc, 3000);
+      return;
+    } catch {
+      // Ignore and let the caller continue with the restored best effort.
+    }
+  }
+
+  if (snapshot.url) {
+    try {
+      await wc.reload();
+      await waitForLoad(wc, 3000);
+    } catch {
+      // Best-effort recovery only.
+    }
+  }
+}
+
 async function clickResolvedSelector(
   wc: WebContents,
   selector: string,
@@ -805,6 +905,7 @@ async function dismissPopup(wc: WebContents): Promise<string> {
     (overlay) => overlay.blocksInteraction,
   ).length;
   const initialDormant = before.dormantOverlays.length;
+  const initialLocale = await getLocaleSnapshot(wc);
 
   const candidates = await executePageScript<
     Array<{ selector: string; label?: string; score: number }>
@@ -919,7 +1020,8 @@ async function dismissPopup(wc: WebContents): Promise<string> {
         ).toLowerCase();
         const classText = text(typeof el.className === "string" ? el.className : "").toLowerCase();
         const idText = text(el.id).toLowerCase();
-        const combined = classText + " " + idText;
+        const hrefText = text(el.getAttribute && el.getAttribute("href")).toLowerCase();
+        const combined = label + " " + classText + " " + idText + " " + hrefText;
         let score = rooted ? 30 : 0;
         if (/^x$|^×$/.test(label)) score += 120;
         if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you|reject|decline/.test(label)) score += 100;
@@ -929,6 +1031,11 @@ async function dismissPopup(wc: WebContents): Promise<string> {
         // OneTrust "Accept" is valid for dismissing the banner (user just wants it gone)
         if (/onetrust-accept|cookie.*accept|consent.*accept/.test(combined)) score += 80;
         if (el.getAttribute("aria-label")) score += 20;
+        if (/(language|locale|region|country|currency)\b/.test(combined)) score -= 320;
+        if (/\b(english|japanese|japan|francais|espanol|deutsch|italiano|portuguese|nihongo)\b/.test(label)) score -= 280;
+        if (/\u65e5\u672c\u8a9e|\u4e2d\u6587|\ud55c\uad6d\uc5b4/.test(label)) score -= 280;
+        if (/[?&](lang|locale|language|hl)=/.test(hrefText)) score -= 260;
+        if (/\/(ja|jp|en|fr|de|es|it|ko|zh)(\/|$)/.test(hrefText)) score -= 220;
         // Penalize general accept/subscribe buttons that aren't consent-related
         if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label) && !/cookie|consent|onetrust/.test(combined)) score -= 80;
         const rect = el.getBoundingClientRect();
@@ -1012,6 +1119,11 @@ async function dismissPopup(wc: WebContents): Promise<string> {
       const result = await clickElement(wc, candidate.selector);
       if (result.startsWith("Error:")) continue;
       await sleep(250);
+      const postClickLocale = await getLocaleSnapshot(wc);
+      if (localeChanged(initialLocale, postClickLocale)) {
+        await restoreLocaleSnapshot(wc, initialLocale);
+        continue;
+      }
       const after = await extractContent(wc);
       const blocking = after.overlays.filter(
         (overlay) => overlay.blocksInteraction,
@@ -1832,7 +1944,7 @@ async function submitForm(
   return "Submitted form";
 }
 
-export { waitForLoad, setElementValue, pressKey };
+export { waitForLoad, setElementValue, pressKey, dismissPopup };
 
 export async function clickElementBySelector(
   wc: WebContents,

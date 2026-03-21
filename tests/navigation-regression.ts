@@ -6,6 +6,7 @@ import { app, BaseWindow } from "electron";
 
 import {
   clickElementBySelector,
+  dismissPopup,
   pressKey,
   setElementValue,
   submitFormBySelector,
@@ -349,6 +350,28 @@ async function main(): Promise<void> {
     completedScenarios.push(
       "trusted Enter key presses trigger focused input handlers",
     );
+
+    await runScenario(
+      "popup dismissal avoids locale-switch controls",
+      async () => {
+        await withTab(`${harness.baseUrl}/language-popup`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const result = await dismissPopup(wc);
+          const lang = await wc.executeJavaScript(
+            "document.documentElement.lang",
+          );
+          const state = await wc.executeJavaScript(
+            "document.getElementById('language-state')?.textContent || ''",
+          );
+
+          assert.match(result, /Dismissed popup using "No thanks"/);
+          assert.equal(lang, "en");
+          assert.equal(state, "English storefront");
+        });
+      },
+    );
+    completedScenarios.push("popup dismissal avoids locale-switch controls");
 
     console.log(
       `\nNavigation regression suite passed against ${harness.baseUrl}\nScenarios: ${completedScenarios.join("; ")}`,
