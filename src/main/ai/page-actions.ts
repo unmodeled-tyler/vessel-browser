@@ -835,6 +835,50 @@ async function restoreLocaleSnapshot(
   }
 }
 
+const ADD_TO_CART_PATTERNS = [
+  "add to cart",
+  "add to bag",
+  "add to basket",
+  "add to my cart",
+  "add to my bag",
+  "add to my basket",
+  "add item to cart",
+  "add item to bag",
+  "add item to basket",
+];
+
+/**
+ * Tracks the most recent add-to-cart click per page URL so we can block
+ * accidental duplicate clicks that the model fires before reading the page.
+ */
+const recentCartClicks = new Map<string, { text: string; ts: number }>();
+const CART_CLICK_COOLDOWN_MS = 15_000;
+
+function isAddToCartText(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  return ADD_TO_CART_PATTERNS.some((p) => normalized.includes(p));
+}
+
+function recordCartClick(url: string, text: string): void {
+  recentCartClicks.set(url, { text, ts: Date.now() });
+  // Prune stale entries
+  for (const [key, entry] of recentCartClicks) {
+    if (Date.now() - entry.ts > CART_CLICK_COOLDOWN_MS) {
+      recentCartClicks.delete(key);
+    }
+  }
+}
+
+function isDuplicateCartClick(url: string, text: string): boolean {
+  const recent = recentCartClicks.get(url);
+  if (!recent) return false;
+  if (Date.now() - recent.ts > CART_CLICK_COOLDOWN_MS) {
+    recentCartClicks.delete(url);
+    return false;
+  }
+  return isAddToCartText(text);
+}
+
 async function clickResolvedSelector(
   wc: WebContents,
   selector: string,
@@ -843,6 +887,19 @@ async function clickResolvedSelector(
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     const beforeUrl = wc.getURL();
+    // Pre-check: get element text for cart-click guard
+    const idxLabel = await executePageScript<string>(
+      wc,
+      `window.__vessel?.getElementText?.(${idx}) || ""`,
+      { label: "shadow element text" },
+    );
+    if (
+      typeof idxLabel === "string" &&
+      isAddToCartText(idxLabel) &&
+      isDuplicateCartClick(beforeUrl, idxLabel)
+    ) {
+      return `Blocked: "${idxLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await executePageScript<string>(
       wc,
       `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
@@ -852,6 +909,9 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+      recordCartClick(beforeUrl, idxLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
@@ -862,6 +922,22 @@ async function clickResolvedSelector(
   // Shadow-piercing selector path
   if (selector.includes(" >>> ")) {
     const beforeUrl = wc.getURL();
+    // Pre-check: get element text for cart-click guard
+    const shadowLabel = await executePageScript<string>(
+      wc,
+      `(function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        return el ? (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || "") : "";
+      })()`,
+      { label: "shadow element text" },
+    );
+    if (
+      typeof shadowLabel === "string" &&
+      isAddToCartText(shadowLabel) &&
+      isDuplicateCartClick(beforeUrl, shadowLabel)
+    ) {
+      return `Blocked: "${shadowLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await executePageScript<string>(
       wc,
       `
@@ -878,6 +954,9 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+      recordCartClick(beforeUrl, shadowLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
@@ -889,11 +968,39 @@ async function clickResolvedSelector(
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
 
+  // Block duplicate add-to-cart clicks on the same page
+  const cartMatch = isAddToCartText(elInfo.text);
+  console.log(
+    `[Vessel cart-guard] text="${elInfo.text}" cartMatch=${cartMatch} url=${beforeUrl} hasPrior=${recentCartClicks.has(beforeUrl)}`,
+  );
+  if (cartMatch && isDuplicateCartClick(beforeUrl, elInfo.text)) {
+    console.log(`[Vessel cart-guard] BLOCKED duplicate add-to-cart click`);
+    return `Blocked: "${elInfo.text}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+  }
+
+  // Block clicks on background elements while a cart dialog is open
+  if (!cartMatch && recentCartClicks.has(beforeUrl)) {
+    const dialogActions = await getCartDialogActions(wc);
+    if (dialogActions) {
+      console.log(
+        `[Vessel cart-guard] BLOCKED background click while cart dialog is open`,
+      );
+      return `Blocked: a cart confirmation dialog is open. Do not click background elements.\n${dialogActions}\nClick one of these dialog actions instead.`;
+    }
+  }
+
   if (elInfo.href) {
     const validation = await validateLinkDestination(elInfo.href);
     if (validation.status === "dead") {
       return formatDeadLinkMessage(elInfo.text, validation);
     }
+  }
+
+  // Record add-to-cart clicks BEFORE executing so even if overlay detection
+  // fails, a second click on the same page will be caught.
+  if (cartMatch) {
+    console.log(`[Vessel cart-guard] RECORDED cart click for url=${beforeUrl}`);
+    recordCartClick(beforeUrl, elInfo.text);
   }
 
   const clickText = `Clicked: ${elInfo.text}`;
@@ -906,6 +1013,22 @@ async function clickResolvedSelector(
     return `${clickText} -> ${afterUrl}`;
   }
 
+  const overlayHint = await detectPostClickOverlay(wc);
+  if (overlayHint) {
+    // If this was a cart click, also fetch dialog actions inline
+    const dialogActions = cartMatch ? await getCartDialogActions(wc) : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}`;
+  }
+
+  // Do not "recover" cart clicks with a second DOM activation. On sites like
+  // Powell's, that fallback can submit Add to Cart twice while the drawer is opening.
+  if (cartMatch) {
+    return `${clickText} (${clickResult})`;
+  }
+
   const activationResult = await activateElement(wc, selector);
   if (!activationResult.startsWith("Error:")) {
     await waitForPotentialNavigation(wc, beforeUrl);
@@ -915,21 +1038,73 @@ async function clickResolvedSelector(
     }
   }
 
-  const overlayHint = await detectPostClickOverlay(wc);
-  if (overlayHint) {
-    return `${clickText} (${clickResult})\n${overlayHint}`;
+  const postActivationOverlayHint = await detectPostClickOverlay(wc);
+  if (postActivationOverlayHint) {
+    return `${clickText} (${clickResult})\n${postActivationOverlayHint}`;
   }
 
   return `${clickText} (${clickResult})`;
 }
 
 /**
+ * When a cart dialog is open, extract its interactive actions (buttons/links)
+ * so the model can act on them without needing to call read_page.
+ */
+async function getCartDialogActions(wc: WebContents): Promise<string | null> {
+  const result = await executePageScript<{
+    found: boolean;
+    actions: string[];
+  }>(
+    wc,
+    `
+    (function() {
+      var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+      if (!dialog) return { found: false, actions: [] };
+      var cs = getComputedStyle(dialog);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return { found: false, actions: [] };
+      var text = (dialog.textContent || '').slice(0, 500).toLowerCase();
+      var cartSignals = ['added to cart','added to bag','added to basket',
+        'item added','your basket','your cart','your bag',
+        'view basket','view cart','continue shopping'];
+      var isCart = cartSignals.some(function(s) { return text.indexOf(s) !== -1; });
+      if (!isCart) return { found: false, actions: [] };
+      var actions = [];
+      dialog.querySelectorAll('button, a[href], [role="button"]').forEach(function(el) {
+        var cs2 = getComputedStyle(el);
+        if (cs2.display === 'none' || cs2.visibility === 'hidden') return;
+        var r = el.getBoundingClientRect();
+        if (r.width < 20 || r.height < 10) return;
+        var label = (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 80);
+        if (!label || label.length < 2) return;
+        var href = el.getAttribute('href') || '';
+        var sel = el.id ? '#' + el.id
+          : el.getAttribute('data-test') ? '[data-test="' + el.getAttribute('data-test') + '"]'
+          : el.getAttribute('aria-label') ? '[aria-label="' + el.getAttribute('aria-label') + '"]'
+          : null;
+        if (sel) actions.push({ label: label, selector: sel, href: href });
+      });
+      return {
+        found: true,
+        actions: actions.map(function(a) {
+          return '- "' + a.label + '"' + (a.href ? ' → ' + a.href : '') + (a.selector ? ' (selector: ' + a.selector + ')' : '');
+        }),
+      };
+    })()
+    `,
+    { timeoutMs: 800, label: "get cart dialog actions" },
+  );
+
+  if (!result || result === PAGE_SCRIPT_TIMEOUT || !result.found) return null;
+  if (result.actions.length === 0) return null;
+
+  return `Available dialog actions:\n${result.actions.join("\n")}`;
+}
+
+/**
  * Lightweight post-click check: did a dialog / cart-drawer appear?
  * Runs a small DOM query instead of a full extraction so it stays fast.
  */
-async function detectPostClickOverlay(
-  wc: WebContents,
-): Promise<string | null> {
+async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
   const result = await executePageScript<{
     found: boolean;
     label: string;
@@ -1048,6 +1223,77 @@ async function dismissPopup(wc: WebContents): Promise<string> {
   const initialBlocking = before.overlays.filter(
     (overlay) => overlay.blocksInteraction,
   ).length;
+
+  // Refuse to dismiss cart confirmation dialogs — the model should interact
+  // with the dialog buttons (View Cart, Continue Shopping) instead.
+  if (initialBlocking > 0) {
+    const overlayText = before.overlays
+      .map((o) => [o.label, o.text].filter(Boolean).join(" "))
+      .join(" ")
+      .toLowerCase();
+    const cartSignals = [
+      "added to cart",
+      "added to bag",
+      "added to basket",
+      "item added",
+      "items in your basket",
+      "items in your cart",
+      "items in your bag",
+      "your basket",
+      "your cart",
+      "your bag",
+      "view basket",
+      "view cart",
+      "continue shopping",
+    ];
+    if (cartSignals.some((s) => overlayText.includes(s))) {
+      // Instead of refusing, try to click "Continue Shopping" automatically
+      const continueResult = await executePageScript<string>(
+        wc,
+        `
+        (function() {
+          var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+          if (!dialog) return "Error: dialog not found";
+          var buttons = dialog.querySelectorAll('button, a[href], [role="button"]');
+          var continueBtn = null;
+          var viewCartBtn = null;
+          for (var i = 0; i < buttons.length; i++) {
+            var label = (buttons[i].getAttribute('aria-label') || buttons[i].textContent || '').trim().toLowerCase();
+            if (/continue shopping|keep shopping/.test(label)) { continueBtn = buttons[i]; break; }
+            if (/view (basket|cart|bag)|checkout/.test(label) && !viewCartBtn) { viewCartBtn = buttons[i]; }
+          }
+          var target = continueBtn || viewCartBtn;
+          if (!target) return "Error: no dialog action found";
+          var actionLabel = (target.getAttribute('aria-label') || target.textContent || '').trim();
+          if (target.tagName === 'A' && target.href) {
+            window.location.href = target.href;
+            return "Clicked: " + actionLabel + " -> " + target.href;
+          }
+          target.click();
+          return "Clicked: " + actionLabel;
+        })()
+        `,
+        { timeoutMs: 1500, label: "cart dialog continue shopping" },
+      );
+
+      if (
+        continueResult &&
+        continueResult !== PAGE_SCRIPT_TIMEOUT &&
+        typeof continueResult === "string" &&
+        !continueResult.startsWith("Error")
+      ) {
+        console.log(
+          `[Vessel cart-guard] dismiss_popup auto-clicked dialog action: ${continueResult}`,
+        );
+        return `Cart confirmation handled: ${continueResult}. Item was already added to your cart.`;
+      }
+
+      // Fallback: return refusal with available actions
+      const dialogActions = await getCartDialogActions(wc);
+      return `Cannot dismiss: this is a cart confirmation dialog. Item is in your cart.${dialogActions ? "\n" + dialogActions + "\nClick one of these instead." : " Use read_page to see dialog actions."}`;
+    }
+  }
+
   const initialDormant = before.dormantOverlays.length;
   const initialLocale = await getLocaleSnapshot(wc);
 
@@ -2295,7 +2541,15 @@ async function submitForm(
   return "Submitted form";
 }
 
-export { waitForLoad, setElementValue, pressKey, dismissPopup };
+export {
+  waitForLoad,
+  setElementValue,
+  pressKey,
+  dismissPopup,
+  isAddToCartText,
+  isDuplicateCartClick,
+  recordCartClick,
+};
 
 export async function clickElementBySelector(
   wc: WebContents,
@@ -2628,6 +2882,10 @@ export async function executeAction(
 
         case "navigate": {
           if (!wc || !tabId) return "Error: No active tab";
+          const navValidation = await validateLinkDestination(args.url);
+          if (navValidation.status === "dead") {
+            return `Navigation blocked: ${args.url} returned ${navValidation.detail || "dead link"}. Try a different URL or go back and choose another link.`;
+          }
           ctx.tabManager.navigateTab(tabId, args.url);
           await waitForLoad(wc);
           return `Navigated to ${wc.getURL()}${getPostNavSummary(wc)}`;
@@ -3571,6 +3829,38 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const query = String(args.query || "");
           if (!query) return "Error: No search query provided.";
+
+          // Guard: reject queries that look like button/UI labels, not search terms
+          const queryLower = query.toLowerCase().trim();
+          const buttonLikePatterns = [
+            "add to cart",
+            "add to bag",
+            "add to basket",
+            "buy now",
+            "buy it now",
+            "purchase",
+            "continue shopping",
+            "keep shopping",
+            "view cart",
+            "view bag",
+            "view basket",
+            "go to cart",
+            "go to checkout",
+            "checkout",
+            "check out",
+            "proceed to checkout",
+            "place order",
+            "submit",
+            "subscribe",
+            "sign up",
+            "sign in",
+            "log in",
+            "register",
+            "continue",
+          ];
+          if (buttonLikePatterns.some((p) => queryLower.includes(p))) {
+            return `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`;
+          }
 
           // Step 1: Find the search input — polls inside the page for up
           // to 5 seconds so we catch it as soon as the framework renders

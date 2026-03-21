@@ -374,23 +374,14 @@ async function main(): Promise<void> {
     await runScenario(
       "click that triggers cart drawer returns overlay hint",
       async () => {
-        await withTab(
-          `${harness.baseUrl}/cart-drawer-click`,
-          async (tab) => {
-            const wc = tab.view.webContents;
+        await withTab(`${harness.baseUrl}/cart-drawer-click`, async (tab) => {
+          const wc = tab.view.webContents;
 
-            const result = await clickElementBySelector(wc, "#add-to-cart");
-            assert.match(result, /Clicked: Add to Cart/);
-            assert.match(
-              result,
-              /cart confirmation dialog appeared/i,
-            );
-            assert.match(
-              result,
-              /do not click Add to Cart again/i,
-            );
-          },
-        );
+          const result = await clickElementBySelector(wc, "#add-to-cart");
+          assert.match(result, /Clicked: Add to Cart/);
+          assert.match(result, /cart confirmation dialog appeared/i);
+          assert.match(result, /do not click Add to Cart again/i);
+        });
       },
     );
     completedScenarios.push(
@@ -407,14 +398,8 @@ async function main(): Promise<void> {
 
             const result = await clickElementBySelector(wc, "#add-to-cart");
             assert.match(result, /Clicked: Add to Cart/);
-            assert.match(
-              result,
-              /cart confirmation dialog appeared/i,
-            );
-            assert.match(
-              result,
-              /do not click Add to Cart again/i,
-            );
+            assert.match(result, /cart confirmation dialog appeared/i);
+            assert.match(result, /do not click Add to Cart again/i);
 
             // Also verify extraction detects the overlay properly
             const page = await extractContent(wc);
@@ -427,6 +412,29 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "absolute-positioned cart drawer detected after click",
+    );
+
+    await runScenario(
+      "single clicks do not re-activate add-like buttons on the same page",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/single-click-counter`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            const result = await clickElementBySelector(wc, "#count-once");
+            assert.match(result, /Clicked: Count Once/);
+
+            const count = await wc.executeJavaScript(
+              `document.getElementById("count")?.textContent || ""`,
+            );
+            assert.equal(count, "1");
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "single clicks do not re-activate add-like buttons on the same page",
     );
 
     await runScenario(

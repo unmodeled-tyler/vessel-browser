@@ -22,7 +22,12 @@ import {
   formatDeadLinkMessage,
   validateLinkDestination,
 } from "../network/link-validation";
-import { fillFormFields } from "../ai/page-actions";
+import {
+  fillFormFields,
+  isAddToCartText,
+  isDuplicateCartClick,
+  recordCartClick,
+} from "../ai/page-actions";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
@@ -443,18 +448,54 @@ async function clickResolvedSelector(
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     const beforeUrl = wc.getURL();
+    const idxLabel = await wc.executeJavaScript(
+      `window.__vessel?.getElementText?.(${idx}) || ""`,
+    );
+    if (
+      typeof idxLabel === "string" &&
+      isAddToCartText(idxLabel) &&
+      isDuplicateCartClick(beforeUrl, idxLabel)
+    ) {
+      return `Blocked: "${idxLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await wc.executeJavaScript(
       `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
     );
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+      recordCartClick(beforeUrl, idxLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const overlayHint = await detectPostClickOverlay(wc);
+    if (!overlayHint) return result;
+    const dialogActions =
+      typeof idxLabel === "string" && isAddToCartText(idxLabel)
+        ? await getCartDialogActions(wc)
+        : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${result}\n${overlayHint}${actionsSuffix}`;
   }
 
   // Shadow-piercing selector path
   if (selector.includes(" >>> ")) {
     const beforeUrl = wc.getURL();
+    const shadowLabel = await wc.executeJavaScript(`
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        return el ? (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || "") : "";
+      })()
+    `);
+    if (
+      typeof shadowLabel === "string" &&
+      isAddToCartText(shadowLabel) &&
+      isDuplicateCartClick(beforeUrl, shadowLabel)
+    ) {
+      return `Blocked: "${shadowLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await wc.executeJavaScript(`
       (function() {
         var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
@@ -464,20 +505,50 @@ async function clickResolvedSelector(
       })()
     `);
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+      recordCartClick(beforeUrl, shadowLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const overlayHint = await detectPostClickOverlay(wc);
+    if (!overlayHint) return result;
+    const dialogActions =
+      typeof shadowLabel === "string" && isAddToCartText(shadowLabel)
+        ? await getCartDialogActions(wc)
+        : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${result}\n${overlayHint}${actionsSuffix}`;
   }
 
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
 
+  // Block duplicate add-to-cart clicks on the same page
+  const cartMatch = isAddToCartText(elInfo.text);
+  if (cartMatch && isDuplicateCartClick(beforeUrl, elInfo.text)) {
+    return `Blocked: "${elInfo.text}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+  }
+
+  if (!cartMatch) {
+    const dialogActions = await getCartDialogActions(wc);
+    if (dialogActions) {
+      return `Blocked: a cart confirmation dialog is open. Do not click background elements.\n${dialogActions}\nClick one of these dialog actions instead.`;
+    }
+  }
+
   if (elInfo.href) {
     const validation = await validateLinkDestination(elInfo.href);
     if (validation.status === "dead") {
       return formatDeadLinkMessage(elInfo.text, validation);
     }
+  }
+
+  if (cartMatch) {
+    recordCartClick(beforeUrl, elInfo.text);
   }
 
   const clickText = `Clicked: ${elInfo.text}`;
@@ -490,6 +561,21 @@ async function clickResolvedSelector(
     return `${clickText} -> ${afterUrl}`;
   }
 
+  const overlayHint = await detectPostClickOverlay(wc);
+  if (overlayHint) {
+    const dialogActions = cartMatch ? await getCartDialogActions(wc) : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}`;
+  }
+
+  // Do not "recover" cart clicks with a second DOM activation. On sites like
+  // Powell's, that fallback can submit Add to Basket twice while the drawer is opening.
+  if (cartMatch) {
+    return `${clickText} (${clickResult})`;
+  }
+
   const activationResult = await activateElement(wc, selector);
   if (!activationResult.startsWith("Error:")) {
     await waitForPotentialNavigation(wc, beforeUrl);
@@ -499,7 +585,211 @@ async function clickResolvedSelector(
     }
   }
 
+  const postActivationOverlayHint = await detectPostClickOverlay(wc);
+  if (postActivationOverlayHint) {
+    return `${clickText} (${clickResult})\n${postActivationOverlayHint}`;
+  }
+
   return `${clickText} (${clickResult})`;
+}
+
+async function getCartDialogActions(
+  wc: Electron.WebContents,
+): Promise<string | null> {
+  const result = await wc.executeJavaScript(`
+    (function() {
+      function isVisible(el) {
+        if (!(el instanceof HTMLElement)) return false;
+        const style = getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width >= 20 && rect.height >= 10;
+      }
+
+      function findDialogRoot() {
+        const selectors = [
+          '[data-test="basket-flyout"]',
+          '[role="dialog"]',
+          'dialog[open]',
+          '[role="alertdialog"]',
+          '[aria-modal="true"]',
+        ];
+        for (const selector of selectors) {
+          const nodes = document.querySelectorAll(selector);
+          for (const node of nodes) {
+            if (!(node instanceof HTMLElement) || !isVisible(node)) continue;
+            const text = (node.textContent || "").slice(0, 800).toLowerCase();
+            const cartSignals = [
+              "added to cart", "added to bag", "added to basket",
+              "item added", "your basket", "your cart", "your bag",
+              "view basket", "view cart", "continue shopping",
+            ];
+            if (cartSignals.some((signal) => text.includes(signal))) {
+              return node;
+            }
+          }
+        }
+        return null;
+      }
+
+      const dialog = findDialogRoot();
+      if (!dialog) return { found: false, actions: [] };
+
+      const actions = [];
+      dialog.querySelectorAll('button, a[href], [role="button"]').forEach((el) => {
+        if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+        const label = (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 80);
+        if (!label || label.length < 2) return;
+        const href = el.getAttribute("href") || "";
+        const selector = el.id ? "#" + el.id
+          : el.getAttribute("data-test") ? '[data-test="' + el.getAttribute("data-test") + '"]'
+          : el.getAttribute("aria-label") ? '[aria-label="' + el.getAttribute("aria-label") + '"]'
+          : null;
+        if (selector) {
+          actions.push({ label: label, href: href, selector: selector });
+        }
+      });
+
+      return {
+        found: true,
+        actions: actions.map((action) =>
+          '- "' + action.label + '"' +
+          (action.href ? ' -> ' + action.href : "") +
+          (action.selector ? ' (selector: ' + action.selector + ')' : "")
+        ),
+      };
+    })()
+  `);
+
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("found" in result) ||
+    !result.found
+  ) {
+    return null;
+  }
+  if (
+    !("actions" in result) ||
+    !Array.isArray(result.actions) ||
+    result.actions.length === 0
+  ) {
+    return null;
+  }
+
+  return `Available dialog actions:\n${result.actions.join("\n")}`;
+}
+
+async function detectPostClickOverlay(
+  wc: Electron.WebContents,
+): Promise<string | null> {
+  const result = await wc.executeJavaScript(`
+    (function() {
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      var vpArea = Math.max(1, vw * vh);
+
+      function isVisible(el) {
+        if (!(el instanceof HTMLElement)) return false;
+        var style = getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        return el.getBoundingClientRect().width > 0;
+      }
+
+      function hasFixedAncestor(el) {
+        var current = el.parentElement;
+        while (current && current !== document.body) {
+          var position = getComputedStyle(current).position;
+          if (position === "fixed" || position === "sticky") return true;
+          current = current.parentElement;
+        }
+        return false;
+      }
+
+      function effectiveZ(el) {
+        var current = el;
+        while (current && current !== document.body) {
+          var z = parseInt(getComputedStyle(current).zIndex, 10);
+          if (z > 0) return z;
+          current = current.parentElement;
+        }
+        return 0;
+      }
+
+      function touchesViewportEdge(rect) {
+        return rect.left <= 24 || rect.top <= 24 ||
+          rect.right >= vw - 24 || rect.bottom >= vh - 24;
+      }
+
+      var cartPhrases = [
+        "added to cart", "added to bag", "added to basket",
+        "added to your cart", "added to your bag", "added to your basket",
+      ];
+      var cartActions = [
+        "view cart", "go to cart", "view basket", "go to basket",
+        "continue shopping", "keep shopping", "checkout",
+      ];
+
+      var selectors = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"], [data-test="basket-flyout"]';
+      var candidates = document.querySelectorAll(selectors);
+      var hit = null;
+      for (var i = 0; i < candidates.length; i++) {
+        if (isVisible(candidates[i])) {
+          hit = candidates[i];
+          break;
+        }
+      }
+
+      if (!hit) {
+        var elements = document.querySelectorAll("*");
+        for (var j = 0; j < elements.length; j++) {
+          var el = elements[j];
+          if (!(el instanceof HTMLElement) || !isVisible(el)) continue;
+          var style = getComputedStyle(el);
+          var position = style.position;
+          var isFixed = position === "fixed" || position === "sticky";
+          var isAbsolute = position === "absolute";
+          if (!isFixed && !isAbsolute) continue;
+          if (isAbsolute && !hasFixedAncestor(el)) continue;
+          if (effectiveZ(el) < 5) continue;
+          var rect = el.getBoundingClientRect();
+          var areaRatio = (rect.width * rect.height) / vpArea;
+          if (rect.width >= 160 && rect.height >= 100 && areaRatio >= 0.05 && touchesViewportEdge(rect)) {
+            hit = el;
+            break;
+          }
+        }
+      }
+
+      if (!hit) return { found: false, label: "", cartLike: false };
+      var text = (hit.textContent || "").slice(0, 800).toLowerCase();
+      var cartLike = cartPhrases.concat(cartActions).some(function(signal) {
+        return text.indexOf(signal) !== -1;
+      });
+      var heading = hit.querySelector("h1,h2,h3,h4");
+      var label = (hit.getAttribute("aria-label") || (heading && heading.textContent) || "").trim().slice(0, 80);
+      return { found: true, label: label, cartLike: cartLike };
+    })()
+  `);
+
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("found" in result) ||
+    !result.found
+  ) {
+    return null;
+  }
+
+  const label =
+    typeof result.label === "string" && result.label
+      ? ` ("${result.label}")`
+      : "";
+  if ("cartLike" in result && result.cartLike) {
+    return `A cart confirmation dialog appeared${label}. Call read_page to see available actions — do not click Add to Cart again.`;
+  }
+
+  return `A dialog or overlay appeared${label}. Call read_page to see available actions.`;
 }
 
 async function dismissPopup(wc: Electron.WebContents): Promise<string> {
@@ -507,6 +797,67 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
   const initialBlocking = before.overlays.filter(
     (overlay) => overlay.blocksInteraction,
   ).length;
+
+  // Refuse to dismiss cart confirmation dialogs
+  if (initialBlocking > 0) {
+    const overlayText = before.overlays
+      .map((o: { label?: string; text?: string }) =>
+        [o.label, o.text].filter(Boolean).join(" "),
+      )
+      .join(" ")
+      .toLowerCase();
+    const cartSignals = [
+      "added to cart",
+      "added to bag",
+      "added to basket",
+      "item added",
+      "items in your basket",
+      "items in your cart",
+      "items in your bag",
+      "your basket",
+      "your cart",
+      "your bag",
+      "view basket",
+      "view cart",
+      "continue shopping",
+    ];
+    if (cartSignals.some((s) => overlayText.includes(s))) {
+      // Instead of refusing, try to click "Continue Shopping" automatically
+      const continueResult = await wc.executeJavaScript(`
+        (function() {
+          var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+          if (!dialog) return "Error: dialog not found";
+          var buttons = dialog.querySelectorAll('button, a[href], [role="button"]');
+          var continueBtn = null;
+          var viewCartBtn = null;
+          for (var i = 0; i < buttons.length; i++) {
+            var label = (buttons[i].getAttribute('aria-label') || buttons[i].textContent || '').trim().toLowerCase();
+            if (/continue shopping|keep shopping/.test(label)) { continueBtn = buttons[i]; break; }
+            if (/view (basket|cart|bag)|checkout/.test(label) && !viewCartBtn) { viewCartBtn = buttons[i]; }
+          }
+          var target = continueBtn || viewCartBtn;
+          if (!target) return "Error: no dialog action found";
+          var actionLabel = (target.getAttribute('aria-label') || target.textContent || '').trim();
+          if (target.tagName === 'A' && target.href) {
+            window.location.href = target.href;
+            return "Clicked: " + actionLabel + " -> " + target.href;
+          }
+          target.click();
+          return "Clicked: " + actionLabel;
+        })()
+      `);
+
+      if (
+        typeof continueResult === "string" &&
+        !continueResult.startsWith("Error")
+      ) {
+        return `Cart confirmation handled: ${continueResult}. Item was already added to your cart.`;
+      }
+
+      return "Cannot dismiss: this is a cart confirmation dialog. Item is in your cart. Use read_page to see dialog actions (e.g. View Basket, Continue Shopping) and click one of them instead.";
+    }
+  }
+
   const initialDormant = before.dormantOverlays.length;
 
   const candidates = await wc.executeJavaScript(`
@@ -1754,6 +2105,12 @@ function registerTools(
     async ({ url }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
+      const preCheck = await validateLinkDestination(url);
+      if (preCheck.status === "dead") {
+        return asTextResponse(
+          `Navigation blocked: ${url} returned ${preCheck.detail || "dead link"}. Try a different URL or go back and choose another link.`,
+        );
+      }
       return withAction(runtime, tabManager, "navigate", { url }, async () => {
         const id = tabManager.getActiveTabId()!;
         tabManager.navigateTab(id, url);
@@ -4408,6 +4765,41 @@ function registerTools(
     async ({ query, selector }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
+
+      // Guard: reject queries that look like button/UI labels, not search terms
+      const qLower = query.toLowerCase().trim();
+      const buttonLabels = [
+        "add to cart",
+        "add to bag",
+        "add to basket",
+        "buy now",
+        "buy it now",
+        "purchase",
+        "continue shopping",
+        "keep shopping",
+        "view cart",
+        "view bag",
+        "view basket",
+        "go to cart",
+        "go to checkout",
+        "checkout",
+        "check out",
+        "proceed to checkout",
+        "place order",
+        "submit",
+        "subscribe",
+        "sign up",
+        "sign in",
+        "log in",
+        "register",
+        "continue",
+      ];
+      if (buttonLabels.some((p) => qLower.includes(p))) {
+        return asTextResponse(
+          `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`,
+        );
+      }
+
       return withAction(runtime, tabManager, "search", { query }, async () => {
         const wc = tab.view.webContents;
 

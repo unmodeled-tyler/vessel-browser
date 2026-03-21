@@ -415,6 +415,27 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
       return;
     }
 
+    if (method === "GET" && url.pathname === "/single-click-counter") {
+      sendHtml(
+        res,
+        renderPage(
+          "single-click-counter",
+          `
+            <h1>Single Click Counter</h1>
+            <button
+              id="count-once"
+              type="button"
+              onclick="window.__clickCount = (window.__clickCount || 0) + 1; document.getElementById('count').textContent = String(window.__clickCount)"
+            >
+              Count Once
+            </button>
+            <p id="count">0</p>
+          `,
+        ),
+      );
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/cart-drawer-absolute") {
       sendHtml(
         res,
