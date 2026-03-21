@@ -12,6 +12,7 @@ import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import { useTabs } from "../../stores/tabs";
 import { useBookmarks } from "../../stores/bookmarks";
+import { buildAndRememberBookmarkContext } from "../../lib/bookmark-context";
 import { renderMarkdown } from "../../lib/markdown";
 import {
   getBookmarkSearchMatch,
@@ -162,7 +163,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     removeFolder,
     renameFolder,
   } = useBookmarks();
-  const [sidebarTab, setSidebarTab] = createSignal<"supervisor" | "bookmarks" | "checkpoints" | "chat">("supervisor");
+  const [sidebarTab, setSidebarTab] = createSignal<
+    "supervisor" | "bookmarks" | "checkpoints" | "chat"
+  >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
   const [highlightIndex, setHighlightIndex] = createSignal(-1);
@@ -172,11 +175,14 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     if (sidebarTab() !== "chat") return;
     const poll = async () => {
       try {
-        const count = await (window as any).vessel?.highlights?.getCount?.() ?? 0;
+        const count =
+          (await (window as any).vessel?.highlights?.getCount?.()) ?? 0;
         setHighlightCount(count);
         // Reset index if highlights were cleared
         if (count === 0 && highlightIndex() >= 0) setHighlightIndex(-1);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     };
     void poll();
     const id = setInterval(poll, 2000);
@@ -195,7 +201,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     const idx = highlightIndex();
     if (idx < 0) return;
     await (window as any).vessel?.highlights?.remove?.(idx);
-    const newCount = await (window as any).vessel?.highlights?.getCount?.() ?? 0;
+    const newCount =
+      (await (window as any).vessel?.highlights?.getCount?.()) ?? 0;
     setHighlightCount(newCount);
     if (newCount === 0) {
       setHighlightIndex(-1);
@@ -221,6 +228,42 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
         void clearAllHighlights();
       }
     });
+    onCleanup(unsubscribe);
+  });
+
+  createEffect(() => {
+    const unsubscribe = window.vessel.bookmarks.onAddContextToChat(
+      (bookmarkId) => {
+        const bookmark = bookmarksState().bookmarks.find(
+          (item) => item.id === bookmarkId,
+        );
+        if (!bookmark) return;
+
+        const folder =
+          bookmark.folderId === UNSORTED_FOLDER.id
+            ? UNSORTED_FOLDER
+            : (bookmarksState().folders.find(
+                (item) => item.id === bookmark.folderId,
+              ) ?? null);
+        const contextBlock = buildAndRememberBookmarkContext({
+          bookmark,
+          folder,
+          messages: messages(),
+        });
+
+        setSidebarTab("chat");
+        setChatInput((current) =>
+          current.trim()
+            ? `${current.trim()}\n\n${contextBlock}`
+            : contextBlock,
+        );
+        queueMicrotask(() => {
+          chatInputRef?.focus();
+          const length = chatInputRef?.value.length ?? 0;
+          chatInputRef?.setSelectionRange(length, length);
+        });
+      },
+    );
     onCleanup(unsubscribe);
   });
 
@@ -264,6 +307,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
   let messagesContainerRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
+  let chatInputRef: HTMLTextAreaElement | undefined;
   let hasInitializedMessageScroll = false;
   const recentActions = createMemo(() =>
     runtimeState().actions.slice(-8).reverse(),
@@ -514,10 +558,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
   return (
     <Show when={props.forceOpen || sidebarOpen()}>
-      <div
-        class="sidebar"
-        style={{ width: `${sidebarWidth()}px` }}
-      >
+      <div class="sidebar" style={{ width: `${sidebarWidth()}px` }}>
         <div
           class="sidebar-resize-handle"
           classList={{ dragging: isDragging() }}
@@ -604,501 +645,532 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           </button>
         </div>
 
-        <div class="sidebar-messages" ref={(el) => { messagesContainerRef = el; useScrollFade(el); }}>
+        <div
+          class="sidebar-messages"
+          ref={(el) => {
+            messagesContainerRef = el;
+            useScrollFade(el);
+          }}
+        >
           <Show when={sidebarTab() === "supervisor"}>
-          <section class="agent-panel">
-            <div class="agent-panel-header">
-              <div>
-                <div class="agent-panel-title">Supervisor</div>
-                <div class="agent-panel-subtitle">
-                  {runtimeState().supervisor.paused
-                    ? "Agent is paused"
-                    : "Agent is live"}
-                </div>
-              </div>
-              <span
-                class="agent-status-pill"
-                classList={{ paused: runtimeState().supervisor.paused }}
-              >
-                {runtimeState().supervisor.paused ? "Paused" : "Running"}
-              </span>
-            </div>
-
-            <div class="agent-panel-controls">
-              <DropdownSelect
-                class="agent-select"
-                value={runtimeState().supervisor.approvalMode}
-                options={approvalModeOptions()}
-                ariaLabel="Approval mode"
-                onChange={(value) =>
-                  void setApprovalMode(
-                    value as "auto" | "confirm-dangerous" | "manual",
-                  )
-                }
-              />
-              <button
-                class="agent-control-button"
-                type="button"
-                onClick={() =>
-                  void (runtimeState().supervisor.paused ? resume() : pause())
-                }
-              >
-                {runtimeState().supervisor.paused ? "Resume" : "Pause"}
-              </button>
-              <button
-                class="agent-control-button"
-                type="button"
-                onClick={() => void restoreSession()}
-              >
-                Restore session
-              </button>
-            </div>
-
-            <div class="agent-muted">{approvalModeDescription()}</div>
-
-            <Show
-              when={runtimeState().supervisor.pendingApprovals.length > 0}
-              fallback={<div class="agent-muted">No pending approvals.</div>}
-            >
-              <div class="agent-section-title">Pending approvals</div>
-              <For each={runtimeState().supervisor.pendingApprovals}>
-                {(approval) => (
-                  <div class="agent-card agent-card-approval">
-                    <div class="agent-card-approval-stripe" aria-hidden="true" />
-                    <div class="agent-card-title">{approval.name}</div>
-                    <div class="agent-card-copy">{approval.argsSummary}</div>
-                    <div class="agent-card-copy">{approval.reason}</div>
-                    <div class="agent-card-actions">
-                      <button
-                        class="agent-primary-button"
-                        type="button"
-                        onClick={() => void resolveApproval(approval.id, true)}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        class="agent-control-button"
-                        type="button"
-                        onClick={() => void resolveApproval(approval.id, false)}
-                      >
-                        Reject
-                      </button>
-                    </div>
+            <section class="agent-panel">
+              <div class="agent-panel-header">
+                <div>
+                  <div class="agent-panel-title">Supervisor</div>
+                  <div class="agent-panel-subtitle">
+                    {runtimeState().supervisor.paused
+                      ? "Agent is paused"
+                      : "Agent is live"}
                   </div>
-                )}
-              </For>
-            </Show>
-
-            <div class="agent-section-header">
-              <div class="agent-section-title">Recent actions</div>
-              <Show when={recentActions().length > 0}>
-                <button
-                  class="agent-section-toggle"
-                  type="button"
-                  onClick={() => setActionsExpanded((current) => !current)}
-                >
-                  {actionsExpanded()
-                    ? "Hide history"
-                    : `Show history (${recentActions().length})`}
-                </button>
-              </Show>
-            </div>
-            <Show
-              when={recentActions().length > 0}
-              fallback={<div class="agent-muted">No actions yet.</div>}
-            >
-              <Show
-                when={actionsExpanded()}
-                fallback={
-                  <div class="agent-muted">
-                    Recent actions are collapsed to reduce noise.
-                  </div>
-                }
-              >
-                <For each={recentActions()}>
-                  {(action) => (
-                    <div class="agent-card">
-                      <div class="agent-action-row">
-                        <span class="agent-card-title">{action.name}</span>
-                        <span class={`agent-action-status ${action.status}`}>
-                          {action.status}
-                        </span>
-                      </div>
-                      <div class="agent-card-copy">{action.argsSummary}</div>
-                      <Show when={action.resultSummary}>
-                        <div class="agent-card-copy success">
-                          {action.resultSummary}
-                        </div>
-                      </Show>
-                      <Show when={action.error}>
-                        <div class="agent-card-copy error">{action.error}</div>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </Show>
-            </Show>
-          </section>
-          </Show>
-
-          <Show when={sidebarTab() === "bookmarks"}>
-          <section class="bookmark-panel">
-            <div class="bookmark-panel-header">
-              <div>
-                <div class="bookmark-panel-title">Bookmarks</div>
-                <div class="bookmark-panel-subtitle">
-                  {normalizedBookmarkSearch()
-                    ? `${bookmarkMatchCount()} matches for "${bookmarkSearchQuery().trim()}"`
-                    : `${bookmarksState().bookmarks.length} saved across ${bookmarkFolders().length} folders`}
                 </div>
-              </div>
-              <Show when={currentTabSaved()}>
-                <span class="bookmark-status-pill">Saved</span>
-              </Show>
-            </div>
-
-            <input
-              class="bookmark-input bookmark-search-input"
-              value={bookmarkSearchQuery()}
-              onInput={(e) => setBookmarkSearchQuery(e.currentTarget.value)}
-              placeholder="Search titles, URLs, notes, and folders"
-            />
-
-            <div class="bookmark-save-shell">
-              <button
-                class="bookmark-save-toggle"
-                type="button"
-                onClick={() => setBookmarkSaveExpanded((current) => !current)}
-              >
-                <span class="bookmark-save-toggle-copy">
-                  <span class="bookmark-save-toggle-title">
-                    Save Current Page
-                  </span>
-                  <span class="bookmark-save-toggle-subtitle">
-                    Manual bookmark save options
-                  </span>
-                </span>
                 <span
-                  class="bookmark-save-toggle-caret"
-                  classList={{ expanded: bookmarkSaveExpanded() }}
-                  aria-hidden="true"
+                  class="agent-status-pill"
+                  classList={{ paused: runtimeState().supervisor.paused }}
                 >
-                  ▾
+                  {runtimeState().supervisor.paused ? "Paused" : "Running"}
                 </span>
-              </button>
-
-              <Show when={bookmarkSaveExpanded()}>
-                <div class="bookmark-save-card">
-                  <div class="bookmark-current-title">
-                    {currentTab()?.title || "No active page"}
-                  </div>
-                  <div class="bookmark-current-url">
-                    {currentTab()?.url || "Open a page to save it here."}
-                  </div>
-                  <div class="bookmark-save-controls">
-                    <DropdownSelect
-                      class="bookmark-select"
-                      value={selectedFolderId()}
-                      options={bookmarkFolderOptions()}
-                      ariaLabel="Bookmark folder"
-                      onChange={(value) => setSelectedFolderId(value)}
-                    />
-                    <button
-                      class="bookmark-primary-button"
-                      type="button"
-                      disabled={!currentTab()?.url}
-                      onClick={() => void handleSaveBookmark()}
-                    >
-                      Save page
-                    </button>
-                  </div>
-                  <textarea
-                    class="bookmark-note-input"
-                    value={bookmarkNote()}
-                    onInput={(e) => setBookmarkNote(e.currentTarget.value)}
-                    placeholder="Optional note about why this matters"
-                    rows={2}
-                  />
-                </div>
-              </Show>
-            </div>
-
-            <form class="bookmark-folder-create" onSubmit={handleCreateFolder}>
-              <div class="bookmark-folder-form-fields">
-                <input
-                  class="bookmark-input"
-                  value={newFolderName()}
-                  onInput={(e) => setNewFolderName(e.currentTarget.value)}
-                  placeholder="Create a folder"
-                />
-                <input
-                  class="bookmark-input"
-                  value={newFolderSummary()}
-                  onInput={(e) => setNewFolderSummary(e.currentTarget.value)}
-                  placeholder="Optional one-line summary"
-                />
               </div>
-              <button
-                class="bookmark-secondary-button"
-                type="submit"
-                disabled={!newFolderName().trim()}
-              >
-                New folder
-              </button>
-            </form>
 
-            <div class="bookmark-folder-list">
+              <div class="agent-panel-controls">
+                <DropdownSelect
+                  class="agent-select"
+                  value={runtimeState().supervisor.approvalMode}
+                  options={approvalModeOptions()}
+                  ariaLabel="Approval mode"
+                  onChange={(value) =>
+                    void setApprovalMode(
+                      value as "auto" | "confirm-dangerous" | "manual",
+                    )
+                  }
+                />
+                <button
+                  class="agent-control-button"
+                  type="button"
+                  onClick={() =>
+                    void (runtimeState().supervisor.paused ? resume() : pause())
+                  }
+                >
+                  {runtimeState().supervisor.paused ? "Resume" : "Pause"}
+                </button>
+                <button
+                  class="agent-control-button"
+                  type="button"
+                  onClick={() => void restoreSession()}
+                >
+                  Restore session
+                </button>
+              </div>
+
+              <div class="agent-muted">{approvalModeDescription()}</div>
+
               <Show
-                when={filteredGroupedBookmarks().length > 0}
-                fallback={
-                  <div class="bookmark-empty-folder">
-                    {normalizedBookmarkSearch()
-                      ? `No bookmarks matched "${bookmarkSearchQuery().trim()}".`
-                      : "No bookmarks saved yet."}
-                  </div>
-                }
+                when={runtimeState().supervisor.pendingApprovals.length > 0}
+                fallback={<div class="agent-muted">No pending approvals.</div>}
               >
-                <For each={filteredGroupedBookmarks()}>
-                  {(folder) => (
-                    <div class="bookmark-folder-section">
+                <div class="agent-section-title">Pending approvals</div>
+                <For each={runtimeState().supervisor.pendingApprovals}>
+                  {(approval) => (
+                    <div class="agent-card agent-card-approval">
                       <div
-                        class="bookmark-folder-header clickable"
-                        onClick={() => toggleFolderExpanded(folder.id)}
-                        role="button"
-                        tabindex="0"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            toggleFolderExpanded(folder.id);
-                          }
-                        }}
-                      >
-                        <div class="bookmark-folder-overview">
-                          <span
-                            class="bookmark-folder-chevron"
-                            classList={{ expanded: isFolderExpanded(folder.id) }}
-                            aria-hidden="true"
-                          >
-                            ▸
-                          </span>
-                          <div>
-                            <div class="bookmark-folder-name">{folder.name}</div>
-                            <div class="bookmark-folder-meta">
-                              {folder.items.length} saved
-                            </div>
-                            <Show when={folder.summary}>
-                              <div class="bookmark-folder-summary">
-                                {folder.summary}
-                              </div>
-                            </Show>
-                          </div>
-                        </div>
-                        <Show when={folder.id !== UNSORTED_FOLDER.id}>
-                          <div class="bookmark-folder-actions">
-                            <button
-                              class="bookmark-ghost-button"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingFolderId(folder.id);
-                                setEditingFolderName(folder.name);
-                                setEditingFolderSummary(folder.summary || "");
-                              }}
-                            >
-                              Rename
-                            </button>
-                            <button
-                              class="bookmark-ghost-button danger"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleRemoveFolder(folder.id);
-                              }}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </Show>
-                      </div>
-
-                      <Show when={editingFolderId() === folder.id}>
-                        <div class="bookmark-folder-edit">
-                          <div class="bookmark-folder-form-fields">
-                            <input
-                              class="bookmark-input"
-                              value={editingFolderName()}
-                              onInput={(e) =>
-                                setEditingFolderName(e.currentTarget.value)
-                              }
-                            />
-                            <input
-                              class="bookmark-input"
-                              value={editingFolderSummary()}
-                              onInput={(e) =>
-                                setEditingFolderSummary(e.currentTarget.value)
-                              }
-                              placeholder="Optional one-line summary"
-                            />
-                          </div>
-                          <button
-                            class="bookmark-secondary-button"
-                            type="button"
-                            disabled={!editingFolderName().trim()}
-                            onClick={() => void handleRenameFolder(folder.id)}
-                          >
-                            Save
-                          </button>
-                          <button
-                            class="bookmark-ghost-button"
-                            type="button"
-                            onClick={() => {
-                              setEditingFolderId(null);
-                              setEditingFolderName("");
-                              setEditingFolderSummary("");
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </Show>
-
-                      <Show
-                        when={isFolderExpanded(folder.id)}
-                        fallback={
-                          <div class="bookmark-folder-collapsed-hint">
-                            Click to view saved links.
-                          </div>
-                        }
-                      >
-                        <Show
-                          when={folder.items.length > 0}
-                          fallback={
-                            <div class="bookmark-empty-folder">
-                              No bookmarks in this folder yet.
-                            </div>
+                        class="agent-card-approval-stripe"
+                        aria-hidden="true"
+                      />
+                      <div class="agent-card-title">{approval.name}</div>
+                      <div class="agent-card-copy">{approval.argsSummary}</div>
+                      <div class="agent-card-copy">{approval.reason}</div>
+                      <div class="agent-card-actions">
+                        <button
+                          class="agent-primary-button"
+                          type="button"
+                          onClick={() =>
+                            void resolveApproval(approval.id, true)
                           }
                         >
-                          <div class="bookmark-items">
-                            <For each={folder.items}>
-                              {(bookmark) => (
-                                <div class="bookmark-item">
-                                  <button
-                                    class="bookmark-item-link"
-                                    type="button"
-                                    onClick={() => void createTab(bookmark.url)}
-                                  >
-                                    <span class="bookmark-item-title">
-                                      {bookmark.title || bookmark.url}
-                                    </span>
-                                    <span class="bookmark-item-url">
-                                      {bookmark.url}
-                                    </span>
-                                  </button>
-                                  <Show when={bookmark.note}>
-                                    <div class="bookmark-item-note">
-                                      {bookmark.note}
-                                    </div>
-                                  </Show>
-                                  <div class="bookmark-item-footer">
-                                    <span class="bookmark-item-time">
-                                      {formatBookmarkDate(bookmark.savedAt)}
-                                    </span>
-                                    <button
-                                      class="bookmark-ghost-button danger"
-                                      type="button"
-                                      onClick={() =>
-                                        void removeBookmark(bookmark.id)
-                                      }
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </For>
-                          </div>
-                        </Show>
-                      </Show>
+                          Approve
+                        </button>
+                        <button
+                          class="agent-control-button"
+                          type="button"
+                          onClick={() =>
+                            void resolveApproval(approval.id, false)
+                          }
+                        >
+                          Reject
+                        </button>
+                      </div>
                     </div>
                   )}
                 </For>
               </Show>
-            </div>
-          </section>
-          </Show>
 
-          <Show when={sidebarTab() === "checkpoints"}>
-          <section class="agent-panel checkpoint-panel">
-            <div class="agent-panel-header">
-              <div>
-                <div class="agent-panel-title">Checkpoints</div>
-                <div class="agent-panel-subtitle">
-                  {recentCheckpoints().length > 0
-                    ? `${recentCheckpoints().length} saved snapshots`
-                    : "Save and restore session snapshots"}
-                </div>
+              <div class="agent-section-header">
+                <div class="agent-section-title">Recent actions</div>
+                <Show when={recentActions().length > 0}>
+                  <button
+                    class="agent-section-toggle"
+                    type="button"
+                    onClick={() => setActionsExpanded((current) => !current)}
+                  >
+                    {actionsExpanded()
+                      ? "Hide history"
+                      : `Show history (${recentActions().length})`}
+                  </button>
+                </Show>
               </div>
-            </div>
-
-            <div class="agent-panel-body">
-              <div class="agent-checkpoint-row">
-                <input
-                  class="agent-input"
-                  value={checkpointName()}
-                  onInput={(e) => setCheckpointName(e.currentTarget.value)}
-                  placeholder="Checkpoint name"
-                />
-                <button
-                  class="agent-primary-button"
-                  type="button"
-                  onClick={async () => {
-                    const name = checkpointName().trim();
-                    await createCheckpoint(name || undefined);
-                    setCheckpointName("");
-                  }}
-                >
-                  Save checkpoint
-                </button>
-              </div>
-
-              <div class="agent-section-title">Recent checkpoints</div>
               <Show
-                when={recentCheckpoints().length > 0}
-                fallback={<div class="agent-muted">No checkpoints yet.</div>}
+                when={recentActions().length > 0}
+                fallback={<div class="agent-muted">No actions yet.</div>}
               >
-                <div class="checkpoint-timeline">
-                  <For each={recentCheckpoints()}>
-                    {(checkpoint, i) => (
-                      <div class="checkpoint-timeline-item">
-                        <div class="checkpoint-timeline-rail">
-                          <span
-                            class="checkpoint-timeline-dot"
-                            classList={{ latest: i() === 0 }}
-                          />
-                          <Show when={i() < recentCheckpoints().length - 1}>
-                            <span class="checkpoint-timeline-line" />
-                          </Show>
+                <Show
+                  when={actionsExpanded()}
+                  fallback={
+                    <div class="agent-muted">
+                      Recent actions are collapsed to reduce noise.
+                    </div>
+                  }
+                >
+                  <For each={recentActions()}>
+                    {(action) => (
+                      <div class="agent-card">
+                        <div class="agent-action-row">
+                          <span class="agent-card-title">{action.name}</span>
+                          <span class={`agent-action-status ${action.status}`}>
+                            {action.status}
+                          </span>
                         </div>
-                        <div class="checkpoint-timeline-content">
-                          <div class="checkpoint-timeline-name">{checkpoint.name}</div>
-                          <div class="checkpoint-timeline-time">
-                            {new Date(checkpoint.createdAt).toLocaleString()}
+                        <div class="agent-card-copy">{action.argsSummary}</div>
+                        <Show when={action.resultSummary}>
+                          <div class="agent-card-copy success">
+                            {action.resultSummary}
                           </div>
-                          <button
-                            class="agent-control-button"
-                            type="button"
-                            onClick={() => void restoreCheckpoint(checkpoint.id)}
-                          >
-                            Restore
-                          </button>
-                        </div>
+                        </Show>
+                        <Show when={action.error}>
+                          <div class="agent-card-copy error">
+                            {action.error}
+                          </div>
+                        </Show>
                       </div>
                     )}
                   </For>
-                </div>
+                </Show>
               </Show>
-            </div>
-          </section>
+            </section>
+          </Show>
+
+          <Show when={sidebarTab() === "bookmarks"}>
+            <section class="bookmark-panel">
+              <div class="bookmark-panel-header">
+                <div>
+                  <div class="bookmark-panel-title">Bookmarks</div>
+                  <div class="bookmark-panel-subtitle">
+                    {normalizedBookmarkSearch()
+                      ? `${bookmarkMatchCount()} matches for "${bookmarkSearchQuery().trim()}"`
+                      : `${bookmarksState().bookmarks.length} saved across ${bookmarkFolders().length} folders`}
+                  </div>
+                </div>
+                <Show when={currentTabSaved()}>
+                  <span class="bookmark-status-pill">Saved</span>
+                </Show>
+              </div>
+
+              <input
+                class="bookmark-input bookmark-search-input"
+                value={bookmarkSearchQuery()}
+                onInput={(e) => setBookmarkSearchQuery(e.currentTarget.value)}
+                placeholder="Search titles, URLs, notes, and folders"
+              />
+
+              <div class="bookmark-save-shell">
+                <button
+                  class="bookmark-save-toggle"
+                  type="button"
+                  onClick={() => setBookmarkSaveExpanded((current) => !current)}
+                >
+                  <span class="bookmark-save-toggle-copy">
+                    <span class="bookmark-save-toggle-title">
+                      Save Current Page
+                    </span>
+                    <span class="bookmark-save-toggle-subtitle">
+                      Manual bookmark save options
+                    </span>
+                  </span>
+                  <span
+                    class="bookmark-save-toggle-caret"
+                    classList={{ expanded: bookmarkSaveExpanded() }}
+                    aria-hidden="true"
+                  >
+                    ▾
+                  </span>
+                </button>
+
+                <Show when={bookmarkSaveExpanded()}>
+                  <div class="bookmark-save-card">
+                    <div class="bookmark-current-title">
+                      {currentTab()?.title || "No active page"}
+                    </div>
+                    <div class="bookmark-current-url">
+                      {currentTab()?.url || "Open a page to save it here."}
+                    </div>
+                    <div class="bookmark-save-controls">
+                      <DropdownSelect
+                        class="bookmark-select"
+                        value={selectedFolderId()}
+                        options={bookmarkFolderOptions()}
+                        ariaLabel="Bookmark folder"
+                        onChange={(value) => setSelectedFolderId(value)}
+                      />
+                      <button
+                        class="bookmark-primary-button"
+                        type="button"
+                        disabled={!currentTab()?.url}
+                        onClick={() => void handleSaveBookmark()}
+                      >
+                        Save page
+                      </button>
+                    </div>
+                    <textarea
+                      class="bookmark-note-input"
+                      value={bookmarkNote()}
+                      onInput={(e) => setBookmarkNote(e.currentTarget.value)}
+                      placeholder="Optional note about why this matters"
+                      rows={2}
+                    />
+                  </div>
+                </Show>
+              </div>
+
+              <form
+                class="bookmark-folder-create"
+                onSubmit={handleCreateFolder}
+              >
+                <div class="bookmark-folder-form-fields">
+                  <input
+                    class="bookmark-input"
+                    value={newFolderName()}
+                    onInput={(e) => setNewFolderName(e.currentTarget.value)}
+                    placeholder="Create a folder"
+                  />
+                  <input
+                    class="bookmark-input"
+                    value={newFolderSummary()}
+                    onInput={(e) => setNewFolderSummary(e.currentTarget.value)}
+                    placeholder="Optional one-line summary"
+                  />
+                </div>
+                <button
+                  class="bookmark-secondary-button"
+                  type="submit"
+                  disabled={!newFolderName().trim()}
+                >
+                  New folder
+                </button>
+              </form>
+
+              <div class="bookmark-folder-list">
+                <Show
+                  when={filteredGroupedBookmarks().length > 0}
+                  fallback={
+                    <div class="bookmark-empty-folder">
+                      {normalizedBookmarkSearch()
+                        ? `No bookmarks matched "${bookmarkSearchQuery().trim()}".`
+                        : "No bookmarks saved yet."}
+                    </div>
+                  }
+                >
+                  <For each={filteredGroupedBookmarks()}>
+                    {(folder) => (
+                      <div class="bookmark-folder-section">
+                        <div
+                          class="bookmark-folder-header clickable"
+                          onClick={() => toggleFolderExpanded(folder.id)}
+                          role="button"
+                          tabindex="0"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              toggleFolderExpanded(folder.id);
+                            }
+                          }}
+                        >
+                          <div class="bookmark-folder-overview">
+                            <span
+                              class="bookmark-folder-chevron"
+                              classList={{
+                                expanded: isFolderExpanded(folder.id),
+                              }}
+                              aria-hidden="true"
+                            >
+                              ▸
+                            </span>
+                            <div>
+                              <div class="bookmark-folder-name">
+                                {folder.name}
+                              </div>
+                              <div class="bookmark-folder-meta">
+                                {folder.items.length} saved
+                              </div>
+                              <Show when={folder.summary}>
+                                <div class="bookmark-folder-summary">
+                                  {folder.summary}
+                                </div>
+                              </Show>
+                            </div>
+                          </div>
+                          <Show when={folder.id !== UNSORTED_FOLDER.id}>
+                            <div class="bookmark-folder-actions">
+                              <button
+                                class="bookmark-ghost-button"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingFolderId(folder.id);
+                                  setEditingFolderName(folder.name);
+                                  setEditingFolderSummary(folder.summary || "");
+                                }}
+                              >
+                                Rename
+                              </button>
+                              <button
+                                class="bookmark-ghost-button danger"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleRemoveFolder(folder.id);
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </Show>
+                        </div>
+
+                        <Show when={editingFolderId() === folder.id}>
+                          <div class="bookmark-folder-edit">
+                            <div class="bookmark-folder-form-fields">
+                              <input
+                                class="bookmark-input"
+                                value={editingFolderName()}
+                                onInput={(e) =>
+                                  setEditingFolderName(e.currentTarget.value)
+                                }
+                              />
+                              <input
+                                class="bookmark-input"
+                                value={editingFolderSummary()}
+                                onInput={(e) =>
+                                  setEditingFolderSummary(e.currentTarget.value)
+                                }
+                                placeholder="Optional one-line summary"
+                              />
+                            </div>
+                            <button
+                              class="bookmark-secondary-button"
+                              type="button"
+                              disabled={!editingFolderName().trim()}
+                              onClick={() => void handleRenameFolder(folder.id)}
+                            >
+                              Save
+                            </button>
+                            <button
+                              class="bookmark-ghost-button"
+                              type="button"
+                              onClick={() => {
+                                setEditingFolderId(null);
+                                setEditingFolderName("");
+                                setEditingFolderSummary("");
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </Show>
+
+                        <Show
+                          when={isFolderExpanded(folder.id)}
+                          fallback={
+                            <div class="bookmark-folder-collapsed-hint">
+                              Click to view saved links.
+                            </div>
+                          }
+                        >
+                          <Show
+                            when={folder.items.length > 0}
+                            fallback={
+                              <div class="bookmark-empty-folder">
+                                No bookmarks in this folder yet.
+                              </div>
+                            }
+                          >
+                            <div class="bookmark-items">
+                              <For each={folder.items}>
+                                {(bookmark) => (
+                                  <div
+                                    class="bookmark-item"
+                                    data-bookmark-id={bookmark.id}
+                                  >
+                                    <button
+                                      class="bookmark-item-link"
+                                      type="button"
+                                      onClick={() =>
+                                        void createTab(bookmark.url)
+                                      }
+                                    >
+                                      <span class="bookmark-item-title">
+                                        {bookmark.title || bookmark.url}
+                                      </span>
+                                      <span class="bookmark-item-url">
+                                        {bookmark.url}
+                                      </span>
+                                    </button>
+                                    <Show when={bookmark.note}>
+                                      <div class="bookmark-item-note">
+                                        {bookmark.note}
+                                      </div>
+                                    </Show>
+                                    <div class="bookmark-item-footer">
+                                      <span class="bookmark-item-time">
+                                        {formatBookmarkDate(bookmark.savedAt)}
+                                      </span>
+                                      <button
+                                        class="bookmark-ghost-button danger"
+                                        type="button"
+                                        onClick={() =>
+                                          void removeBookmark(bookmark.id)
+                                        }
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </For>
+                            </div>
+                          </Show>
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </section>
+          </Show>
+
+          <Show when={sidebarTab() === "checkpoints"}>
+            <section class="agent-panel checkpoint-panel">
+              <div class="agent-panel-header">
+                <div>
+                  <div class="agent-panel-title">Checkpoints</div>
+                  <div class="agent-panel-subtitle">
+                    {recentCheckpoints().length > 0
+                      ? `${recentCheckpoints().length} saved snapshots`
+                      : "Save and restore session snapshots"}
+                  </div>
+                </div>
+              </div>
+
+              <div class="agent-panel-body">
+                <div class="agent-checkpoint-row">
+                  <input
+                    class="agent-input"
+                    value={checkpointName()}
+                    onInput={(e) => setCheckpointName(e.currentTarget.value)}
+                    placeholder="Checkpoint name"
+                  />
+                  <button
+                    class="agent-primary-button"
+                    type="button"
+                    onClick={async () => {
+                      const name = checkpointName().trim();
+                      await createCheckpoint(name || undefined);
+                      setCheckpointName("");
+                    }}
+                  >
+                    Save checkpoint
+                  </button>
+                </div>
+
+                <div class="agent-section-title">Recent checkpoints</div>
+                <Show
+                  when={recentCheckpoints().length > 0}
+                  fallback={<div class="agent-muted">No checkpoints yet.</div>}
+                >
+                  <div class="checkpoint-timeline">
+                    <For each={recentCheckpoints()}>
+                      {(checkpoint, i) => (
+                        <div class="checkpoint-timeline-item">
+                          <div class="checkpoint-timeline-rail">
+                            <span
+                              class="checkpoint-timeline-dot"
+                              classList={{ latest: i() === 0 }}
+                            />
+                            <Show when={i() < recentCheckpoints().length - 1}>
+                              <span class="checkpoint-timeline-line" />
+                            </Show>
+                          </div>
+                          <div class="checkpoint-timeline-content">
+                            <div class="checkpoint-timeline-name">
+                              {checkpoint.name}
+                            </div>
+                            <div class="checkpoint-timeline-time">
+                              {new Date(checkpoint.createdAt).toLocaleString()}
+                            </div>
+                            <button
+                              class="agent-control-button"
+                              type="button"
+                              onClick={() =>
+                                void restoreCheckpoint(checkpoint.id)
+                              }
+                            >
+                              Restore
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+            </section>
           </Show>
 
           <Show when={sidebarTab() === "chat"}>
@@ -1148,8 +1220,16 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 {(approval) => (
                   <div class="chat-approval">
                     <div class="chat-approval-icon" aria-hidden="true">
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                        <path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 4.75a.75.75 0 011.5 0v3.5a.75.75 0 01-1.5 0v-3.5zM8 11.5a.75.75 0 110-1.5.75.75 0 010 1.5z" fill="currentColor"/>
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                      >
+                        <path
+                          d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM7.25 4.75a.75.75 0 011.5 0v3.5a.75.75 0 01-1.5 0v-3.5zM8 11.5a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                          fill="currentColor"
+                        />
                       </svg>
                     </div>
                     <div class="chat-approval-body">
@@ -1157,21 +1237,27 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                         Approval needed: <strong>{approval.name}</strong>
                       </div>
                       <Show when={approval.argsSummary}>
-                        <div class="chat-approval-detail">{approval.argsSummary}</div>
+                        <div class="chat-approval-detail">
+                          {approval.argsSummary}
+                        </div>
                       </Show>
                       <div class="chat-approval-detail">{approval.reason}</div>
                       <div class="chat-approval-actions">
                         <button
                           class="chat-approval-btn chat-approval-approve"
                           type="button"
-                          onClick={() => void resolveApproval(approval.id, true)}
+                          onClick={() =>
+                            void resolveApproval(approval.id, true)
+                          }
                         >
                           Approve
                         </button>
                         <button
                           class="chat-approval-btn chat-approval-reject"
                           type="button"
-                          onClick={() => void resolveApproval(approval.id, false)}
+                          onClick={() =>
+                            void resolveApproval(approval.id, false)
+                          }
                         >
                           Reject
                         </button>
@@ -1184,48 +1270,319 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
             <Show when={messages().length === 0 && !isStreaming()}>
               <div class="sidebar-empty">
-                <svg class="sidebar-empty-icon" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
+                <svg
+                  class="sidebar-empty-icon"
+                  width="48"
+                  height="48"
+                  viewBox="0 0 48 48"
+                  aria-hidden="true"
+                >
                   {/* Edges — outer connections */}
-                  <line x1="8" y1="8" x2="24" y2="5" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
-                  <line x1="24" y1="5" x2="40" y2="10" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
-                  <line x1="8" y1="8" x2="6" y2="24" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
-                  <line x1="40" y1="10" x2="44" y2="26" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
-                  <line x1="6" y1="24" x2="10" y2="38" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
-                  <line x1="44" y1="26" x2="38" y2="40" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
-                  <line x1="10" y1="38" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" opacity="0.35" />
-                  <line x1="38" y1="40" x2="24" y2="44" stroke="var(--border-visible)" stroke-width="1" opacity="0.35" />
+                  <line
+                    x1="8"
+                    y1="8"
+                    x2="24"
+                    y2="5"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.4"
+                  />
+                  <line
+                    x1="24"
+                    y1="5"
+                    x2="40"
+                    y2="10"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.45"
+                  />
+                  <line
+                    x1="8"
+                    y1="8"
+                    x2="6"
+                    y2="24"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.4"
+                  />
+                  <line
+                    x1="40"
+                    y1="10"
+                    x2="44"
+                    y2="26"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.45"
+                  />
+                  <line
+                    x1="6"
+                    y1="24"
+                    x2="10"
+                    y2="38"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.4"
+                  />
+                  <line
+                    x1="44"
+                    y1="26"
+                    x2="38"
+                    y2="40"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.4"
+                  />
+                  <line
+                    x1="10"
+                    y1="38"
+                    x2="24"
+                    y2="44"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.35"
+                  />
+                  <line
+                    x1="38"
+                    y1="40"
+                    x2="24"
+                    y2="44"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.35"
+                  />
                   {/* Edges — inner web */}
-                  <line x1="8" y1="8" x2="20" y2="18" stroke="var(--border-visible)" stroke-width="1" opacity="0.5" />
-                  <line x1="24" y1="5" x2="20" y2="18" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
-                  <line x1="40" y1="10" x2="32" y2="20" stroke="var(--border-visible)" stroke-width="1" opacity="0.5" />
-                  <line x1="20" y1="18" x2="32" y2="20" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.3" />
-                  <line x1="6" y1="24" x2="18" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
-                  <line x1="20" y1="18" x2="18" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
-                  <line x1="32" y1="20" x2="36" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
-                  <line x1="44" y1="26" x2="36" y2="30" stroke="var(--border-visible)" stroke-width="1" opacity="0.45" />
-                  <line x1="18" y1="30" x2="36" y2="30" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.25" />
-                  <line x1="18" y1="30" x2="10" y2="38" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
-                  <line x1="36" y1="30" x2="38" y2="40" stroke="var(--border-visible)" stroke-width="1" opacity="0.4" />
-                  <line x1="18" y1="30" x2="24" y2="44" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.2" />
-                  <line x1="36" y1="30" x2="24" y2="44" stroke="var(--accent-primary)" stroke-width="0.75" opacity="0.2" />
+                  <line
+                    x1="8"
+                    y1="8"
+                    x2="20"
+                    y2="18"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.5"
+                  />
+                  <line
+                    x1="24"
+                    y1="5"
+                    x2="20"
+                    y2="18"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.45"
+                  />
+                  <line
+                    x1="40"
+                    y1="10"
+                    x2="32"
+                    y2="20"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.5"
+                  />
+                  <line
+                    x1="20"
+                    y1="18"
+                    x2="32"
+                    y2="20"
+                    stroke="var(--accent-primary)"
+                    stroke-width="0.75"
+                    opacity="0.3"
+                  />
+                  <line
+                    x1="6"
+                    y1="24"
+                    x2="18"
+                    y2="30"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.45"
+                  />
+                  <line
+                    x1="20"
+                    y1="18"
+                    x2="18"
+                    y2="30"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.45"
+                  />
+                  <line
+                    x1="32"
+                    y1="20"
+                    x2="36"
+                    y2="30"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.45"
+                  />
+                  <line
+                    x1="44"
+                    y1="26"
+                    x2="36"
+                    y2="30"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.45"
+                  />
+                  <line
+                    x1="18"
+                    y1="30"
+                    x2="36"
+                    y2="30"
+                    stroke="var(--accent-primary)"
+                    stroke-width="0.75"
+                    opacity="0.25"
+                  />
+                  <line
+                    x1="18"
+                    y1="30"
+                    x2="10"
+                    y2="38"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.4"
+                  />
+                  <line
+                    x1="36"
+                    y1="30"
+                    x2="38"
+                    y2="40"
+                    stroke="var(--border-visible)"
+                    stroke-width="1"
+                    opacity="0.4"
+                  />
+                  <line
+                    x1="18"
+                    y1="30"
+                    x2="24"
+                    y2="44"
+                    stroke="var(--accent-primary)"
+                    stroke-width="0.75"
+                    opacity="0.2"
+                  />
+                  <line
+                    x1="36"
+                    y1="30"
+                    x2="24"
+                    y2="44"
+                    stroke="var(--accent-primary)"
+                    stroke-width="0.75"
+                    opacity="0.2"
+                  />
                   {/* Nodes — outer ring */}
-                  <circle cx="8" cy="8" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.55" />
-                  <circle cx="24" cy="5" r="2" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.45" />
-                  <circle cx="40" cy="10" r="3" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.7" />
-                  <circle cx="6" cy="24" r="2" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.5" />
-                  <circle cx="44" cy="26" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.55" />
-                  <circle cx="10" cy="38" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.5" />
-                  <circle cx="38" cy="40" r="2" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.45" />
-                  <circle cx="24" cy="44" r="2.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.5" />
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="2.5"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.55"
+                  />
+                  <circle
+                    cx="24"
+                    cy="5"
+                    r="2"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.45"
+                  />
+                  <circle
+                    cx="40"
+                    cy="10"
+                    r="3"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.7"
+                  />
+                  <circle
+                    cx="6"
+                    cy="24"
+                    r="2"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.5"
+                  />
+                  <circle
+                    cx="44"
+                    cy="26"
+                    r="2.5"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.55"
+                  />
+                  <circle
+                    cx="10"
+                    cy="38"
+                    r="2.5"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.5"
+                  />
+                  <circle
+                    cx="38"
+                    cy="40"
+                    r="2"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.45"
+                  />
+                  <circle
+                    cx="24"
+                    cy="44"
+                    r="2.5"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.5"
+                  />
                   {/* Nodes — inner core */}
-                  <circle cx="20" cy="18" r="3.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.85" />
-                  <circle cx="32" cy="20" r="4" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.9" />
-                  <circle cx="18" cy="30" r="3" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.75" />
-                  <circle cx="36" cy="30" r="3.5" fill="var(--bg-secondary)" stroke="var(--accent-primary)" stroke-width="1.5" opacity="0.8" />
+                  <circle
+                    cx="20"
+                    cy="18"
+                    r="3.5"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.85"
+                  />
+                  <circle
+                    cx="32"
+                    cy="20"
+                    r="4"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.9"
+                  />
+                  <circle
+                    cx="18"
+                    cy="30"
+                    r="3"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.75"
+                  />
+                  <circle
+                    cx="36"
+                    cy="30"
+                    r="3.5"
+                    fill="var(--bg-secondary)"
+                    stroke="var(--accent-primary)"
+                    stroke-width="1.5"
+                    opacity="0.8"
+                  />
                 </svg>
                 <p class="sidebar-empty-title">Your move.</p>
                 <p class="sidebar-empty-hint">
-                  Configure a provider in Settings (Ctrl+,) then ask anything about the current page or beyond.
+                  Configure a provider in Settings (Ctrl+,) then ask anything
+                  about the current page or beyond.
                 </p>
               </div>
             </Show>
@@ -1238,18 +1595,56 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           <Show when={isStreaming() || messages().length > 0}>
             <div class="chat-actions">
               <Show when={isStreaming()}>
-                <button class="chat-action-btn" onClick={() => cancel()} title="Stop generating">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <rect x="2" y="2" width="10" height="10" rx="1.5" fill="currentColor" />
+                <button
+                  class="chat-action-btn"
+                  onClick={() => cancel()}
+                  title="Stop generating"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="2"
+                      y="2"
+                      width="10"
+                      height="10"
+                      rx="1.5"
+                      fill="currentColor"
+                    />
                   </svg>
                   Stop
                 </button>
               </Show>
               <Show when={!isStreaming() && messages().length > 0}>
-                <button class="chat-action-btn" onClick={handleRetry} title="Retry last prompt">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                    <path d="M10.5 1v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                <button
+                  class="chat-action-btn"
+                  onClick={handleRetry}
+                  title="Retry last prompt"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M10.5 1v3h-3"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
                   </svg>
                   Retry
                 </button>
@@ -1265,18 +1660,47 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 onClick={() => void scrollToHighlight(highlightIndex() - 1)}
                 title="Previous highlight"
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M8 10L4 6l4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M8 10L4 6l4-4"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
                 </svg>
               </button>
               <button
                 class="highlight-nav-label"
                 type="button"
-                onClick={() => void scrollToHighlight(highlightIndex() < 0 ? 0 : highlightIndex())}
+                onClick={() =>
+                  void scrollToHighlight(
+                    highlightIndex() < 0 ? 0 : highlightIndex(),
+                  )
+                }
                 title="Go to current highlight"
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <circle cx="6" cy="6" r="3" fill="rgba(196, 160, 90, 0.6)" stroke="rgba(196, 160, 90, 0.9)" stroke-width="1" />
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="6"
+                    cy="6"
+                    r="3"
+                    fill="rgba(196, 160, 90, 0.6)"
+                    stroke="rgba(196, 160, 90, 0.9)"
+                    stroke-width="1"
+                  />
                 </svg>
                 {highlightIndex() >= 0
                   ? `${highlightIndex() + 1} / ${highlightCount()}`
@@ -1286,11 +1710,27 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 class="highlight-nav-btn"
                 type="button"
                 disabled={highlightIndex() >= highlightCount() - 1}
-                onClick={() => void scrollToHighlight(highlightIndex() < 0 ? 0 : highlightIndex() + 1)}
+                onClick={() =>
+                  void scrollToHighlight(
+                    highlightIndex() < 0 ? 0 : highlightIndex() + 1,
+                  )
+                }
                 title="Next highlight"
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 2l4 4-4 4"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
                 </svg>
               </button>
             </div>
@@ -1300,6 +1740,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               class="sidebar-input"
               rows={2}
               placeholder="Ask anything..."
+              ref={chatInputRef}
               value={chatInput()}
               onInput={(e) => setChatInput(e.currentTarget.value)}
               onKeyDown={(e) => {

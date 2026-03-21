@@ -4,8 +4,12 @@ import process from "node:process";
 
 import { app, BaseWindow } from "electron";
 
+import { buildScopedContext } from "../src/main/ai/context-builder";
+import { extractContent } from "../src/main/content/extractor";
 import {
   clickElementBySelector,
+  dismissPopup,
+  fillFormFields,
   pressKey,
   setElementValue,
   submitFormBySelector,
@@ -299,6 +303,141 @@ async function main(): Promise<void> {
     );
 
     await runScenario(
+      "fill_form matches fields by name, label, and placeholder",
+      async () => {
+        await withTab(`${harness.baseUrl}/named-form`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const results = await fillFormFields(wc, [
+            { name: "custname", value: "Test User" },
+            { label: "Email Address", value: "test@example.com" },
+            { placeholder: "Phone number", value: "555-0100" },
+          ]);
+
+          assert.equal(results.length, 3);
+          assert.ok(results.every((item) => item.selector));
+          assert.ok(
+            results.every((item) => !item.result.startsWith("Skipped:")),
+            `expected every field to resolve, got: ${results
+              .map((item) => item.result)
+              .join("; ")}`,
+          );
+
+          const values = await wc.executeJavaScript(`
+            ({
+              name: document.getElementById('custname')?.value || '',
+              email: document.getElementById('email-field')?.value || '',
+              phone: document.getElementById('phone-field')?.value || '',
+            })
+          `);
+
+          assert.deepEqual(values, {
+            name: "Test User",
+            email: "test@example.com",
+            phone: "555-0100",
+          });
+        });
+      },
+    );
+    completedScenarios.push(
+      "fill_form matches fields by name, label, and placeholder",
+    );
+
+    await runScenario(
+      "side cart drawers are treated like modal actions",
+      async () => {
+        await withTab(`${harness.baseUrl}/cart-drawer`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const page = await extractContent(wc);
+          const context = buildScopedContext(page, "visible_only");
+
+          assert.match(context, /### Immediate Overlay Actions/);
+          assert.match(
+            context,
+            /\[#2\] \[Continue Shopping\] button \(context=dialog\)/,
+          );
+          assert.match(
+            context,
+            /\[#3\] \[View Basket\] link → .*\/cart \(context=dialog\)/,
+          );
+          assert.match(
+            context,
+            /Cart confirmation detected: choose a dialog action such as Continue Shopping, View Cart, or Checkout\. Do not click background Add to Cart again\./,
+          );
+          assert.doesNotMatch(context, /\[#1\] \[Add to Cart\]/);
+        });
+      },
+    );
+    completedScenarios.push("side cart drawers are treated like modal actions");
+
+    await runScenario(
+      "click that triggers cart drawer returns overlay hint",
+      async () => {
+        await withTab(`${harness.baseUrl}/cart-drawer-click`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const result = await clickElementBySelector(wc, "#add-to-cart");
+          assert.match(result, /Clicked: Add to Cart/);
+          assert.match(result, /cart confirmation dialog appeared/i);
+          assert.match(result, /do not click Add to Cart again/i);
+        });
+      },
+    );
+    completedScenarios.push(
+      "click that triggers cart drawer returns overlay hint",
+    );
+
+    await runScenario(
+      "absolute-positioned cart drawer detected after click",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/cart-drawer-absolute`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            const result = await clickElementBySelector(wc, "#add-to-cart");
+            assert.match(result, /Clicked: Add to Cart/);
+            assert.match(result, /cart confirmation dialog appeared/i);
+            assert.match(result, /do not click Add to Cart again/i);
+
+            // Also verify extraction detects the overlay properly
+            const page = await extractContent(wc);
+            const context = buildScopedContext(page, "visible_only");
+            assert.match(context, /### Immediate Overlay Actions/);
+            assert.match(context, /Continue Shopping/);
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "absolute-positioned cart drawer detected after click",
+    );
+
+    await runScenario(
+      "single clicks do not re-activate add-like buttons on the same page",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/single-click-counter`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            const result = await clickElementBySelector(wc, "#count-once");
+            assert.match(result, /Clicked: Count Once/);
+
+            const count = await wc.executeJavaScript(
+              `document.getElementById("count")?.textContent || ""`,
+            );
+            assert.equal(count, "1");
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "single clicks do not re-activate add-like buttons on the same page",
+    );
+
+    await runScenario(
       "same-page actions settle without a long fake navigation wait",
       async () => {
         await withTab(`${harness.baseUrl}/same-page-action`, async (tab) => {
@@ -349,6 +488,28 @@ async function main(): Promise<void> {
     completedScenarios.push(
       "trusted Enter key presses trigger focused input handlers",
     );
+
+    await runScenario(
+      "popup dismissal avoids locale-switch controls",
+      async () => {
+        await withTab(`${harness.baseUrl}/language-popup`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const result = await dismissPopup(wc);
+          const lang = await wc.executeJavaScript(
+            "document.documentElement.lang",
+          );
+          const state = await wc.executeJavaScript(
+            "document.getElementById('language-state')?.textContent || ''",
+          );
+
+          assert.match(result, /Dismissed popup using "No thanks"/);
+          assert.equal(lang, "en");
+          assert.equal(state, "English storefront");
+        });
+      },
+    );
+    completedScenarios.push("popup dismissal avoids locale-switch controls");
 
     console.log(
       `\nNavigation regression suite passed against ${harness.baseUrl}\nScenarios: ${completedScenarios.join("; ")}`,

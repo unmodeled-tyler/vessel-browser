@@ -85,7 +85,7 @@ function formatElementMeta(el: InteractiveElement): string[] {
   if (el.description) {
     meta.push(`desc="${el.description.slice(0, 80)}"`);
   }
-  if (el.value) {
+  if (el.value !== undefined && el.value !== null && el.value !== "") {
     meta.push(`value="${el.value.slice(0, 60)}"`);
   }
   if (el.selector) {
@@ -96,6 +96,219 @@ function formatElementMeta(el: InteractiveElement): string[] {
   return meta;
 }
 
+function summarizeElementValue(
+  el: InteractiveElement,
+): { label: string; value: string } | null {
+  const value =
+    typeof el.value === "string" && el.value.trim() ? el.value.trim() : "";
+  if (!value) return null;
+
+  if (el.type === "select") {
+    return { label: "selected", value: value.slice(0, 60) };
+  }
+  if (el.type === "textarea") {
+    return { label: "current", value: value.slice(0, 60) };
+  }
+  if (el.type === "input") {
+    return { label: "current", value: value.slice(0, 60) };
+  }
+  return null;
+}
+
+function isQuantityLike(el: InteractiveElement): boolean {
+  const text = [
+    el.label,
+    el.name,
+    el.placeholder,
+    el.text,
+    el.description,
+    el.selector,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    /\b(qty|quantity|count|items?)\b/.test(text) ||
+    (el.inputType === "number" &&
+      (/\b(quantity|qty|count|items?)\b/.test(text) ||
+        el.name === "quantity" ||
+        el.name === "qty"))
+  );
+}
+
+function getQuantityElements(page: PageContent): InteractiveElement[] {
+  const seen = new Set<string>();
+  const elements = [
+    ...page.interactiveElements,
+    ...page.forms.flatMap((form) => form.fields),
+  ];
+
+  return elements.filter((el) => {
+    if (!isQuantityLike(el)) return false;
+    const key = String(
+      el.index ??
+        el.selector ??
+        `${el.type}|${el.name || ""}|${el.label || ""}|${el.value || ""}`,
+    );
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function formatQuantityElements(elements: InteractiveElement[]): string {
+  if (elements.length === 0) return "None detected";
+
+  return limitItems(elements, 12)
+    .map((el) => {
+      const prefix = el.index ? `[#${el.index}]` : "-";
+      const name = el.label || el.name || el.placeholder || "Quantity";
+      const summary = summarizeElementValue(el);
+      const parts = [prefix, `[${name}]`, el.type];
+      if (summary) {
+        parts.push(`${summary.label}="${summary.value}"`);
+      }
+      const meta = formatElementMeta({
+        ...el,
+        value: undefined,
+      });
+      if (meta.length > 0) {
+        parts.push(`(${meta.join(", ")})`);
+      }
+      return parts.join(" ");
+    })
+    .join("\n");
+}
+
+function isCartLikePage(page: PageContent): boolean {
+  const url = page.url.toLowerCase();
+  const text = `${page.title}\n${page.content}`.toLowerCase();
+  return (
+    url.includes("cart") ||
+    url.includes("checkout") ||
+    url.includes("basket") ||
+    url.includes("bag") ||
+    getQuantityElements(page).length > 0 ||
+    /\b(subtotal|order total|cart total|checkout|shopping cart)\b/.test(text)
+  );
+}
+
+function getCartItemLinks(page: PageContent): InteractiveElement[] {
+  const blockedText =
+    /\b(remove|delete|wishlist|save for later|move to|checkout|view cart|continue shopping|edit|details?)\b/i;
+  const blockedHref =
+    /\/(cart|checkout|wishlist|account|login|signin|remove|delete)(\/|$)|[?&](remove|delete|wishlist)=/i;
+  const seen = new Set<string>();
+
+  return page.interactiveElements
+    .filter((el) => el.type === "link")
+    .filter((el) => {
+      const text = (el.text || "").trim();
+      const href = (el.href || "").trim();
+      if (!text || text.length < 3 || !href) return false;
+      if (
+        el.context === "nav" ||
+        el.context === "footer" ||
+        el.context === "sidebar"
+      ) {
+        return false;
+      }
+      if (blockedText.test(text) || blockedHref.test(href)) return false;
+      const key = `${normalizeComparable(text)}|${normalizeUrlForMatch(href) || href}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
+}
+
+function extractCartTotals(content: string): string[] {
+  const lines = content
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const totalLines: string[] = [];
+  const seen = new Set<string>();
+  const keyword =
+    /\b(subtotal|order total|estimated total|total|tax|shipping|discount|savings?)\b/i;
+  const money =
+    /([$€£]\s?\d[\d,]*(?:\.\d{2})?|\d[\d,]*(?:\.\d{2})?\s?(?:usd|eur|gbp))/i;
+
+  for (const line of lines) {
+    if (!keyword.test(line)) continue;
+    if (!money.test(line) && line.length > 90) continue;
+    const cleaned = line.replace(/\s+/g, " ").trim();
+    if (seen.has(cleaned.toLowerCase())) continue;
+    seen.add(cleaned.toLowerCase());
+    totalLines.push(cleaned);
+    if (totalLines.length >= 6) break;
+  }
+
+  return totalLines;
+}
+
+function formatCartSnapshot(page: PageContent): string | null {
+  if (!isCartLikePage(page)) return null;
+
+  const itemLinks = getCartItemLinks(page);
+  const quantityElements = getQuantityElements(page);
+  const quantityValues = quantityElements
+    .map((el) => summarizeElementValue(el)?.value || "")
+    .filter(Boolean);
+  const numericQuantities = quantityValues
+    .map((value) => Number.parseFloat(value))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  const totalLines = extractCartTotals(page.content);
+  const lines: string[] = [];
+
+  if (itemLinks.length > 0) {
+    lines.push(`Distinct items: ${itemLinks.length}`);
+    lines.push(
+      `Items: ${itemLinks
+        .slice(0, 8)
+        .map((item) => item.text || item.label || "Untitled item")
+        .join(" | ")}`,
+    );
+  }
+
+  if (quantityElements.length > 0) {
+    if (
+      numericQuantities.length === quantityElements.length &&
+      numericQuantities.length > 0
+    ) {
+      const unique = Array.from(new Set(numericQuantities));
+      const totalUnits = numericQuantities.reduce(
+        (sum, value) => sum + value,
+        0,
+      );
+      lines.push(
+        unique.length === 1
+          ? `Quantity controls: ${quantityElements.length} (all set to ${unique[0]})`
+          : `Quantity controls: ${quantityElements.length} (${numericQuantities.join(", ")})`,
+      );
+      lines.push(`Total units inferred: ${totalUnits}`);
+      if (itemLinks.length > 0 && totalUnits > itemLinks.length) {
+        lines.push(
+          `Attention: ${itemLinks.length} distinct items but ${totalUnits} total units. Check for duplicate quantities.`,
+        );
+      }
+    } else {
+      lines.push(
+        `Quantity controls: ${quantityElements.length}${quantityValues.length > 0 ? ` (${quantityValues.join(", ")})` : ""}`,
+      );
+    }
+  }
+
+  if (totalLines.length > 0) {
+    lines.push("Totals:");
+    totalLines.forEach((line) => lines.push(`- ${line}`));
+  }
+
+  if (lines.length === 0) return null;
+  return lines.join("\n");
+}
+
 function isVisibleToUser(el: InteractiveElement): boolean {
   return (
     el.visible === true &&
@@ -103,6 +316,67 @@ function isVisibleToUser(el: InteractiveElement): boolean {
     el.obscured !== true &&
     el.blockedByOverlay !== true
   );
+}
+
+function getDialogFocusedElements(page: PageContent): InteractiveElement[] {
+  return page.interactiveElements.filter(
+    (el) => isVisibleToUser(el) && el.context === "dialog",
+  );
+}
+
+function normalizeOverlayText(value: string | undefined): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function isCartConfirmationLike(page: PageContent): boolean {
+  const overlayText = page.overlays
+    .map((overlay) =>
+      normalizeOverlayText(
+        [overlay.label, overlay.text].filter(Boolean).join(" "),
+      ),
+    )
+    .join(" ");
+  const dialogText = getDialogFocusedElements(page)
+    .map((el) => normalizeOverlayText(el.text || el.label || el.description))
+    .join(" ");
+
+  const haystack = `${overlayText} ${dialogText}`.trim();
+  if (!haystack) return false;
+
+  const cartSignals = [
+    "added to cart",
+    "added to bag",
+    "added to basket",
+    "shopping cart",
+    "view cart",
+    "go to cart",
+    "continue shopping",
+    "keep shopping",
+    "checkout",
+  ];
+
+  return cartSignals.some((signal) => haystack.includes(signal));
+}
+
+function formatDialogFocus(page: PageContent): string | null {
+  const dialogElements = getDialogFocusedElements(page);
+  if (dialogElements.length === 0) return null;
+
+  const lines: string[] = [];
+  lines.push(
+    "A live dialog/modal is open. Prioritize its controls before acting on the page behind it.",
+  );
+
+  if (isCartConfirmationLike(page)) {
+    lines.push(
+      "Cart confirmation detected: choose a dialog action such as Continue Shopping, View Cart, or Checkout. Do not click background Add to Cart again.",
+    );
+  }
+
+  lines.push("");
+  lines.push("Visible dialog controls:");
+  lines.push(formatInteractiveElements(dialogElements));
+  return lines.join("\n");
 }
 
 /**
@@ -115,6 +389,7 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
   const sorted = [...elements].sort((a, b) => {
     const scoreEl = (el: InteractiveElement) => {
       let s = 0;
+      if (el.context === "dialog") s -= 40;
       if (el.visible === false) s += 100;
       if (el.inViewport === false) s += 50;
       if (
@@ -148,10 +423,14 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
         parts.push(`[${el.label || el.placeholder || "Input"}]`);
         parts.push(el.inputType || "text");
         parts.push("input");
+        const summary = summarizeElementValue(el);
+        if (summary) parts.push(`${summary.label}="${summary.value}"`);
         if (el.required) parts.push("(required)");
       } else if (el.type === "select") {
         parts.push(`[${el.label || "Select"}]`);
         parts.push("dropdown");
+        const summary = summarizeElementValue(el);
+        if (summary) parts.push(`${summary.label}="${summary.value}"`);
         if (el.options?.length) {
           parts.push(
             `options=${el.options
@@ -163,6 +442,8 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
       } else if (el.type === "textarea") {
         parts.push(`[${el.label || "Text Area"}]`);
         parts.push("textarea");
+        const summary = summarizeElementValue(el);
+        if (summary) parts.push(`${summary.label}="${summary.value}"`);
       }
 
       const meta = formatElementMeta(el);
@@ -233,10 +514,14 @@ function formatForms(forms: PageContent["forms"]): string {
           } else if (field.type === "input") {
             fieldParts.push(`[${field.label || field.placeholder || "Input"}]`);
             fieldParts.push(field.inputType || "text");
+            const summary = summarizeElementValue(field);
+            if (summary) fieldParts.push(`${summary.label}="${summary.value}"`);
             if (field.required) fieldParts.push("(required)");
           } else if (field.type === "select") {
             fieldParts.push(`[${field.label || "Select"}]`);
             fieldParts.push("dropdown");
+            const summary = summarizeElementValue(field);
+            if (summary) fieldParts.push(`${summary.label}="${summary.value}"`);
             if (field.options?.length) {
               fieldParts.push(
                 `options=${field.options
@@ -248,6 +533,8 @@ function formatForms(forms: PageContent["forms"]): string {
           } else if (field.type === "textarea") {
             fieldParts.push(`[${field.label || "Text"}]`);
             fieldParts.push("textarea");
+            const summary = summarizeElementValue(field);
+            if (summary) fieldParts.push(`${summary.label}="${summary.value}"`);
           }
 
           const meta = formatElementMeta(field);
@@ -793,6 +1080,7 @@ export function buildScopedContext(
   switch (mode) {
     case "summary": {
       const sections: string[] = [];
+      const cartSnapshot = formatCartSnapshot(page);
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
@@ -804,6 +1092,11 @@ export function buildScopedContext(
       const summaryIntent = analyzePageIntent(page);
       if (summaryIntent) {
         sections.push(summaryIntent);
+        sections.push("");
+      }
+      if (cartSnapshot) {
+        sections.push("### Cart Snapshot");
+        sections.push(cartSnapshot);
         sections.push("");
       }
       if ((page.pageIssues?.length ?? 0) > 0) {
@@ -862,6 +1155,9 @@ export function buildScopedContext(
 
     case "interactives_only": {
       const sections: string[] = [];
+      const quantityElements = getQuantityElements(page);
+      const cartSnapshot = formatCartSnapshot(page);
+      const dialogFocus = formatDialogFocus(page);
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
@@ -877,6 +1173,11 @@ export function buildScopedContext(
         sections.push(formatHighlights(interactivesHighlights));
         sections.push("");
       }
+      if (cartSnapshot) {
+        sections.push("### Cart Snapshot");
+        sections.push(cartSnapshot);
+        sections.push("");
+      }
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
@@ -887,6 +1188,11 @@ export function buildScopedContext(
         sections.push(formatOverlays(page.overlays));
         sections.push("");
       }
+      if (dialogFocus) {
+        sections.push("### Immediate Overlay Actions");
+        sections.push(dialogFocus);
+        sections.push("");
+      }
       if (page.dormantOverlays.length > 0) {
         sections.push("### Dormant Consent / Modal UI");
         sections.push(formatDormantOverlays(page.dormantOverlays));
@@ -895,6 +1201,11 @@ export function buildScopedContext(
       if (page.navigation.length > 0) {
         sections.push("### Navigation");
         sections.push(formatNavigation(page.navigation));
+        sections.push("");
+      }
+      if (quantityElements.length > 0) {
+        sections.push("### Quantity / Count Controls");
+        sections.push(formatQuantityElements(quantityElements));
         sections.push("");
       }
       if (page.interactiveElements.length > 0) {
@@ -908,6 +1219,8 @@ export function buildScopedContext(
 
     case "forms_only": {
       const sections: string[] = [];
+      const quantityElements = getQuantityElements(page);
+      const cartSnapshot = formatCartSnapshot(page);
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
@@ -916,6 +1229,11 @@ export function buildScopedContext(
       if (formsHighlights.length > 0) {
         sections.push("### Highlights & Annotations");
         sections.push(formatHighlights(formsHighlights));
+        sections.push("");
+      }
+      if (cartSnapshot) {
+        sections.push("### Cart Snapshot");
+        sections.push(cartSnapshot);
         sections.push("");
       }
       if ((page.pageIssues?.length ?? 0) > 0) {
@@ -931,6 +1249,11 @@ export function buildScopedContext(
       if (page.dormantOverlays.length > 0) {
         sections.push("### Dormant Consent / Modal UI");
         sections.push(formatDormantOverlays(page.dormantOverlays));
+        sections.push("");
+      }
+      if (quantityElements.length > 0) {
+        sections.push("### Quantity / Count Controls");
+        sections.push(formatQuantityElements(quantityElements));
         sections.push("");
       }
       if (page.forms.length > 0) {
@@ -970,12 +1293,29 @@ export function buildScopedContext(
     case "visible_only": {
       const visibleElements = page.interactiveElements.filter(isVisibleToUser);
       const visibleNav = page.navigation.filter(isVisibleToUser);
-      const visibleForms = page.forms
-        .map((form) => ({
-          ...form,
-          fields: form.fields.filter(isVisibleToUser),
-        }))
-        .filter((form) => form.fields.length > 0);
+      const dialogFocusedElements = getDialogFocusedElements(page);
+      const visiblePage = {
+        ...page,
+        interactiveElements:
+          dialogFocusedElements.length > 0
+            ? dialogFocusedElements
+            : visibleElements,
+        forms: page.forms
+          .map((form) => ({
+            ...form,
+            fields: form.fields.filter(
+              (field) =>
+                isVisibleToUser(field) &&
+                (dialogFocusedElements.length === 0 ||
+                  field.context === "dialog"),
+            ),
+          }))
+          .filter((form) => form.fields.length > 0),
+      };
+      const quantityElements = getQuantityElements(visiblePage);
+      const cartSnapshot = formatCartSnapshot(visiblePage);
+      const visibleForms = visiblePage.forms;
+      const dialogFocus = formatDialogFocus(page);
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
@@ -985,6 +1325,11 @@ export function buildScopedContext(
       if (visibleHighlights.length > 0) {
         sections.push("### Highlights & Annotations");
         sections.push(formatHighlights(visibleHighlights));
+        sections.push("");
+      }
+      if (cartSnapshot) {
+        sections.push("### Cart Snapshot");
+        sections.push(cartSnapshot);
         sections.push("");
       }
       if ((page.pageIssues?.length ?? 0) > 0) {
@@ -997,6 +1342,17 @@ export function buildScopedContext(
         sections.push(formatOverlays(page.overlays));
         sections.push("");
       }
+      if (dialogFocus) {
+        sections.push("### Immediate Overlay Actions");
+        sections.push(dialogFocus);
+        if (visibleElements.length > dialogFocusedElements.length) {
+          sections.push("");
+          sections.push(
+            `Background controls hidden while the dialog is active: ${visibleElements.length - dialogFocusedElements.length}`,
+          );
+        }
+        sections.push("");
+      }
       if (page.dormantOverlays.length > 0) {
         sections.push("### Dormant Consent / Modal UI");
         sections.push(formatDormantOverlays(page.dormantOverlays));
@@ -1007,11 +1363,18 @@ export function buildScopedContext(
         sections.push(formatNavigation(visibleNav));
         sections.push("");
       }
-      if (visibleElements.length > 0) {
+      if (quantityElements.length > 0) {
+        sections.push("### Quantity / Count Controls");
+        sections.push(formatQuantityElements(quantityElements));
+        sections.push("");
+      }
+      if (visiblePage.interactiveElements.length > 0) {
         sections.push(
-          `### Visible In-Viewport Interactive Elements (${visibleElements.length})`,
+          `### Visible In-Viewport Interactive Elements (${visiblePage.interactiveElements.length})`,
         );
-        sections.push(formatInteractiveElements(visibleElements));
+        sections.push(
+          formatInteractiveElements(visiblePage.interactiveElements),
+        );
         sections.push("");
       }
       if (visibleForms.length > 0) {

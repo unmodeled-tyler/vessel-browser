@@ -147,11 +147,25 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
     }
 
     function viewportWidth() {
-      return window.innerWidth || document.documentElement?.clientWidth || 0;
+      return Math.max(
+        window.innerWidth || 0,
+        window.visualViewport?.width || 0,
+        document.documentElement?.clientWidth || 0,
+        document.scrollingElement?.clientWidth || 0,
+        document.body?.clientWidth || 0,
+        window.screen?.availWidth || 0,
+      );
     }
 
     function viewportHeight() {
-      return window.innerHeight || document.documentElement?.clientHeight || 0;
+      return Math.max(
+        window.innerHeight || 0,
+        window.visualViewport?.height || 0,
+        document.documentElement?.clientHeight || 0,
+        document.scrollingElement?.clientHeight || 0,
+        document.body?.clientHeight || 0,
+        window.screen?.availHeight || 0,
+      );
     }
 
     function scrollingElement() {
@@ -208,6 +222,60 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         rect.bottom >= centerY;
     }
 
+    function touchesViewportEdge(rect) {
+      const edgePadding = 24;
+      return rect.left <= edgePadding ||
+        rect.top <= edgePadding ||
+        rect.right >= viewportWidth() - edgePadding ||
+        rect.bottom >= viewportHeight() - edgePadding;
+    }
+
+    function hasFixedAncestor(el) {
+      var cur = el.parentElement;
+      while (cur && cur !== document.body) {
+        var ps = getComputedStyle(cur).position;
+        if (ps === "fixed" || ps === "sticky") return true;
+        cur = cur.parentElement;
+      }
+      return false;
+    }
+
+    function isPositioned(style) {
+      return style.position === "fixed" || style.position === "sticky" ||
+        style.position === "absolute";
+    }
+
+    function effectiveZIndex(style, el) {
+      var z = parseZIndex(style);
+      if (z > 0) return z;
+      var cur = el.parentElement;
+      while (cur && cur !== document.body) {
+        var pz = parseZIndex(getComputedStyle(cur));
+        if (pz > 0) return pz;
+        cur = cur.parentElement;
+      }
+      return 0;
+    }
+
+    function looksLikeDrawer(style, rect, areaRatio, el) {
+      if (rect.width < 220 || rect.height < 160 || areaRatio < 0.08) return false;
+      if (!touchesViewportEdge(rect)) return false;
+      if (style.position === "fixed" || style.position === "sticky") {
+        return effectiveZIndex(style, el) >= 5;
+      }
+      if (style.position === "absolute" && hasFixedAncestor(el)) {
+        return effectiveZIndex(style, el) >= 5;
+      }
+      return false;
+    }
+
+    function looksLikeCartConfirmation(node) {
+      var t = (node.textContent || "").slice(0, 500).toLowerCase();
+      var signals = ["added to cart", "added to bag", "added to basket",
+        "added to your cart", "added to your bag", "added to your basket"];
+      return signals.some(function(s) { return t.indexOf(s) !== -1; });
+    }
+
     function detectOverlays() {
       if (!document.body) return [];
       const viewportArea = Math.max(1, viewportWidth() * viewportHeight());
@@ -246,7 +314,13 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         var type = overlayType(node);
         var dialogLike = type === "dialog" || type === "modal";
         var areaRatio = (rect.width * rect.height) / viewportArea;
+        var drawerLike = looksLikeDrawer(style, rect, areaRatio, node);
+        var cartConfirm = !dialogLike && !drawerLike && isPositioned(style) &&
+          rect.width >= 160 && rect.height >= 100 &&
+          looksLikeCartConfirmation(node);
         var blocksInteraction = dialogLike ||
+          drawerLike ||
+          cartConfirm ||
           ((style.position === "fixed" || style.position === "sticky") &&
             parseZIndex(style) >= 10 &&
             areaRatio >= 0.3 &&
@@ -364,6 +438,11 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
     }
 
     function contextOf(el) {
+      const overlayRoot = overlays.find(
+        (overlay) => overlay.element === el || overlay.element.contains(el),
+      );
+      if (overlayRoot) return "dialog";
+
       let current = el.parentElement;
       while (current) {
         const tag = current.tagName.toLowerCase();

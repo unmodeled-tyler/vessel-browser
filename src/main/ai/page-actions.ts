@@ -30,6 +30,21 @@ export interface ActionContext {
   runtime: AgentRuntime;
 }
 
+export interface FillFormFieldInput {
+  index?: number;
+  selector?: string;
+  name?: string;
+  label?: string;
+  placeholder?: string;
+  value: string;
+}
+
+export interface FillFormFieldResult {
+  field: FillFormFieldInput;
+  selector: string | null;
+  result: string;
+}
+
 const DEFAULT_PAGE_SCRIPT_TIMEOUT_MS = 1500;
 const QUIET_NAVIGATION_WINDOW_MS = 1200;
 const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
@@ -518,6 +533,352 @@ async function describeElementForClick(
   };
 }
 
+async function inspectElement(
+  wc: WebContents,
+  selector: string,
+  limit = 8,
+): Promise<string> {
+  const result = await executePageScript<{
+    target?: {
+      label: string;
+      tag: string;
+      text?: string;
+      href?: string;
+      value?: string;
+    };
+    region?: {
+      tag: string;
+      label: string;
+      text?: string;
+    };
+    nearby?: Array<{
+      label: string;
+      type: string;
+      selector: string;
+      href?: string;
+    }>;
+    error?: string;
+  }>(
+    wc,
+    `
+    (function() {
+      function text(value) {
+        const trimmed = value == null ? "" : String(value).trim();
+        return trimmed || undefined;
+      }
+
+      function escapeSelectorValue(value) {
+        if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+          return CSS.escape(value);
+        }
+        return String(value).replace(/["\\\\]/g, "\\\\$&");
+      }
+
+      function uniqueSelector(candidate) {
+        if (!candidate) return null;
+        try {
+          return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function uniqueAttributeSelector(el, attribute) {
+        const value = text(el.getAttribute && el.getAttribute(attribute));
+        if (!value) return null;
+        const candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
+        return uniqueSelector(candidate);
+      }
+
+      function selectorFor(el) {
+        if (!el) return null;
+        if (el.id) return "#" + escapeSelectorValue(el.id);
+        for (const attribute of ["data-testid", "name", "form", "aria-label", "title"]) {
+          const candidate = uniqueAttributeSelector(el, attribute);
+          if (candidate) return candidate;
+        }
+        const parts = [];
+        let current = el;
+        while (current) {
+          if (current.id) {
+            parts.unshift("#" + escapeSelectorValue(current.id));
+            break;
+          }
+          const tag = current.tagName.toLowerCase();
+          const parent = current.parentElement;
+          if (!parent) { parts.unshift(tag); break; }
+          const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+          const index = siblings.indexOf(current) + 1;
+          parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
+          current = parent;
+        }
+        const selector = parts.join(" > ");
+        return uniqueSelector(selector) || selector;
+      }
+
+      function isVisible(el) {
+        if (!(el instanceof HTMLElement)) return true;
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+          return false;
+        }
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }
+
+      function labelFor(el) {
+        return text(
+          el.getAttribute("aria-label") ||
+          el.getAttribute("title") ||
+          el.getAttribute("name") ||
+          el.getAttribute("placeholder") ||
+          el.textContent ||
+          el.getAttribute("value") ||
+          el.tagName
+        ) || "element";
+      }
+
+      function chooseRegion(target) {
+        const preferred = target.closest(
+          "[data-testid], article, [role='article'], [role='listitem'], li, tr, form, section, aside, dialog, [role='dialog']"
+        );
+        if (preferred) return preferred;
+        let current = target.parentElement;
+        let depth = 0;
+        while (current && depth < 5) {
+          const count = current.querySelectorAll("a[href], button, input, select, textarea").length;
+          if (count >= 2 && count <= 16) return current;
+          current = current.parentElement;
+          depth += 1;
+        }
+        return target.parentElement || target;
+      }
+
+      const target = document.querySelector(${JSON.stringify(selector)});
+      if (!target) return { error: "Element not found" };
+      if (target instanceof HTMLElement) {
+        target.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+      }
+
+      const region = chooseRegion(target);
+      const nearby = [];
+      const seen = new Set();
+      region.querySelectorAll("a[href], button, input:not([type='hidden']), select, textarea").forEach((el) => {
+        if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+        const candidateSelector = selectorFor(el);
+        if (!candidateSelector || seen.has(candidateSelector)) return;
+        seen.add(candidateSelector);
+        nearby.push({
+          label: labelFor(el).slice(0, 100),
+          type: el.tagName.toLowerCase(),
+          selector: candidateSelector,
+          href: el instanceof HTMLAnchorElement ? text(el.href) : undefined,
+        });
+      });
+
+      return {
+        target: {
+          label: labelFor(target).slice(0, 120),
+          tag: target.tagName.toLowerCase(),
+          text: text(target.textContent)?.slice(0, 240),
+          href: target instanceof HTMLAnchorElement ? text(target.href) : undefined,
+          value: target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement
+            ? text(target.value)?.slice(0, 120)
+            : undefined,
+        },
+        region: {
+          tag: region.tagName.toLowerCase(),
+          label: labelFor(region).slice(0, 120),
+          text: text(region.textContent)?.slice(0, 400),
+        },
+        nearby: nearby.slice(0, ${Math.max(1, Math.min(20, limit))}),
+      };
+    })()
+  `,
+    {
+      timeoutMs: 2000,
+      label: "inspect element",
+    },
+  );
+
+  if (result === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("inspect_element");
+  }
+  if (!result || typeof result !== "object") {
+    return "Error: Could not inspect element";
+  }
+  if ("error" in result && typeof result.error === "string") {
+    return `Error: ${result.error}`;
+  }
+
+  const lines: string[] = [];
+  if (result.target) {
+    lines.push(`Target: ${result.target.label} <${result.target.tag}>`);
+    if (result.target.text) lines.push(`Target text: ${result.target.text}`);
+    if (result.target.href) lines.push(`Target href: ${result.target.href}`);
+    if (result.target.value) lines.push(`Target value: ${result.target.value}`);
+  }
+  if (result.region) {
+    lines.push(`Region: ${result.region.label} <${result.region.tag}>`);
+    if (result.region.text) lines.push(`Region text: ${result.region.text}`);
+  }
+  if (Array.isArray(result.nearby) && result.nearby.length > 0) {
+    lines.push("Nearby controls:");
+    for (const item of result.nearby) {
+      const hrefSuffix = item.href ? ` -> ${item.href}` : "";
+      lines.push(
+        `- ${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}`,
+      );
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function getLocaleSnapshot(
+  wc: WebContents,
+): Promise<{ lang: string; url: string; title: string } | null> {
+  const snapshot = await executePageScript<{
+    lang?: string;
+    url?: string;
+    title?: string;
+  }>(
+    wc,
+    `
+    (function() {
+      return {
+        lang:
+          document.documentElement?.lang ||
+          document.body?.lang ||
+          navigator.language ||
+          "",
+        url: window.location.href || "",
+        title: document.title || "",
+      };
+    })()
+  `,
+    {
+      label: "locale snapshot",
+    },
+  );
+
+  if (
+    !snapshot ||
+    snapshot === PAGE_SCRIPT_TIMEOUT ||
+    typeof snapshot !== "object"
+  ) {
+    return null;
+  }
+
+  return {
+    lang: typeof snapshot.lang === "string" ? snapshot.lang.trim() : "",
+    url: typeof snapshot.url === "string" ? snapshot.url : wc.getURL(),
+    title: typeof snapshot.title === "string" ? snapshot.title : wc.getTitle(),
+  };
+}
+
+function primaryLanguageTag(value: string): string {
+  return value.trim().toLowerCase().split(/[-_]/)[0] || "";
+}
+
+function localeChanged(
+  before: { lang: string; url: string; title: string } | null,
+  after: { lang: string; url: string; title: string } | null,
+): boolean {
+  if (!before || !after) return false;
+  const beforeLang = primaryLanguageTag(before.lang);
+  const afterLang = primaryLanguageTag(after.lang);
+  if (beforeLang && afterLang && beforeLang !== afterLang) {
+    return true;
+  }
+  const localeHint =
+    /[?&](lang|locale|language|hl)=|\/(ja|jp|en|fr|de|es|it|ko|zh)(\/|$)/i;
+  return before.url !== after.url && localeHint.test(after.url);
+}
+
+async function restoreLocaleSnapshot(
+  wc: WebContents,
+  snapshot: { lang: string; url: string; title: string } | null,
+): Promise<void> {
+  if (!snapshot || wc.isDestroyed()) return;
+
+  try {
+    if (typeof wc.canGoBack === "function" && wc.canGoBack()) {
+      wc.goBack();
+      await waitForLoad(wc, 3000);
+      const reverted = await getLocaleSnapshot(wc);
+      if (!localeChanged(snapshot, reverted)) {
+        return;
+      }
+    }
+  } catch {
+    // Fall back to reloading the last known-good URL below.
+  }
+
+  if (snapshot.url && snapshot.url !== wc.getURL()) {
+    try {
+      await wc.loadURL(snapshot.url);
+      await waitForLoad(wc, 3000);
+      return;
+    } catch {
+      // Ignore and let the caller continue with the restored best effort.
+    }
+  }
+
+  if (snapshot.url) {
+    try {
+      await wc.reload();
+      await waitForLoad(wc, 3000);
+    } catch {
+      // Best-effort recovery only.
+    }
+  }
+}
+
+const ADD_TO_CART_PATTERNS = [
+  "add to cart",
+  "add to bag",
+  "add to basket",
+  "add to my cart",
+  "add to my bag",
+  "add to my basket",
+  "add item to cart",
+  "add item to bag",
+  "add item to basket",
+];
+
+/**
+ * Tracks the most recent add-to-cart click per page URL so we can block
+ * accidental duplicate clicks that the model fires before reading the page.
+ */
+const recentCartClicks = new Map<string, { text: string; ts: number }>();
+const CART_CLICK_COOLDOWN_MS = 15_000;
+
+function isAddToCartText(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  return ADD_TO_CART_PATTERNS.some((p) => normalized.includes(p));
+}
+
+function recordCartClick(url: string, text: string): void {
+  recentCartClicks.set(url, { text, ts: Date.now() });
+  // Prune stale entries
+  for (const [key, entry] of recentCartClicks) {
+    if (Date.now() - entry.ts > CART_CLICK_COOLDOWN_MS) {
+      recentCartClicks.delete(key);
+    }
+  }
+}
+
+function isDuplicateCartClick(url: string, text: string): boolean {
+  const recent = recentCartClicks.get(url);
+  if (!recent) return false;
+  if (Date.now() - recent.ts > CART_CLICK_COOLDOWN_MS) {
+    recentCartClicks.delete(url);
+    return false;
+  }
+  return isAddToCartText(text);
+}
+
 async function clickResolvedSelector(
   wc: WebContents,
   selector: string,
@@ -526,6 +887,19 @@ async function clickResolvedSelector(
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     const beforeUrl = wc.getURL();
+    // Pre-check: get element text for cart-click guard
+    const idxLabel = await executePageScript<string>(
+      wc,
+      `window.__vessel?.getElementText?.(${idx}) || ""`,
+      { label: "shadow element text" },
+    );
+    if (
+      typeof idxLabel === "string" &&
+      isAddToCartText(idxLabel) &&
+      isDuplicateCartClick(beforeUrl, idxLabel)
+    ) {
+      return `Blocked: "${idxLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await executePageScript<string>(
       wc,
       `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
@@ -535,14 +909,35 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+      recordCartClick(beforeUrl, idxLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const idxOverlay = await detectPostClickOverlay(wc);
+    return idxOverlay ? `${result}\n${idxOverlay}` : result;
   }
 
   // Shadow-piercing selector path
   if (selector.includes(" >>> ")) {
     const beforeUrl = wc.getURL();
+    // Pre-check: get element text for cart-click guard
+    const shadowLabel = await executePageScript<string>(
+      wc,
+      `(function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        return el ? (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || "") : "";
+      })()`,
+      { label: "shadow element text" },
+    );
+    if (
+      typeof shadowLabel === "string" &&
+      isAddToCartText(shadowLabel) &&
+      isDuplicateCartClick(beforeUrl, shadowLabel)
+    ) {
+      return `Blocked: "${shadowLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await executePageScript<string>(
       wc,
       `
@@ -559,20 +954,53 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+      recordCartClick(beforeUrl, shadowLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const shadowOverlay = await detectPostClickOverlay(wc);
+    return shadowOverlay ? `${result}\n${shadowOverlay}` : result;
   }
 
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
 
+  // Block duplicate add-to-cart clicks on the same page
+  const cartMatch = isAddToCartText(elInfo.text);
+  console.log(
+    `[Vessel cart-guard] text="${elInfo.text}" cartMatch=${cartMatch} url=${beforeUrl} hasPrior=${recentCartClicks.has(beforeUrl)}`,
+  );
+  if (cartMatch && isDuplicateCartClick(beforeUrl, elInfo.text)) {
+    console.log(`[Vessel cart-guard] BLOCKED duplicate add-to-cart click`);
+    return `Blocked: "${elInfo.text}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+  }
+
+  // Block clicks on background elements while a cart dialog is open
+  if (!cartMatch && recentCartClicks.has(beforeUrl)) {
+    const dialogActions = await getCartDialogActions(wc);
+    if (dialogActions) {
+      console.log(
+        `[Vessel cart-guard] BLOCKED background click while cart dialog is open`,
+      );
+      return `Blocked: a cart confirmation dialog is open. Do not click background elements.\n${dialogActions}\nClick one of these dialog actions instead.`;
+    }
+  }
+
   if (elInfo.href) {
     const validation = await validateLinkDestination(elInfo.href);
     if (validation.status === "dead") {
       return formatDeadLinkMessage(elInfo.text, validation);
     }
+  }
+
+  // Record add-to-cart clicks BEFORE executing so even if overlay detection
+  // fails, a second click on the same page will be caught.
+  if (cartMatch) {
+    console.log(`[Vessel cart-guard] RECORDED cart click for url=${beforeUrl}`);
+    recordCartClick(beforeUrl, elInfo.text);
   }
 
   const clickText = `Clicked: ${elInfo.text}`;
@@ -585,6 +1013,22 @@ async function clickResolvedSelector(
     return `${clickText} -> ${afterUrl}`;
   }
 
+  const overlayHint = await detectPostClickOverlay(wc);
+  if (overlayHint) {
+    // If this was a cart click, also fetch dialog actions inline
+    const dialogActions = cartMatch ? await getCartDialogActions(wc) : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}`;
+  }
+
+  // Do not "recover" cart clicks with a second DOM activation. On sites like
+  // Powell's, that fallback can submit Add to Cart twice while the drawer is opening.
+  if (cartMatch) {
+    return `${clickText} (${clickResult})`;
+  }
+
   const activationResult = await activateElement(wc, selector);
   if (!activationResult.startsWith("Error:")) {
     await waitForPotentialNavigation(wc, beforeUrl);
@@ -594,7 +1038,184 @@ async function clickResolvedSelector(
     }
   }
 
+  const postActivationOverlayHint = await detectPostClickOverlay(wc);
+  if (postActivationOverlayHint) {
+    return `${clickText} (${clickResult})\n${postActivationOverlayHint}`;
+  }
+
   return `${clickText} (${clickResult})`;
+}
+
+/**
+ * When a cart dialog is open, extract its interactive actions (buttons/links)
+ * so the model can act on them without needing to call read_page.
+ */
+async function getCartDialogActions(wc: WebContents): Promise<string | null> {
+  const result = await executePageScript<{
+    found: boolean;
+    actions: string[];
+  }>(
+    wc,
+    `
+    (function() {
+      var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+      if (!dialog) return { found: false, actions: [] };
+      var cs = getComputedStyle(dialog);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return { found: false, actions: [] };
+      var text = (dialog.textContent || '').slice(0, 500).toLowerCase();
+      var cartSignals = ['added to cart','added to bag','added to basket',
+        'item added','your basket','your cart','your bag',
+        'view basket','view cart','continue shopping'];
+      var isCart = cartSignals.some(function(s) { return text.indexOf(s) !== -1; });
+      if (!isCart) return { found: false, actions: [] };
+      var actions = [];
+      dialog.querySelectorAll('button, a[href], [role="button"]').forEach(function(el) {
+        var cs2 = getComputedStyle(el);
+        if (cs2.display === 'none' || cs2.visibility === 'hidden') return;
+        var r = el.getBoundingClientRect();
+        if (r.width < 20 || r.height < 10) return;
+        var label = (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 80);
+        if (!label || label.length < 2) return;
+        var href = el.getAttribute('href') || '';
+        var sel = el.id ? '#' + el.id
+          : el.getAttribute('data-test') ? '[data-test="' + el.getAttribute('data-test') + '"]'
+          : el.getAttribute('aria-label') ? '[aria-label="' + el.getAttribute('aria-label') + '"]'
+          : null;
+        if (sel) actions.push({ label: label, selector: sel, href: href });
+      });
+      return {
+        found: true,
+        actions: actions.map(function(a) {
+          return '- "' + a.label + '"' + (a.href ? ' → ' + a.href : '') + (a.selector ? ' (selector: ' + a.selector + ')' : '');
+        }),
+      };
+    })()
+    `,
+    { timeoutMs: 800, label: "get cart dialog actions" },
+  );
+
+  if (!result || result === PAGE_SCRIPT_TIMEOUT || !result.found) return null;
+  if (result.actions.length === 0) return null;
+
+  return `Available dialog actions:\n${result.actions.join("\n")}`;
+}
+
+/**
+ * Lightweight post-click check: did a dialog / cart-drawer appear?
+ * Runs a small DOM query instead of a full extraction so it stays fast.
+ */
+async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
+  const result = await executePageScript<{
+    found: boolean;
+    label: string;
+    cartLike: boolean;
+  }>(
+    wc,
+    `
+    (function() {
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      var vpArea = Math.max(1, vw * vh);
+
+      function isVis(el) {
+        var cs = getComputedStyle(el);
+        return cs.display !== 'none' && cs.visibility !== 'hidden' &&
+          el.getBoundingClientRect().width > 0;
+      }
+
+      function hasFixedAncestor(el) {
+        var cur = el.parentElement;
+        while (cur && cur !== document.body) {
+          var ps = getComputedStyle(cur).position;
+          if (ps === 'fixed' || ps === 'sticky') return true;
+          cur = cur.parentElement;
+        }
+        return false;
+      }
+
+      function effectiveZ(el) {
+        var cur = el;
+        while (cur && cur !== document.body) {
+          var z = parseInt(getComputedStyle(cur).zIndex, 10);
+          if (z > 0) return z;
+          cur = cur.parentElement;
+        }
+        return 0;
+      }
+
+      function edgePad(r) {
+        return r.left <= 24 || r.top <= 24 ||
+          r.right >= vw - 24 || r.bottom >= vh - 24;
+      }
+
+      var cartPhrases = ['added to cart','added to bag','added to basket',
+        'added to your cart','added to your bag','added to your basket'];
+      var cartActions = ['view cart','go to cart','continue shopping',
+        'keep shopping','checkout','view basket','go to basket'];
+
+      // Phase 1: semantic dialog elements
+      var selectors = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"]';
+      var candidates = document.querySelectorAll(selectors);
+      var hit = null;
+      for (var j = 0; j < candidates.length; j++) {
+        if (isVis(candidates[j])) { hit = candidates[j]; break; }
+      }
+
+      // Phase 2: positioned drawer-like elements
+      if (!hit) {
+        var els = document.querySelectorAll('*');
+        for (var i = 0; i < els.length; i++) {
+          var s = getComputedStyle(els[i]);
+          if (s.display === 'none' || s.visibility === 'hidden') continue;
+          var pos = s.position;
+          var isFixed = pos === 'fixed' || pos === 'sticky';
+          var isAbs = pos === 'absolute';
+          if (!isFixed && !isAbs) continue;
+          if (isAbs && !hasFixedAncestor(els[i])) continue;
+          if (effectiveZ(els[i]) < 5) continue;
+          var r = els[i].getBoundingClientRect();
+          var area = (r.width * r.height) / vpArea;
+          if (r.width >= 160 && r.height >= 100 && area >= 0.05 && edgePad(r)) {
+            hit = els[i]; break;
+          }
+        }
+      }
+
+      // Phase 3: text-based fallback — any positioned element with cart confirmation text
+      if (!hit) {
+        var els2 = document.querySelectorAll('*');
+        for (var k = 0; k < els2.length; k++) {
+          var s2 = getComputedStyle(els2[k]);
+          if (s2.display === 'none' || s2.visibility === 'hidden') continue;
+          var p2 = s2.position;
+          if (p2 !== 'fixed' && p2 !== 'sticky' && p2 !== 'absolute') continue;
+          var r2 = els2[k].getBoundingClientRect();
+          if (r2.width < 120 || r2.height < 80) continue;
+          var innerText = (els2[k].textContent || '').slice(0, 500).toLowerCase();
+          var hasConfirm = cartPhrases.some(function(ph) { return innerText.indexOf(ph) !== -1; });
+          if (hasConfirm) { hit = els2[k]; break; }
+        }
+      }
+
+      if (!hit) return { found: false, label: '', cartLike: false };
+      var text = (hit.textContent || '').slice(0, 500).toLowerCase();
+      var cartLike = cartPhrases.concat(cartActions).some(function(s) { return text.indexOf(s) !== -1; });
+      var label = (hit.getAttribute('aria-label') || (hit.querySelector('h1,h2,h3,h4') || {}).textContent || '').trim().slice(0, 80);
+      return { found: true, label: label, cartLike: cartLike };
+    })()
+    `,
+    { timeoutMs: 800, label: "post-click overlay check" },
+  );
+
+  if (!result || result === PAGE_SCRIPT_TIMEOUT || !result.found) return null;
+
+  if (result.cartLike) {
+    const desc = result.label ? ` ("${result.label}")` : "";
+    return `A cart confirmation dialog appeared${desc}. Call read_page to see available actions — do not click Add to Cart again.`;
+  }
+
+  const desc = result.label ? ` ("${result.label}")` : "";
+  return `A dialog or overlay appeared${desc}. Call read_page to see available actions.`;
 }
 
 async function dismissPopup(wc: WebContents): Promise<string> {
@@ -602,7 +1223,79 @@ async function dismissPopup(wc: WebContents): Promise<string> {
   const initialBlocking = before.overlays.filter(
     (overlay) => overlay.blocksInteraction,
   ).length;
+
+  // Refuse to dismiss cart confirmation dialogs — the model should interact
+  // with the dialog buttons (View Cart, Continue Shopping) instead.
+  if (initialBlocking > 0) {
+    const overlayText = before.overlays
+      .map((o) => [o.label, o.text].filter(Boolean).join(" "))
+      .join(" ")
+      .toLowerCase();
+    const cartSignals = [
+      "added to cart",
+      "added to bag",
+      "added to basket",
+      "item added",
+      "items in your basket",
+      "items in your cart",
+      "items in your bag",
+      "your basket",
+      "your cart",
+      "your bag",
+      "view basket",
+      "view cart",
+      "continue shopping",
+    ];
+    if (cartSignals.some((s) => overlayText.includes(s))) {
+      // Instead of refusing, try to click "Continue Shopping" automatically
+      const continueResult = await executePageScript<string>(
+        wc,
+        `
+        (function() {
+          var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+          if (!dialog) return "Error: dialog not found";
+          var buttons = dialog.querySelectorAll('button, a[href], [role="button"]');
+          var continueBtn = null;
+          var viewCartBtn = null;
+          for (var i = 0; i < buttons.length; i++) {
+            var label = (buttons[i].getAttribute('aria-label') || buttons[i].textContent || '').trim().toLowerCase();
+            if (/continue shopping|keep shopping/.test(label)) { continueBtn = buttons[i]; break; }
+            if (/view (basket|cart|bag)|checkout/.test(label) && !viewCartBtn) { viewCartBtn = buttons[i]; }
+          }
+          var target = continueBtn || viewCartBtn;
+          if (!target) return "Error: no dialog action found";
+          var actionLabel = (target.getAttribute('aria-label') || target.textContent || '').trim();
+          if (target.tagName === 'A' && target.href) {
+            window.location.href = target.href;
+            return "Clicked: " + actionLabel + " -> " + target.href;
+          }
+          target.click();
+          return "Clicked: " + actionLabel;
+        })()
+        `,
+        { timeoutMs: 1500, label: "cart dialog continue shopping" },
+      );
+
+      if (
+        continueResult &&
+        continueResult !== PAGE_SCRIPT_TIMEOUT &&
+        typeof continueResult === "string" &&
+        !continueResult.startsWith("Error")
+      ) {
+        console.log(
+          `[Vessel cart-guard] dismiss_popup auto-clicked dialog action: ${continueResult}`,
+        );
+        return `Cart confirmation handled: ${continueResult}. Item was already added to your cart.`;
+      }
+
+      // Fallback: return refusal with available actions
+      const dialogActions = await getCartDialogActions(wc);
+      return `Cannot dismiss: this is a cart confirmation dialog. Item is in your cart.${dialogActions ? "\n" + dialogActions + "\nClick one of these instead." : " Use read_page to see dialog actions."}`;
+    }
+  }
+
   const initialDormant = before.dormantOverlays.length;
+  const initialLocale = await getLocaleSnapshot(wc);
 
   const candidates = await executePageScript<
     Array<{ selector: string; label?: string; score: number }>
@@ -717,7 +1410,8 @@ async function dismissPopup(wc: WebContents): Promise<string> {
         ).toLowerCase();
         const classText = text(typeof el.className === "string" ? el.className : "").toLowerCase();
         const idText = text(el.id).toLowerCase();
-        const combined = classText + " " + idText;
+        const hrefText = text(el.getAttribute && el.getAttribute("href")).toLowerCase();
+        const combined = label + " " + classText + " " + idText + " " + hrefText;
         let score = rooted ? 30 : 0;
         if (/^x$|^×$/.test(label)) score += 120;
         if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you|reject|decline/.test(label)) score += 100;
@@ -727,6 +1421,11 @@ async function dismissPopup(wc: WebContents): Promise<string> {
         // OneTrust "Accept" is valid for dismissing the banner (user just wants it gone)
         if (/onetrust-accept|cookie.*accept|consent.*accept/.test(combined)) score += 80;
         if (el.getAttribute("aria-label")) score += 20;
+        if (/(language|locale|region|country|currency)\b/.test(combined)) score -= 320;
+        if (/\b(english|japanese|japan|francais|espanol|deutsch|italiano|portuguese|nihongo)\b/.test(label)) score -= 280;
+        if (/\u65e5\u672c\u8a9e|\u4e2d\u6587|\ud55c\uad6d\uc5b4/.test(label)) score -= 280;
+        if (/[?&](lang|locale|language|hl)=/.test(hrefText)) score -= 260;
+        if (/\/(ja|jp|en|fr|de|es|it|ko|zh)(\/|$)/.test(hrefText)) score -= 220;
         // Penalize general accept/subscribe buttons that aren't consent-related
         if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label) && !/cookie|consent|onetrust/.test(combined)) score -= 80;
         const rect = el.getBoundingClientRect();
@@ -810,6 +1509,11 @@ async function dismissPopup(wc: WebContents): Promise<string> {
       const result = await clickElement(wc, candidate.selector);
       if (result.startsWith("Error:")) continue;
       await sleep(250);
+      const postClickLocale = await getLocaleSnapshot(wc);
+      if (localeChanged(initialLocale, postClickLocale)) {
+        await restoreLocaleSnapshot(wc, initialLocale);
+        continue;
+      }
       const after = await extractContent(wc);
       const blocking = after.overlays.filter(
         (overlay) => overlay.blocksInteraction,
@@ -973,6 +1677,213 @@ async function resolveSelector(
   if (extractedSelector) return extractedSelector;
 
   return null;
+}
+
+function normalizeFieldToken(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function describeFillField(field: FillFormFieldInput): string {
+  if (field.selector) return `selector=${field.selector}`;
+  if (field.index != null) return `index=${field.index}`;
+  if (field.name) return `name=${field.name}`;
+  if (field.label) return `label=${field.label}`;
+  if (field.placeholder) return `placeholder=${field.placeholder}`;
+  return "field";
+}
+
+export async function resolveFieldSelector(
+  wc: WebContents,
+  field: FillFormFieldInput,
+): Promise<string | null> {
+  const directSelector = await resolveSelector(wc, field.index, field.selector);
+  if (directSelector) return directSelector;
+
+  const name = normalizeFieldToken(field.name);
+  const label = normalizeFieldToken(field.label);
+  const placeholder = normalizeFieldToken(field.placeholder);
+  if (!name && !label && !placeholder) return null;
+
+  const selector = await executePageScript<string | null>(
+    wc,
+    `
+      (function() {
+        function normalize(value) {
+          return value == null ? "" : String(value).trim().toLowerCase();
+        }
+
+        function text(value) {
+          return value == null ? "" : String(value).trim();
+        }
+
+        function isVisible(el) {
+          if (!(el instanceof HTMLElement)) return true;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+            return false;
+          }
+          if (el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true") {
+            return false;
+          }
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }
+
+        function escapeSelectorValue(value) {
+          if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+            return CSS.escape(value);
+          }
+          return String(value).replace(/["\\\\]/g, "\\\\$&");
+        }
+
+        function uniqueSelector(candidate) {
+          if (!candidate) return null;
+          try {
+            return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+          } catch {
+            return null;
+          }
+        }
+
+        function uniqueAttributeSelector(el, attribute) {
+          const value = text(el.getAttribute && el.getAttribute(attribute));
+          if (!value) return null;
+          const candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
+          return uniqueSelector(candidate);
+        }
+
+        function selectorFor(el) {
+          if (!el) return null;
+          if (el.id) return "#" + escapeSelectorValue(el.id);
+          const attributes = ["data-testid", "name", "form", "aria-label", "placeholder"];
+          for (const attribute of attributes) {
+            const attributeCandidate = uniqueAttributeSelector(el, attribute);
+            if (attributeCandidate) return attributeCandidate;
+          }
+          const parts = [];
+          let current = el;
+          while (current) {
+            if (current.id) {
+              parts.unshift("#" + escapeSelectorValue(current.id));
+              break;
+            }
+            const tag = current.tagName.toLowerCase();
+            const parent = current.parentElement;
+            if (!parent) {
+              parts.unshift(tag);
+              break;
+            }
+            const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+            const index = siblings.indexOf(current) + 1;
+            parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
+            current = parent;
+          }
+          const candidate = parts.join(" > ");
+          return uniqueSelector(candidate) || candidate;
+        }
+
+        function getLabelText(el) {
+          const parts = [];
+          if (el.labels) {
+            Array.from(el.labels).forEach((labelEl) => {
+              const value = text(labelEl.textContent);
+              if (value) parts.push(value);
+            });
+          }
+          const ariaLabel = text(el.getAttribute && el.getAttribute("aria-label"));
+          if (ariaLabel) parts.push(ariaLabel);
+          const labelledBy = text(el.getAttribute && el.getAttribute("aria-labelledby"));
+          if (labelledBy) {
+            labelledBy.split(/\\s+/).forEach((id) => {
+              const ref = document.getElementById(id);
+              const value = text(ref && ref.textContent);
+              if (value) parts.push(value);
+            });
+          }
+          return normalize(parts.join(" "));
+        }
+
+        function scoreField(el) {
+          if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
+            return -1;
+          }
+          if (!isVisible(el) || el.disabled || el.getAttribute("aria-disabled") === "true") {
+            return -1;
+          }
+
+          const normalizedName = normalize(el.getAttribute("name")) || normalize(el.id);
+          const normalizedLabel = getLabelText(el);
+          const normalizedPlaceholder = normalize(el.getAttribute("placeholder"));
+          let score = 0;
+
+          if (${JSON.stringify(name)}) {
+            if (normalizedName === ${JSON.stringify(name.toLowerCase())}) score += 120;
+            else if (normalizedName.includes(${JSON.stringify(name.toLowerCase())})) score += 70;
+          }
+
+          if (${JSON.stringify(label)}) {
+            if (normalizedLabel === ${JSON.stringify(label.toLowerCase())}) score += 110;
+            else if (normalizedLabel.includes(${JSON.stringify(label.toLowerCase())})) score += 65;
+          }
+
+          if (${JSON.stringify(placeholder)}) {
+            if (normalizedPlaceholder === ${JSON.stringify(placeholder.toLowerCase())}) score += 105;
+            else if (normalizedPlaceholder.includes(${JSON.stringify(placeholder.toLowerCase())})) score += 60;
+          }
+
+          if (score === 0) return -1;
+          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) score += 5;
+          return score;
+        }
+
+        const candidates = Array.from(document.querySelectorAll("input, textarea, select"));
+        let best = null;
+        let bestScore = -1;
+        for (const el of candidates) {
+          const score = scoreField(el);
+          if (score > bestScore) {
+            best = el;
+            bestScore = score;
+          }
+        }
+
+        return best ? selectorFor(best) : null;
+      })()
+    `,
+    {
+      label: "resolve form field",
+    },
+  );
+
+  return typeof selector === "string" && selector ? selector : null;
+}
+
+export async function fillFormFields(
+  wc: WebContents,
+  fields: FillFormFieldInput[],
+): Promise<FillFormFieldResult[]> {
+  const results: FillFormFieldResult[] = [];
+
+  for (const field of fields) {
+    const selector = await resolveFieldSelector(wc, field);
+    if (!selector) {
+      results.push({
+        field,
+        selector: null,
+        result: `Skipped: no selector for ${describeFillField(field)}`,
+      });
+      continue;
+    }
+
+    const result = await setElementValue(
+      wc,
+      selector,
+      String(field.value || ""),
+    );
+    results.push({ field, selector, result });
+  }
+
+  return results;
 }
 
 function getTabByMatch(
@@ -1630,7 +2541,15 @@ async function submitForm(
   return "Submitted form";
 }
 
-export { waitForLoad, setElementValue, pressKey };
+export {
+  waitForLoad,
+  setElementValue,
+  pressKey,
+  dismissPopup,
+  isAddToCartText,
+  isDuplicateCartClick,
+  recordCartClick,
+};
 
 export async function clickElementBySelector(
   wc: WebContents,
@@ -1752,6 +2671,7 @@ async function getPostActionState(
     "hover",
     "focus",
     "fill_form",
+    "inspect_element",
   ];
   const tabActions = [
     "create_tab",
@@ -1796,6 +2716,7 @@ const KNOWN_TOOLS = new Set([
   "go_forward",
   "reload",
   "click",
+  "inspect_element",
   "type_text",
   "select_option",
   "submit_form",
@@ -1961,6 +2882,10 @@ export async function executeAction(
 
         case "navigate": {
           if (!wc || !tabId) return "Error: No active tab";
+          const navValidation = await validateLinkDestination(args.url);
+          if (navValidation.status === "dead") {
+            return `Navigation blocked: ${args.url} returned ${navValidation.detail || "dead link"}. Try a different URL or go back and choose another link.`;
+          }
           ctx.tabManager.navigateTab(tabId, args.url);
           await waitForLoad(wc);
           return `Navigated to ${wc.getURL()}${getPostNavSummary(wc)}`;
@@ -2006,6 +2931,17 @@ export async function executeAction(
           const selector = await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
           return clickResolvedSelector(wc, selector);
+        }
+
+        case "inspect_element": {
+          if (!wc) return "Error: No active tab";
+          const selector = await resolveSelector(wc, args.index, args.selector);
+          if (!selector) return "Error: No element index or selector provided";
+          return inspectElement(
+            wc,
+            selector,
+            typeof args.limit === "number" ? args.limit : 8,
+          );
         }
 
         case "type_text": {
@@ -2727,6 +3663,9 @@ export async function executeAction(
             );
           } else if (hasSearchInput && linkCount >= 10) {
             suggestions.push("SEARCH RESULTS detected:");
+            suggestions.push(
+              "  → inspect_element(index) to inspect one result card",
+            );
             suggestions.push("  → click on a result link");
             if (hasPagination)
               suggestions.push("  → paginate('next') for more results");
@@ -2769,26 +3708,11 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const fields = Array.isArray(args.fields) ? args.fields : [];
           if (fields.length === 0) return "Error: No fields provided";
-          const results: string[] = [];
-          for (const field of fields) {
-            const sel = await resolveSelector(wc, field.index, field.selector);
-            if (!sel) {
-              results.push(`Skipped: no selector for index=${field.index}`);
-              continue;
-            }
-            const result = await setElementValue(
-              wc,
-              sel,
-              String(field.value || ""),
-            );
-            results.push(result);
-          }
+          const fillResults = await fillFormFields(wc, fields);
+          const results = fillResults.map((item) => item.result);
           if (args.submit) {
-            const firstSel = await resolveSelector(
-              wc,
-              fields[0]?.index,
-              fields[0]?.selector,
-            );
+            const firstSel =
+              fillResults.find((item) => item.selector)?.selector ?? null;
             if (firstSel) {
               const beforeUrl = wc.getURL();
               const submitResult = await submitForm(wc, { selector: firstSel });
@@ -2905,6 +3829,38 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const query = String(args.query || "");
           if (!query) return "Error: No search query provided.";
+
+          // Guard: reject queries that look like button/UI labels, not search terms
+          const queryLower = query.toLowerCase().trim();
+          const buttonLikePatterns = [
+            "add to cart",
+            "add to bag",
+            "add to basket",
+            "buy now",
+            "buy it now",
+            "purchase",
+            "continue shopping",
+            "keep shopping",
+            "view cart",
+            "view bag",
+            "view basket",
+            "go to cart",
+            "go to checkout",
+            "checkout",
+            "check out",
+            "proceed to checkout",
+            "place order",
+            "submit",
+            "subscribe",
+            "sign up",
+            "sign in",
+            "log in",
+            "register",
+            "continue",
+          ];
+          if (buttonLikePatterns.some((p) => queryLower.includes(p))) {
+            return `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`;
+          }
 
           // Step 1: Find the search input — polls inside the page for up
           // to 5 seconds so we catch it as soon as the framework renders

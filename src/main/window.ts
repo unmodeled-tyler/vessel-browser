@@ -16,10 +16,19 @@ function enableClipboardShortcuts(view: WebContentsView): void {
     const key = input.key.toLowerCase();
     const wc = view.webContents;
     if (input.type === "keyDown") {
-      if (key === "c") { wc.copy(); event.preventDefault(); }
-      else if (key === "v") { wc.paste(); event.preventDefault(); }
-      else if (key === "x") { wc.cut(); event.preventDefault(); }
-      else if (key === "a") { wc.selectAll(); event.preventDefault(); }
+      if (key === "c") {
+        wc.copy();
+        event.preventDefault();
+      } else if (key === "v") {
+        wc.paste();
+        event.preventDefault();
+      } else if (key === "x") {
+        wc.cut();
+        event.preventDefault();
+      } else if (key === "a") {
+        wc.selectAll();
+        event.preventDefault();
+      }
     }
   });
 }
@@ -42,6 +51,7 @@ export interface WindowState {
 type SidebarContextTarget = {
   inHighlightNav: boolean;
   canRemoveCurrent: boolean;
+  bookmarkId?: string;
 };
 
 async function getSidebarContextTarget(
@@ -60,6 +70,10 @@ async function getSidebarContextTarget(
         return {
           inHighlightNav: !!nav,
           canRemoveCurrent: /\\d+\\s*\\/\\s*\\d+/.test(label),
+          bookmarkId:
+            el && typeof el.closest === "function"
+              ? el.closest("[data-bookmark-id]")?.getAttribute("data-bookmark-id") || undefined
+              : undefined,
         };
       })()`,
       true,
@@ -97,6 +111,22 @@ async function showSidebarContextMenu(
           sidebarView.webContents.send(
             Channels.SIDEBAR_HIGHLIGHT_ACTION,
             "clear-all",
+          ),
+      }),
+    );
+  }
+
+  if (target.bookmarkId) {
+    if (menu.items.length > 0) {
+      menu.append(new MenuItem({ type: "separator" }));
+    }
+    menu.append(
+      new MenuItem({
+        label: "Add Context to Chat",
+        click: () =>
+          sidebarView.webContents.send(
+            Channels.BOOKMARK_ADD_CONTEXT_TO_CHAT,
+            target.bookmarkId,
           ),
       }),
     );
@@ -255,11 +285,20 @@ export function createMainWindow(
 }
 
 export function layoutViews(state: WindowState): void {
-  const { mainWindow, chromeView, sidebarView, devtoolsPanelView, tabManager, uiState } = state;
+  const {
+    mainWindow,
+    chromeView,
+    sidebarView,
+    devtoolsPanelView,
+    tabManager,
+    uiState,
+  } = state;
   const [width, height] = mainWindow.getContentSize();
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
   const sidebarWidth = uiState.sidebarOpen ? uiState.sidebarWidth : 0;
-  const devtoolsHeight = uiState.devtoolsPanelOpen ? uiState.devtoolsPanelHeight : 0;
+  const devtoolsHeight = uiState.devtoolsPanelOpen
+    ? uiState.devtoolsPanelHeight
+    : 0;
   const chromeNeedsFullHeight = uiState.settingsOpen;
 
   if (chromeNeedsFullHeight) {
@@ -318,11 +357,14 @@ export function layoutViews(state: WindowState): void {
  * Only repositions the sidebar, active tab, and devtools panel width.
  */
 export function resizeSidebarViews(state: WindowState): void {
-  const { mainWindow, sidebarView, devtoolsPanelView, tabManager, uiState } = state;
+  const { mainWindow, sidebarView, devtoolsPanelView, tabManager, uiState } =
+    state;
   const [width, height] = mainWindow.getContentSize();
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
   const sidebarWidth = uiState.sidebarOpen ? uiState.sidebarWidth : 0;
-  const devtoolsHeight = uiState.devtoolsPanelOpen ? uiState.devtoolsPanelHeight : 0;
+  const devtoolsHeight = uiState.devtoolsPanelOpen
+    ? uiState.devtoolsPanelHeight
+    : 0;
   const resizeHandleOverlap = 6;
   const contentWidth = width - sidebarWidth;
 

@@ -22,3 +22,5 @@ CLAUDE.md
 docs/releasing.md
 speedee-system-for-agents.md
 resources/vessel-icon-400x400.png
+tests/tool-pruner.test.ts
+tests/bookmark-context.test.ts

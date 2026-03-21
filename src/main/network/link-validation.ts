@@ -114,5 +114,5 @@ export function formatDeadLinkMessage(
 ): string {
   const destination = result.finalUrl || result.checkedUrl;
   const status = result.statusCode ? `HTTP ${result.statusCode}` : "dead link";
-  return `Skipped stale link "${label}" because ${destination} returned ${status}.`;
+  return `Skipped stale link "${label}" because ${destination} returned ${status}. Try a different link or URL instead.`;
 }

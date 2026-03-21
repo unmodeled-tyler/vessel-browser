@@ -22,6 +22,12 @@ import {
   formatDeadLinkMessage,
   validateLinkDestination,
 } from "../network/link-validation";
+import {
+  fillFormFields,
+  isAddToCartText,
+  isDuplicateCartClick,
+  recordCartClick,
+} from "../ai/page-actions";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
@@ -442,18 +448,54 @@ async function clickResolvedSelector(
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     const beforeUrl = wc.getURL();
+    const idxLabel = await wc.executeJavaScript(
+      `window.__vessel?.getElementText?.(${idx}) || ""`,
+    );
+    if (
+      typeof idxLabel === "string" &&
+      isAddToCartText(idxLabel) &&
+      isDuplicateCartClick(beforeUrl, idxLabel)
+    ) {
+      return `Blocked: "${idxLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await wc.executeJavaScript(
       `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
     );
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+      recordCartClick(beforeUrl, idxLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const overlayHint = await detectPostClickOverlay(wc);
+    if (!overlayHint) return result;
+    const dialogActions =
+      typeof idxLabel === "string" && isAddToCartText(idxLabel)
+        ? await getCartDialogActions(wc)
+        : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${result}\n${overlayHint}${actionsSuffix}`;
   }
 
   // Shadow-piercing selector path
   if (selector.includes(" >>> ")) {
     const beforeUrl = wc.getURL();
+    const shadowLabel = await wc.executeJavaScript(`
+      (function() {
+        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
+        return el ? (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || "") : "";
+      })()
+    `);
+    if (
+      typeof shadowLabel === "string" &&
+      isAddToCartText(shadowLabel) &&
+      isDuplicateCartClick(beforeUrl, shadowLabel)
+    ) {
+      return `Blocked: "${shadowLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
     const result = await wc.executeJavaScript(`
       (function() {
         var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
@@ -463,20 +505,50 @@ async function clickResolvedSelector(
       })()
     `);
     if (typeof result === "string" && result.startsWith("Error")) return result;
+    if (typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+      recordCartClick(beforeUrl, shadowLabel);
+    }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
+    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
+    const overlayHint = await detectPostClickOverlay(wc);
+    if (!overlayHint) return result;
+    const dialogActions =
+      typeof shadowLabel === "string" && isAddToCartText(shadowLabel)
+        ? await getCartDialogActions(wc)
+        : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${result}\n${overlayHint}${actionsSuffix}`;
   }
 
   const beforeUrl = wc.getURL();
   const elInfo = await describeElementForClick(wc, selector);
   if ("error" in elInfo) return `Error: ${elInfo.error}`;
 
+  // Block duplicate add-to-cart clicks on the same page
+  const cartMatch = isAddToCartText(elInfo.text);
+  if (cartMatch && isDuplicateCartClick(beforeUrl, elInfo.text)) {
+    return `Blocked: "${elInfo.text}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+  }
+
+  if (!cartMatch) {
+    const dialogActions = await getCartDialogActions(wc);
+    if (dialogActions) {
+      return `Blocked: a cart confirmation dialog is open. Do not click background elements.\n${dialogActions}\nClick one of these dialog actions instead.`;
+    }
+  }
+
   if (elInfo.href) {
     const validation = await validateLinkDestination(elInfo.href);
     if (validation.status === "dead") {
       return formatDeadLinkMessage(elInfo.text, validation);
     }
+  }
+
+  if (cartMatch) {
+    recordCartClick(beforeUrl, elInfo.text);
   }
 
   const clickText = `Clicked: ${elInfo.text}`;
@@ -489,6 +561,21 @@ async function clickResolvedSelector(
     return `${clickText} -> ${afterUrl}`;
   }
 
+  const overlayHint = await detectPostClickOverlay(wc);
+  if (overlayHint) {
+    const dialogActions = cartMatch ? await getCartDialogActions(wc) : null;
+    const actionsSuffix = dialogActions
+      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+      : "";
+    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}`;
+  }
+
+  // Do not "recover" cart clicks with a second DOM activation. On sites like
+  // Powell's, that fallback can submit Add to Basket twice while the drawer is opening.
+  if (cartMatch) {
+    return `${clickText} (${clickResult})`;
+  }
+
   const activationResult = await activateElement(wc, selector);
   if (!activationResult.startsWith("Error:")) {
     await waitForPotentialNavigation(wc, beforeUrl);
@@ -498,7 +585,211 @@ async function clickResolvedSelector(
     }
   }
 
+  const postActivationOverlayHint = await detectPostClickOverlay(wc);
+  if (postActivationOverlayHint) {
+    return `${clickText} (${clickResult})\n${postActivationOverlayHint}`;
+  }
+
   return `${clickText} (${clickResult})`;
+}
+
+async function getCartDialogActions(
+  wc: Electron.WebContents,
+): Promise<string | null> {
+  const result = await wc.executeJavaScript(`
+    (function() {
+      function isVisible(el) {
+        if (!(el instanceof HTMLElement)) return false;
+        const style = getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width >= 20 && rect.height >= 10;
+      }
+
+      function findDialogRoot() {
+        const selectors = [
+          '[data-test="basket-flyout"]',
+          '[role="dialog"]',
+          'dialog[open]',
+          '[role="alertdialog"]',
+          '[aria-modal="true"]',
+        ];
+        for (const selector of selectors) {
+          const nodes = document.querySelectorAll(selector);
+          for (const node of nodes) {
+            if (!(node instanceof HTMLElement) || !isVisible(node)) continue;
+            const text = (node.textContent || "").slice(0, 800).toLowerCase();
+            const cartSignals = [
+              "added to cart", "added to bag", "added to basket",
+              "item added", "your basket", "your cart", "your bag",
+              "view basket", "view cart", "continue shopping",
+            ];
+            if (cartSignals.some((signal) => text.includes(signal))) {
+              return node;
+            }
+          }
+        }
+        return null;
+      }
+
+      const dialog = findDialogRoot();
+      if (!dialog) return { found: false, actions: [] };
+
+      const actions = [];
+      dialog.querySelectorAll('button, a[href], [role="button"]').forEach((el) => {
+        if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+        const label = (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 80);
+        if (!label || label.length < 2) return;
+        const href = el.getAttribute("href") || "";
+        const selector = el.id ? "#" + el.id
+          : el.getAttribute("data-test") ? '[data-test="' + el.getAttribute("data-test") + '"]'
+          : el.getAttribute("aria-label") ? '[aria-label="' + el.getAttribute("aria-label") + '"]'
+          : null;
+        if (selector) {
+          actions.push({ label: label, href: href, selector: selector });
+        }
+      });
+
+      return {
+        found: true,
+        actions: actions.map((action) =>
+          '- "' + action.label + '"' +
+          (action.href ? ' -> ' + action.href : "") +
+          (action.selector ? ' (selector: ' + action.selector + ')' : "")
+        ),
+      };
+    })()
+  `);
+
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("found" in result) ||
+    !result.found
+  ) {
+    return null;
+  }
+  if (
+    !("actions" in result) ||
+    !Array.isArray(result.actions) ||
+    result.actions.length === 0
+  ) {
+    return null;
+  }
+
+  return `Available dialog actions:\n${result.actions.join("\n")}`;
+}
+
+async function detectPostClickOverlay(
+  wc: Electron.WebContents,
+): Promise<string | null> {
+  const result = await wc.executeJavaScript(`
+    (function() {
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      var vpArea = Math.max(1, vw * vh);
+
+      function isVisible(el) {
+        if (!(el instanceof HTMLElement)) return false;
+        var style = getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return false;
+        return el.getBoundingClientRect().width > 0;
+      }
+
+      function hasFixedAncestor(el) {
+        var current = el.parentElement;
+        while (current && current !== document.body) {
+          var position = getComputedStyle(current).position;
+          if (position === "fixed" || position === "sticky") return true;
+          current = current.parentElement;
+        }
+        return false;
+      }
+
+      function effectiveZ(el) {
+        var current = el;
+        while (current && current !== document.body) {
+          var z = parseInt(getComputedStyle(current).zIndex, 10);
+          if (z > 0) return z;
+          current = current.parentElement;
+        }
+        return 0;
+      }
+
+      function touchesViewportEdge(rect) {
+        return rect.left <= 24 || rect.top <= 24 ||
+          rect.right >= vw - 24 || rect.bottom >= vh - 24;
+      }
+
+      var cartPhrases = [
+        "added to cart", "added to bag", "added to basket",
+        "added to your cart", "added to your bag", "added to your basket",
+      ];
+      var cartActions = [
+        "view cart", "go to cart", "view basket", "go to basket",
+        "continue shopping", "keep shopping", "checkout",
+      ];
+
+      var selectors = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"], [data-test="basket-flyout"]';
+      var candidates = document.querySelectorAll(selectors);
+      var hit = null;
+      for (var i = 0; i < candidates.length; i++) {
+        if (isVisible(candidates[i])) {
+          hit = candidates[i];
+          break;
+        }
+      }
+
+      if (!hit) {
+        var elements = document.querySelectorAll("*");
+        for (var j = 0; j < elements.length; j++) {
+          var el = elements[j];
+          if (!(el instanceof HTMLElement) || !isVisible(el)) continue;
+          var style = getComputedStyle(el);
+          var position = style.position;
+          var isFixed = position === "fixed" || position === "sticky";
+          var isAbsolute = position === "absolute";
+          if (!isFixed && !isAbsolute) continue;
+          if (isAbsolute && !hasFixedAncestor(el)) continue;
+          if (effectiveZ(el) < 5) continue;
+          var rect = el.getBoundingClientRect();
+          var areaRatio = (rect.width * rect.height) / vpArea;
+          if (rect.width >= 160 && rect.height >= 100 && areaRatio >= 0.05 && touchesViewportEdge(rect)) {
+            hit = el;
+            break;
+          }
+        }
+      }
+
+      if (!hit) return { found: false, label: "", cartLike: false };
+      var text = (hit.textContent || "").slice(0, 800).toLowerCase();
+      var cartLike = cartPhrases.concat(cartActions).some(function(signal) {
+        return text.indexOf(signal) !== -1;
+      });
+      var heading = hit.querySelector("h1,h2,h3,h4");
+      var label = (hit.getAttribute("aria-label") || (heading && heading.textContent) || "").trim().slice(0, 80);
+      return { found: true, label: label, cartLike: cartLike };
+    })()
+  `);
+
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("found" in result) ||
+    !result.found
+  ) {
+    return null;
+  }
+
+  const label =
+    typeof result.label === "string" && result.label
+      ? ` ("${result.label}")`
+      : "";
+  if ("cartLike" in result && result.cartLike) {
+    return `A cart confirmation dialog appeared${label}. Call read_page to see available actions — do not click Add to Cart again.`;
+  }
+
+  return `A dialog or overlay appeared${label}. Call read_page to see available actions.`;
 }
 
 async function dismissPopup(wc: Electron.WebContents): Promise<string> {
@@ -506,6 +797,67 @@ async function dismissPopup(wc: Electron.WebContents): Promise<string> {
   const initialBlocking = before.overlays.filter(
     (overlay) => overlay.blocksInteraction,
   ).length;
+
+  // Refuse to dismiss cart confirmation dialogs
+  if (initialBlocking > 0) {
+    const overlayText = before.overlays
+      .map((o: { label?: string; text?: string }) =>
+        [o.label, o.text].filter(Boolean).join(" "),
+      )
+      .join(" ")
+      .toLowerCase();
+    const cartSignals = [
+      "added to cart",
+      "added to bag",
+      "added to basket",
+      "item added",
+      "items in your basket",
+      "items in your cart",
+      "items in your bag",
+      "your basket",
+      "your cart",
+      "your bag",
+      "view basket",
+      "view cart",
+      "continue shopping",
+    ];
+    if (cartSignals.some((s) => overlayText.includes(s))) {
+      // Instead of refusing, try to click "Continue Shopping" automatically
+      const continueResult = await wc.executeJavaScript(`
+        (function() {
+          var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+          if (!dialog) return "Error: dialog not found";
+          var buttons = dialog.querySelectorAll('button, a[href], [role="button"]');
+          var continueBtn = null;
+          var viewCartBtn = null;
+          for (var i = 0; i < buttons.length; i++) {
+            var label = (buttons[i].getAttribute('aria-label') || buttons[i].textContent || '').trim().toLowerCase();
+            if (/continue shopping|keep shopping/.test(label)) { continueBtn = buttons[i]; break; }
+            if (/view (basket|cart|bag)|checkout/.test(label) && !viewCartBtn) { viewCartBtn = buttons[i]; }
+          }
+          var target = continueBtn || viewCartBtn;
+          if (!target) return "Error: no dialog action found";
+          var actionLabel = (target.getAttribute('aria-label') || target.textContent || '').trim();
+          if (target.tagName === 'A' && target.href) {
+            window.location.href = target.href;
+            return "Clicked: " + actionLabel + " -> " + target.href;
+          }
+          target.click();
+          return "Clicked: " + actionLabel;
+        })()
+      `);
+
+      if (
+        typeof continueResult === "string" &&
+        !continueResult.startsWith("Error")
+      ) {
+        return `Cart confirmation handled: ${continueResult}. Item was already added to your cart.`;
+      }
+
+      return "Cannot dismiss: this is a cart confirmation dialog. Item is in your cart. Use read_page to see dialog actions (e.g. View Basket, Continue Shopping) and click one of them instead.";
+    }
+  }
+
   const initialDormant = before.dormantOverlays.length;
 
   const candidates = await wc.executeJavaScript(`
@@ -787,7 +1139,13 @@ async function getPostActionState(
     "reload",
     "press_key",
   ];
-  const interactActions = ["type", "type_text", "select_option", "hover", "focus"];
+  const interactActions = [
+    "type",
+    "type_text",
+    "select_option",
+    "hover",
+    "focus",
+  ];
   const tabActions = ["create_tab", "switch_tab", "close_tab"];
 
   if (navActions.includes(name)) {
@@ -998,7 +1356,8 @@ async function hoverElement(
   if ("error" in pos && typeof pos.error === "string") return pos.error;
   const x = typeof pos.x === "number" ? pos.x : null;
   const y = typeof pos.y === "number" ? pos.y : null;
-  if (x == null || y == null) return "Error: Could not resolve hover coordinates";
+  if (x == null || y == null)
+    return "Error: Could not resolve hover coordinates";
 
   wc.sendInputEvent({ type: "mouseMove", x, y });
   const label = typeof pos.label === "string" ? pos.label : "element";
@@ -1262,7 +1621,10 @@ async function waitForCondition(
   const expectedSelector = (selector || "").trim();
 
   if (!expectedText && !expectedSelector) {
-    return JSON.stringify({ matched: false, error: "wait_for requires text or selector" });
+    return JSON.stringify({
+      matched: false,
+      error: "wait_for requires text or selector",
+    });
   }
 
   // Wait for any pending load to finish first
@@ -1291,13 +1653,26 @@ async function waitForCondition(
     const elapsedMs = Date.now() - startedAt;
 
     if (result === "selector") {
-      return JSON.stringify({ matched: true, type: "selector", value: expectedSelector, elapsed_ms: elapsedMs });
+      return JSON.stringify({
+        matched: true,
+        type: "selector",
+        value: expectedSelector,
+        elapsed_ms: elapsedMs,
+      });
     }
     if (result === "text") {
-      return JSON.stringify({ matched: true, type: "text", value: expectedText.slice(0, 80), elapsed_ms: elapsedMs });
+      return JSON.stringify({
+        matched: true,
+        type: "text",
+        value: expectedText.slice(0, 80),
+        elapsed_ms: elapsedMs,
+      });
     }
     if (typeof result === "string" && result.startsWith("invalid_selector:")) {
-      return JSON.stringify({ matched: false, error: `Invalid selector "${expectedSelector}" — ${result.slice(17)}` });
+      return JSON.stringify({
+        matched: false,
+        error: `Invalid selector "${expectedSelector}" — ${result.slice(17)}`,
+      });
     }
 
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -1478,8 +1853,17 @@ function registerTools(
         pageType,
         pageUrl,
         pageTitle,
-        recommended: scored.filter((t) => t.score <= 20).map(({ name, title, description, relevance }) => ({ name, title, description, relevance })),
-        available: scored.filter((t) => t.score > 20).map(({ name, title, relevance }) => ({ name, title, relevance })),
+        recommended: scored
+          .filter((t) => t.score <= 20)
+          .map(({ name, title, description, relevance }) => ({
+            name,
+            title,
+            description,
+            relevance,
+          })),
+        available: scored
+          .filter((t) => t.score > 20)
+          .map(({ name, title, relevance }) => ({ name, title, relevance })),
       };
 
       return {
@@ -1518,11 +1902,15 @@ function registerTools(
         stream_id: z
           .string()
           .optional()
-          .describe("Stable stream ID for incremental updates to the same entry"),
+          .describe(
+            "Stable stream ID for incremental updates to the same entry",
+          ),
         mode: z
           .enum(["append", "replace", "final"])
           .optional()
-          .describe("append (default), replace current stream text, or mark the stream final"),
+          .describe(
+            "append (default), replace current stream text, or mark the stream final",
+          ),
         kind: z
           .enum(["thinking", "message", "status"])
           .optional()
@@ -1587,13 +1975,17 @@ function registerTools(
     wc?: Electron.WebContents,
   ): Promise<string> {
     const adBlockLine = `**Ad Blocking:** ${adBlockingEnabled ? "On" : "Off"}`;
-    const savedHighlights = highlightsManager.getHighlightsForUrl(pageContent.url);
+    const savedHighlights = highlightsManager.getHighlightsForUrl(
+      pageContent.url,
+    );
     const liveSelectionSection = wc
       ? formatLiveSelectionSection(
           await captureLiveHighlightSnapshot(wc, savedHighlights),
         )
       : null;
-    const livePrefix = liveSelectionSection ? `\n\n${liveSelectionSection}` : "";
+    const livePrefix = liveSelectionSection
+      ? `\n\n${liveSelectionSection}`
+      : "";
 
     if (mode === "full") {
       const structured = buildStructuredContext(pageContent);
@@ -1694,13 +2086,11 @@ function registerTools(
     },
     async () => {
       const activeId = tabManager.getActiveTabId();
-      const lines = tabManager
-        .getAllStates()
-        .map((tab) => {
-          const hlCount = highlightsManager.getHighlightsForUrl(tab.url).length;
-          const hlTag = hlCount > 0 ? ` [highlights:${hlCount}]` : "";
-          return `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url} [adblock:${tab.adBlockingEnabled ? "on" : "off"}]${hlTag}`;
-        });
+      const lines = tabManager.getAllStates().map((tab) => {
+        const hlCount = highlightsManager.getHighlightsForUrl(tab.url).length;
+        const hlTag = hlCount > 0 ? ` [highlights:${hlCount}]` : "";
+        return `${tab.id === activeId ? "->" : "  "} [${tab.id}] ${tab.title} — ${tab.url} [adblock:${tab.adBlockingEnabled ? "on" : "off"}]${hlTag}`;
+      });
       return asTextResponse(lines.join("\n") || "No tabs open");
     },
   );
@@ -1715,10 +2105,18 @@ function registerTools(
     async ({ url }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
+      const preCheck = await validateLinkDestination(url);
+      if (preCheck.status === "dead") {
+        return asTextResponse(
+          `Navigation blocked: ${url} returned ${preCheck.detail || "dead link"}. Try a different URL or go back and choose another link.`,
+        );
+      }
       return withAction(runtime, tabManager, "navigate", { url }, async () => {
         const id = tabManager.getActiveTabId()!;
         tabManager.navigateTab(id, url);
-        const { httpStatus } = await waitForLoadWithStatus(tab.view.webContents);
+        const { httpStatus } = await waitForLoadWithStatus(
+          tab.view.webContents,
+        );
         const finalUrl = tab.view.webContents.getURL();
         const statusNote =
           httpStatus !== null && httpStatus >= 400
@@ -1814,10 +2212,14 @@ function registerTools(
       try {
         const pageContent = await extractContent(tab.view.webContents);
         const requestedType =
-          typeof type === "string" && type.trim() ? type.trim().toLowerCase() : "";
+          typeof type === "string" && type.trim()
+            ? type.trim().toLowerCase()
+            : "";
         const entities = (pageContent.structuredData ?? []).filter((entity) =>
           requestedType
-            ? entity.types.some((entry) => entry.toLowerCase() === requestedType)
+            ? entity.types.some(
+                (entry) => entry.toLowerCase() === requestedType,
+              )
             : true,
         );
         const sourceCounts = {
@@ -1827,9 +2229,12 @@ function registerTools(
           meta_tags: Object.keys(pageContent.metaTags ?? {}).length,
         };
         const usedPageFallback =
-          entities.length > 0 && entities.every((entity) => entity.source === "page");
+          entities.length > 0 &&
+          entities.every((entity) => entity.source === "page");
         const hasRawSources =
-          sourceCounts.json_ld > 0 || sourceCounts.microdata > 0 || sourceCounts.rdfa > 0;
+          sourceCounts.json_ld > 0 ||
+          sourceCounts.microdata > 0 ||
+          sourceCounts.rdfa > 0;
         const message =
           entities.length > 0
             ? usedPageFallback
@@ -2096,7 +2501,9 @@ function registerTools(
         })()
       `);
       if (!result || typeof result !== "object") {
-        return asTextResponse("Error: Element text extraction returned no result");
+        return asTextResponse(
+          "Error: Element text extraction returned no result",
+        );
       }
       if ("error" in result && typeof result.error === "string") {
         return asTextResponse(`Error: ${result.error}`);
@@ -2115,7 +2522,7 @@ function registerTools(
       if (parts.length === 1) {
         parts.push("No readable text, value, or label found on this element.");
       }
-      return asTextResponse(parts.join('\n'));
+      return asTextResponse(parts.join("\n"));
     },
   );
 
@@ -2158,11 +2565,7 @@ function registerTools(
             return "Error: No index or selector provided";
           }
           if (mode === "keystroke") {
-            return typeKeystroke(
-              tab.view.webContents,
-              resolvedSelector,
-              text,
-            );
+            return typeKeystroke(tab.view.webContents, resolvedSelector, text);
           }
           return setElementValue(tab.view.webContents, resolvedSelector, text);
         },
@@ -2209,11 +2612,7 @@ function registerTools(
             return "Error: No index or selector provided";
           }
           if (mode === "keystroke") {
-            return typeKeystroke(
-              tab.view.webContents,
-              resolvedSelector,
-              text,
-            );
+            return typeKeystroke(tab.view.webContents, resolvedSelector, text);
           }
           return setElementValue(tab.view.webContents, resolvedSelector, text);
         },
@@ -2692,8 +3091,14 @@ function registerTools(
             `Error capturing screenshot: ${screenshot.error}`,
           );
         }
-        const screenshotPath = path.join(os.tmpdir(), `vessel_screenshot_${Date.now()}.png`);
-        fs.writeFileSync(screenshotPath, Buffer.from(screenshot.base64, "base64"));
+        const screenshotPath = path.join(
+          os.tmpdir(),
+          `vessel_screenshot_${Date.now()}.png`,
+        );
+        fs.writeFileSync(
+          screenshotPath,
+          Buffer.from(screenshot.base64, "base64"),
+        );
         return {
           content: [
             {
@@ -2813,12 +3218,18 @@ function registerTools(
     async () => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
-      return withAction(runtime, tabManager, "clear_highlights", {}, async () => {
-        const wc = tab.view.webContents;
-        const url = highlightsManager.normalizeUrl(wc.getURL());
-        highlightsManager.clearHighlightsForUrl(url);
-        return clearHighlights(wc);
-      });
+      return withAction(
+        runtime,
+        tabManager,
+        "clear_highlights",
+        {},
+        async () => {
+          const wc = tab.view.webContents;
+          const url = highlightsManager.normalizeUrl(wc.getURL());
+          highlightsManager.clearHighlightsForUrl(url);
+          return clearHighlights(wc);
+        },
+      );
     },
   );
 
@@ -2843,10 +3254,9 @@ function registerTools(
       const activeUrl = activeTab
         ? highlightsManager.normalizeUrl(activeTab.view.webContents.getURL())
         : null;
-      const activeSavedHighlights =
-        activeUrl
-          ? state.highlights.filter((highlight) => highlight.url === activeUrl)
-          : [];
+      const activeSavedHighlights = activeUrl
+        ? state.highlights.filter((highlight) => highlight.url === activeUrl)
+        : [];
       const liveSnapshot =
         activeTab && activeUrl
           ? await captureLiveHighlightSnapshot(
@@ -2889,10 +3299,9 @@ function registerTools(
 
       // No URL filter — show active tab's highlights prominently first
       const activeHighlights = activeSavedHighlights;
-      const otherHighlights =
-        activeUrl
-          ? state.highlights.filter((h) => h.url !== activeUrl)
-          : state.highlights;
+      const otherHighlights = activeUrl
+        ? state.highlights.filter((h) => h.url !== activeUrl)
+        : state.highlights;
 
       const sections: string[] = [];
 
@@ -3024,19 +3433,27 @@ function registerTools(
         url: z
           .string()
           .optional()
-          .describe("URL to bookmark. Omit to use the current page or provide index/selector to bookmark a link target from the page"),
+          .describe(
+            "URL to bookmark. Omit to use the current page or provide index/selector to bookmark a link target from the page",
+          ),
         title: z
           .string()
           .optional()
-          .describe("Human-readable title for the bookmark. Omit to use the page or link text"),
+          .describe(
+            "Human-readable title for the bookmark. Omit to use the page or link text",
+          ),
         index: z
           .number()
           .optional()
-          .describe("Element index of a link on the current page to bookmark without opening it"),
+          .describe(
+            "Element index of a link on the current page to bookmark without opening it",
+          ),
         selector: z
           .string()
           .optional()
-          .describe("CSS selector of a link on the current page to bookmark without opening it"),
+          .describe(
+            "CSS selector of a link on the current page to bookmark without opening it",
+          ),
         folder_id: z
           .string()
           .optional()
@@ -3044,7 +3461,9 @@ function registerTools(
         folder_name: z
           .string()
           .optional()
-          .describe("Folder name to save into. Created automatically if missing"),
+          .describe(
+            "Folder name to save into. Created automatically if missing",
+          ),
         folder_summary: z
           .string()
           .optional()
@@ -3232,7 +3651,9 @@ function registerTools(
         url: z
           .string()
           .optional()
-          .describe("URL to organize. Omit to use the current page or provide index/selector to target a link"),
+          .describe(
+            "URL to organize. Omit to use the current page or provide index/selector to target a link",
+          ),
         title: z
           .string()
           .optional()
@@ -3240,15 +3661,16 @@ function registerTools(
         index: z
           .number()
           .optional()
-          .describe("Element index of a link on the current page to organize without opening it"),
+          .describe(
+            "Element index of a link on the current page to organize without opening it",
+          ),
         selector: z
           .string()
           .optional()
-          .describe("CSS selector of a link on the current page to organize without opening it"),
-        folder_id: z
-          .string()
-          .optional()
-          .describe("Folder ID to organize into"),
+          .describe(
+            "CSS selector of a link on the current page to organize without opening it",
+          ),
+        folder_id: z.string().optional().describe("Folder ID to organize into"),
         folder_name: z
           .string()
           .optional()
@@ -3427,7 +3849,9 @@ function registerTools(
         url: z
           .string()
           .optional()
-          .describe("URL to archive. Omit to use the current page or provide index/selector to target a link"),
+          .describe(
+            "URL to archive. Omit to use the current page or provide index/selector to target a link",
+          ),
         title: z
           .string()
           .optional()
@@ -3435,11 +3859,15 @@ function registerTools(
         index: z
           .number()
           .optional()
-          .describe("Element index of a link on the current page to archive without opening it"),
+          .describe(
+            "Element index of a link on the current page to archive without opening it",
+          ),
         selector: z
           .string()
           .optional()
-          .describe("CSS selector of a link on the current page to archive without opening it"),
+          .describe(
+            "CSS selector of a link on the current page to archive without opening it",
+          ),
         note: z
           .string()
           .optional()
@@ -3631,7 +4059,11 @@ function registerTools(
             );
           }
 
-          const folder = bookmarkManager.renameFolder(folder_id, new_name, summary);
+          const folder = bookmarkManager.renameFolder(
+            folder_id,
+            new_name,
+            summary,
+          );
           return folder
             ? composeFolderAwareResponse(`Renamed folder to "${folder.name}"`)
             : `Folder ${folder_id} not found`;
@@ -3919,15 +4351,25 @@ function registerTools(
       description:
         "Begin tracking a multi-step web workflow. Vessel will show progress after every action so you always know where you are in the flow.",
       inputSchema: {
-        goal: z.string().describe("What this workflow accomplishes (e.g. 'Purchase item from Amazon')"),
+        goal: z
+          .string()
+          .describe(
+            "What this workflow accomplishes (e.g. 'Purchase item from Amazon')",
+          ),
         steps: z
           .array(z.string())
-          .describe("Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])"),
+          .describe(
+            "Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])",
+          ),
       },
     },
     async ({ goal, steps }) => {
       const tab = tabManager.getActiveTab();
-      const flow = runtime.startFlow(goal, steps, tab?.view.webContents.getURL());
+      const flow = runtime.startFlow(
+        goal,
+        steps,
+        tab?.view.webContents.getURL(),
+      );
       return asTextResponse(
         `Flow started: ${flow.goal}\n${flow.steps.map((s, i) => `  ${i === 0 ? "→" : " "} ${s.label}`).join("\n")}`,
       );
@@ -3941,7 +4383,10 @@ function registerTools(
       description:
         "Mark the current workflow step as done and move to the next one. Call this after completing each step.",
       inputSchema: {
-        detail: z.string().optional().describe("Brief note about what was accomplished"),
+        detail: z
+          .string()
+          .optional()
+          .describe("Brief note about what was accomplished"),
       },
     },
     async ({ detail }) => {
@@ -3988,14 +4433,19 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("No active tab. Use vessel_navigate to open a page.");
+      if (!tab)
+        return asTextResponse(
+          "No active tab. Use vessel_navigate to open a page.",
+        );
 
       const wc = tab.view.webContents;
       let page: PageContent;
       try {
         page = await extractContent(wc);
       } catch {
-        return asTextResponse("Could not read page. Try vessel_navigate to a working URL.");
+        return asTextResponse(
+          "Could not read page. Try vessel_navigate to a working URL.",
+        );
       }
 
       const suggestions: string[] = [];
@@ -4024,7 +4474,9 @@ function registerTools(
       );
       const formCount = page.forms.length;
       const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
-      const linkCount = page.interactiveElements.filter((el) => el.type === "link").length;
+      const linkCount = page.interactiveElements.filter(
+        (el) => el.type === "link",
+      ).length;
       const hasPagination = page.interactiveElements.some(
         (el) =>
           (el.text || "").toLowerCase() === "next" ||
@@ -4036,17 +4488,25 @@ function registerTools(
       // Priority suggestions
       if (hasOverlays) {
         suggestions.push("⚠ BLOCKING OVERLAY detected — dismiss it first:");
-        suggestions.push("  → vessel_dismiss_popup or vessel_click on close/accept button");
+        suggestions.push(
+          "  → vessel_dismiss_popup or vessel_click on close/accept button",
+        );
         suggestions.push("");
       }
 
       if (hasPasswordField) {
         suggestions.push("🔑 LOGIN PAGE detected:");
-        suggestions.push("  → vessel_login(username, password) — handles the full flow");
-        suggestions.push("  → Or vessel_fill_form + vessel_submit_form for manual control");
+        suggestions.push(
+          "  → vessel_login(username, password) — handles the full flow",
+        );
+        suggestions.push(
+          "  → Or vessel_fill_form + vessel_submit_form for manual control",
+        );
       } else if (hasSearchInput && linkCount < 10) {
         suggestions.push("🔍 SEARCH PAGE detected:");
-        suggestions.push("  → vessel_search(query) — finds the box, types, submits");
+        suggestions.push(
+          "  → vessel_search(query) — finds the box, types, submits",
+        );
       } else if (hasSearchInput && linkCount >= 10) {
         suggestions.push("📋 SEARCH RESULTS detected:");
         suggestions.push("  → vessel_click on a result link");
@@ -4055,25 +4515,34 @@ function registerTools(
         }
       } else if (formCount > 0) {
         suggestions.push(`📝 FORM detected (${totalFields} fields):`);
-        suggestions.push("  → vessel_fill_form(fields) — fill all fields at once");
+        suggestions.push(
+          "  → vessel_fill_form(fields) — fill all fields at once",
+        );
         suggestions.push("  → Or vessel_type for individual fields");
       } else if (hasPagination) {
         suggestions.push("📄 PAGINATED CONTENT:");
         suggestions.push("  → vessel_extract_content to read this page");
         suggestions.push("  → vessel_paginate('next') for the next page");
-      } else if (page.content.length > 3000 && page.interactiveElements.length < 10) {
+      } else if (
+        page.content.length > 3000 &&
+        page.interactiveElements.length < 10
+      ) {
         suggestions.push("📖 ARTICLE/CONTENT page:");
         suggestions.push("  → vessel_extract_content for readable text");
         suggestions.push("  → vessel_scroll to see more");
       } else {
         suggestions.push("🌐 GENERAL PAGE:");
-        suggestions.push("  → vessel_extract_content to understand the page structure");
+        suggestions.push(
+          "  → vessel_extract_content to understand the page structure",
+        );
         suggestions.push("  → vessel_click on any element by index");
         suggestions.push("  → vessel_navigate to go somewhere new");
       }
 
       suggestions.push("");
-      suggestions.push(`Available: ${page.interactiveElements.length} interactive elements, ${formCount} forms, ${linkCount} links`);
+      suggestions.push(
+        `Available: ${page.interactiveElements.length} interactive elements, ${formCount} forms, ${linkCount} links`,
+      );
 
       return asTextResponse(suggestions.join("\n"));
     },
@@ -4091,12 +4560,29 @@ function registerTools(
         fields: z
           .array(
             z.object({
-              index: z.number().optional().describe("Element index from page content"),
+              index: z
+                .number()
+                .optional()
+                .describe("Element index from page content"),
               selector: z.string().optional().describe("CSS selector fallback"),
+              name: z
+                .string()
+                .optional()
+                .describe("Field name or id, such as custname"),
+              label: z
+                .string()
+                .optional()
+                .describe("Visible label or aria-label text"),
+              placeholder: z
+                .string()
+                .optional()
+                .describe("Placeholder text shown in the field"),
               value: z.string().describe("Value to enter"),
             }),
           )
-          .describe("Fields to fill"),
+          .describe(
+            "Fields to fill, matched by index, selector, name, label, or placeholder",
+          ),
         submit: z
           .boolean()
           .optional()
@@ -4113,19 +4599,12 @@ function registerTools(
         { fieldCount: fields.length, submit },
         async () => {
           const wc = tab.view.webContents;
-          const results: string[] = [];
-          for (const field of fields) {
-            const sel = await resolveSelector(wc, field.index, field.selector);
-            if (!sel) {
-              results.push(`Skipped: no selector for index=${field.index}`);
-              continue;
-            }
-            const result = await setElementValue(wc, sel, field.value);
-            results.push(result);
-          }
+          const fillResults = await fillFormFields(wc, fields);
+          const results = fillResults.map((item) => item.result);
           if (submit) {
             // Find and submit the form containing the first field
-            const firstSel = await resolveSelector(wc, fields[0]?.index, fields[0]?.selector);
+            const firstSel =
+              fillResults.find((item) => item.selector)?.selector ?? null;
             if (firstSel) {
               const beforeUrl = wc.getURL();
               const submitResult = await submitForm(wc, undefined, firstSel);
@@ -4151,24 +4630,40 @@ function registerTools(
       description:
         "Compound action: navigate to a login page, fill credentials, and submit. Handles the full login flow in one call.",
       inputSchema: {
-        url: z.string().optional().describe("Login page URL (skip if already on login page)"),
+        url: z
+          .string()
+          .optional()
+          .describe("Login page URL (skip if already on login page)"),
         username: z.string().describe("Username or email"),
         password: z.string().describe("Password"),
         username_selector: z
           .string()
           .optional()
-          .describe("CSS selector for username field (auto-detected if omitted)"),
+          .describe(
+            "CSS selector for username field (auto-detected if omitted)",
+          ),
         password_selector: z
           .string()
           .optional()
-          .describe("CSS selector for password field (auto-detected if omitted)"),
+          .describe(
+            "CSS selector for password field (auto-detected if omitted)",
+          ),
         submit_selector: z
           .string()
           .optional()
-          .describe("CSS selector for submit button (auto-detected if omitted)"),
+          .describe(
+            "CSS selector for submit button (auto-detected if omitted)",
+          ),
       },
     },
-    async ({ url, username, password, username_selector, password_selector, submit_selector }) => {
+    async ({
+      url,
+      username,
+      password,
+      username_selector,
+      password_selector,
+      submit_selector,
+    }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
@@ -4197,7 +4692,8 @@ function registerTools(
                 return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
               })()
             `));
-          if (!userSel) return "Error: Could not find username/email field. Try providing username_selector.";
+          if (!userSel)
+            return "Error: Could not find username/email field. Try providing username_selector.";
 
           const passSel =
             password_selector ||
@@ -4207,7 +4703,8 @@ function registerTools(
                 return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
               })()
             `));
-          if (!passSel) return "Error: Could not find password field. Try providing password_selector.";
+          if (!passSel)
+            return "Error: Could not find password field. Try providing password_selector.";
 
           // Step 3: Fill credentials
           const userResult = await setElementValue(wc, userSel, username);
@@ -4230,7 +4727,11 @@ function registerTools(
                 return false;
               })()
             `);
-            if (!clicked) return steps.join("\n") + "\nWarning: Could not find submit button. Credentials filled but form not submitted.";
+            if (!clicked)
+              return (
+                steps.join("\n") +
+                "\nWarning: Could not find submit button. Credentials filled but form not submitted."
+              );
           }
 
           await waitForPotentialNavigation(wc, beforeUrl);
@@ -4264,18 +4765,48 @@ function registerTools(
     async ({ query, selector }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
-      return withAction(
-        runtime,
-        tabManager,
-        "search",
-        { query },
-        async () => {
-          const wc = tab.view.webContents;
 
-          // Find search input
-          const searchSel =
-            selector ||
-            (await wc.executeJavaScript(`
+      // Guard: reject queries that look like button/UI labels, not search terms
+      const qLower = query.toLowerCase().trim();
+      const buttonLabels = [
+        "add to cart",
+        "add to bag",
+        "add to basket",
+        "buy now",
+        "buy it now",
+        "purchase",
+        "continue shopping",
+        "keep shopping",
+        "view cart",
+        "view bag",
+        "view basket",
+        "go to cart",
+        "go to checkout",
+        "checkout",
+        "check out",
+        "proceed to checkout",
+        "place order",
+        "submit",
+        "subscribe",
+        "sign up",
+        "sign in",
+        "log in",
+        "register",
+        "continue",
+      ];
+      if (buttonLabels.some((p) => qLower.includes(p))) {
+        return asTextResponse(
+          `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`,
+        );
+      }
+
+      return withAction(runtime, tabManager, "search", { query }, async () => {
+        const wc = tab.view.webContents;
+
+        // Find search input
+        const searchSel =
+          selector ||
+          (await wc.executeJavaScript(`
               (function() {
                 var el = document.querySelector('input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]');
                 if (!el) {
@@ -4291,32 +4822,32 @@ function registerTools(
                 return el ? (el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null) : null;
               })()
             `));
-          if (!searchSel) return "Error: Could not find search input. Try providing a selector.";
+        if (!searchSel)
+          return "Error: Could not find search input. Try providing a selector.";
 
-          // Type query
-          await setElementValue(wc, searchSel, query);
+        // Type query
+        await setElementValue(wc, searchSel, query);
 
-          // Focus input and press Enter via native Chromium input events
-          // (JS dispatchEvent doesn't work on sites like Google that use custom handlers)
-          await wc.executeJavaScript(`
+        // Focus input and press Enter via native Chromium input events
+        // (JS dispatchEvent doesn't work on sites like Google that use custom handlers)
+        await wc.executeJavaScript(`
             (function() {
               var el = document.querySelector(${JSON.stringify(searchSel)});
               if (el) el.focus();
             })()
           `);
-          await new Promise((r) => setTimeout(r, 50));
-          const beforeUrl = wc.getURL();
-          wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
-          await new Promise((r) => setTimeout(r, 16));
-          wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
+        await new Promise((r) => setTimeout(r, 50));
+        const beforeUrl = wc.getURL();
+        wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
+        await new Promise((r) => setTimeout(r, 16));
+        wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
 
-          await waitForPotentialNavigation(wc, beforeUrl);
-          const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl
-            ? `Searched "${query}" → ${afterUrl}`
-            : `Searched "${query}" (same page — results may have loaded dynamically)`;
-        },
-      );
+        await waitForPotentialNavigation(wc, beforeUrl);
+        const afterUrl = wc.getURL();
+        return afterUrl !== beforeUrl
+          ? `Searched "${query}" → ${afterUrl}`
+          : `Searched "${query}" (same page — results may have loaded dynamically)`;
+      });
     },
   );
 
@@ -4327,13 +4858,13 @@ function registerTools(
       description:
         "Navigate to the next or previous page of results. Auto-detects pagination controls.",
       inputSchema: {
-        direction: z
-          .enum(["next", "prev"])
-          .describe("Pagination direction"),
+        direction: z.enum(["next", "prev"]).describe("Pagination direction"),
         selector: z
           .string()
           .optional()
-          .describe("CSS selector for the pagination link (auto-detected if omitted)"),
+          .describe(
+            "CSS selector for the pagination link (auto-detected if omitted)",
+          ),
       },
     },
     async ({ direction, selector }) => {
@@ -4356,9 +4887,10 @@ function registerTools(
           const isNext = direction === "next";
           const clicked = await wc.executeJavaScript(`
             (function() {
-              var patterns = ${isNext
-                ? '["next", "Next", "›", "»", "→", ">", "Next Page", "Load More"]'
-                : '["prev", "Prev", "Previous", "‹", "«", "←", "<", "Previous Page"]'
+              var patterns = ${
+                isNext
+                  ? '["next", "Next", "›", "»", "→", ">", "Next Page", "Load More"]'
+                  : '["prev", "Prev", "Previous", "‹", "«", "←", "<", "Previous Page"]'
               };
               var links = document.querySelectorAll('a, button');
               for (var i = 0; i < links.length; i++) {
@@ -4378,7 +4910,8 @@ function registerTools(
             })()
           `);
 
-          if (!clicked) return `Error: Could not find ${direction} pagination control. Try providing a selector.`;
+          if (!clicked)
+            return `Error: Could not find ${direction} pagination control. Try providing a selector.`;
 
           await waitForPotentialNavigation(wc, beforeUrl);
           const afterUrl = wc.getURL();
@@ -4400,12 +4933,15 @@ function registerTools(
       inputSchema: z.object({}),
     },
     async () => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
-        tabManager,
         runtime,
+        tabManager,
         "vessel_accept_cookies",
         {},
-        async (wc) => {
+        async () => {
+          const wc = tab.view.webContents;
           const dismissed = await wc.executeJavaScript(`
             (function() {
               var selectors = [
@@ -4439,7 +4975,10 @@ function registerTools(
               return null;
             })()
           `);
-          return dismissed || "No cookie consent banner detected. Try vessel_dismiss_popup for other overlays.";
+          return (
+            dismissed ||
+            "No cookie consent banner detected. Try vessel_dismiss_popup for other overlays."
+          );
         },
       );
     },
@@ -4458,13 +4997,18 @@ function registerTools(
       }),
     },
     async ({ index, selector: rawSelector }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
-        tabManager,
         runtime,
+        tabManager,
         "vessel_extract_table",
         { index, selector: rawSelector },
-        async (wc) => {
-          const sel = rawSelector || (index != null ? await resolveSelector(wc, index) : null);
+        async () => {
+          const wc = tab.view.webContents;
+          const sel =
+            rawSelector ||
+            (index != null ? await resolveSelector(wc, index) : null);
           const tableJson = await wc.executeJavaScript(`
             (function() {
               var table = ${sel ? `document.querySelector(${JSON.stringify(sel)})` : "document.querySelector('table')"};
@@ -4503,24 +5047,36 @@ function registerTools(
     "vessel_scroll_to_element",
     {
       title: "Scroll To Element",
-      description:
-        "Scroll a specific element into view by index or selector.",
+      description: "Scroll a specific element into view by index or selector.",
       inputSchema: z.object({
         index: z.number().optional().describe("Element index to scroll to"),
         selector: z.string().optional().describe("CSS selector to scroll to"),
-        position: z.enum(["center", "top", "bottom"]).optional().describe("Viewport position (default center)"),
+        position: z
+          .enum(["center", "top", "bottom"])
+          .optional()
+          .describe("Viewport position (default center)"),
       }),
     },
     async ({ index, selector: rawSelector, position }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
-        tabManager,
         runtime,
+        tabManager,
         "vessel_scroll_to_element",
         { index, selector: rawSelector, position },
-        async (wc) => {
-          const sel = rawSelector || (index != null ? await resolveSelector(wc, index) : null);
+        async () => {
+          const wc = tab.view.webContents;
+          const sel =
+            rawSelector ||
+            (index != null ? await resolveSelector(wc, index) : null);
           if (!sel) return "Error: Provide an index or selector.";
-          const block = position === "top" ? "start" : position === "bottom" ? "end" : "center";
+          const block =
+            position === "top"
+              ? "start"
+              : position === "bottom"
+                ? "end"
+                : "center";
 
           if (sel.startsWith("__vessel_idx:")) {
             const idx = Number(sel.slice("__vessel_idx:".length));
@@ -4568,32 +5124,49 @@ function registerTools(
       description:
         "Wait for the current page to finish loading after a click or form submission.",
       inputSchema: z.object({
-        timeoutMs: z.number().optional().describe("Max wait in milliseconds (default 10000)"),
+        timeoutMs: z
+          .number()
+          .optional()
+          .describe("Max wait in milliseconds (default 10000)"),
       }),
     },
     async ({ timeoutMs }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
       return withAction(
-        tabManager,
         runtime,
+        tabManager,
         "vessel_wait_for_navigation",
         { timeoutMs },
-        async (wc) => {
+        async () => {
+          const wc = tab.view.webContents;
           const timeout = timeoutMs || 10000;
           const beforeUrl = wc.getURL();
           if (wc.isLoading()) {
             await new Promise<void>((resolve) => {
               const timer = setTimeout(resolve, timeout);
-              wc.once("did-stop-loading", () => { clearTimeout(timer); resolve(); });
+              wc.once("did-stop-loading", () => {
+                clearTimeout(timer);
+                resolve();
+              });
             });
           } else {
             await new Promise<void>((resolve) => {
               let navigated = false;
-              const timer = setTimeout(() => { if (!navigated) resolve(); }, Math.min(timeout, 2000));
+              const timer = setTimeout(
+                () => {
+                  if (!navigated) resolve();
+                },
+                Math.min(timeout, 2000),
+              );
               wc.once("did-start-loading", () => {
                 navigated = true;
                 clearTimeout(timer);
                 const loadTimer = setTimeout(resolve, timeout);
-                wc.once("did-stop-loading", () => { clearTimeout(loadTimer); resolve(); });
+                wc.once("did-stop-loading", () => {
+                  clearTimeout(loadTimer);
+                  resolve();
+                });
               });
             });
           }
@@ -4628,7 +5201,9 @@ function registerTools(
         `Tool breakdown:`,
       ];
       for (const [name, stats] of Object.entries(m.toolBreakdown)) {
-        lines.push(`  ${name}: ${stats.count} calls, avg ${stats.avgMs}ms${stats.errors > 0 ? `, ${stats.errors} errors` : ""}`);
+        lines.push(
+          `  ${name}: ${stats.count} calls, avg ${stats.avgMs}ms${stats.errors > 0 ? `, ${stats.errors} errors` : ""}`,
+        );
       }
       return asTextResponse(lines.join("\n"));
     },

@@ -28,6 +28,7 @@ function renderPage(title: string, body: string): string {
       <a href="/external-submit">External submit</a>
       <a href="/same-page-action">Same-page action</a>
       <a href="/trusted-enter-source">Trusted Enter</a>
+      <a href="/language-popup">Language popup</a>
     </nav>
     <main>
       ${body}
@@ -351,6 +352,172 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
       return;
     }
 
+    if (method === "GET" && url.pathname === "/named-form") {
+      sendHtml(
+        res,
+        renderPage(
+          "named-form",
+          `
+            <h1>Named Form</h1>
+            <form id="named-form">
+              <label for="custname">Customer Name</label>
+              <input id="custname" name="custname" />
+
+              <label>
+                Email Address
+                <input id="email-field" type="email" aria-label="Email Address" />
+              </label>
+
+              <label>
+                Contact
+                <input id="phone-field" placeholder="Phone number" />
+              </label>
+            </form>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/cart-drawer-click") {
+      sendHtml(
+        res,
+        renderPage(
+          "cart-drawer-click",
+          `
+            <h1>Book Detail</h1>
+            <button id="add-to-cart" type="button" onclick="document.getElementById('mini-cart').style.display='block'">Add to Cart</button>
+
+            <aside
+              id="mini-cart"
+              style="
+                display: none;
+                position: fixed;
+                top: 0;
+                right: 0;
+                width: 320px;
+                height: 100vh;
+                padding: 20px;
+                background: white;
+                border-left: 1px solid #ccc;
+                box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+                z-index: 9999;
+              "
+            >
+              <h2>Added to cart</h2>
+              <p>Your basket has been updated.</p>
+              <button id="continue-shopping" type="button">Continue Shopping</button>
+              <a id="view-basket" href="/cart">View Basket</a>
+            </aside>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/single-click-counter") {
+      sendHtml(
+        res,
+        renderPage(
+          "single-click-counter",
+          `
+            <h1>Single Click Counter</h1>
+            <button
+              id="count-once"
+              type="button"
+              onclick="window.__clickCount = (window.__clickCount || 0) + 1; document.getElementById('count').textContent = String(window.__clickCount)"
+            >
+              Count Once
+            </button>
+            <p id="count">0</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/cart-drawer-absolute") {
+      sendHtml(
+        res,
+        renderPage(
+          "cart-drawer-absolute",
+          `
+            <h1>Book Detail</h1>
+            <button id="add-to-cart" type="button" onclick="document.getElementById('cart-wrapper').style.display='block'">Add to Cart</button>
+
+            <div
+              id="cart-wrapper"
+              style="
+                display: none;
+                position: fixed;
+                inset: 0;
+                z-index: 10;
+              "
+            >
+              <div
+                id="cart-backdrop"
+                style="position:absolute;inset:0;background:rgba(0,0,0,0.3);"
+              ></div>
+              <div
+                id="cart-panel"
+                style="
+                  position: absolute;
+                  top: 0;
+                  right: 0;
+                  width: 340px;
+                  height: 100%;
+                  background: white;
+                  padding: 20px;
+                  box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+                "
+              >
+                <h2>Added to your cart</h2>
+                <p>1 item added</p>
+                <button id="continue-shopping" type="button">Continue Shopping</button>
+                <a id="view-basket" href="/cart">View Basket</a>
+              </div>
+            </div>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/cart-drawer") {
+      sendHtml(
+        res,
+        renderPage(
+          "cart-drawer",
+          `
+            <h1>Book Detail</h1>
+            <button id="background-add-to-cart" type="button">Add to Cart</button>
+
+            <aside
+              id="mini-cart-drawer"
+              style="
+                position: fixed;
+                top: 0;
+                right: 0;
+                width: 320px;
+                height: 100vh;
+                padding: 20px;
+                background: white;
+                border-left: 1px solid #ccc;
+                box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+                z-index: 9999;
+              "
+            >
+              <h2>Added to cart</h2>
+              <p>Your basket has been updated.</p>
+              <button id="continue-shopping" type="button">Continue Shopping</button>
+              <a id="view-basket" href="/cart">View Basket</a>
+            </aside>
+          `,
+        ),
+      );
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/trusted-enter-source") {
       sendHtml(
         res,
@@ -385,6 +552,59 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
           `
             <h1>Trusted Enter Result</h1>
             <p id="trusted-enter-value">${value}</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/language-popup") {
+      sendHtml(
+        res,
+        renderPage(
+          "language-popup",
+          `
+            <h1>Language Popup</h1>
+            <p id="language-state">English storefront</p>
+            <div
+              id="popup-backdrop"
+              style="position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 50;"
+            ></div>
+            <section
+              id="language-modal"
+              role="dialog"
+              aria-modal="true"
+              style="position: fixed; top: 120px; left: 50%; transform: translateX(-50%); width: 320px; padding: 20px; background: white; border: 1px solid #ccc; z-index: 60;"
+            >
+              <h2>Choose your storefront</h2>
+              <p>One control closes the popup. The other silently swaps the locale.</p>
+              <div style="display: flex; gap: 12px;">
+                <button
+                  id="switch-language"
+                  type="button"
+                  onclick="
+                    document.documentElement.lang = 'ja';
+                    document.title = 'language-popup-ja';
+                    document.getElementById('language-state').textContent = 'Japanese storefront';
+                    document.getElementById('language-modal').remove();
+                    document.getElementById('popup-backdrop').remove();
+                  "
+                >
+                  日本語
+                </button>
+                <button
+                  id="close-language-popup"
+                  type="button"
+                  aria-label="Close dialog"
+                  onclick="
+                    document.getElementById('language-modal').remove();
+                    document.getElementById('popup-backdrop').remove();
+                  "
+                >
+                  No thanks
+                </button>
+              </div>
+            </section>
           `,
         ),
       );

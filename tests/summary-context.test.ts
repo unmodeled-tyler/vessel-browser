@@ -159,3 +159,144 @@ test("agent default read mode stays narrow for navigation-heavy pages", () => {
   assert.equal(resultsPage, "results_only");
   assert.equal(articlePage, "summary");
 });
+
+test("visible_only surfaces cart quantity values clearly", () => {
+  const quantityField = {
+    type: "input" as const,
+    label: "Quantity",
+    inputType: "number",
+    value: "2",
+    name: "quantity",
+    index: 7,
+    visible: true,
+    inViewport: true,
+    fullyInViewport: true,
+  };
+
+  const context = buildScopedContext(
+    buildPage({
+      title: "Cart",
+      url: "https://www.powells.com/cart",
+      content: `
+        Subtotal $94.95
+        Shipping $4.99
+        Order Total $99.94
+      `,
+      interactiveElements: [
+        {
+          type: "link",
+          text: "Interesting Book",
+          href: "https://www.powells.com/book/interesting-book",
+          index: 3,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        quantityField,
+        {
+          type: "link",
+          text: "Second Interesting Book",
+          href: "https://www.powells.com/book/second-interesting-book",
+          index: 8,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+      forms: [
+        {
+          id: "cart-form",
+          action: "/cart",
+          method: "post",
+          fields: [
+            quantityField,
+            {
+              ...quantityField,
+              index: 9,
+            },
+          ],
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(context, /### Cart Snapshot/);
+  assert.match(context, /Distinct items: 2/);
+  assert.match(context, /Quantity controls: 2 \(all set to 2\)/);
+  assert.match(context, /Total units inferred: 4/);
+  assert.match(context, /Attention: 2 distinct items but 4 total units/);
+  assert.match(context, /- Subtotal \$94\.95/);
+  assert.match(context, /- Order Total \$99\.94/);
+  assert.match(context, /### Quantity \/ Count Controls/);
+  assert.match(context, /\[#7\] \[Quantity\] input current="2"/);
+  assert.match(context, /\[Quantity\] number input current="2"/);
+});
+
+test("visible_only focuses cart confirmation dialog actions over background add-to-cart buttons", () => {
+  const context = buildScopedContext(
+    buildPage({
+      title: "Powell's Books",
+      url: "https://www.powells.com/book/example",
+      overlays: [
+        {
+          type: "dialog",
+          role: "dialog",
+          label: "Added to cart",
+          text: "Added to cart. Continue shopping or view cart.",
+          blocksInteraction: true,
+        },
+      ],
+      interactiveElements: [
+        {
+          type: "button",
+          text: "Add to Cart",
+          index: 4,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "button",
+          text: "Continue Shopping",
+          context: "dialog",
+          index: 12,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "link",
+          text: "View Cart",
+          href: "https://www.powells.com/cart",
+          context: "dialog",
+          index: 13,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(context, /### Immediate Overlay Actions/);
+  assert.match(
+    context,
+    /Cart confirmation detected: choose a dialog action such as Continue Shopping, View Cart, or Checkout\. Do not click background Add to Cart again\./,
+  );
+  assert.match(
+    context,
+    /Background controls hidden while the dialog is active: 1/,
+  );
+  assert.match(context, /### Visible In-Viewport Interactive Elements \(2\)/);
+  assert.match(
+    context,
+    /\[#12\] \[Continue Shopping\] button \(context=dialog\)/,
+  );
+  assert.match(
+    context,
+    /\[#13\] \[View Cart\] link → https:\/\/www\.powells\.com\/cart \(context=dialog\)/,
+  );
+  assert.doesNotMatch(context, /\[#4\] \[Add to Cart\]/);
+});
