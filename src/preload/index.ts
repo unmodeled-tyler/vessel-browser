@@ -34,7 +34,8 @@ const api = {
     },
   },
   ai: {
-    query: (prompt: string, history?: AIMessage[]) => ipcRenderer.invoke(Channels.AI_QUERY, prompt, history),
+    query: (prompt: string, history?: AIMessage[]) =>
+      ipcRenderer.invoke(Channels.AI_QUERY, prompt, history),
     onStreamStart: (cb: (prompt: string) => void): (() => void) => {
       const handler = (_: any, prompt: string) => cb(prompt);
       ipcRenderer.on(Channels.AI_STREAM_START, handler);
@@ -53,7 +54,9 @@ const api = {
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
-    fetchModels: (config: ProviderConfig): Promise<{ ok: boolean; models: string[]; error?: string }> =>
+    fetchModels: (
+      config: ProviderConfig,
+    ): Promise<{ ok: boolean; models: string[]; error?: string }> =>
       ipcRenderer.invoke(Channels.AI_FETCH_MODELS, config),
     getRuntime: (): Promise<AgentRuntimeState> =>
       ipcRenderer.invoke(Channels.AGENT_RUNTIME_GET),
@@ -95,10 +98,17 @@ const api = {
     toggleReader: () => ipcRenderer.invoke(Channels.READER_MODE_TOGGLE),
   },
   highlights: {
-    capture: (): Promise<{ success: boolean; text?: string; message?: string }> =>
-      ipcRenderer.invoke(Channels.HIGHLIGHT_CAPTURE),
+    capture: (): Promise<{
+      success: boolean;
+      text?: string;
+      message?: string;
+    }> => ipcRenderer.invoke(Channels.HIGHLIGHT_CAPTURE),
     onCaptureResult: (
-      cb: (result: { success: boolean; text?: string; message?: string }) => void,
+      cb: (result: {
+        success: boolean;
+        text?: string;
+        message?: string;
+      }) => void,
     ): (() => void) => {
       const handler = (_: any, result: any) => cb(result);
       ipcRenderer.on(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
@@ -116,10 +126,8 @@ const api = {
     onSidebarAction: (
       cb: (action: "remove-current" | "clear-all") => void,
     ): (() => void) => {
-      const handler = (
-        _: unknown,
-        action: "remove-current" | "clear-all",
-      ) => cb(action);
+      const handler = (_: unknown, action: "remove-current" | "clear-all") =>
+        cb(action);
       ipcRenderer.on(Channels.SIDEBAR_HIGHLIGHT_ACTION, handler);
       return () =>
         ipcRenderer.removeListener(Channels.SIDEBAR_HIGHLIGHT_ACTION, handler);
@@ -127,8 +135,7 @@ const api = {
   },
   ui: {
     toggleSidebar: () => ipcRenderer.invoke(Channels.SIDEBAR_TOGGLE),
-    startSidebarResize: () =>
-      ipcRenderer.invoke(Channels.SIDEBAR_RESIZE_START),
+    startSidebarResize: () => ipcRenderer.invoke(Channels.SIDEBAR_RESIZE_START),
     resizeSidebar: (width: number) =>
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE, width),
     commitSidebarResize: () =>
@@ -155,7 +162,8 @@ const api = {
     onUpdate: (cb: (settings: VesselSettings) => void): (() => void) => {
       const handler = (_: unknown, settings: VesselSettings) => cb(settings);
       ipcRenderer.on(Channels.SETTINGS_UPDATE, handler);
-      return () => ipcRenderer.removeListener(Channels.SETTINGS_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SETTINGS_UPDATE, handler);
     },
   },
   bookmarks: {
@@ -185,6 +193,15 @@ const api = {
       summary?: string,
     ): Promise<BookmarkFolder | null> =>
       ipcRenderer.invoke(Channels.FOLDER_RENAME, id, newName, summary),
+    onAddContextToChat: (cb: (bookmarkId: string) => void): (() => void) => {
+      const handler = (_: unknown, bookmarkId: string) => cb(bookmarkId);
+      ipcRenderer.on(Channels.BOOKMARK_ADD_CONTEXT_TO_CHAT, handler);
+      return () =>
+        ipcRenderer.removeListener(
+          Channels.BOOKMARK_ADD_CONTEXT_TO_CHAT,
+          handler,
+        );
+    },
     onUpdate: (cb: (state: BookmarksState) => void): (() => void) => {
       const handler = (_: unknown, state: BookmarksState) => cb(state);
       ipcRenderer.on(Channels.BOOKMARKS_UPDATE, handler);
@@ -197,9 +214,7 @@ const api = {
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
     resize: (height: number) =>
       ipcRenderer.invoke("devtools-panel:resize", height),
-    onStateUpdate: (
-      cb: (state: any) => void,
-    ): (() => void) => {
+    onStateUpdate: (cb: (state: any) => void): (() => void) => {
       const handler = (_: any, state: any) => cb(state);
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);
       return () =>

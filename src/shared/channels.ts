@@ -51,6 +51,7 @@ export const Channels = {
   BOOKMARKS_UPDATE: "bookmarks:update",
   BOOKMARK_SAVE: "bookmarks:save",
   BOOKMARK_REMOVE: "bookmarks:remove",
+  BOOKMARK_ADD_CONTEXT_TO_CHAT: "bookmarks:add-context-to-chat",
   FOLDER_CREATE: "bookmarks:folder-create",
   FOLDER_REMOVE: "bookmarks:folder-remove",
   FOLDER_RENAME: "bookmarks:folder-rename",
