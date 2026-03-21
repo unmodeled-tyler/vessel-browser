@@ -352,6 +352,33 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
       return;
     }
 
+    if (method === "GET" && url.pathname === "/named-form") {
+      sendHtml(
+        res,
+        renderPage(
+          "named-form",
+          `
+            <h1>Named Form</h1>
+            <form id="named-form">
+              <label for="custname">Customer Name</label>
+              <input id="custname" name="custname" />
+
+              <label>
+                Email Address
+                <input id="email-field" type="email" aria-label="Email Address" />
+              </label>
+
+              <label>
+                Contact
+                <input id="phone-field" placeholder="Phone number" />
+              </label>
+            </form>
+          `,
+        ),
+      );
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/trusted-enter-source") {
       sendHtml(
         res,

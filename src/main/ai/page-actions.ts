@@ -30,6 +30,21 @@ export interface ActionContext {
   runtime: AgentRuntime;
 }
 
+export interface FillFormFieldInput {
+  index?: number;
+  selector?: string;
+  name?: string;
+  label?: string;
+  placeholder?: string;
+  value: string;
+}
+
+export interface FillFormFieldResult {
+  field: FillFormFieldInput;
+  selector: string | null;
+  result: string;
+}
+
 const DEFAULT_PAGE_SCRIPT_TIMEOUT_MS = 1500;
 const QUIET_NAVIGATION_WINDOW_MS = 1200;
 const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
@@ -1287,6 +1302,213 @@ async function resolveSelector(
   if (extractedSelector) return extractedSelector;
 
   return null;
+}
+
+function normalizeFieldToken(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function describeFillField(field: FillFormFieldInput): string {
+  if (field.selector) return `selector=${field.selector}`;
+  if (field.index != null) return `index=${field.index}`;
+  if (field.name) return `name=${field.name}`;
+  if (field.label) return `label=${field.label}`;
+  if (field.placeholder) return `placeholder=${field.placeholder}`;
+  return "field";
+}
+
+export async function resolveFieldSelector(
+  wc: WebContents,
+  field: FillFormFieldInput,
+): Promise<string | null> {
+  const directSelector = await resolveSelector(wc, field.index, field.selector);
+  if (directSelector) return directSelector;
+
+  const name = normalizeFieldToken(field.name);
+  const label = normalizeFieldToken(field.label);
+  const placeholder = normalizeFieldToken(field.placeholder);
+  if (!name && !label && !placeholder) return null;
+
+  const selector = await executePageScript<string | null>(
+    wc,
+    `
+      (function() {
+        function normalize(value) {
+          return value == null ? "" : String(value).trim().toLowerCase();
+        }
+
+        function text(value) {
+          return value == null ? "" : String(value).trim();
+        }
+
+        function isVisible(el) {
+          if (!(el instanceof HTMLElement)) return true;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+            return false;
+          }
+          if (el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true") {
+            return false;
+          }
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }
+
+        function escapeSelectorValue(value) {
+          if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+            return CSS.escape(value);
+          }
+          return String(value).replace(/["\\\\]/g, "\\\\$&");
+        }
+
+        function uniqueSelector(candidate) {
+          if (!candidate) return null;
+          try {
+            return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+          } catch {
+            return null;
+          }
+        }
+
+        function uniqueAttributeSelector(el, attribute) {
+          const value = text(el.getAttribute && el.getAttribute(attribute));
+          if (!value) return null;
+          const candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
+          return uniqueSelector(candidate);
+        }
+
+        function selectorFor(el) {
+          if (!el) return null;
+          if (el.id) return "#" + escapeSelectorValue(el.id);
+          const attributes = ["data-testid", "name", "form", "aria-label", "placeholder"];
+          for (const attribute of attributes) {
+            const attributeCandidate = uniqueAttributeSelector(el, attribute);
+            if (attributeCandidate) return attributeCandidate;
+          }
+          const parts = [];
+          let current = el;
+          while (current) {
+            if (current.id) {
+              parts.unshift("#" + escapeSelectorValue(current.id));
+              break;
+            }
+            const tag = current.tagName.toLowerCase();
+            const parent = current.parentElement;
+            if (!parent) {
+              parts.unshift(tag);
+              break;
+            }
+            const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+            const index = siblings.indexOf(current) + 1;
+            parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
+            current = parent;
+          }
+          const candidate = parts.join(" > ");
+          return uniqueSelector(candidate) || candidate;
+        }
+
+        function getLabelText(el) {
+          const parts = [];
+          if (el.labels) {
+            Array.from(el.labels).forEach((labelEl) => {
+              const value = text(labelEl.textContent);
+              if (value) parts.push(value);
+            });
+          }
+          const ariaLabel = text(el.getAttribute && el.getAttribute("aria-label"));
+          if (ariaLabel) parts.push(ariaLabel);
+          const labelledBy = text(el.getAttribute && el.getAttribute("aria-labelledby"));
+          if (labelledBy) {
+            labelledBy.split(/\\s+/).forEach((id) => {
+              const ref = document.getElementById(id);
+              const value = text(ref && ref.textContent);
+              if (value) parts.push(value);
+            });
+          }
+          return normalize(parts.join(" "));
+        }
+
+        function scoreField(el) {
+          if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) {
+            return -1;
+          }
+          if (!isVisible(el) || el.disabled || el.getAttribute("aria-disabled") === "true") {
+            return -1;
+          }
+
+          const normalizedName = normalize(el.getAttribute("name")) || normalize(el.id);
+          const normalizedLabel = getLabelText(el);
+          const normalizedPlaceholder = normalize(el.getAttribute("placeholder"));
+          let score = 0;
+
+          if (${JSON.stringify(name)}) {
+            if (normalizedName === ${JSON.stringify(name.toLowerCase())}) score += 120;
+            else if (normalizedName.includes(${JSON.stringify(name.toLowerCase())})) score += 70;
+          }
+
+          if (${JSON.stringify(label)}) {
+            if (normalizedLabel === ${JSON.stringify(label.toLowerCase())}) score += 110;
+            else if (normalizedLabel.includes(${JSON.stringify(label.toLowerCase())})) score += 65;
+          }
+
+          if (${JSON.stringify(placeholder)}) {
+            if (normalizedPlaceholder === ${JSON.stringify(placeholder.toLowerCase())}) score += 105;
+            else if (normalizedPlaceholder.includes(${JSON.stringify(placeholder.toLowerCase())})) score += 60;
+          }
+
+          if (score === 0) return -1;
+          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) score += 5;
+          return score;
+        }
+
+        const candidates = Array.from(document.querySelectorAll("input, textarea, select"));
+        let best = null;
+        let bestScore = -1;
+        for (const el of candidates) {
+          const score = scoreField(el);
+          if (score > bestScore) {
+            best = el;
+            bestScore = score;
+          }
+        }
+
+        return best ? selectorFor(best) : null;
+      })()
+    `,
+    {
+      label: "resolve form field",
+    },
+  );
+
+  return typeof selector === "string" && selector ? selector : null;
+}
+
+export async function fillFormFields(
+  wc: WebContents,
+  fields: FillFormFieldInput[],
+): Promise<FillFormFieldResult[]> {
+  const results: FillFormFieldResult[] = [];
+
+  for (const field of fields) {
+    const selector = await resolveFieldSelector(wc, field);
+    if (!selector) {
+      results.push({
+        field,
+        selector: null,
+        result: `Skipped: no selector for ${describeFillField(field)}`,
+      });
+      continue;
+    }
+
+    const result = await setElementValue(
+      wc,
+      selector,
+      String(field.value || ""),
+    );
+    results.push({ field, selector, result });
+  }
+
+  return results;
 }
 
 function getTabByMatch(
@@ -3099,26 +3321,11 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const fields = Array.isArray(args.fields) ? args.fields : [];
           if (fields.length === 0) return "Error: No fields provided";
-          const results: string[] = [];
-          for (const field of fields) {
-            const sel = await resolveSelector(wc, field.index, field.selector);
-            if (!sel) {
-              results.push(`Skipped: no selector for index=${field.index}`);
-              continue;
-            }
-            const result = await setElementValue(
-              wc,
-              sel,
-              String(field.value || ""),
-            );
-            results.push(result);
-          }
+          const fillResults = await fillFormFields(wc, fields);
+          const results = fillResults.map((item) => item.result);
           if (args.submit) {
-            const firstSel = await resolveSelector(
-              wc,
-              fields[0]?.index,
-              fields[0]?.selector,
-            );
+            const firstSel =
+              fillResults.find((item) => item.selector)?.selector ?? null;
             if (firstSel) {
               const beforeUrl = wc.getURL();
               const submitResult = await submitForm(wc, { selector: firstSel });

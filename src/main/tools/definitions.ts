@@ -648,10 +648,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
               .optional()
               .describe("Element index from page content"),
             selector: z.string().optional().describe("CSS selector fallback"),
+            name: z
+              .string()
+              .optional()
+              .describe("Field name or id, such as custname"),
+            label: z
+              .string()
+              .optional()
+              .describe("Visible label or aria-label text"),
+            placeholder: z
+              .string()
+              .optional()
+              .describe("Placeholder text shown in the field"),
             value: z.string().describe("Value to enter"),
           }),
         )
-        .describe("Fields to fill"),
+        .describe(
+          "Fields to fill, matched by index, selector, name, label, or placeholder",
+        ),
       submit: z
         .boolean()
         .optional()

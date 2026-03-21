@@ -7,6 +7,7 @@ import { app, BaseWindow } from "electron";
 import {
   clickElementBySelector,
   dismissPopup,
+  fillFormFields,
   pressKey,
   setElementValue,
   submitFormBySelector,
@@ -297,6 +298,47 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "external form-associated submit buttons preserve custom history",
+    );
+
+    await runScenario(
+      "fill_form matches fields by name, label, and placeholder",
+      async () => {
+        await withTab(`${harness.baseUrl}/named-form`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const results = await fillFormFields(wc, [
+            { name: "custname", value: "Test User" },
+            { label: "Email Address", value: "test@example.com" },
+            { placeholder: "Phone number", value: "555-0100" },
+          ]);
+
+          assert.equal(results.length, 3);
+          assert.ok(results.every((item) => item.selector));
+          assert.ok(
+            results.every((item) => !item.result.startsWith("Skipped:")),
+            `expected every field to resolve, got: ${results
+              .map((item) => item.result)
+              .join("; ")}`,
+          );
+
+          const values = await wc.executeJavaScript(`
+            ({
+              name: document.getElementById('custname')?.value || '',
+              email: document.getElementById('email-field')?.value || '',
+              phone: document.getElementById('phone-field')?.value || '',
+            })
+          `);
+
+          assert.deepEqual(values, {
+            name: "Test User",
+            email: "test@example.com",
+            phone: "555-0100",
+          });
+        });
+      },
+    );
+    completedScenarios.push(
+      "fill_form matches fields by name, label, and placeholder",
     );
 
     await runScenario(

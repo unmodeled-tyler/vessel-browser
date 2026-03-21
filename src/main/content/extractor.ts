@@ -147,11 +147,25 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
     }
 
     function viewportWidth() {
-      return window.innerWidth || document.documentElement?.clientWidth || 0;
+      return Math.max(
+        window.innerWidth || 0,
+        window.visualViewport?.width || 0,
+        document.documentElement?.clientWidth || 0,
+        document.scrollingElement?.clientWidth || 0,
+        document.body?.clientWidth || 0,
+        window.screen?.availWidth || 0,
+      );
     }
 
     function viewportHeight() {
-      return window.innerHeight || document.documentElement?.clientHeight || 0;
+      return Math.max(
+        window.innerHeight || 0,
+        window.visualViewport?.height || 0,
+        document.documentElement?.clientHeight || 0,
+        document.scrollingElement?.clientHeight || 0,
+        document.body?.clientHeight || 0,
+        window.screen?.availHeight || 0,
+      );
     }
 
     function scrollingElement() {
