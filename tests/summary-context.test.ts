@@ -159,3 +159,76 @@ test("agent default read mode stays narrow for navigation-heavy pages", () => {
   assert.equal(resultsPage, "results_only");
   assert.equal(articlePage, "summary");
 });
+
+test("visible_only surfaces cart quantity values clearly", () => {
+  const quantityField = {
+    type: "input" as const,
+    label: "Quantity",
+    inputType: "number",
+    value: "2",
+    name: "quantity",
+    index: 7,
+    visible: true,
+    inViewport: true,
+    fullyInViewport: true,
+  };
+
+  const context = buildScopedContext(
+    buildPage({
+      title: "Cart",
+      url: "https://www.powells.com/cart",
+      content: `
+        Subtotal $94.95
+        Shipping $4.99
+        Order Total $99.94
+      `,
+      interactiveElements: [
+        {
+          type: "link",
+          text: "Interesting Book",
+          href: "https://www.powells.com/book/interesting-book",
+          index: 3,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        quantityField,
+        {
+          type: "link",
+          text: "Second Interesting Book",
+          href: "https://www.powells.com/book/second-interesting-book",
+          index: 8,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+      forms: [
+        {
+          id: "cart-form",
+          action: "/cart",
+          method: "post",
+          fields: [
+            quantityField,
+            {
+              ...quantityField,
+              index: 9,
+            },
+          ],
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(context, /### Cart Snapshot/);
+  assert.match(context, /Distinct items: 2/);
+  assert.match(context, /Quantity controls: 2 \(all set to 2\)/);
+  assert.match(context, /Total units inferred: 4/);
+  assert.match(context, /Attention: 2 distinct items but 4 total units/);
+  assert.match(context, /- Subtotal \$94\.95/);
+  assert.match(context, /- Order Total \$99\.94/);
+  assert.match(context, /### Quantity \/ Count Controls/);
+  assert.match(context, /\[#7\] \[Quantity\] input current="2"/);
+  assert.match(context, /\[Quantity\] number input current="2"/);
+});
