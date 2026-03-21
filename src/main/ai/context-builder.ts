@@ -318,6 +318,67 @@ function isVisibleToUser(el: InteractiveElement): boolean {
   );
 }
 
+function getDialogFocusedElements(page: PageContent): InteractiveElement[] {
+  return page.interactiveElements.filter(
+    (el) => isVisibleToUser(el) && el.context === "dialog",
+  );
+}
+
+function normalizeOverlayText(value: string | undefined): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function isCartConfirmationLike(page: PageContent): boolean {
+  const overlayText = page.overlays
+    .map((overlay) =>
+      normalizeOverlayText(
+        [overlay.label, overlay.text].filter(Boolean).join(" "),
+      ),
+    )
+    .join(" ");
+  const dialogText = getDialogFocusedElements(page)
+    .map((el) => normalizeOverlayText(el.text || el.label || el.description))
+    .join(" ");
+
+  const haystack = `${overlayText} ${dialogText}`.trim();
+  if (!haystack) return false;
+
+  const cartSignals = [
+    "added to cart",
+    "added to bag",
+    "added to basket",
+    "shopping cart",
+    "view cart",
+    "go to cart",
+    "continue shopping",
+    "keep shopping",
+    "checkout",
+  ];
+
+  return cartSignals.some((signal) => haystack.includes(signal));
+}
+
+function formatDialogFocus(page: PageContent): string | null {
+  const dialogElements = getDialogFocusedElements(page);
+  if (dialogElements.length === 0) return null;
+
+  const lines: string[] = [];
+  lines.push(
+    "A live dialog/modal is open. Prioritize its controls before acting on the page behind it.",
+  );
+
+  if (isCartConfirmationLike(page)) {
+    lines.push(
+      "Cart confirmation detected: choose a dialog action such as Continue Shopping, View Cart, or Checkout. Do not click background Add to Cart again.",
+    );
+  }
+
+  lines.push("");
+  lines.push("Visible dialog controls:");
+  lines.push(formatInteractiveElements(dialogElements));
+  return lines.join("\n");
+}
+
 /**
  * Format interactive elements into a readable structure
  */
@@ -328,6 +389,7 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
   const sorted = [...elements].sort((a, b) => {
     const scoreEl = (el: InteractiveElement) => {
       let s = 0;
+      if (el.context === "dialog") s -= 40;
       if (el.visible === false) s += 100;
       if (el.inViewport === false) s += 50;
       if (
@@ -1095,6 +1157,7 @@ export function buildScopedContext(
       const sections: string[] = [];
       const quantityElements = getQuantityElements(page);
       const cartSnapshot = formatCartSnapshot(page);
+      const dialogFocus = formatDialogFocus(page);
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
@@ -1123,6 +1186,11 @@ export function buildScopedContext(
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
         sections.push(formatOverlays(page.overlays));
+        sections.push("");
+      }
+      if (dialogFocus) {
+        sections.push("### Immediate Overlay Actions");
+        sections.push(dialogFocus);
         sections.push("");
       }
       if (page.dormantOverlays.length > 0) {
@@ -1225,19 +1293,29 @@ export function buildScopedContext(
     case "visible_only": {
       const visibleElements = page.interactiveElements.filter(isVisibleToUser);
       const visibleNav = page.navigation.filter(isVisibleToUser);
+      const dialogFocusedElements = getDialogFocusedElements(page);
       const visiblePage = {
         ...page,
-        interactiveElements: visibleElements,
+        interactiveElements:
+          dialogFocusedElements.length > 0
+            ? dialogFocusedElements
+            : visibleElements,
         forms: page.forms
           .map((form) => ({
             ...form,
-            fields: form.fields.filter(isVisibleToUser),
+            fields: form.fields.filter(
+              (field) =>
+                isVisibleToUser(field) &&
+                (dialogFocusedElements.length === 0 ||
+                  field.context === "dialog"),
+            ),
           }))
           .filter((form) => form.fields.length > 0),
       };
       const quantityElements = getQuantityElements(visiblePage);
       const cartSnapshot = formatCartSnapshot(visiblePage);
       const visibleForms = visiblePage.forms;
+      const dialogFocus = formatDialogFocus(page);
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
@@ -1264,6 +1342,17 @@ export function buildScopedContext(
         sections.push(formatOverlays(page.overlays));
         sections.push("");
       }
+      if (dialogFocus) {
+        sections.push("### Immediate Overlay Actions");
+        sections.push(dialogFocus);
+        if (visibleElements.length > dialogFocusedElements.length) {
+          sections.push("");
+          sections.push(
+            `Background controls hidden while the dialog is active: ${visibleElements.length - dialogFocusedElements.length}`,
+          );
+        }
+        sections.push("");
+      }
       if (page.dormantOverlays.length > 0) {
         sections.push("### Dormant Consent / Modal UI");
         sections.push(formatDormantOverlays(page.dormantOverlays));
@@ -1279,11 +1368,13 @@ export function buildScopedContext(
         sections.push(formatQuantityElements(quantityElements));
         sections.push("");
       }
-      if (visibleElements.length > 0) {
+      if (visiblePage.interactiveElements.length > 0) {
         sections.push(
-          `### Visible In-Viewport Interactive Elements (${visibleElements.length})`,
+          `### Visible In-Viewport Interactive Elements (${visiblePage.interactiveElements.length})`,
         );
-        sections.push(formatInteractiveElements(visibleElements));
+        sections.push(
+          formatInteractiveElements(visiblePage.interactiveElements),
+        );
         sections.push("");
       }
       if (visibleForms.length > 0) {

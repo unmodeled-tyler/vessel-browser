@@ -232,3 +232,71 @@ test("visible_only surfaces cart quantity values clearly", () => {
   assert.match(context, /\[#7\] \[Quantity\] input current="2"/);
   assert.match(context, /\[Quantity\] number input current="2"/);
 });
+
+test("visible_only focuses cart confirmation dialog actions over background add-to-cart buttons", () => {
+  const context = buildScopedContext(
+    buildPage({
+      title: "Powell's Books",
+      url: "https://www.powells.com/book/example",
+      overlays: [
+        {
+          type: "dialog",
+          role: "dialog",
+          label: "Added to cart",
+          text: "Added to cart. Continue shopping or view cart.",
+          blocksInteraction: true,
+        },
+      ],
+      interactiveElements: [
+        {
+          type: "button",
+          text: "Add to Cart",
+          index: 4,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "button",
+          text: "Continue Shopping",
+          context: "dialog",
+          index: 12,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "link",
+          text: "View Cart",
+          href: "https://www.powells.com/cart",
+          context: "dialog",
+          index: 13,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(context, /### Immediate Overlay Actions/);
+  assert.match(
+    context,
+    /Cart confirmation detected: choose a dialog action such as Continue Shopping, View Cart, or Checkout\. Do not click background Add to Cart again\./,
+  );
+  assert.match(
+    context,
+    /Background controls hidden while the dialog is active: 1/,
+  );
+  assert.match(context, /### Visible In-Viewport Interactive Elements \(2\)/);
+  assert.match(
+    context,
+    /\[#12\] \[Continue Shopping\] button \(context=dialog\)/,
+  );
+  assert.match(
+    context,
+    /\[#13\] \[View Cart\] link → https:\/\/www\.powells\.com\/cart \(context=dialog\)/,
+  );
+  assert.doesNotMatch(context, /\[#4\] \[Add to Cart\]/);
+});
