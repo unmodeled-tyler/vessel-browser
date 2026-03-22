@@ -57,8 +57,7 @@ function applyInlineMarkdown(text: string): string {
     .replace(/(^|[^_])_([^_\n]+)_/g, "$1<em>$2</em>");
 
   return codeSpans.reduce(
-    (output, snippet, index) =>
-      output.replace(`\x00CS${index}\x00`, snippet),
+    (output, snippet, index) => output.replace(`\x00CS${index}\x00`, snippet),
     html,
   );
 }
@@ -80,7 +79,9 @@ function isTableBlock(text: string): boolean {
   if (lines.length < 2) return false;
   // Need at least a header row and a separator row (|---|---|)
   const hasPipes = lines.every((l) => l.trim().includes("|"));
-  const hasSeparator = lines.some((l) => /^\|?\s*[-:]+[-|\s:]*$/.test(l.trim()));
+  const hasSeparator = lines.some((l) =>
+    /^\|?\s*[-:]+[-|\s:]*$/.test(l.trim()),
+  );
   return hasPipes && hasSeparator;
 }
 
@@ -98,9 +99,7 @@ function renderTable(block: string): string {
       .map((cell) => cell.trim());
 
   // Find separator row to split header from body
-  const sepIndex = lines.findIndex((l) =>
-    /^\|?\s*[-:]+[-|\s:]*$/.test(l),
-  );
+  const sepIndex = lines.findIndex((l) => /^\|?\s*[-:]+[-|\s:]*$/.test(l));
 
   const headerRows = sepIndex > 0 ? lines.slice(0, sepIndex) : [lines[0]];
   const bodyRows = lines.slice(sepIndex + 1);
@@ -123,7 +122,9 @@ function renderTable(block: string): string {
     .map(
       (row) =>
         `<tr>${parseRow(row)
-          .map((cell, i) => `<th${alignAttr(i)}>${applyInlineMarkdown(cell)}</th>`)
+          .map(
+            (cell, i) => `<th${alignAttr(i)}>${applyInlineMarkdown(cell)}</th>`,
+          )
           .join("")}</tr>`,
     )
     .join("");
@@ -132,7 +133,9 @@ function renderTable(block: string): string {
     .map(
       (row) =>
         `<tr>${parseRow(row)
-          .map((cell, i) => `<td${alignAttr(i)}>${applyInlineMarkdown(cell)}</td>`)
+          .map(
+            (cell, i) => `<td${alignAttr(i)}>${applyInlineMarkdown(cell)}</td>`,
+          )
           .join("")}</tr>`,
     )
     .join("");
@@ -206,13 +209,13 @@ function renderBlock(block: string): string {
         ? tableLines.slice(0, tableEndIdx).join("\n")
         : tableLines.join("\n");
     const afterTable =
-      tableEndIdx > 0
-        ? tableLines.slice(tableEndIdx).join("\n").trim()
-        : "";
+      tableEndIdx > 0 ? tableLines.slice(tableEndIdx).join("\n").trim() : "";
     let result = "";
-    if (beforeTable) result += `<p>${applyInlineMarkdown(beforeTable).replace(/\n/g, "<br>")}</p>`;
+    if (beforeTable)
+      result += `<p>${applyInlineMarkdown(beforeTable).replace(/\n/g, "<br>")}</p>`;
     result += renderTable(tableBlock);
-    if (afterTable) result += `<p>${applyInlineMarkdown(afterTable).replace(/\n/g, "<br>")}</p>`;
+    if (afterTable)
+      result += `<p>${applyInlineMarkdown(afterTable).replace(/\n/g, "<br>")}</p>`;
     return result;
   }
 
@@ -254,6 +257,7 @@ const TOOL_ICONS: Record<string, string> = {
   flow_status: "◈",
   flow_end: "■",
   dismiss_popup: "✕",
+  clear_overlays: "✕",
   wait_for: "◴",
   create_tab: "+",
   switch_tab: "⇥",

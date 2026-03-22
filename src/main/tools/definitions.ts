@@ -240,6 +240,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     tier: 1,
   },
   {
+    name: "clear_overlays",
+    title: "Clear Overlays",
+    description:
+      "Work through blocking overlays and modals until the page is unblocked, using overlay-specific heuristics for consent banners and radio-selection dialogs.",
+    inputSchema: {
+      strategy: z
+        .enum(["auto", "interactive"])
+        .optional()
+        .describe(
+          'How aggressively to clear overlays. "auto" uses heuristics; "interactive" stops earlier when human judgment may be needed.',
+        ),
+    },
+    tier: 1,
+  },
+  {
     name: "inspect_element",
     title: "Inspect Element",
     description:

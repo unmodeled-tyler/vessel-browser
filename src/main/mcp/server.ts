@@ -23,6 +23,7 @@ import {
   validateLinkDestination,
 } from "../network/link-validation";
 import {
+  clearOverlays,
   fillFormFields,
   isAddToCartText,
   isDuplicateCartClick,
@@ -2788,6 +2789,38 @@ function registerTools(
   );
 
   server.registerTool(
+    "vessel_clear_overlays",
+    {
+      title: "Clear Overlays",
+      description:
+        "Work through blocking overlays and modals until the page is unblocked, using overlay-specific heuristics for consent banners and radio-selection dialogs.",
+      inputSchema: {
+        strategy: z
+          .enum(["auto", "interactive"])
+          .optional()
+          .describe(
+            'How aggressively to clear overlays. "auto" uses heuristics; "interactive" stops earlier when human judgment may be needed.',
+          ),
+      },
+    },
+    async ({ strategy }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+      return withAction(
+        runtime,
+        tabManager,
+        "clear_overlays",
+        { strategy: strategy || "auto" },
+        async () =>
+          clearOverlays(
+            tab.view.webContents,
+            strategy === "interactive" ? "interactive" : "auto",
+          ),
+      );
+    },
+  );
+
+  server.registerTool(
     "vessel_wait_for",
     {
       title: "Wait For",
@@ -4500,9 +4533,8 @@ function registerTools(
       // Priority suggestions
       if (hasOverlays) {
         suggestions.push("⚠ BLOCKING OVERLAY detected — dismiss it first:");
-        suggestions.push(
-          "  → vessel_dismiss_popup or vessel_click on close/accept button",
-        );
+        suggestions.push("  → vessel_clear_overlays for stacked modals");
+        suggestions.push("  → or vessel_dismiss_popup for a single popup");
         suggestions.push("");
       }
 

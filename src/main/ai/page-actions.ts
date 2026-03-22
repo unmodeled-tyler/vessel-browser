@@ -3,6 +3,10 @@ import type { AgentCheckpoint } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
 import * as bookmarkManager from "../bookmarks/manager";
+import {
+  buildOverlayInventory,
+  getBlockingOverlaySignature,
+} from "../content/overlay-inventory";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, clearHighlights } from "../highlights/inject";
 import {
@@ -1559,6 +1563,124 @@ async function dismissPopup(wc: WebContents): Promise<string> {
       : "No blocking popup detected";
 }
 
+function describeOverlayState(
+  page: Awaited<ReturnType<typeof extractContent>>,
+): {
+  inventory: ReturnType<typeof buildOverlayInventory>;
+  blocking: number;
+  total: number;
+  signature: string;
+} {
+  const inventory = buildOverlayInventory(page);
+  return {
+    inventory,
+    blocking: inventory.filter((overlay) => overlay.blocksInteraction).length,
+    total: inventory.length,
+    signature: getBlockingOverlaySignature(inventory),
+  };
+}
+
+async function clickOverlayCandidate(
+  wc: WebContents,
+  action?: {
+    label?: string;
+    selector?: string;
+  },
+): Promise<string | null> {
+  if (!action?.selector) return null;
+  const result = await clickResolvedSelector(wc, action.selector);
+  return `${action.label || action.selector}: ${result}`;
+}
+
+export async function clearOverlays(
+  wc: WebContents,
+  strategy: "auto" | "interactive" = "auto",
+): Promise<string> {
+  const steps: string[] = [];
+  let cleared = 0;
+  const maxIterations = 8;
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    const before = await extractContent(wc);
+    const beforeState = describeOverlayState(before);
+    const blockingOverlays = beforeState.inventory.filter(
+      (overlay) => overlay.blocksInteraction,
+    );
+
+    if (blockingOverlays.length === 0) {
+      if (cleared === 0) return "No blocking overlays detected";
+      steps.push(`Overlays remaining: ${beforeState.total}`);
+      steps.push("Page still blocked: false");
+      return steps.join("\n");
+    }
+
+    const overlay = blockingOverlays[0];
+    let actionMessage: string | null = null;
+
+    if (overlay.kind === "cookie_consent") {
+      actionMessage = await clickOverlayCandidate(
+        wc,
+        overlay.acceptAction || overlay.dismissAction || overlay.actions[0],
+      );
+    } else if (overlay.kind === "selection_modal") {
+      if (!overlay.correctOption?.selector) {
+        if (strategy === "interactive") {
+          steps.push(
+            "Stopped: selection modal needs human judgment because no likely-correct option was detected.",
+          );
+          steps.push(`Overlays remaining: ${beforeState.total}`);
+          steps.push("Page still blocked: true");
+          return steps.join("\n");
+        }
+      } else {
+        const optionResult = await clickOverlayCandidate(
+          wc,
+          overlay.correctOption,
+        );
+        if (optionResult) {
+          actionMessage = `Selected likely-correct option: ${optionResult}`;
+          await sleep(120);
+          const submitResult = await clickOverlayCandidate(
+            wc,
+            overlay.submitAction || overlay.acceptAction,
+          );
+          if (submitResult) {
+            actionMessage += `\nSubmitted modal: ${submitResult}`;
+          }
+        }
+      }
+    }
+
+    if (!actionMessage) {
+      actionMessage = `Fallback popup handling: ${await dismissPopup(wc)}`;
+    }
+
+    steps.push(actionMessage);
+    await sleep(250);
+
+    const after = await extractContent(wc);
+    const afterState = describeOverlayState(after);
+    steps.push(`Overlays remaining: ${afterState.total}`);
+    steps.push(`Page still blocked: ${afterState.blocking > 0}`);
+
+    if (afterState.blocking === 0) {
+      return steps.join("\n");
+    }
+    const progressMade =
+      afterState.blocking < beforeState.blocking ||
+      afterState.total !== beforeState.total ||
+      afterState.signature !== beforeState.signature;
+    if (progressMade) {
+      cleared += 1;
+      continue;
+    }
+
+    return steps.join("\n");
+  }
+
+  return steps.join("\n");
+}
+
 async function resolveSelector(
   wc: WebContents,
   index?: number,
@@ -2551,6 +2673,7 @@ export {
   setElementValue,
   pressKey,
   dismissPopup,
+  clearOverlays,
   isAddToCartText,
   isDuplicateCartClick,
   recordCartClick,
@@ -2677,6 +2800,7 @@ async function getPostActionState(
     "focus",
     "fill_form",
     "inspect_element",
+    "clear_overlays",
   ];
   const tabActions = [
     "create_tab",
@@ -2731,6 +2855,7 @@ const KNOWN_TOOLS = new Set([
   "focus",
   "set_ad_blocking",
   "dismiss_popup",
+  "clear_overlays",
   "read_page",
   "wait_for",
   "create_checkpoint",
@@ -3056,6 +3181,13 @@ export async function executeAction(
         case "dismiss_popup": {
           if (!wc) return "Error: No active tab";
           return dismissPopup(wc);
+        }
+
+        case "clear_overlays": {
+          if (!wc) return "Error: No active tab";
+          const strategy =
+            args.strategy === "interactive" ? "interactive" : "auto";
+          return clearOverlays(wc, strategy);
         }
 
         case "read_page": {
@@ -3646,9 +3778,8 @@ export async function executeAction(
 
           if (hasOverlays) {
             suggestions.push("BLOCKING OVERLAY detected — dismiss it first:");
-            suggestions.push(
-              "  → dismiss_popup or click on close/accept button",
-            );
+            suggestions.push("  → clear_overlays for stacked modals");
+            suggestions.push("  → or dismiss_popup for a single popup");
             suggestions.push("");
           }
 

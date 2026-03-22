@@ -8,6 +8,7 @@ import type {
   PageIssue,
 } from "../../shared/types";
 import * as highlightsManager from "../highlights/manager";
+import { buildOverlayInventory } from "../content/overlay-inventory";
 
 const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
 const MAX_STRUCTURED_ITEMS = 100; // Limit structured elements to keep context manageable
@@ -81,6 +82,14 @@ function formatElementMeta(el: InteractiveElement): string[] {
   }
   if (el.pattern) {
     meta.push(`pattern="${el.pattern}"`);
+  }
+  if (el.labelSource) {
+    meta.push(`source=${el.labelSource}`);
+  }
+  if (el.looksCorrect === true) {
+    meta.push("likely-correct");
+  } else if (el.looksCorrect === false) {
+    meta.push("likely-wrong");
   }
   if (el.description) {
     meta.push(`desc="${el.description.slice(0, 80)}"`);
@@ -414,7 +423,7 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
 
       if (el.type === "button") {
         parts.push(`[${el.text || "Button"}]`);
-        parts.push("button");
+        parts.push(el.role === "radio" ? "radio" : "button");
       } else if (el.type === "link") {
         parts.push(`[${el.text || "Link"}]`);
         parts.push("link");
@@ -510,7 +519,7 @@ function formatForms(forms: PageContent["forms"]): string {
 
           if (field.type === "button") {
             fieldParts.push(`[${field.text || "Submit"}]`);
-            fieldParts.push("button");
+            fieldParts.push(field.role === "radio" ? "radio" : "button");
           } else if (field.type === "input") {
             fieldParts.push(`[${field.label || field.placeholder || "Input"}]`);
             fieldParts.push(field.inputType || "text");
@@ -574,20 +583,83 @@ function formatViewport(page: PageContent): string {
   return `${page.viewport.width}x${page.viewport.height} at scroll (${page.viewport.scrollX}, ${page.viewport.scrollY})`;
 }
 
-function formatOverlays(overlays: PageContent["overlays"]): string {
-  if (overlays.length === 0) return "None detected";
+function formatOverlays(page: PageContent): string {
+  if (page.overlays.length === 0) return "None detected";
 
-  const items = limitItems(overlays, 10);
+  const items = limitItems(buildOverlayInventory(page), 10);
   return items
     .map((overlay) => {
-      const parts = [`- ${overlay.type}`];
-      if (overlay.role) parts.push(`role=${overlay.role}`);
-      if (overlay.blocksInteraction) parts.push("blocking");
-      if (overlay.label) parts.push(`label="${overlay.label.slice(0, 80)}"`);
-      if (overlay.text) parts.push(`text="${overlay.text.slice(0, 100)}"`);
-      return parts.join(" ");
+      const lines = [
+        [
+          `- ${overlay.kind}`,
+          overlay.role ? `role=${overlay.role}` : "",
+          overlay.blocksInteraction ? "blocking" : "",
+          overlay.label ? `label="${overlay.label.slice(0, 80)}"` : "",
+          overlay.text ? `text="${overlay.text.slice(0, 100)}"` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      ];
+
+      if (overlay.radioOptions.length > 0) {
+        const options = overlay.radioOptions
+          .slice(0, 4)
+          .map((option) => {
+            const tags = [];
+            if (option.labelSource) tags.push(`source=${option.labelSource}`);
+            if (option.looksCorrect === true) tags.push("likely-correct");
+            if (option.looksCorrect === false) tags.push("likely-wrong");
+            const suffix = tags.length > 0 ? ` (${tags.join(", ")})` : "";
+            return `${option.label || option.selector || "radio"}${suffix}`;
+          })
+          .join(" | ");
+        lines.push(`  options: ${options}`);
+      }
+
+      const actionLabels = [
+        overlay.dismissAction?.label
+          ? `dismiss="${overlay.dismissAction.label}"`
+          : "",
+        overlay.acceptAction?.label
+          ? `accept="${overlay.acceptAction.label}"`
+          : "",
+        overlay.submitAction?.label
+          ? `submit="${overlay.submitAction.label}"`
+          : "",
+      ].filter(Boolean);
+      if (actionLabels.length > 0) {
+        lines.push(`  actions: ${actionLabels.join(" ")}`);
+      }
+
+      return lines.join("\n");
     })
     .join("\n");
+}
+
+function getScrollHints(page: PageContent): string[] {
+  const candidates = page.interactiveElements.filter(
+    (el) =>
+      el.visible !== false &&
+      el.inViewport === false &&
+      el.context !== "nav" &&
+      el.context !== "footer" &&
+      el.context !== "sidebar" &&
+      el.blockedByOverlay !== true &&
+      (el.type === "input" ||
+        el.type === "textarea" ||
+        el.type === "select" ||
+        el.type === "button"),
+  );
+
+  if (candidates.length === 0) return [];
+
+  const labels = limitItems(candidates, 3)
+    .map((el) => el.text || el.label || el.placeholder || el.type)
+    .filter(Boolean);
+
+  return [
+    `Scroll to reveal offscreen controls: ${labels.join(", ")}${candidates.length > labels.length ? ", ..." : ""}`,
+  ];
 }
 
 function formatDormantOverlays(
@@ -1088,6 +1160,10 @@ export function buildScopedContext(
       if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
       const largePageHint = formatLargePageHint(page);
       if (largePageHint) sections.push(`**Reading Hint:** ${largePageHint}`);
+      const scrollHints = getScrollHints(page);
+      if (scrollHints.length > 0) {
+        sections.push(`**Scroll Hint:** ${scrollHints[0]}`);
+      }
       sections.push("");
       const summaryIntent = analyzePageIntent(page);
       if (summaryIntent) {
@@ -1161,6 +1237,10 @@ export function buildScopedContext(
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
+      const interactivesScrollHints = getScrollHints(page);
+      if (interactivesScrollHints.length > 0) {
+        sections.push(`**Scroll Hint:** ${interactivesScrollHints[0]}`);
+      }
       sections.push("");
       const interactivesIntent = analyzePageIntent(page);
       if (interactivesIntent) {
@@ -1185,7 +1265,7 @@ export function buildScopedContext(
       }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
-        sections.push(formatOverlays(page.overlays));
+        sections.push(formatOverlays(page));
         sections.push("");
       }
       if (dialogFocus) {
@@ -1224,6 +1304,10 @@ export function buildScopedContext(
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
       sections.push(`**Viewport:** ${formatViewport(page)}`);
+      const visibleScrollHints = getScrollHints(page);
+      if (visibleScrollHints.length > 0) {
+        sections.push(`**Scroll Hint:** ${visibleScrollHints[0]}`);
+      }
       sections.push("");
       const formsHighlights = getHighlightsForPage(page.url);
       if (formsHighlights.length > 0) {
@@ -1243,7 +1327,7 @@ export function buildScopedContext(
       }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
-        sections.push(formatOverlays(page.overlays));
+        sections.push(formatOverlays(page));
         sections.push("");
       }
       if (page.dormantOverlays.length > 0) {
@@ -1339,7 +1423,7 @@ export function buildScopedContext(
       }
       if (page.overlays.length > 0) {
         sections.push("### Active Overlays");
-        sections.push(formatOverlays(page.overlays));
+        sections.push(formatOverlays(page));
         sections.push("");
       }
       if (dialogFocus) {
@@ -1580,6 +1664,10 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push(`**Viewport:** ${formatViewport(page)}`);
   if (page.byline) sections.push(`**Author:** ${page.byline}`);
   if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
+  const structuredScrollHints = getScrollHints(page);
+  if (structuredScrollHints.length > 0) {
+    sections.push(`**Scroll Hint:** ${structuredScrollHints[0]}`);
+  }
   sections.push("");
 
   // Speedee semantic hints
@@ -1632,7 +1720,7 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push("");
 
   sections.push("### Active Overlays / Modals");
-  sections.push(formatOverlays(page.overlays));
+  sections.push(formatOverlays(page));
   sections.push("");
 
   sections.push("### Dormant Consent / Modal UI");
