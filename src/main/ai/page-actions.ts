@@ -2673,7 +2673,6 @@ export {
   setElementValue,
   pressKey,
   dismissPopup,
-  clearOverlays,
   isAddToCartText,
   isDuplicateCartClick,
   recordCartClick,
