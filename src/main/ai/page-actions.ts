@@ -19,6 +19,11 @@ import {
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import {
+  coerceOptionalNumber,
+  coerceStringArray,
+  normalizeLooseString,
+} from "../tools/input-coercion";
+import {
   buildScopedContext,
   buildStructuredContext,
   chooseAgentReadMode,
@@ -2996,7 +3001,7 @@ export async function executeAction(
 
         case "scroll": {
           if (!wc) return "Error: No active tab";
-          const pixels = args.amount || 500;
+          const pixels = coerceOptionalNumber(args.amount) ?? 500;
           const dir = args.direction === "up" ? -pixels : pixels;
           const result = await scrollPage(wc, dir);
           return `Scrolled ${args.direction} by ${pixels}px (moved ${Math.abs(result.movedY)}px, now at y=${Math.round(result.afterY)})`;
@@ -3533,12 +3538,11 @@ export async function executeAction(
           if (!wc) return "Error: No active tab";
           const selector = await resolveSelector(wc, args.index, args.selector);
           const highlightColor = args.color || "yellow";
+          const highlightText = normalizeLooseString(args.text);
           const url = wc.getURL();
 
           // Persist highlight to database so it survives navigation/reload
           if (url && url !== "about:blank") {
-            const highlightText =
-              typeof args.text === "string" ? args.text : undefined;
             highlightsManager.addHighlight(
               url,
               typeof selector === "string" ? selector : undefined,
@@ -3552,7 +3556,7 @@ export async function executeAction(
           return highlightOnPage(
             wc,
             selector,
-            args.text,
+            highlightText,
             args.label,
             args.durationMs,
             highlightColor,
@@ -3568,7 +3572,7 @@ export async function executeAction(
 
         case "flow_start": {
           const goal = typeof args.goal === "string" ? args.goal : "";
-          const steps = Array.isArray(args.steps) ? args.steps.map(String) : [];
+          const steps = coerceStringArray(args.steps) ?? [];
           if (!goal || steps.length === 0)
             return "Error: goal and steps are required";
           const flow = ctx.runtime.startFlow(goal, steps, wc?.getURL());

@@ -28,6 +28,14 @@ import {
   isDuplicateCartClick,
   recordCartClick,
 } from "../ai/page-actions";
+import {
+  coerceOptionalNumber,
+  coerceStringArray,
+  normalizeLooseString,
+  normalizedOptionalStringSchema,
+  optionalNumberLikeSchema,
+  stringArrayLikeSchema,
+} from "../tools/input-coercion";
 import { findSelectorByIndex } from "./indexed-selector";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
@@ -2740,10 +2748,9 @@ function registerTools(
       description: "Scroll the page up or down.",
       inputSchema: {
         direction: z.enum(["up", "down"]).describe("Scroll direction"),
-        amount: z
-          .number()
-          .optional()
-          .describe("Pixels to scroll (default 500)"),
+        amount: optionalNumberLikeSchema().describe(
+          "Pixels to scroll (default 500)",
+        ),
       },
     },
     async ({ direction, amount }) => {
@@ -2755,7 +2762,7 @@ function registerTools(
         "scroll",
         { direction, amount },
         async () => {
-          const pixels = amount || 500;
+          const pixels = coerceOptionalNumber(amount) ?? 500;
           const dir = direction === "up" ? -pixels : pixels;
           const result = await scrollPage(tab.view.webContents, dir);
           return `Scrolled ${direction} by ${pixels}px (moved ${Math.abs(result.movedY)}px, now at y=${Math.round(result.afterY)})`;
@@ -3135,12 +3142,9 @@ function registerTools(
           .string()
           .optional()
           .describe("CSS selector of element to highlight"),
-        text: z
-          .string()
-          .optional()
-          .describe(
-            "Text to find and highlight on the page (highlights all occurrences)",
-          ),
+        text: normalizedOptionalStringSchema().describe(
+          "Text to find and highlight on the page (highlights all occurrences)",
+        ),
         label: z
           .string()
           .optional()
@@ -3168,18 +3172,27 @@ function registerTools(
     async ({ index, selector, text, label, durationMs, persist, color }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
+      const normalizedText = normalizeLooseString(text);
       return withAction(
         runtime,
         tabManager,
         "highlight",
-        { index, selector, text, label, durationMs, persist, color },
+        {
+          index,
+          selector,
+          text: normalizedText,
+          label,
+          durationMs,
+          persist,
+          color,
+        },
         async () => {
           const wc = tab.view.webContents;
           const resolvedSelector = await resolveSelector(wc, index, selector);
           const result = await highlightOnPage(
             wc,
             resolvedSelector,
-            text,
+            normalizedText,
             label,
             durationMs,
             color,
@@ -3195,7 +3208,7 @@ function registerTools(
             highlightsManager.addHighlight(
               url,
               resolvedSelector ?? undefined,
-              text,
+              normalizedText,
               label,
               color,
               "agent",
@@ -4356,18 +4369,17 @@ function registerTools(
           .describe(
             "What this workflow accomplishes (e.g. 'Purchase item from Amazon')",
           ),
-        steps: z
-          .array(z.string())
-          .describe(
-            "Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])",
-          ),
+        steps: stringArrayLikeSchema().describe(
+          "Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])",
+        ),
       },
     },
     async ({ goal, steps }) => {
+      const normalizedSteps = coerceStringArray(steps) ?? [];
       const tab = tabManager.getActiveTab();
       const flow = runtime.startFlow(
         goal,
-        steps,
+        normalizedSteps,
         tab?.view.webContents.getURL(),
       );
       return asTextResponse(
