@@ -90,6 +90,7 @@ const ALWAYS_FAST_TOOL_NAMES = new Set([
   "search",
   "scroll",
   "dismiss_popup",
+  "clear_overlays",
   "accept_cookies",
   "wait_for",
   "read_page",
@@ -117,6 +118,9 @@ function inferIntent(query: string): Set<string> {
   }
   if (/\b(highlight|mark|annotate)\b/.test(lowered)) intents.add("highlight");
   if (/\b(table|csv|rows|columns)\b/.test(lowered)) intents.add("table");
+  if (/\b(overlay|modal|popup|consent|cookie|blocking ui)\b/.test(lowered)) {
+    intents.add("debug");
+  }
   if (/\b(debug|diagnose|what should i do|stuck|inspect)\b/.test(lowered)) {
     intents.add("debug");
   }

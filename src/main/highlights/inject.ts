@@ -244,7 +244,8 @@ export async function highlightOnPage(
   if (text) {
     return wc.executeJavaScript(`
       (function() {
-        var searchText = ${JSON.stringify(text)};
+        var searchText = (${JSON.stringify(text)} || '').trim();
+        var foldedSearchText = searchText.toLowerCase();
         var solidColor = ${JSON.stringify(c.solid)};
         var bgColor = ${JSON.stringify(c.bg)};
         var labelBg = ${JSON.stringify(c.label)};
@@ -282,7 +283,11 @@ export async function highlightOnPage(
           });
           var n;
           while ((n = w.nextNode())) {
-            var idx = n.textContent.indexOf(searchText);
+            var haystack = n.textContent || '';
+            var idx = haystack.indexOf(searchText);
+            if (idx === -1 && foldedSearchText) {
+              idx = haystack.toLowerCase().indexOf(foldedSearchText);
+            }
             if (idx !== -1) {
               matches.push({ node: n, idx: idx });
               if (matches.length >= limit) break;

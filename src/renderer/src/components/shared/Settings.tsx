@@ -37,6 +37,7 @@ const Settings: Component = () => {
   const [agentTranscriptMode, setAgentTranscriptMode] =
     createSignal<AgentTranscriptDisplayMode>("summary");
   const [health, setHealth] = createSignal<RuntimeHealthState | null>(null);
+  const [defaultUrl, setDefaultUrl] = createSignal("https://start.duckduckgo.com");
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
     text: string;
@@ -105,6 +106,7 @@ const Settings: Component = () => {
   const loadState = async () => {
     const settings = await window.vessel.settings.get();
     const runtimeHealth = await window.vessel.settings.getHealth();
+    setDefaultUrl(settings.defaultUrl ?? "https://start.duckduckgo.com");
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
@@ -147,6 +149,10 @@ const Settings: Component = () => {
         return;
       }
 
+      await window.vessel.settings.set(
+        "defaultUrl",
+        defaultUrl().trim() || "https://start.duckduckgo.com",
+      );
       await window.vessel.settings.set(
         "autoRestoreSession",
         autoRestoreSession(),
@@ -212,6 +218,24 @@ const Settings: Component = () => {
               Vessel is configured to run under an external harness such as
               Hermes Agent or OpenClaw. Provider and model selection are not
               configured inside Vessel.
+            </p>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="default-homepage">
+              Homepage
+            </label>
+            <input
+              id="default-homepage"
+              class="settings-input"
+              value={defaultUrl()}
+              onInput={(e) => setDefaultUrl(e.currentTarget.value)}
+              placeholder="https://start.duckduckgo.com"
+              spellcheck={false}
+            />
+            <p class="settings-hint">
+              The page that opens when you create a new tab or launch Vessel
+              without restoring a previous session.
             </p>
           </div>
 

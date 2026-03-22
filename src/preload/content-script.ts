@@ -18,11 +18,13 @@ interface InteractiveElement {
   type: "button" | "link" | "input" | "select" | "textarea";
   text?: string;
   label?: string;
+  labelSource?: "text" | "value" | "aria-label" | "label" | "placeholder";
   href?: string;
   inputType?: string;
   placeholder?: string;
   required?: boolean;
   context?: string;
+  parentOverlay?: string;
   selector?: string;
   index?: number;
   role?: string;
@@ -41,6 +43,7 @@ interface InteractiveElement {
   ariaPressed?: boolean;
   ariaSelected?: boolean;
   checked?: boolean;
+  looksCorrect?: boolean;
   maxLength?: number;
   min?: string;
   max?: string;
@@ -50,6 +53,43 @@ interface InteractiveElement {
 interface HeadingStructure {
   level: number;
   text: string;
+}
+
+interface OverlayAction {
+  label?: string;
+  selector?: string;
+  kind?: "dismiss" | "accept" | "submit" | "radio" | "action";
+  disabled?: boolean;
+}
+
+interface OverlayRadioOption {
+  label: string;
+  selector?: string;
+  checked?: boolean;
+  labelSource?: string;
+  looksCorrect?: boolean;
+}
+
+interface PageOverlay {
+  type: "dialog" | "modal" | "overlay";
+  kind?:
+    | "cookie_consent"
+    | "selection_modal"
+    | "alert"
+    | "cart_confirmation"
+    | "drawer"
+    | "overlay";
+  role?: string;
+  label?: string;
+  selector?: string;
+  text?: string;
+  message?: string;
+  blocksInteraction?: boolean;
+  dismissSelector?: string;
+  acceptSelector?: string;
+  submitSelector?: string;
+  actions?: OverlayAction[];
+  radioOptions?: OverlayRadioOption[];
 }
 
 interface PageContent {
@@ -74,21 +114,8 @@ interface PageContent {
     scrollX: number;
     scrollY: number;
   };
-  overlays: Array<{
-    type: "dialog" | "modal" | "overlay";
-    role?: string;
-    label?: string;
-    selector?: string;
-    text?: string;
-    blocksInteraction?: boolean;
-  }>;
-  dormantOverlays: Array<{
-    type: "dialog" | "modal" | "overlay";
-    role?: string;
-    label?: string;
-    selector?: string;
-    text?: string;
-  }>;
+  overlays: PageOverlay[];
+  dormantOverlays: PageOverlay[];
   landmarks: Array<{
     role: string;
     label?: string;
@@ -100,15 +127,29 @@ interface PageContent {
   metaTags?: Record<string, string>;
 }
 
-interface OverlayCandidate {
+interface OverlayCandidate extends PageOverlay {
   element: HTMLElement;
-  type: "dialog" | "modal" | "overlay";
-  role?: string;
-  label?: string;
-  selector?: string;
-  text?: string;
-  blocksInteraction?: boolean;
   zIndex: number;
+}
+
+function looksLikeCorrectOption(value?: string): boolean | undefined {
+  const text = getTrimmedText(value);
+  if (!text) return undefined;
+  if (
+    /\b(correct|right choice|this is correct|correct answer|pick this|select this|choose this|right answer)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(wrong|incorrect|not this|don't pick|do not pick|bad option|decoy)\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return undefined;
 }
 
 let elementIndex = 0;
@@ -132,10 +173,15 @@ function collectShadowRoots(root: ParentNode): ShadowRoot[] {
   let walked = 0;
 
   const walk = (node: ParentNode, depth: number) => {
-    if (depth > MAX_SHADOW_DEPTH || shadowRoots.length >= MAX_SHADOW_HOSTS) return;
+    if (depth > MAX_SHADOW_DEPTH || shadowRoots.length >= MAX_SHADOW_HOSTS)
+      return;
     const tw = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
     let el: Node | null = tw.nextNode();
-    while (el && walked < MAX_WALK_ELEMENTS && shadowRoots.length < MAX_SHADOW_HOSTS) {
+    while (
+      el &&
+      walked < MAX_WALK_ELEMENTS &&
+      shadowRoots.length < MAX_SHADOW_HOSTS
+    ) {
       walked++;
       if ((el as Element).shadowRoot) {
         shadowRoots.push((el as Element).shadowRoot!);
@@ -149,7 +195,10 @@ function collectShadowRoots(root: ParentNode): ShadowRoot[] {
   return shadowRoots;
 }
 
-function deepQuerySelectorAll(selector: string, root: ParentNode = document): Element[] {
+function deepQuerySelectorAll(
+  selector: string,
+  root: ParentNode = document,
+): Element[] {
   const results: Element[] = [];
   root.querySelectorAll(selector).forEach((el) => results.push(el));
 
@@ -421,6 +470,309 @@ function getOverlayType(
   return "overlay";
 }
 
+function touchesViewportEdge(rect: DOMRect): boolean {
+  const viewportWidth =
+    window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight =
+    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const edgePadding = 24;
+  return (
+    rect.left <= edgePadding ||
+    rect.top <= edgePadding ||
+    rect.right >= viewportWidth - edgePadding ||
+    rect.bottom >= viewportHeight - edgePadding
+  );
+}
+
+function hasFixedAncestor(el: HTMLElement): boolean {
+  let current = el.parentElement;
+  while (current && current !== document.body) {
+    const position = window.getComputedStyle(current).position;
+    if (position === "fixed" || position === "sticky") return true;
+    current = current.parentElement;
+  }
+  return false;
+}
+
+function getEffectiveZIndex(
+  el: HTMLElement,
+  style: CSSStyleDeclaration = window.getComputedStyle(el),
+): number {
+  const own = parseZIndex(style);
+  if (own > 0) return own;
+
+  let current = el.parentElement;
+  while (current && current !== document.body) {
+    const parentZ = parseZIndex(window.getComputedStyle(current));
+    if (parentZ > 0) return parentZ;
+    current = current.parentElement;
+  }
+
+  return 0;
+}
+
+function looksLikeDrawer(
+  el: HTMLElement,
+  style: CSSStyleDeclaration,
+  rect: DOMRect,
+  areaRatio: number,
+): boolean {
+  if (rect.width < 220 || rect.height < 160 || areaRatio < 0.08) return false;
+  if (!touchesViewportEdge(rect)) return false;
+  if (style.position === "fixed" || style.position === "sticky") {
+    return getEffectiveZIndex(el, style) >= 5;
+  }
+  if (style.position === "absolute" && hasFixedAncestor(el)) {
+    return getEffectiveZIndex(el, style) >= 5;
+  }
+  return false;
+}
+
+function looksLikeCartConfirmation(el: HTMLElement): boolean {
+  const text = (el.textContent || "").slice(0, 500).toLowerCase();
+  const signals = [
+    "added to cart",
+    "added to bag",
+    "added to basket",
+    "added to your cart",
+    "added to your bag",
+    "added to your basket",
+  ];
+  return signals.some((signal) => text.includes(signal));
+}
+
+function getControlTextData(el: Element): { text?: string; source?: string } {
+  if (
+    el instanceof HTMLInputElement &&
+    (el.type === "radio" || el.type === "checkbox")
+  ) {
+    const label = getInputLabel(el);
+    if (label) return { text: label, source: "label" };
+  }
+
+  const aria = getTrimmedText(el.getAttribute("aria-label"));
+  if (aria) return { text: aria, source: "aria-label" };
+
+  const textContent = getTrimmedText(el.textContent);
+  if (textContent) return { text: textContent, source: "textContent" };
+
+  if (el instanceof HTMLInputElement) {
+    const value =
+      getTrimmedText(el.value) || getTrimmedText(el.getAttribute("value"));
+    if (value) return { text: value, source: "value" };
+  }
+
+  const valueAttr = getTrimmedText(el.getAttribute("value"));
+  if (valueAttr) return { text: valueAttr, source: "value" };
+
+  const title = getTrimmedText(el.getAttribute("title"));
+  if (title) return { text: title, source: "title" };
+
+  return {};
+}
+
+function getOverlayActionKind(
+  el: Element,
+  label: string,
+): OverlayAction["kind"] {
+  const lower = label.toLowerCase();
+  const attrText = [
+    el.getAttribute("id"),
+    typeof (el as HTMLElement).className === "string"
+      ? (el as HTMLElement).className
+      : "",
+    el.getAttribute("name"),
+    el.getAttribute("title"),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    el.getAttribute("role") === "radio" ||
+    (el instanceof HTMLInputElement && el.type === "radio")
+  ) {
+    return "radio";
+  }
+  if (
+    /close|dismiss|skip|cancel|not now|maybe later|no thanks|reject|decline/.test(
+      lower,
+    ) ||
+    /modal-close|overlay-close/.test(attrText)
+  ) {
+    return "dismiss";
+  }
+  if (
+    /accept|agree|allow/.test(lower) &&
+    /cookie|consent|privacy|gdpr|onetrust|cookiebot/.test(
+      `${lower} ${attrText}`,
+    )
+  ) {
+    return "accept";
+  }
+  if (/submit|continue|next|confirm|done|ok|start|proceed/.test(lower)) {
+    return "submit";
+  }
+  return "action";
+}
+
+function getOverlayActionPriority(action: OverlayAction): number {
+  switch (action.kind) {
+    case "dismiss":
+      return 40;
+    case "accept":
+      return 35;
+    case "submit":
+      return 30;
+    case "radio":
+      return 20;
+    default:
+      return 10;
+  }
+}
+
+function looksCorrectChoice(label: string): boolean | undefined {
+  return looksLikeCorrectOption(label);
+  const lower = label.toLowerCase();
+  const positive = [
+    /correct/,
+    /right choice/,
+    /this is correct/,
+    /pick this/,
+    /select this/,
+    /right answer/,
+    /best choice/,
+  ];
+  const negative = [/wrong/, /incorrect/, /not this/, /decoy/, /trap/];
+  if (positive.some((pattern) => pattern.test(lower))) return true;
+  if (negative.some((pattern) => pattern.test(lower))) return false;
+  return undefined;
+}
+
+function collectOverlayRadioOptions(root: HTMLElement): OverlayRadioOption[] {
+  const seen = new Set<string>();
+  const options: OverlayRadioOption[] = [];
+
+  root
+    .querySelectorAll('[role="radio"], input[type="radio"]')
+    .forEach((node) => {
+      if (!(node instanceof HTMLElement) || !isElementVisible(node)) return;
+      const data = getControlTextData(node);
+      if (!data.text) return;
+      const selector = generateSelector(node);
+      const key = selector || data.text;
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      const checked =
+        node.getAttribute("aria-checked") === "true" ||
+        (node instanceof HTMLInputElement ? node.checked : false);
+
+      options.push({
+        label: data.text.slice(0, 100),
+        selector,
+        checked,
+        labelSource: data.source,
+        looksCorrect: looksLikeCorrectOption(data.text),
+      });
+    });
+
+  return options.slice(0, 8);
+}
+
+function collectOverlayActions(root: HTMLElement): OverlayAction[] {
+  const seen = new Set<string>();
+  const actions: OverlayAction[] = [];
+
+  root
+    .querySelectorAll(
+      'button, [role="button"], a[href], input[type="button"], input[type="submit"], [role="radio"], input[type="radio"]',
+    )
+    .forEach((node) => {
+      if (!(node instanceof HTMLElement) || !isElementVisible(node)) return;
+      const selector = generateSelector(node);
+      if (!selector || seen.has(selector)) return;
+
+      let data = getControlTextData(node);
+      if (!data.text) {
+        const attrText = [
+          node.id,
+          typeof node.className === "string" ? node.className : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (
+          /onetrust|consent|cookie|banner|gdpr|trustarc|cookiebot/.test(
+            attrText,
+          )
+        ) {
+          data = {
+            text: attrText.includes("accept")
+              ? "Accept cookies"
+              : attrText.includes("reject")
+                ? "Reject cookies"
+                : attrText.includes("close")
+                  ? "Close"
+                  : "Consent button",
+            source: "fallback",
+          };
+        }
+      }
+      if (!data.text) return;
+
+      seen.add(selector);
+      actions.push({
+        label: data.text.slice(0, 100),
+        selector,
+        kind: getOverlayActionKind(node, data.text),
+        disabled: isElementDisabled(node),
+      });
+    });
+
+  return actions
+    .sort((a, b) => getOverlayActionPriority(b) - getOverlayActionPriority(a))
+    .slice(0, 10);
+}
+
+function getOverlayMessage(el: HTMLElement): string | undefined {
+  const heading = el.querySelector("h1, h2, h3, h4, h5, h6");
+  return (
+    getTrimmedText(heading?.textContent)?.slice(0, 160) ||
+    getNodeTextByIds(el.getAttribute("aria-describedby"))?.slice(0, 160) ||
+    getTrimmedText(el.textContent)?.slice(0, 160)
+  );
+}
+
+function classifyOverlayKind(args: {
+  node: HTMLElement;
+  drawerLike: boolean;
+  cartConfirm: boolean;
+  radioOptions: OverlayRadioOption[];
+}): PageOverlay["kind"] {
+  const haystack = [
+    args.node.id,
+    typeof args.node.className === "string" ? args.node.className : "",
+    args.node.getAttribute("role"),
+    args.node.getAttribute("aria-label"),
+    args.node.textContent,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    /cookie|consent|privacy|gdpr|onetrust|cookiebot|trustarc/.test(haystack)
+  ) {
+    return "cookie_consent";
+  }
+  if (args.cartConfirm) return "cart_confirmation";
+  if (args.radioOptions.length > 0) return "selection_modal";
+  if (args.drawerLike) return "drawer";
+  if (/alert|warning|notice|success|error/.test(haystack)) return "alert";
+  return "overlay";
+}
+
 function detectOverlays(): OverlayCandidate[] {
   if (!document.body) return [];
 
@@ -442,29 +794,63 @@ function detectOverlays(): OverlayCandidate[] {
     const rect = node.getBoundingClientRect();
     if (!isInViewportRect(rect)) return;
 
-    const position = style.position;
-    const zIndex = parseZIndex(style);
-    const areaRatio = (rect.width * rect.height) / viewportArea;
     const overlayType = getOverlayType(node);
     const dialogLike = overlayType === "dialog" || overlayType === "modal";
+    const areaRatio = (rect.width * rect.height) / viewportArea;
+    const drawerLike = looksLikeDrawer(node, style, rect, areaRatio);
+    const cartConfirm =
+      !dialogLike &&
+      !drawerLike &&
+      (style.position === "fixed" ||
+        style.position === "sticky" ||
+        style.position === "absolute") &&
+      rect.width >= 160 &&
+      rect.height >= 100 &&
+      looksLikeCartConfirmation(node);
     const blockingSurface =
-      (position === "fixed" || position === "sticky") &&
-      zIndex >= 10 &&
-      areaRatio >= 0.3 &&
-      getViewportCenterCoverage(rect);
+      dialogLike ||
+      drawerLike ||
+      cartConfirm ||
+      ((style.position === "fixed" || style.position === "sticky") &&
+        parseZIndex(style) >= 10 &&
+        areaRatio >= 0.3 &&
+        getViewportCenterCoverage(rect));
 
-    if (!dialogLike && !blockingSurface) return;
+    if (
+      !blockingSurface &&
+      overlayType !== "dialog" &&
+      overlayType !== "modal"
+    ) {
+      return;
+    }
 
+    const actions = collectOverlayActions(node);
+    const radioOptions = collectOverlayRadioOptions(node);
     seen.add(node);
     overlays.push({
       element: node,
       type: overlayType ?? "overlay",
+      kind: classifyOverlayKind({
+        node,
+        drawerLike,
+        cartConfirm,
+        radioOptions,
+      }),
       role: getTrimmedText(node.getAttribute("role")) || undefined,
       label: getOverlayLabel(node),
       selector: generateSelector(node),
       text: getTrimmedText(node.textContent)?.slice(0, 160),
-      blocksInteraction: dialogLike || blockingSurface,
-      zIndex,
+      message: getOverlayMessage(node),
+      blocksInteraction: blockingSurface,
+      dismissSelector: actions.find((action) => action.kind === "dismiss")
+        ?.selector,
+      acceptSelector: actions.find((action) => action.kind === "accept")
+        ?.selector,
+      submitSelector: actions.find((action) => action.kind === "submit")
+        ?.selector,
+      actions,
+      radioOptions,
+      zIndex: parseZIndex(style),
     });
   });
 
@@ -698,6 +1084,71 @@ function getInputLabel(
   );
 }
 
+function getInputLabelWithSource(
+  el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+): {
+  label?: string;
+  source?: InteractiveElement["labelSource"];
+} {
+  if (el.id) {
+    const label = document.querySelector(
+      `label[for="${escapeSelectorValue(el.id)}"]`,
+    );
+    const text = getTrimmedText(label?.textContent);
+    if (text) return { label: text, source: "label" };
+  }
+
+  const parentLabel = el.closest("label");
+  if (parentLabel) {
+    const clone = parentLabel.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("input, select, textarea").forEach((input) => {
+      input.remove();
+    });
+    const text = getTrimmedText(clone.textContent);
+    if (text) return { label: text, source: "label" };
+  }
+
+  const ariaLabel = getTrimmedText(el.getAttribute("aria-label"));
+  if (ariaLabel) return { label: ariaLabel, source: "aria-label" };
+
+  const labelledBy = getNodeTextByIds(el.getAttribute("aria-labelledby"));
+  if (labelledBy) return { label: labelledBy, source: "label" };
+
+  const placeholder = getTrimmedText(el.getAttribute("placeholder"));
+  if (placeholder) return { label: placeholder, source: "placeholder" };
+
+  return {};
+}
+
+function getButtonTextWithSource(el: Element): {
+  text?: string;
+  source?: InteractiveElement["labelSource"];
+} {
+  const textContent = getTrimmedText(el.textContent);
+  if (textContent) return { text: textContent, source: "text" };
+
+  const value =
+    el instanceof HTMLInputElement || el instanceof HTMLButtonElement
+      ? getTrimmedText(el.value)
+      : getTrimmedText(el.getAttribute("value"));
+  if (value) return { text: value, source: "value" };
+
+  const ariaLabel = getTrimmedText(el.getAttribute("aria-label"));
+  if (ariaLabel) return { text: ariaLabel, source: "aria-label" };
+
+  return { text: "Button", source: "text" };
+}
+
+function getParentOverlaySelector(el: Element): string | undefined {
+  const overlay = activeOverlays.find(
+    (candidate) =>
+      candidate.element === el ||
+      candidate.element.contains(el as Node) ||
+      (el instanceof HTMLElement && el.contains(candidate.element)),
+  );
+  return overlay?.selector;
+}
+
 function getElementRole(el: Element): string | undefined {
   return (
     getTrimmedText(el.getAttribute("role")) ||
@@ -734,9 +1185,7 @@ function getElementValue(
   return undefined;
 }
 
-function getSelectOptions(
-  el: HTMLSelectElement,
-): SelectOption[] | undefined {
+function getSelectOptions(el: HTMLSelectElement): SelectOption[] | undefined {
   const options = Array.from(el.options)
     .map((option) => ({
       label: option.textContent?.trim() || option.value.trim(),
@@ -747,10 +1196,7 @@ function getSelectOptions(
   return options.length > 0 ? options : undefined;
 }
 
-function getAriaBoolean(
-  el: Element,
-  attr: string,
-): boolean | undefined {
+function getAriaBoolean(el: Element, attr: string): boolean | undefined {
   const val = el.getAttribute(attr);
   if (val === "true") return true;
   if (val === "false") return false;
@@ -762,6 +1208,7 @@ function buildBaseMetadata(
 ): Pick<
   InteractiveElement,
   | "context"
+  | "parentOverlay"
   | "selector"
   | "index"
   | "role"
@@ -778,6 +1225,7 @@ function buildBaseMetadata(
 > {
   return {
     context: getElementContext(el),
+    parentOverlay: getParentOverlaySelector(el),
     selector: generateSelector(el),
     index: assignIndex(el),
     role: getElementRole(el),
@@ -807,24 +1255,23 @@ function extractNavigation(): InteractiveElement[] {
   const navigation: InteractiveElement[] = [];
 
   deepQuerySelectorAll(
-      'nav, [role="navigation"], header nav, [role="banner"] nav',
-    )
-    .forEach((nav) => {
-      // Also pierce shadow DOM within nav elements
-      deepQuerySelectorAll("a[href]", nav as ParentNode).forEach((link) => {
-        const anchor = link as HTMLAnchorElement;
-        const text = anchor.textContent?.trim();
-        if (!text || anchor.getAttribute("href")?.startsWith("#")) return;
+    'nav, [role="navigation"], header nav, [role="banner"] nav',
+  ).forEach((nav) => {
+    // Also pierce shadow DOM within nav elements
+    deepQuerySelectorAll("a[href]", nav as ParentNode).forEach((link) => {
+      const anchor = link as HTMLAnchorElement;
+      const text = anchor.textContent?.trim();
+      if (!text || anchor.getAttribute("href")?.startsWith("#")) return;
 
-        navigation.push({
-          type: "link",
-          text: text.slice(0, 100),
-          href: anchor.href.slice(0, 500),
-          ...buildBaseMetadata(anchor),
-          context: "nav",
-        });
+      navigation.push({
+        type: "link",
+        text: text.slice(0, 100),
+        href: anchor.href.slice(0, 500),
+        ...buildBaseMetadata(anchor),
+        context: "nav",
       });
     });
+  });
 
   const seen = new Set<string>();
   return navigation.filter((item) => {
@@ -867,22 +1314,20 @@ function extractInteractiveElements(): InteractiveElement[] {
   const elements: InteractiveElement[] = [];
 
   deepQuerySelectorAll(
-      'button, [role="button"], input[type="submit"], input[type="button"]',
-    )
-    .forEach((btn) => {
-      const input = btn as HTMLInputElement;
-      const text =
-        btn.textContent?.trim() ||
-        input.value ||
-        btn.getAttribute("aria-label") ||
-        "Button";
+    'button, [role="button"], input[type="submit"], input[type="button"]',
+  ).forEach((btn) => {
+    const { text, source } = getButtonTextWithSource(btn);
+    const role = getElementRole(btn);
 
-      elements.push({
-        type: "button",
-        text: text.slice(0, 100),
-        ...buildBaseMetadata(btn),
-      });
+    elements.push({
+      type: "button",
+      text: text?.slice(0, 100),
+      labelSource: source,
+      ...buildBaseMetadata(btn),
+      role,
+      looksCorrect: role === "radio" ? looksLikeCorrectOption(text) : undefined,
     });
+  });
 
   deepQuerySelectorAll("a[href]").forEach((link) => {
     const anchor = link as HTMLAnchorElement;
@@ -901,35 +1346,48 @@ function extractInteractiveElements(): InteractiveElement[] {
   });
 
   deepQuerySelectorAll(
-      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea',
-    )
-    .forEach((input) => {
-      const element = input as
-        | HTMLInputElement
-        | HTMLSelectElement
-        | HTMLTextAreaElement;
-      const tag = input.tagName.toLowerCase();
+    'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea',
+  ).forEach((input) => {
+    const element = input as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement;
+    const tag = input.tagName.toLowerCase();
+    const label = getInputLabelWithSource(element);
+    const role = getElementRole(input);
+    const radioText =
+      role === "radio" ||
+      (element instanceof HTMLInputElement && element.type === "radio")
+        ? getTrimmedText(
+            element.getAttribute("value") ||
+              element.getAttribute("aria-label") ||
+              label.label,
+          )
+        : undefined;
 
-      elements.push({
-        type:
-          tag === "select"
-            ? "select"
-            : tag === "textarea"
-              ? "textarea"
-              : "input",
-        label: getInputLabel(element)?.slice(0, 100),
-        inputType: element.getAttribute("type") || undefined,
-        placeholder: element.getAttribute("placeholder") || undefined,
-        required: element.hasAttribute("required") || undefined,
-        value: getElementValue(element),
-        options:
-          element instanceof HTMLSelectElement
-            ? getSelectOptions(element)
-            : undefined,
-        ...buildBaseMetadata(input),
-        ...getFieldMetadata(element),
-      });
+    elements.push({
+      type:
+        tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
+      label: label.label?.slice(0, 100),
+      labelSource: label.source,
+      inputType: element.getAttribute("type") || undefined,
+      placeholder: element.getAttribute("placeholder") || undefined,
+      required: element.hasAttribute("required") || undefined,
+      value: getElementValue(element),
+      options:
+        element instanceof HTMLSelectElement
+          ? getSelectOptions(element)
+          : undefined,
+      ...buildBaseMetadata(input),
+      role,
+      text: radioText?.slice(0, 100),
+      looksCorrect:
+        radioText || label.label
+          ? looksLikeCorrectOption(radioText || label.label)
+          : undefined,
+      ...getFieldMetadata(element),
     });
+  });
 
   return elements;
 }
@@ -977,6 +1435,17 @@ function extractForms(): Array<{
           | HTMLSelectElement
           | HTMLTextAreaElement;
         const tag = input.tagName.toLowerCase();
+        const label = getInputLabelWithSource(element);
+        const role = getElementRole(input);
+        const radioText =
+          role === "radio" ||
+          (element instanceof HTMLInputElement && element.type === "radio")
+            ? getTrimmedText(
+                element.getAttribute("value") ||
+                  element.getAttribute("aria-label") ||
+                  label.label,
+              )
+            : undefined;
 
         fields.push({
           type:
@@ -985,7 +1454,8 @@ function extractForms(): Array<{
               : tag === "textarea"
                 ? "textarea"
                 : "input",
-          label: getInputLabel(element)?.slice(0, 100),
+          label: label.label?.slice(0, 100),
+          labelSource: label.source,
           inputType: element.getAttribute("type") || undefined,
           placeholder: element.getAttribute("placeholder") || undefined,
           required: element.hasAttribute("required") || undefined,
@@ -995,6 +1465,12 @@ function extractForms(): Array<{
               ? getSelectOptions(element)
               : undefined,
           ...buildBaseMetadata(input),
+          role,
+          text: radioText?.slice(0, 100),
+          looksCorrect:
+            radioText || label.label
+              ? looksLikeCorrectOption(radioText || label.label)
+              : undefined,
           ...getFieldMetadata(element),
         });
       });
@@ -1006,15 +1482,11 @@ function extractForms(): Array<{
     )
       .filter((control) => isSubmitControlForForm(control, form))
       .forEach((btn) => {
-        const input = btn as HTMLInputElement;
-        const text =
-          btn.textContent?.trim() ||
-          input.value ||
-          btn.getAttribute("aria-label") ||
-          "Submit";
+        const { text, source } = getButtonTextWithSource(btn);
         fields.push({
           type: "button",
-          text: text.slice(0, 100),
+          text: text?.slice(0, 100),
+          labelSource: source,
           ...buildBaseMetadata(btn),
         });
       });
@@ -1087,7 +1559,9 @@ function extractLandmarks(): Array<{
 
 function extractJsonLd(): Record<string, unknown>[] {
   const results: Record<string, unknown>[] = [];
-  const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+  const scripts = document.querySelectorAll(
+    'script[type="application/ld+json"]',
+  );
   for (const script of scripts) {
     try {
       const parsed = JSON.parse(script.textContent || "");
@@ -1161,11 +1635,15 @@ function extractMicrodata(): Record<string, unknown>[] {
       if (!(node instanceof HTMLElement)) return;
 
       const nearestScope = node.closest("[itemscope]");
-      const isNestedItemRoot = nearestScope === node && node.hasAttribute("itemscope");
+      const isNestedItemRoot =
+        nearestScope === node && node.hasAttribute("itemscope");
       if (nearestScope !== scope && !isNestedItemRoot) {
         return;
       }
-      if (isNestedItemRoot && node.parentElement?.closest("[itemscope]") !== scope) {
+      if (
+        isNestedItemRoot &&
+        node.parentElement?.closest("[itemscope]") !== scope
+      ) {
         return;
       }
 
@@ -1260,7 +1738,9 @@ function extractRdfa(): Record<string, unknown>[] {
 
 function withHighlightLabelsRemoved<T>(read: () => T): T {
   const labels = Array.from(
-    document.querySelectorAll(".__vessel-highlight-label[data-vessel-highlight]"),
+    document.querySelectorAll(
+      ".__vessel-highlight-label[data-vessel-highlight]",
+    ),
   ).filter((node): node is HTMLElement => node instanceof HTMLElement);
 
   const removed = labels

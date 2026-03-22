@@ -19,11 +19,13 @@ export interface InteractiveElement {
   type: "button" | "link" | "input" | "select" | "textarea";
   text?: string;
   label?: string;
+  labelSource?: "text" | "value" | "aria-label" | "label" | "placeholder";
   href?: string;
   inputType?: string;
   placeholder?: string;
   required?: boolean;
   context?: string;
+  parentOverlay?: string;
   selector?: string;
   index?: number;
   role?: string;
@@ -42,6 +44,7 @@ export interface InteractiveElement {
   ariaPressed?: boolean;
   ariaSelected?: boolean;
   checked?: boolean;
+  looksCorrect?: boolean;
   maxLength?: number;
   min?: string;
   max?: string;
@@ -103,6 +106,43 @@ export interface PageIssue {
   recommendation?: string;
 }
 
+export interface OverlayAction {
+  label?: string;
+  selector?: string;
+  kind?: "dismiss" | "accept" | "submit" | "radio" | "action";
+  disabled?: boolean;
+}
+
+export interface OverlayRadioOption {
+  label: string;
+  selector?: string;
+  checked?: boolean;
+  labelSource?: string;
+  looksCorrect?: boolean;
+}
+
+export interface PageOverlay {
+  type: "dialog" | "modal" | "overlay";
+  kind?:
+    | "cookie_consent"
+    | "selection_modal"
+    | "alert"
+    | "cart_confirmation"
+    | "drawer"
+    | "overlay";
+  role?: string;
+  label?: string;
+  selector?: string;
+  text?: string;
+  message?: string;
+  blocksInteraction?: boolean;
+  dismissSelector?: string;
+  acceptSelector?: string;
+  submitSelector?: string;
+  actions?: OverlayAction[];
+  radioOptions?: OverlayRadioOption[];
+}
+
 export interface PageContent {
   title: string;
   content: string;
@@ -126,21 +166,8 @@ export interface PageContent {
     scrollX: number;
     scrollY: number;
   };
-  overlays: Array<{
-    type: "dialog" | "modal" | "overlay";
-    role?: string;
-    label?: string;
-    selector?: string;
-    text?: string;
-    blocksInteraction?: boolean;
-  }>;
-  dormantOverlays: Array<{
-    type: "dialog" | "modal" | "overlay";
-    role?: string;
-    label?: string;
-    selector?: string;
-    text?: string;
-  }>;
+  overlays: PageOverlay[];
+  dormantOverlays: PageOverlay[];
   landmarks: Array<{
     role: string;
     label?: string;

@@ -99,6 +99,8 @@ Instructions:
 - When you only need detail on one product/result/card/form section, use inspect_element instead of reading the page.
 - Escalate page reads progressively: read_page(mode="visible_only"), read_page(mode="results_only"), read_page(mode="forms_only"), read_page(mode="summary"), or read_page(mode="text_only") depending on what you need.
 - Use read_page(mode="debug") only as a last resort when the narrower modes are insufficient.
+- VIEWPORT SYNC: Treat scrolling as a real, user-visible browser action. If you say you are going to scroll, call scroll or scroll_to_element so the human sees the page move too.
+- read_page inspects the page without moving the human-visible viewport. Do not describe read_page as scrolling. If you want more context without changing the user's view, say you're reading the page; if you want the user to follow along lower on the page, actually scroll first.
 - After clicking or submitting a form, prefer wait_for on a specific result signal or a narrow read_page mode. Do not jump straight to read_page(mode="debug").
 - If the user says they highlighted or selected text, use read_page before falling back to screenshots because it includes active selection and visible unsaved highlights.
 - If a page behaves abnormally or key UI fails to load, consider disabling ad blocking for that tab and reloading before retrying.

@@ -1,5 +1,10 @@
 import { z } from "zod";
 import type { PageType } from "../ai/context-builder";
+import {
+  normalizedOptionalStringSchema,
+  optionalNumberLikeSchema,
+  stringArrayLikeSchema,
+} from "./input-coercion";
 
 export interface ToolDefinition {
   /** Base name without prefix, e.g. "navigate" */
@@ -171,7 +176,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Scroll the page up or down.",
     inputSchema: {
       direction: z.enum(["up", "down"]).describe("Scroll direction"),
-      amount: z.number().optional().describe("Pixels to scroll (default 500)"),
+      amount: optionalNumberLikeSchema().describe(
+        "Pixels to scroll (default 500)",
+      ),
     },
     tier: 0,
     relevance: ["ARTICLE", "SEARCH_RESULTS", "PAGINATED_LIST"],
@@ -230,6 +237,21 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     title: "Dismiss Popup",
     description:
       "Dismiss a modal, popup, newsletter gate, cookie banner, or overlay using common close/decline actions.",
+    tier: 1,
+  },
+  {
+    name: "clear_overlays",
+    title: "Clear Overlays",
+    description:
+      "Work through blocking overlays and modals until the page is unblocked, using overlay-specific heuristics for consent banners and radio-selection dialogs.",
+    inputSchema: {
+      strategy: z
+        .enum(["auto", "interactive"])
+        .optional()
+        .describe(
+          'How aggressively to clear overlays. "auto" uses heuristics; "interactive" stops earlier when human judgment may be needed.',
+        ),
+    },
     tier: 1,
   },
   {
@@ -544,10 +566,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .string()
         .optional()
         .describe("CSS selector of element to highlight"),
-      text: z
-        .string()
-        .optional()
-        .describe("Text to find and highlight on the page (all occurrences)"),
+      text: normalizedOptionalStringSchema().describe(
+        "Text to find and highlight on the page (all occurrences)",
+      ),
       label: z
         .string()
         .optional()
@@ -585,11 +606,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .describe(
           "What this workflow accomplishes (e.g. 'Purchase item from Amazon')",
         ),
-      steps: z
-        .array(z.string())
-        .describe(
-          "Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])",
-        ),
+      steps: stringArrayLikeSchema().describe(
+        "Ordered list of step labels (e.g. ['Log in', 'Search', 'Select item', 'Checkout'])",
+      ),
     },
     tier: 1,
     hiddenByDefault: true,
