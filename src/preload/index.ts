@@ -213,7 +213,7 @@ const api = {
     toggle: (): Promise<{ open: boolean }> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
     resize: (height: number) =>
-      ipcRenderer.invoke("devtools-panel:resize", height),
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE, height),
     onStateUpdate: (cb: (state: any) => void): (() => void) => {
       const handler = (_: any, state: any) => cb(state);
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);

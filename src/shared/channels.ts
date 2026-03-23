@@ -69,6 +69,7 @@ export const Channels = {
   // DevTools panel
   DEVTOOLS_PANEL_TOGGLE: "devtools-panel:toggle",
   DEVTOOLS_PANEL_STATE: "devtools-panel:state",
+  DEVTOOLS_PANEL_RESIZE: "devtools-panel:resize",
 
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",

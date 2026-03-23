@@ -20,6 +20,7 @@ import {
   formatDeadLinkMessage,
   validateLinkDestination,
 } from "../network/link-validation";
+import { assertSafeURL } from "../network/url-safety";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import {
@@ -826,6 +827,7 @@ async function restoreLocaleSnapshot(
 
   if (snapshot.url && snapshot.url !== wc.getURL()) {
     try {
+      assertSafeURL(snapshot.url);
       await wc.loadURL(snapshot.url);
       await waitForLoad(wc, 3000);
       return;
@@ -2614,6 +2616,7 @@ async function submitForm(
     if (formInfo.params) {
       url.search = formInfo.params;
     }
+    assertSafeURL(url.toString());
     wc.loadURL(url.toString());
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
@@ -4132,6 +4135,7 @@ export async function executeAction(
             try {
               const url = new URL(searchInfo.formAction);
               url.searchParams.set(searchInfo.inputName || "q", query);
+              assertSafeURL(url.toString());
               wc.loadURL(url.toString());
               await waitForPotentialNavigation(wc, beforeUrl);
               afterUrl = wc.getURL();

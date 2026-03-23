@@ -17,6 +17,9 @@ const defaults: VesselSettings = {
   maxToolIterations: 200,
 };
 
+/** Allowlist of setting keys accepted via IPC. */
+export const SETTABLE_KEYS: ReadonlySet<string> = new Set(Object.keys(defaults));
+
 let settings: VesselSettings | null = null;
 let settingsIssues: RuntimeHealthIssue[] = [];
 

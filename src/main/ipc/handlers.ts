@@ -2,7 +2,7 @@ import { ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
-import { loadSettings, setSetting } from "../config/settings";
+import { loadSettings, setSetting, SETTABLE_KEYS } from "../config/settings";
 import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import { getRuntimeHealth } from "../health/runtime-health";
 import { createProvider, fetchProviderModels } from "../ai/provider";
@@ -202,6 +202,9 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
 
   ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: any) => {
+    if (!SETTABLE_KEYS.has(key)) {
+      throw new Error(`Unknown setting key: ${key}`);
+    }
     const updatedSettings = setSetting(key as any, value);
     if (key === "approvalMode") {
       runtime.setApprovalMode(value as ApprovalMode);
@@ -504,7 +507,7 @@ export function registerIpcHandlers(
     return { open: windowState.uiState.devtoolsPanelOpen };
   });
 
-  ipcMain.handle("devtools-panel:resize", (_, height: number) => {
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE, (_, height: number) => {
     const clamped = Math.max(MIN_DEVTOOLS_PANEL, Math.min(MAX_DEVTOOLS_PANEL, Math.round(height)));
     windowState.uiState.devtoolsPanelHeight = clamped;
     layoutViews(windowState);

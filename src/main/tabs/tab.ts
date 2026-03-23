@@ -329,6 +329,11 @@ export class Tab {
         url = `https://duckduckgo.com/?q=${encodeURIComponent(url)}`;
       }
     }
+    // Block non-http(s) schemes (javascript:, file:, data:, etc.)
+    if (!/^https?:\/\//i.test(url) && !url.startsWith("about:")) {
+      console.warn(`[Vessel] Blocked navigation to disallowed URL: ${url.slice(0, 80)}`);
+      return;
+    }
     this.view.webContents.loadURL(url);
   }
 

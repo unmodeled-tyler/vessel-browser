@@ -542,7 +542,7 @@ export class AgentRuntime {
     toolBreakdown: Record<string, { count: number; avgMs: number; errors: number }>;
   } {
     const completed = this.state.actions.filter((a) => a.status === "completed");
-    const failed = this.state.actions.filter((a) => a.status === "error");
+    const failed = this.state.actions.filter((a) => a.status === "failed");
     const durations = completed.filter((a) => a.durationMs != null).map((a) => a.durationMs!);
     const avgDuration = durations.length > 0 ? durations.reduce((s, d) => s + d, 0) / durations.length : 0;
 

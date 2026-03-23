@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
@@ -57,14 +58,22 @@ import {
 } from "../memory/obsidian";
 import { setMcpHealth } from "../health/runtime-health";
 import { registerDevTools } from "../devtools/tools";
+import { assertSafeURL } from "../network/url-safety";
 
 let httpServer: http.Server | null = null;
+let mcpAuthToken: string | null = null;
+
+/** Returns the current MCP auth token (generated fresh on each server start). */
+export function getMcpAuthToken(): string | null {
+  return mcpAuthToken;
+}
 
 export interface McpServerStartResult {
   ok: boolean;
   configuredPort: number;
   activePort: number | null;
   endpoint: string | null;
+  authToken: string | null;
   error?: string;
 }
 
@@ -1556,6 +1565,7 @@ async function submitForm(
     if (formInfo.params) {
       url.search = formInfo.params;
     }
+    assertSafeURL(url.toString());
     wc.loadURL(url.toString());
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
@@ -5437,6 +5447,8 @@ export function startMcpServer(
     message: `Starting MCP server on port ${port}.`,
   });
 
+  mcpAuthToken = crypto.randomBytes(32).toString("hex");
+
   return new Promise((resolve) => {
     const server = http.createServer(async (req, res) => {
       const url = new URL(req.url || "/", `http://localhost:${port}`);
@@ -5447,19 +5459,27 @@ export function startMcpServer(
         return;
       }
 
-      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Origin", "null");
       res.setHeader(
         "Access-Control-Allow-Methods",
         "POST, GET, DELETE, OPTIONS",
       );
       res.setHeader(
         "Access-Control-Allow-Headers",
-        "Content-Type, mcp-session-id",
+        "Content-Type, mcp-session-id, Authorization",
       );
 
       if (req.method === "OPTIONS") {
         res.writeHead(204);
         res.end();
+        return;
+      }
+
+      // Validate bearer token on all non-OPTIONS requests
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${mcpAuthToken}`) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized — missing or invalid bearer token" }));
         return;
       }
 
@@ -5511,6 +5531,7 @@ export function startMcpServer(
         configuredPort: port,
         activePort: null,
         endpoint: null,
+        authToken: null,
         error: message,
       });
     });
@@ -5529,11 +5550,13 @@ export function startMcpServer(
         message: `MCP server listening on ${endpoint}.`,
       });
       console.log(`[Vessel MCP] Server listening on ${endpoint}`);
+      console.log(`[Vessel MCP] Auth token: ${mcpAuthToken}`);
       finish({
         ok: true,
         configuredPort: port,
         activePort: actualPort,
         endpoint,
+        authToken: mcpAuthToken,
       });
     });
   });
@@ -5554,6 +5577,7 @@ export function stopMcpServer(): Promise<void> {
 
     const server = httpServer;
     httpServer = null;
+    mcpAuthToken = null;
     server.close(() => {
       setMcpHealth({
         activePort: null,
