@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/0a72b48a-873a-4eb0-b8f2-23e34d8472c4
 
 ### Fastest Install Today
 
-The preferred MVP install path is the Linux AppImage from GitHub Releases:
+Linux AppImage from GitHub Releases:
 
 1. Download the latest `Vessel-<version>-x64.AppImage`
 2. Mark it executable: `chmod +x Vessel-*.AppImage`
