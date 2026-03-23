@@ -479,6 +479,92 @@ export async function highlightBatchOnPage(
   `);
 }
 
+// --- Highlight navigation helpers (used by IPC handlers) ---
+
+const HIGHLIGHT_SELECTOR =
+  "'.__vessel-highlight, .__vessel-highlight-text'";
+
+export async function getHighlightCount(wc: WebContents): Promise<number> {
+  return wc.executeJavaScript(
+    `document.querySelectorAll(${HIGHLIGHT_SELECTOR}).length`,
+  );
+}
+
+export async function scrollToHighlight(
+  wc: WebContents,
+  index: number,
+): Promise<boolean> {
+  const safeIndex = Math.floor(Number(index));
+  return wc.executeJavaScript(`
+    (function() {
+      var highlights = document.querySelectorAll(${HIGHLIGHT_SELECTOR});
+      if (${safeIndex} < 0 || ${safeIndex} >= highlights.length) return false;
+      highlights.forEach(function(h) { h.style.removeProperty('outline'); h.style.removeProperty('outline-offset'); });
+      var target = highlights[${safeIndex}];
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.style.setProperty('outline', '2px solid rgba(255, 255, 255, 0.9)', 'important');
+      target.style.setProperty('outline-offset', '2px', 'important');
+      return true;
+    })()
+  `);
+}
+
+export async function removeHighlightAtIndex(
+  wc: WebContents,
+  index: number,
+): Promise<boolean> {
+  const safeIndex = Math.floor(Number(index));
+  return wc.executeJavaScript(`
+    (function() {
+      var highlights = document.querySelectorAll(${HIGHLIGHT_SELECTOR});
+      if (${safeIndex} < 0 || ${safeIndex} >= highlights.length) return false;
+      var el = highlights[${safeIndex}];
+      document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
+        if (b.__vesselAnchor === el) b.remove();
+      });
+      if (el.tagName === 'MARK' && el.classList.contains('__vessel-highlight-text')) {
+        var parent = el.parentNode;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+        parent.normalize();
+      } else {
+        el.classList.remove('__vessel-highlight');
+        el.style.removeProperty('background');
+        el.style.removeProperty('outline-color');
+        el.style.removeProperty('box-shadow');
+        el.style.removeProperty('outline');
+        el.style.removeProperty('outline-offset');
+      }
+      return true;
+    })()
+  `);
+}
+
+export async function clearAllHighlightElements(
+  wc: WebContents,
+): Promise<boolean> {
+  return wc.executeJavaScript(`
+    (function() {
+      document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) { b.remove(); });
+      document.querySelectorAll('.__vessel-highlight-text').forEach(function(mark) {
+        var parent = mark.parentNode;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+        parent.normalize();
+      });
+      document.querySelectorAll('.__vessel-highlight').forEach(function(el) {
+        el.classList.remove('__vessel-highlight');
+        el.style.removeProperty('background');
+        el.style.removeProperty('outline-color');
+        el.style.removeProperty('box-shadow');
+        el.style.removeProperty('outline');
+        el.style.removeProperty('outline-offset');
+      });
+      return true;
+    })()
+  `);
+}
+
 export async function clearHighlights(wc: WebContents): Promise<string> {
   return wc.executeJavaScript(`
     (function() {

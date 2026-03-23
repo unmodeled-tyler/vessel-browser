@@ -149,15 +149,10 @@ async function bootstrap(): Promise<void> {
   const registerHighlightShortcut = () => {
     globalShortcut.unregister("CommandOrControl+H");
     const success = globalShortcut.register("CommandOrControl+H", () => {
-      console.log("[Vessel] Ctrl+H shortcut triggered");
       const activeTab = tabManager.getActiveTab();
-      if (!activeTab) {
-        console.log("[Vessel] No active tab");
-        return;
-      }
+      if (!activeTab) return;
       tabManager.captureHighlightFromActiveTab();
     });
-    console.log("[Vessel] Ctrl+H shortcut registered:", success);
     if (!success) {
       console.warn("[Vessel] Failed to register Ctrl+H shortcut");
     }

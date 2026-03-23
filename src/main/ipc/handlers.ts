@@ -13,11 +13,19 @@ import type {
   ApprovalMode,
   AgentRuntimeState,
   SessionSnapshot,
+  VesselSettings,
 } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 import * as bookmarkManager from "../bookmarks/manager";
 import * as highlightsManager from "../highlights/manager";
-import { highlightOnPage } from "../highlights/inject";
+import {
+  highlightOnPage,
+  getHighlightCount,
+  scrollToHighlight,
+  removeHighlightAtIndex,
+  clearAllHighlightElements,
+} from "../highlights/inject";
+import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlights/capture";
 import { startMcpServer, stopMcpServer } from "../mcp/server";
 
 let activeChatProvider: AIProvider | null = null;
@@ -201,11 +209,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
 
-  ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: any) => {
+  ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: unknown) => {
     if (!SETTABLE_KEYS.has(key)) {
       throw new Error(`Unknown setting key: ${key}`);
     }
-    const updatedSettings = setSetting(key as any, value);
+    const settingsKey = key as keyof VesselSettings;
+    const updatedSettings = setSetting(settingsKey, value as VesselSettings[typeof settingsKey]);
     if (key === "approvalMode") {
       runtime.setApprovalMode(value as ApprovalMode);
     }
@@ -300,45 +309,12 @@ export function registerIpcHandlers(
       if (!activeTab) {
         return { success: false, message: "No active tab" };
       }
-
       const wc = activeTab.view.webContents;
-      if (wc.isDestroyed()) {
-        return { success: false, message: "Tab is not available" };
+      const result = await captureSelectionHighlight(wc);
+      if (result.success && result.text) {
+        await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch(() => {});
       }
-
-      const url = wc.getURL();
-      if (!url || url === "about:blank") {
-        return { success: false, message: "No page loaded" };
-      }
-
-      const selectedText: string = await wc.executeJavaScript(`
-        (function() {
-          var sel = window.getSelection();
-          return sel ? sel.toString().trim() : '';
-        })()
-      `);
-
-      if (!selectedText) {
-        return { success: false, message: "No text selected" };
-      }
-
-      const capped =
-        selectedText.length > 5000 ? selectedText.slice(0, 5000) : selectedText;
-
-      const highlight = highlightsManager.addHighlight(
-        url,
-        undefined,
-        capped,
-        undefined,
-        "yellow",
-        "user",
-      );
-
-      await highlightOnPage(wc, null, capped, undefined, undefined, "yellow").catch(
-        () => {},
-      );
-
-      return { success: true, text: capped, id: highlight.id };
+      return result;
     } catch {
       return { success: false, message: "Could not capture selection" };
     }
@@ -361,27 +337,11 @@ export function registerIpcHandlers(
       const tab = tabManager.findTabByWebContentsId(wc.id);
       if (!tab || !tab.highlightModeActive) return;
 
-      const url = wc.getURL();
-      if (!url || url === "about:blank") return;
-
-      const capped = text.length > 5000 ? text.slice(0, 5000) : text;
-
-      const highlight = highlightsManager.addHighlight(
-        url,
-        undefined,
-        capped,
-        undefined,
-        "yellow",
-        "user",
-      );
-
-      if (!chromeView.webContents.isDestroyed()) {
-        chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, {
-          success: true,
-          text: capped,
-          id: highlight.id,
-        });
-      }
+      void persistAndMarkHighlight(wc, text).then((result) => {
+        if (result.success && !chromeView.webContents.isDestroyed()) {
+          chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
+        }
+      });
     } catch {
       // Silently ignore errors from auto-highlight
     }
@@ -395,9 +355,7 @@ export function registerIpcHandlers(
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return 0;
     try {
-      return wc.executeJavaScript(
-        `document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text').length`,
-      );
+      return getHighlightCount(wc);
     } catch {
       return 0;
     }
@@ -409,20 +367,7 @@ export function registerIpcHandlers(
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return false;
     try {
-      return wc.executeJavaScript(`
-        (function() {
-          var highlights = document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text');
-          if (${index} < 0 || ${index} >= highlights.length) return false;
-          // Remove focus ring from all highlights
-          highlights.forEach(function(h) { h.style.removeProperty('outline'); h.style.removeProperty('outline-offset'); });
-          var target = highlights[${index}];
-          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          // Add focus ring to current highlight
-          target.style.setProperty('outline', '2px solid rgba(255, 255, 255, 0.9)', 'important');
-          target.style.setProperty('outline-offset', '2px', 'important');
-          return true;
-        })()
-      `);
+      return scrollToHighlight(wc, index);
     } catch {
       return false;
     }
@@ -434,32 +379,7 @@ export function registerIpcHandlers(
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return false;
     try {
-      return wc.executeJavaScript(`
-        (function() {
-          var highlights = document.querySelectorAll('.__vessel-highlight, .__vessel-highlight-text');
-          if (${index} < 0 || ${index} >= highlights.length) return false;
-          var el = highlights[${index}];
-          // Remove associated label if any
-          document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
-            if (b.__vesselAnchor === el) b.remove();
-          });
-          // Unwrap text highlights, remove class from element highlights
-          if (el.tagName === 'MARK' && el.classList.contains('__vessel-highlight-text')) {
-            var parent = el.parentNode;
-            while (el.firstChild) parent.insertBefore(el.firstChild, el);
-            parent.removeChild(el);
-            parent.normalize();
-          } else {
-            el.classList.remove('__vessel-highlight');
-            el.style.removeProperty('background');
-            el.style.removeProperty('outline-color');
-            el.style.removeProperty('box-shadow');
-            el.style.removeProperty('outline');
-            el.style.removeProperty('outline-offset');
-          }
-          return true;
-        })()
-      `);
+      return removeHighlightAtIndex(wc, index);
     } catch {
       return false;
     }
@@ -471,29 +391,7 @@ export function registerIpcHandlers(
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return false;
     try {
-      return wc.executeJavaScript(`
-        (function() {
-          // Remove all labels
-          document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) { b.remove(); });
-          // Unwrap text highlights
-          document.querySelectorAll('.__vessel-highlight-text').forEach(function(mark) {
-            var parent = mark.parentNode;
-            while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-            parent.removeChild(mark);
-            parent.normalize();
-          });
-          // Remove element highlights
-          document.querySelectorAll('.__vessel-highlight').forEach(function(el) {
-            el.classList.remove('__vessel-highlight');
-            el.style.removeProperty('background');
-            el.style.removeProperty('outline-color');
-            el.style.removeProperty('box-shadow');
-            el.style.removeProperty('outline');
-            el.style.removeProperty('outline-offset');
-          });
-          return true;
-        })()
-      `);
+      return clearAllHighlightElements(wc);
     } catch {
       return false;
     }

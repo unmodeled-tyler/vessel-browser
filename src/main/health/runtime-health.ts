@@ -5,12 +5,15 @@ import type {
 } from "../../shared/types";
 
 type McpStatusChangeListener = (status: McpConnectionStatus) => void;
-let mcpStatusChangeListener: McpStatusChangeListener | null = null;
+const mcpStatusChangeListeners = new Set<McpStatusChangeListener>();
 
 export function onMcpStatusChange(
-  listener: McpStatusChangeListener | null,
-): void {
-  mcpStatusChangeListener = listener;
+  listener: McpStatusChangeListener,
+): () => void {
+  mcpStatusChangeListeners.add(listener);
+  return () => {
+    mcpStatusChangeListeners.delete(listener);
+  };
 }
 
 export function getMcpStatus(): McpConnectionStatus {
@@ -77,6 +80,8 @@ export function setMcpHealth(update: {
   state.mcp.status = update.status;
   state.mcp.message = update.message;
   if (prevStatus !== state.mcp.status) {
-    mcpStatusChangeListener?.(state.mcp.status);
+    for (const listener of mcpStatusChangeListeners) {
+      listener(state.mcp.status);
+    }
   }
 }

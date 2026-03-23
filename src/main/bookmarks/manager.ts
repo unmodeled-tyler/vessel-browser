@@ -216,21 +216,6 @@ export function searchBookmarks(query: string): Array<{
     );
 }
 
-export function createFolder(name: string): BookmarkFolder {
-  load();
-  const trimmed = name.trim();
-  if (!trimmed) throw new Error("Folder name cannot be empty");
-  const folder: BookmarkFolder = {
-    id: randomUUID(),
-    name: trimmed,
-    createdAt: new Date().toISOString(),
-  };
-  state!.folders.push(folder);
-  save();
-  emit();
-  return folder;
-}
-
 export function createFolderWithSummary(
   name: string,
   summary?: string,

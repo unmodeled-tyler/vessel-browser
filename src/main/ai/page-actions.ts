@@ -144,15 +144,9 @@ async function waitForJsReady(wc: WebContents, timeout = 8000): Promise<void> {
       userGesture: true,
       label: "js-ready probe",
     });
-    if (ready === 1) {
-      console.log(`[Vessel] JS thread ready after ${Date.now() - start}ms`);
-      return;
-    }
+    if (ready === 1) return;
     await sleep(250);
   }
-  console.log(
-    `[Vessel] JS thread not ready after ${timeout}ms, continuing anyway`,
-  );
 }
 
 function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {

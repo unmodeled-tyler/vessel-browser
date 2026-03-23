@@ -157,7 +157,7 @@ const api = {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
     getHealth: (): Promise<RuntimeHealthState> =>
       ipcRenderer.invoke(Channels.SETTINGS_HEALTH_GET),
-    set: (key: string, value: any) =>
+    set: (key: string, value: unknown) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
     onUpdate: (cb: (settings: VesselSettings) => void): (() => void) => {
       const handler = (_: unknown, settings: VesselSettings) => cb(settings);

@@ -4,14 +4,13 @@ import { randomUUID } from "crypto";
 import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, highlightBatchOnPage } from "../highlights/inject";
+import {
+  captureSelectionHighlight,
+  type HighlightCaptureResult,
+} from "../highlights/capture";
 import { destroySession, destroyAllSessions } from "../devtools/manager";
 
-export type HighlightCaptureResult = {
-  success: boolean;
-  text?: string;
-  message?: string;
-  id?: string;
-};
+export type { HighlightCaptureResult };
 
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
@@ -248,71 +247,23 @@ export class TabManager {
   }
 
   captureHighlightFromActiveTab(): HighlightCaptureResult | null {
-    console.log("[Vessel] captureHighlightFromActiveTab called");
     const activeTab = this.getActiveTab();
     if (!activeTab) {
-      console.log("[Vessel] No active tab in captureHighlightFromActiveTab");
       return { success: false, message: "No active tab" };
     }
     const wc = activeTab.view.webContents;
-    console.log("[Vessel] Calling captureHighlightFromPage for:", wc.getURL());
     this.captureHighlightFromPage(wc);
     return null;
   }
 
   private captureHighlightFromPage(wc: WebContents): void {
-    console.log("[Vessel] captureHighlightFromPage called");
     void (async () => {
       try {
-        if (wc.isDestroyed()) {
-          console.log("[Vessel] WebContents destroyed");
-          return;
+        const result = await captureSelectionHighlight(wc);
+        if (result.success && result.text) {
+          await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch(() => {});
         }
-        const url = wc.getURL();
-        console.log("[Vessel] URL:", url);
-        if (!url || url === "about:blank") {
-          console.log("[Vessel] No URL or about:blank");
-          return;
-        }
-
-        const selectedText: string = await wc.executeJavaScript(`
-          (function() {
-            var sel = window.getSelection();
-            return sel ? sel.toString().trim() : '';
-          })()
-        `);
-        console.log("[Vessel] Selected text:", selectedText?.slice(0, 50));
-
-        if (!selectedText) return;
-
-        const capped =
-          selectedText.length > 5000
-            ? selectedText.slice(0, 5000)
-            : selectedText;
-
-        const highlight = highlightsManager.addHighlight(
-          url,
-          undefined,
-          capped,
-          undefined,
-          "yellow",
-          "user",
-        );
-
-        await highlightOnPage(
-          wc,
-          null,
-          capped,
-          undefined,
-          undefined,
-          "yellow",
-        ).catch(() => {});
-
-        this.highlightCaptureCallback?.({
-          success: true,
-          text: capped,
-          id: highlight.id,
-        });
+        this.highlightCaptureCallback?.(result);
       } catch {
         this.highlightCaptureCallback?.({
           success: false,
