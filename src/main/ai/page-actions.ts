@@ -3351,32 +3351,33 @@ export async function executeAction(
             `[Vessel read_page] extraction result: ${content ? `content=${content.content.length}` : "null (timeout)"}`,
           );
 
-          // If extraction failed or returned empty content, try auto-dismissing
-          // overlays (cookie banners, privacy walls) which commonly block content.
+          // If extraction failed or returned empty content, try a quick iframe
+          // consent dismiss (2s budget) then fall through to emergency extraction.
+          // We intentionally avoid calling clearOverlays here because it does
+          // another full extractContent internally which will also time out on
+          // heavy pages, adding 10+ seconds of dead time.
           if (!content || content.content.length === 0) {
-            console.log("[Vessel read_page] content empty/null, attempting auto-dismiss overlays");
+            console.log("[Vessel read_page] content empty/null, trying quick iframe dismiss");
             try {
-              const dismissResult = await clearOverlays(wc);
-              console.log(`[Vessel read_page] auto-dismiss result: ${dismissResult.slice(0, 120)}`);
-              if (!dismissResult.startsWith("No blocking overlays")) {
-                // Overlays were found and dismissed — retry extraction
+              const iframeResult = await Promise.race([
+                tryDismissConsentIframe(wc),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+              ]);
+              if (iframeResult) {
+                console.log(`[Vessel read_page] iframe dismiss: ${iframeResult}`);
                 await sleep(500);
+                // Quick retry — only 3s budget since we don't want to block long
                 try {
                   content = await Promise.race([
                     extractContent(wc),
-                    new Promise<null>((resolve) =>
-                      setTimeout(() => resolve(null), 6000),
-                    ),
+                    new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
                   ]);
                 } catch {
                   content = null;
                 }
-                console.log(
-                  `[Vessel read_page] post-dismiss extraction: ${content ? `content=${content.content.length}` : "null"}`,
-                );
               }
             } catch {
-              // clearOverlays failed — continue with whatever we had
+              // iframe dismiss failed — fall through to emergency extraction
             }
           }
 
@@ -3414,16 +3415,71 @@ export async function executeAction(
               .join("\n\n");
           }
 
-          // Fallback: native Electron APIs only — no executeJavaScript
-          const title = wc.getTitle() || "(untitled)";
-          const url = wc.getURL();
+          // Lightweight emergency extraction — uses textContent (no layout reflow)
+          // instead of innerText to avoid blocking on heavy pages like CNN
+          console.log("[Vessel read_page] trying lightweight textContent extraction");
+          const emergencyContent = await executePageScript<{
+            title: string;
+            text: string;
+            headings: string[];
+          } | null>(
+            wc,
+            `(function() {
+              var roots = ['main', 'article', '[role="main"]', '#content', '.content',
+                '#mw-content-text', '.post-content', '.article-body', '.story-body'];
+              var root = null;
+              for (var i = 0; i < roots.length; i++) {
+                root = document.querySelector(roots[i]);
+                if (root && root.textContent.trim().length > 100) break;
+                root = null;
+              }
+              var source = root || document.body;
+              if (!source) return null;
+              // textContent is instant — no layout reflow unlike innerText
+              var raw = source.textContent || '';
+              // Clean up: collapse whitespace, remove long runs of spaces
+              var text = raw.replace(/[ \\t]+/g, ' ').replace(/(\\n\\s*){3,}/g, '\\n\\n').trim();
+              if (text.length > 25000) text = text.slice(0, 25000) + '\\n[truncated]';
+              var headings = [];
+              document.querySelectorAll('h1, h2, h3').forEach(function(h) {
+                var t = (h.textContent || '').trim();
+                if (t && t.length < 200) headings.push(h.tagName + ': ' + t);
+              });
+              return { title: document.title || '', text: text, headings: headings.slice(0, 30) };
+            })()`,
+            { timeoutMs: 2000, label: "emergency-extract" },
+          );
+
+          const fallbackTitle = wc.getTitle() || "(untitled)";
+          const fallbackUrl = wc.getURL();
+
+          if (
+            emergencyContent &&
+            emergencyContent !== PAGE_SCRIPT_TIMEOUT &&
+            emergencyContent.text.length > 50
+          ) {
+            console.log(`[Vessel read_page] emergency extraction got ${emergencyContent.text.length} chars`);
+            const headingSection = emergencyContent.headings.length > 0
+              ? `\n## Headings\n${emergencyContent.headings.join("\n")}\n`
+              : "";
+            return [
+              `# ${emergencyContent.title || fallbackTitle}`,
+              `URL: ${fallbackUrl}`,
+              "",
+              "[read_page mode=emergency — full extraction timed out, showing textContent]",
+              headingSection,
+              "## Page Content",
+              "",
+              emergencyContent.text,
+            ].join("\n");
+          }
+
           return [
-            `# ${title}`,
-            `URL: ${url}`,
+            `# ${fallbackTitle}`,
+            `URL: ${fallbackUrl}`,
             "",
-            "[Page content extraction timed out or returned empty — the page may have a blocking overlay or the JS thread is busy.]",
-            "[Try: accept_cookies, dismiss_popup, or clear_overlays to dismiss blocking elements.]",
-            "[Or use click/type_text to interact with the page directly.]",
+            "[Page content extraction timed out — the page JS thread is busy.]",
+            "[Try: wait a few seconds then retry read_page, or use click/type_text to interact directly.]",
           ].join("\n");
         }
 
