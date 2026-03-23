@@ -291,6 +291,16 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         "dialog, [role='dialog'], [role='alertdialog'], [aria-modal='true']"
       ).forEach(function(el) { candidates.add(el); });
 
+      // Known consent manager containers — these are often missed by generic
+      // heuristics because they use custom stacking or non-standard z-indices
+      document.body.querySelectorAll(
+        '#onetrust-consent-sdk, #CybotCookiebotDialog, [class*="consent-banner"], ' +
+        '[class*="cookie-banner"], [class*="privacy-banner"], [id*="consent-wall"], ' +
+        '.fc-consent-root, #sp_message_container_, [id*="trustarc"], ' +
+        '[class*="cmp-"], [id*="cmp-container"], [class*="gdpr"], ' +
+        '[data-testid*="consent"], [data-testid*="cookie"], [data-testid*="privacy"]'
+      ).forEach(function(el) { candidates.add(el); });
+
       // Fixed/sticky elements are the other overlay category — walk only
       // direct children of body and high-level containers (depth ≤ 3)
       // since real overlays are almost always near the top of the DOM tree.
@@ -318,13 +328,23 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         var cartConfirm = !dialogLike && !drawerLike && isPositioned(style) &&
           rect.width >= 160 && rect.height >= 100 &&
           looksLikeCartConfirmation(node);
+        // Body scroll-lock + large fixed element is a strong overlay signal
+        // even without high z-index or exact center coverage
+        var bodyLocked = (function() {
+          var bs = window.getComputedStyle(document.body);
+          var hs = window.getComputedStyle(document.documentElement);
+          return bs.overflow === "hidden" || hs.overflow === "hidden";
+        })();
         var blocksInteraction = dialogLike ||
           drawerLike ||
           cartConfirm ||
           ((style.position === "fixed" || style.position === "sticky") &&
             parseZIndex(style) >= 10 &&
             areaRatio >= 0.3 &&
-            coversViewportCenter(rect));
+            coversViewportCenter(rect)) ||
+          (bodyLocked &&
+            (style.position === "fixed" || style.position === "sticky") &&
+            areaRatio >= 0.2);
 
         if (!blocksInteraction && type !== "dialog" && type !== "modal") return;
 

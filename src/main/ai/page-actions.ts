@@ -260,13 +260,67 @@ function waitForPotentialNavigation(
 }
 
 /**
- * Grab just the page title — no JS execution in the page context at all.
- * Electron exposes getTitle() on WebContents natively, so this never blocks
- * on a busy page JS thread.
+ * Grab the page title and do a fast overlay probe. The probe is fire-and-forget
+ * with a 1.5s timeout so it never blocks the navigate response significantly.
  */
-function getPostNavSummary(wc: WebContents): string {
+async function getPostNavSummary(wc: WebContents): Promise<string> {
   const title = wc.getTitle();
-  return title ? `\nPage title: ${title}` : "";
+  const titleLine = title ? `\nPage title: ${title}` : "";
+
+  // Quick probe: detect blocking overlays via common signals without a full extraction
+  const overlaySignal = await executePageScript<string | null>(
+    wc,
+    `(function() {
+      var signals = [];
+      // Body scroll lock is a strong overlay signal
+      var bodyStyle = window.getComputedStyle(document.body);
+      var htmlStyle = window.getComputedStyle(document.documentElement);
+      if (bodyStyle.overflow === 'hidden' || htmlStyle.overflow === 'hidden') {
+        signals.push('body-scroll-locked');
+      }
+      // Check for known consent manager containers
+      var consentSelectors = [
+        '#onetrust-consent-sdk', '#CybotCookiebotDialog', '[class*="consent-banner"]',
+        '[class*="cookie-banner"]', '[class*="privacy-banner"]', '[id*="consent"]',
+        '[class*="gdpr"]', '[data-testid*="consent"]', '[data-testid*="cookie"]',
+        '.fc-consent-root', '#sp_message_container_', '[id*="trustarc"]',
+        '[class*="cmp-"]', '[id*="cmp-"]'
+      ];
+      for (var i = 0; i < consentSelectors.length; i++) {
+        try {
+          var el = document.querySelector(consentSelectors[i]);
+          if (el && el.offsetHeight > 50) {
+            signals.push('consent-banner:' + consentSelectors[i]);
+            break;
+          }
+        } catch(e) {}
+      }
+      // Check for large fixed/sticky elements covering viewport
+      var vw = window.innerWidth || 0;
+      var vh = window.innerHeight || 0;
+      var vpArea = Math.max(1, vw * vh);
+      var els = document.querySelectorAll('dialog[open], [role="dialog"], [aria-modal="true"]');
+      if (els.length > 0) signals.push('dialog-open');
+      if (signals.length === 0) {
+        var fixed = document.querySelectorAll('div[style*="position: fixed"], div[style*="position:fixed"]');
+        for (var j = 0; j < fixed.length && j < 20; j++) {
+          var r = fixed[j].getBoundingClientRect();
+          if ((r.width * r.height) / vpArea > 0.3) {
+            signals.push('large-fixed-overlay');
+            break;
+          }
+        }
+      }
+      return signals.length > 0 ? signals.join(', ') : null;
+    })()`,
+    { timeoutMs: 1500, label: "overlay-probe" },
+  );
+
+  if (overlaySignal && overlaySignal !== PAGE_SCRIPT_TIMEOUT) {
+    return `${titleLine}\nWARNING: Blocking overlay detected (${overlaySignal}). Call clear_overlays or accept_cookies before reading the page.`;
+  }
+
+  return titleLine;
 }
 
 async function scrollPage(
@@ -1588,6 +1642,83 @@ async function clickOverlayCandidate(
   return `${action.label || action.selector}: ${result}`;
 }
 
+/**
+ * Try to dismiss consent overlays that live inside iframes (common for
+ * Sourcepoint, OneTrust hosted, TrustArc, etc.). Electron's
+ * executeJavaScript only runs in the main frame, so we iterate over all
+ * child frames looking for accept/dismiss buttons.
+ */
+async function tryDismissConsentIframe(wc: WebContents): Promise<string | null> {
+  try {
+    // Check if body is scroll-locked or a consent container is visible — if not, skip
+    const hasSignal = await executePageScript<boolean>(
+      wc,
+      `(function() {
+        var bs = window.getComputedStyle(document.body);
+        var hs = window.getComputedStyle(document.documentElement);
+        if (bs.overflow === 'hidden' || hs.overflow === 'hidden') return true;
+        var sels = '#onetrust-consent-sdk, [class*="consent"], [class*="cookie-banner"], [id*="consent"], [id*="sp_message"], .fc-consent-root, [class*="cmp-"]';
+        var el = document.querySelector(sels);
+        return !!(el && el.offsetHeight > 20);
+      })()`,
+      { timeoutMs: 1000, label: "iframe-consent-signal" },
+    );
+    if (!hasSignal || hasSignal === PAGE_SCRIPT_TIMEOUT) return null;
+
+    // Iterate child frames and try to click consent buttons inside them
+    const frames = wc.mainFrame.framesInSubtree;
+    for (const frame of frames) {
+      if (frame === wc.mainFrame) continue; // skip main frame, already handled
+      try {
+        const result = await frame.executeJavaScript(`
+          (function() {
+            var selectors = [
+              'button[title*="Accept"], button[title*="Agree"], button[title*="OK"]',
+              '[class*="accept"], [class*="agree"], [class*="consent-accept"]',
+              'button[aria-label*="accept" i], button[aria-label*="agree" i]',
+              '.sp_choice_type_11', '.message-component.message-button',
+            ];
+            // Try selectors first
+            for (var i = 0; i < selectors.length; i++) {
+              try {
+                var els = document.querySelectorAll(selectors[i]);
+                for (var j = 0; j < els.length; j++) {
+                  var el = els[j];
+                  if (!(el instanceof HTMLElement)) continue;
+                  var text = (el.textContent || '').trim().toLowerCase();
+                  if (/accept|agree|consent|got it|ok|continue|i understand/i.test(text) || el.offsetHeight > 0) {
+                    el.click();
+                    return 'Clicked iframe consent button: ' + text.slice(0, 60);
+                  }
+                }
+              } catch(e) {}
+            }
+            // Text-match fallback on all buttons
+            var buttons = document.querySelectorAll('button, [role="button"], a.message-component');
+            for (var k = 0; k < buttons.length; k++) {
+              var btn = buttons[k];
+              var label = (btn.textContent || '').trim().toLowerCase();
+              if (/^(accept|agree|accept all|i agree|i accept|ok|got it|allow|continue|yes)$/i.test(label) ||
+                  /accept all|agree and|accept & continue|accept and continue/i.test(label)) {
+                btn.click();
+                return 'Clicked iframe consent button: ' + label.slice(0, 60);
+              }
+            }
+            return null;
+          })()
+        `);
+        if (result) return result;
+      } catch {
+        // Frame may be cross-origin or destroyed — skip
+        continue;
+      }
+    }
+  } catch {
+    // framesInSubtree may not be available on older Electron
+  }
+  return null;
+}
+
 export async function clearOverlays(
   wc: WebContents,
   strategy: "auto" | "interactive" = "auto",
@@ -1604,7 +1735,16 @@ export async function clearOverlays(
     );
 
     if (blockingOverlays.length === 0) {
-      if (cleared === 0) return "No blocking overlays detected";
+      // No blocking overlays in main frame — check for iframe-based consent
+      if (cleared === 0) {
+        const iframeResult = await tryDismissConsentIframe(wc);
+        if (iframeResult) {
+          steps.push(`Iframe consent: ${iframeResult}`);
+          await sleep(500);
+          return steps.join("\n");
+        }
+        return "No blocking overlays detected";
+      }
       steps.push(`Overlays remaining: ${beforeState.total}`);
       steps.push("Page still blocked: false");
       return steps.join("\n");
@@ -3001,7 +3141,7 @@ export async function executeAction(
           const created = ctx.tabManager.getActiveTab();
           if (created) {
             await waitForLoad(created.view.webContents);
-            return `Created tab ${createdId}${getPostNavSummary(created.view.webContents)}`;
+            return `Created tab ${createdId}${await getPostNavSummary(created.view.webContents)}`;
           }
           return `Created tab ${createdId}`;
         }
@@ -3014,7 +3154,7 @@ export async function executeAction(
           }
           ctx.tabManager.navigateTab(tabId, args.url);
           await waitForLoad(wc);
-          return `Navigated to ${wc.getURL()}${getPostNavSummary(wc)}`;
+          return `Navigated to ${wc.getURL()}${await getPostNavSummary(wc)}`;
         }
 
         case "go_back": {
@@ -3027,7 +3167,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went back to ${afterUrl}${getPostNavSummary(wc)}`
+            ? `Went back to ${afterUrl}${await getPostNavSummary(wc)}`
             : `Back action completed but page stayed on ${afterUrl}`;
         }
 
@@ -3041,7 +3181,7 @@ export async function executeAction(
           await waitForLoad(wc);
           const afterUrl = wc.getURL();
           return afterUrl !== beforeUrl
-            ? `Went forward to ${afterUrl}${getPostNavSummary(wc)}`
+            ? `Went forward to ${afterUrl}${await getPostNavSummary(wc)}`
             : `Forward action completed but page stayed on ${afterUrl}`;
         }
 
@@ -3211,7 +3351,36 @@ export async function executeAction(
             `[Vessel read_page] extraction result: ${content ? `content=${content.content.length}` : "null (timeout)"}`,
           );
 
-          if (content) {
+          // If extraction failed or returned empty content, try auto-dismissing
+          // overlays (cookie banners, privacy walls) which commonly block content.
+          if (!content || content.content.length === 0) {
+            console.log("[Vessel read_page] content empty/null, attempting auto-dismiss overlays");
+            try {
+              const dismissResult = await clearOverlays(wc);
+              console.log(`[Vessel read_page] auto-dismiss result: ${dismissResult.slice(0, 120)}`);
+              if (!dismissResult.startsWith("No blocking overlays")) {
+                // Overlays were found and dismissed — retry extraction
+                await sleep(500);
+                try {
+                  content = await Promise.race([
+                    extractContent(wc),
+                    new Promise<null>((resolve) =>
+                      setTimeout(() => resolve(null), 6000),
+                    ),
+                  ]);
+                } catch {
+                  content = null;
+                }
+                console.log(
+                  `[Vessel read_page] post-dismiss extraction: ${content ? `content=${content.content.length}` : "null"}`,
+                );
+              }
+            } catch {
+              // clearOverlays failed — continue with whatever we had
+            }
+          }
+
+          if (content && content.content.length > 0) {
             const liveSelectionSection = formatLiveSelectionSection(
               await captureLiveHighlightSnapshot(
                 wc,
@@ -3252,9 +3421,9 @@ export async function executeAction(
             `# ${title}`,
             `URL: ${url}`,
             "",
-            "[Page content extraction timed out — the page JS thread is busy.]",
-            "[Use the search tool to search the site, or type_text/click to interact directly.]",
-            "[You can retry read_page in a few seconds once the page finishes loading.]",
+            "[Page content extraction timed out or returned empty — the page may have a blocking overlay or the JS thread is busy.]",
+            "[Try: accept_cookies, dismiss_popup, or clear_overlays to dismiss blocking elements.]",
+            "[Or use click/type_text to interact with the page directly.]",
           ].join("\n");
         }
 
@@ -4213,9 +4382,20 @@ export async function executeAction(
                 '[aria-label="Accept cookies"]',
                 '[aria-label="Accept all cookies"]',
                 '[data-testid="cookie-accept"]',
+                // CNN / WarnerMedia / common consent SDKs
+                '[data-testid="consent-accept"]',
+                '[data-testid="accept-all"]',
+                'button[class*="consent"][class*="accept"]',
+                'button[class*="privacy"][class*="accept"]',
+                '.fc-cta-consent',
+                '#sp_choice_button_accept',
+                '.message-component.message-button.no-children.focusable.sp_choice_type_11',
+                '[class*="truste"] [class*="accept"]',
+                '[id*="consent-accept"]',
+                '[class*="cmp-accept"]',
               ];
               // Also try text-matching on buttons
-              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'consent'];
+              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'i accept', 'consent', 'continue', 'accept and continue', 'accept & continue'];
               for (var i = 0; i < selectors.length; i++) {
                 var el = document.querySelector(selectors[i]);
                 if (el && el instanceof HTMLElement) { el.click(); return "Dismissed cookie banner via: " + selectors[i]; }
@@ -4241,10 +4421,13 @@ export async function executeAction(
           if (dismissed === PAGE_SCRIPT_TIMEOUT) {
             return pageBusyError("accept_cookies");
           }
-          return (
-            dismissed ||
-            "No cookie consent banner detected. Try dismiss_popup for other overlays."
-          );
+          if (dismissed) return dismissed;
+
+          // Main frame selectors didn't match — try iframe-based consent (Sourcepoint, etc.)
+          const iframeResult = await tryDismissConsentIframe(wc);
+          if (iframeResult) return iframeResult;
+
+          return "No cookie consent banner detected. Try dismiss_popup for other overlays.";
         }
 
         case "extract_table": {
