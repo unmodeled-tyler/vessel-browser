@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
 import { loadSettings } from "../config/settings";
+import { isRichToolResult, type RichToolResult } from "./tool-result";
 
 const DEFAULT_MAX_ITERATIONS = 200;
 
@@ -198,11 +199,41 @@ export class AnthropicProvider implements AIProvider {
             result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
           }
           console.log(`[Vessel Agent] tool ${tb.name} completed in ${Date.now() - toolStartTime}ms, resultLen=${result.length}`);
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: tb.id,
-            content: result,
-          });
+
+          // Check if the result contains rich content (images)
+          let parsedRich: RichToolResult | null = null;
+          try {
+            const parsed = JSON.parse(result);
+            if (isRichToolResult(parsed)) parsedRich = parsed;
+          } catch {
+            // Not JSON — plain string result
+          }
+
+          if (parsedRich) {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tb.id,
+              content: parsedRich.content.map((block) => {
+                if (block.type === "image") {
+                  return {
+                    type: "image" as const,
+                    source: {
+                      type: "base64" as const,
+                      media_type: block.mediaType,
+                      data: block.base64,
+                    },
+                  };
+                }
+                return { type: "text" as const, text: block.text };
+              }),
+            });
+          } else {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tb.id,
+              content: result,
+            });
+          }
         }
         messages.push({ role: "user", content: toolResults });
       }

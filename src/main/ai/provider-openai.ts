@@ -4,6 +4,7 @@ import type { AIProvider } from './provider';
 import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
 import { loadSettings } from '../config/settings';
+import { isRichToolResult } from './tool-result';
 
 const DEFAULT_MAX_ITERATIONS = 200;
 
@@ -205,10 +206,25 @@ export class OpenAICompatProvider implements AIProvider {
             result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
           }
           console.log(`[Vessel Agent OpenAI] tool ${tc.name} completed in ${Date.now() - toolStartTime}ms, resultLen=${result.length}`);
+
+          // OpenAI doesn't support image content in tool results — extract text only
+          let toolContent = result;
+          try {
+            const parsed = JSON.parse(result);
+            if (isRichToolResult(parsed)) {
+              toolContent = parsed.content
+                .filter((b: any) => b.type === 'text')
+                .map((b: any) => b.text)
+                .join('\n');
+            }
+          } catch {
+            // Not JSON — use as-is
+          }
+
           messages.push({
             role: 'tool',
             tool_call_id: tc.id,
-            content: result,
+            content: toolContent,
           });
         }
       }

@@ -21,6 +21,8 @@ import {
   validateLinkDestination,
 } from "../network/link-validation";
 import { assertSafeURL } from "../network/url-safety";
+import { captureScreenshot } from "../content/screenshot";
+import { makeImageResult } from "./tool-result";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import {
@@ -3164,6 +3166,7 @@ const KNOWN_TOOLS = new Set([
   "dismiss_popup",
   "clear_overlays",
   "read_page",
+  "screenshot",
   "wait_for",
   "create_checkpoint",
   "restore_checkpoint",
@@ -3258,6 +3261,20 @@ export async function executeAction(
     dangerous: isDangerousAction(name),
     executor: async () => {
       switch (name) {
+        case "screenshot": {
+          if (!wc) return "Error: No active tab";
+          const screenshotStart = Date.now();
+          const shot = await captureScreenshot(wc);
+          if (!shot.ok) return `Error: ${shot.error}`;
+          const screenshotMs = Date.now() - screenshotStart;
+          const title = wc.getTitle() || "(untitled)";
+          const url = wc.getURL();
+          return makeImageResult(
+            shot.base64,
+            `Screenshot of "${title}" (${url}) — ${shot.width}x${shot.height}, captured in ${screenshotMs}ms. Analyze the image to understand the current visual state of the page.`,
+          );
+        }
+
         case "current_tab": {
           const active = ctx.tabManager.getActiveTab();
           const activeId = ctx.tabManager.getActiveTabId();

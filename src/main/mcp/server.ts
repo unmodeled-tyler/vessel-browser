@@ -59,6 +59,7 @@ import {
 import { setMcpHealth } from "../health/runtime-health";
 import { registerDevTools } from "../devtools/tools";
 import { assertSafeURL } from "../network/url-safety";
+import { captureScreenshot } from "../content/screenshot";
 
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
@@ -3135,7 +3136,7 @@ function registerTools(
             "Error capturing screenshot: active tab has zero-sized bounds",
           );
         }
-        const screenshot = await captureScreenshotPayload(tab.view.webContents);
+        const screenshot = await captureScreenshot(tab.view.webContents);
         if (!screenshot.ok) {
           return asTextResponse(
             `Error capturing screenshot: ${screenshot.error}`,
