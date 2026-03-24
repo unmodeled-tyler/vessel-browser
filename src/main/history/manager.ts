@@ -27,16 +27,16 @@ function load(): HistoryState {
 }
 
 function save(): void {
-  try {
-    fs.mkdirSync(path.dirname(getHistoryPath()), { recursive: true });
-    fs.writeFileSync(
-      getHistoryPath(),
-      JSON.stringify(state, null, 2),
-      "utf-8",
-    );
-  } catch (err) {
-    console.error("[Vessel] Failed to save history:", err);
-  }
+  fs.promises
+    .mkdir(path.dirname(getHistoryPath()), { recursive: true })
+    .then(() =>
+      fs.promises.writeFile(
+        getHistoryPath(),
+        JSON.stringify(state, null, 2),
+        "utf-8",
+      ),
+    )
+    .catch((err) => console.error("[Vessel] Failed to save history:", err));
 }
 
 function emit(): void {

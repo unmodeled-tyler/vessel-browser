@@ -64,12 +64,16 @@ function load(): BookmarksState {
 }
 
 function save(): void {
-  try {
-    fs.mkdirSync(path.dirname(getBookmarksPath()), { recursive: true });
-    fs.writeFileSync(getBookmarksPath(), JSON.stringify(state, null, 2), "utf-8");
-  } catch (err) {
-    console.error("[Vessel] Failed to save bookmarks:", err);
-  }
+  fs.promises
+    .mkdir(path.dirname(getBookmarksPath()), { recursive: true })
+    .then(() =>
+      fs.promises.writeFile(
+        getBookmarksPath(),
+        JSON.stringify(state, null, 2),
+        "utf-8",
+      ),
+    )
+    .catch((err) => console.error("[Vessel] Failed to save bookmarks:", err));
 }
 
 function emit(): void {
