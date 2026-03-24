@@ -94,6 +94,7 @@ const ALWAYS_FAST_TOOL_NAMES = new Set([
   "accept_cookies",
   "wait_for",
   "read_page",
+  "screenshot",
   "inspect_element",
 ]);
 

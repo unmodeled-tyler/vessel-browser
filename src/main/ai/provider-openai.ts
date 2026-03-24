@@ -4,6 +4,7 @@ import type { AIProvider } from './provider';
 import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
 import { loadSettings } from '../config/settings';
+import { isRichToolResult, type TextBlock } from './tool-result';
 
 const DEFAULT_MAX_ITERATIONS = 200;
 
@@ -66,8 +67,8 @@ export class OpenAICompatProvider implements AIProvider {
           onChunk(delta);
         }
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {
@@ -100,7 +101,6 @@ export class OpenAICompatProvider implements AIProvider {
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         const msgTokenEstimate = JSON.stringify(messages).length;
-        console.log(`[Vessel Agent OpenAI] iteration=${i} messages=${messages.length} msgChars=${msgTokenEstimate} tools=${openAITools.length}`);
         const streamStartTime = Date.now();
         // Accumulate text and tool calls across streamed chunks
         let textAccum = '';
@@ -143,7 +143,6 @@ export class OpenAICompatProvider implements AIProvider {
           }
         }
 
-        console.log(`[Vessel Agent OpenAI] stream complete in ${Date.now() - streamStartTime}ms, toolCalls=${Object.keys(toolCallAccums).length} textLen=${textAccum.length} finishReason=${finishReason}`);
         const toolCalls = Object.values(toolCallAccums);
 
         // Ensure every tool call has an ID (some providers like Ollama omit them)
@@ -197,26 +196,39 @@ export class OpenAICompatProvider implements AIProvider {
           const argSummary = args.url || args.text || args.direction || '';
           onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
           let result: string;
-          const toolStartTime = Date.now();
-          console.log(`[Vessel Agent OpenAI] executing tool: ${tc.name}`);
           try {
             result = await onToolCall(tc.name, args);
-          } catch (toolErr: any) {
-            result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
+          } catch (toolErr: unknown) {
+            const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+            result = `Error: Tool execution failed — ${msg}. Try a different approach or call read_page to refresh context.`;
           }
-          console.log(`[Vessel Agent OpenAI] tool ${tc.name} completed in ${Date.now() - toolStartTime}ms, resultLen=${result.length}`);
+
+          // OpenAI doesn't support image content in tool results — extract text only
+          let toolContent = result;
+          try {
+            const parsed = JSON.parse(result);
+            if (isRichToolResult(parsed)) {
+              toolContent = parsed.content
+                .filter((b): b is TextBlock => b.type === 'text')
+                .map((b) => b.text)
+                .join('\n');
+            }
+          } catch {
+            // Not JSON — use as-is
+          }
+
           messages.push({
             role: 'tool',
             tool_call_id: tc.id,
-            content: result,
+            content: toolContent,
           });
         }
       }
       if (iterationsUsed >= maxIterations) {
         onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {

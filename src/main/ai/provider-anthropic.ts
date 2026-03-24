@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
 import { loadSettings } from "../config/settings";
+import { isRichToolResult, type RichToolResult } from "./tool-result";
 
 const DEFAULT_MAX_ITERATIONS = 200;
 
@@ -48,8 +49,8 @@ export class AnthropicProvider implements AIProvider {
           onChunk(event.delta.text);
         }
       }
-    } catch (err: any) {
-      if (err.name !== "AbortError") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== "AbortError") {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {
@@ -81,7 +82,6 @@ export class AnthropicProvider implements AIProvider {
         iterationsUsed = i + 1;
         const msgTokenEstimate = JSON.stringify(messages).length;
         const sysTokenEstimate = systemPrompt.length;
-        console.log(`[Vessel Agent] iteration=${i} messages=${messages.length} msgChars=${msgTokenEstimate} sysChars=${sysTokenEstimate} tools=${tools.length}`);
         const streamStartTime = Date.now();
         const stream = this.client.messages.stream(
           {
@@ -160,9 +160,7 @@ export class AnthropicProvider implements AIProvider {
           if (idleTimer) clearTimeout(idleTimer);
         }
 
-        console.log(`[Vessel Agent] stream complete in ${Date.now() - streamStartTime}ms, toolCalls=${toolUseBlocks.length} textLen=${textContent.length}`);
         const finalMessage = await stream.finalMessage();
-        console.log(`[Vessel Agent] finalMessage received, stop_reason=${finalMessage.stop_reason}`);
 
         // Build assistant message content for history
         const assistantContent: Anthropic.ContentBlockParam[] = [];
@@ -190,27 +188,55 @@ export class AnthropicProvider implements AIProvider {
           const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
           onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
           let result: string;
-          const toolStartTime = Date.now();
-          console.log(`[Vessel Agent] executing tool: ${tb.name}`);
           try {
             result = await onToolCall(tb.name, tb.input);
-          } catch (toolErr: any) {
-            result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
+          } catch (toolErr: unknown) {
+            const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+            result = `Error: Tool execution failed — ${msg}. Try a different approach or call read_page to refresh context.`;
           }
-          console.log(`[Vessel Agent] tool ${tb.name} completed in ${Date.now() - toolStartTime}ms, resultLen=${result.length}`);
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: tb.id,
-            content: result,
-          });
+
+          // Check if the result contains rich content (images)
+          let parsedRich: RichToolResult | null = null;
+          try {
+            const parsed = JSON.parse(result);
+            if (isRichToolResult(parsed)) parsedRich = parsed;
+          } catch {
+            // Not JSON — plain string result
+          }
+
+          if (parsedRich) {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tb.id,
+              content: parsedRich.content.map((block) => {
+                if (block.type === "image") {
+                  return {
+                    type: "image" as const,
+                    source: {
+                      type: "base64" as const,
+                      media_type: block.mediaType,
+                      data: block.base64,
+                    },
+                  };
+                }
+                return { type: "text" as const, text: block.text };
+              }),
+            });
+          } else {
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tb.id,
+              content: result,
+            });
+          }
         }
         messages.push({ role: "user", content: toolResults });
       }
       if (iterationsUsed >= maxIterations) {
         onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
       }
-    } catch (err: any) {
-      if (err.name !== "AbortError") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== "AbortError") {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {

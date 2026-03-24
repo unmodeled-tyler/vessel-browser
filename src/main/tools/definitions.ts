@@ -296,6 +296,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     tier: 0,
   },
   {
+    name: "screenshot",
+    title: "Screenshot",
+    description:
+      "Take a screenshot of the current page — see exactly what the user sees. Returns the image for visual analysis. Use when you need to verify visual layout, check what's actually rendered on screen, or when text extraction fails on heavy pages.",
+    inputSchema: {},
+    tier: 1,
+  },
+  {
     name: "wait_for",
     title: "Wait For",
     description:

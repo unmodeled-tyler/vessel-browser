@@ -17,9 +17,9 @@ export interface AIProvider {
   streamAgentQuery?(
     systemPrompt: string,
     userMessage: string,
-    tools: any[],
+    tools: Anthropic.Tool[],
     onChunk: (text: string) => void,
-    onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
+    onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
     onEnd: () => void,
     history?: AIMessage[],
   ): Promise<void>;

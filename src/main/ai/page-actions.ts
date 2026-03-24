@@ -21,6 +21,8 @@ import {
   validateLinkDestination,
 } from "../network/link-validation";
 import { assertSafeURL } from "../network/url-safety";
+import { captureScreenshot } from "../content/screenshot";
+import { makeImageResult } from "./tool-result";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import {
@@ -283,9 +285,6 @@ async function executePageScript<T>(
     ]);
 
     if (result === PAGE_SCRIPT_TIMEOUT) {
-      console.log(
-        `[Vessel pageScript] timed out after ${timeoutMs}ms (${options?.label || "page-script"})`,
-      );
       return PAGE_SCRIPT_TIMEOUT;
     }
 
@@ -323,9 +322,6 @@ async function waitForJsReady(wc: WebContents, timeout = 8000): Promise<void> {
 function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
   return new Promise((resolve) => {
     let finished = false;
-    console.log(
-      `[Vessel waitForLoad] started, isLoading=${wc.isLoading()}, timeout=${timeout}`,
-    );
 
     const cleanup = () => {
       wc.removeListener("did-finish-load", onLoadEvent);
@@ -336,7 +332,6 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
     const finish = (reason: string) => {
       if (finished) return;
       finished = true;
-      console.log(`[Vessel waitForLoad] finished: ${reason}`);
       clearTimeout(timer);
       cleanup();
       resolve();
@@ -344,9 +339,6 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
 
     const onLoadEvent = () => {
       const loading = wc.isLoading();
-      console.log(
-        `[Vessel waitForLoad] load event fired, isLoading=${loading}`,
-      );
       if (!loading) {
         finish("load event");
       }
@@ -1200,11 +1192,7 @@ async function clickResolvedSelector(
 
   // Block duplicate add-to-cart clicks on the same page
   const cartMatch = isAddToCartText(elInfo.text);
-  console.log(
-    `[Vessel cart-guard] text="${elInfo.text}" cartMatch=${cartMatch} url=${beforeUrl} hasPrior=${recentCartClicks.has(beforeUrl)}`,
-  );
   if (cartMatch && isDuplicateCartClick(beforeUrl, elInfo.text)) {
-    console.log(`[Vessel cart-guard] BLOCKED duplicate add-to-cart click`);
     return `Blocked: "${elInfo.text}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
   }
 
@@ -1212,9 +1200,6 @@ async function clickResolvedSelector(
   if (!cartMatch && recentCartClicks.has(beforeUrl)) {
     const dialogActions = await getCartDialogActions(wc);
     if (dialogActions) {
-      console.log(
-        `[Vessel cart-guard] BLOCKED background click while cart dialog is open`,
-      );
       return `Blocked: a cart confirmation dialog is open. Do not click background elements.\n${dialogActions}\nClick one of these dialog actions instead.`;
     }
   }
@@ -1229,7 +1214,6 @@ async function clickResolvedSelector(
   // Record add-to-cart clicks BEFORE executing so even if overlay detection
   // fails, a second click on the same page will be caught.
   if (cartMatch) {
-    console.log(`[Vessel cart-guard] RECORDED cart click for url=${beforeUrl}`);
     recordCartClick(beforeUrl, elInfo.text);
   }
 
@@ -1512,9 +1496,6 @@ async function dismissPopup(wc: WebContents): Promise<string> {
         typeof continueResult === "string" &&
         !continueResult.startsWith("Error")
       ) {
-        console.log(
-          `[Vessel cart-guard] dismiss_popup auto-clicked dialog action: ${continueResult}`,
-        );
         return `Cart confirmation handled: ${continueResult}. Item was already added to your cart.`;
       }
 
@@ -3164,6 +3145,7 @@ const KNOWN_TOOLS = new Set([
   "dismiss_popup",
   "clear_overlays",
   "read_page",
+  "screenshot",
   "wait_for",
   "create_checkpoint",
   "restore_checkpoint",
@@ -3258,6 +3240,20 @@ export async function executeAction(
     dangerous: isDangerousAction(name),
     executor: async () => {
       switch (name) {
+        case "screenshot": {
+          if (!wc) return "Error: No active tab";
+          const screenshotStart = Date.now();
+          const shot = await captureScreenshot(wc);
+          if (!shot.ok) return `Error: ${shot.error}`;
+          const screenshotMs = Date.now() - screenshotStart;
+          const title = wc.getTitle() || "(untitled)";
+          const url = wc.getURL();
+          return makeImageResult(
+            shot.base64,
+            `Screenshot of "${title}" (${url}) — ${shot.width}x${shot.height}, captured in ${screenshotMs}ms. Analyze the image to understand the current visual state of the page.`,
+          );
+        }
+
         case "current_tab": {
           const active = ctx.tabManager.getActiveTab();
           const activeId = ctx.tabManager.getActiveTabId();
@@ -3515,14 +3511,12 @@ export async function executeAction(
           // Try full extraction first; if the page JS thread is busy
           // (common on heavy SPAs after navigation), fall back to a
           // lightweight native-only read so the agent isn't blocked.
-          console.log("[Vessel read_page] starting extraction with 6s timeout");
           let content: Awaited<ReturnType<typeof extractContent>> | null = null;
           try {
             content = await Promise.race([
               extractContent(wc),
               new Promise<null>((resolve) =>
                 setTimeout(() => {
-                  console.log("[Vessel read_page] timeout fired, falling back");
                   resolve(null);
                 }, 6000),
               ),
@@ -3530,9 +3524,6 @@ export async function executeAction(
           } catch {
             content = null;
           }
-          console.log(
-            `[Vessel read_page] extraction result: ${content ? `content=${content.content.length}` : "null (timeout)"}`,
-          );
 
           // If extraction failed or returned empty content, try a quick iframe
           // consent dismiss (2s budget) then fall through to emergency extraction.
@@ -3540,14 +3531,12 @@ export async function executeAction(
           // another full extractContent internally which will also time out on
           // heavy pages, adding 10+ seconds of dead time.
           if (!content || content.content.length === 0) {
-            console.log("[Vessel read_page] content empty/null, trying quick iframe dismiss");
             try {
               const iframeResult = await Promise.race([
                 tryDismissConsentIframe(wc),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
               ]);
               if (iframeResult) {
-                console.log(`[Vessel read_page] iframe dismiss: ${iframeResult}`);
                 await sleep(500);
                 // Quick retry — only 3s budget since we don't want to block long
                 try {
@@ -3600,7 +3589,6 @@ export async function executeAction(
 
           // Full extraction failed — fall back to glance mode which uses
           // textContent (no layout reflow) and can work on blocked JS threads
-          console.log("[Vessel read_page] falling back to glance mode");
           return glanceExtract(wc);
         }
 
