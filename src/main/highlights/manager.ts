@@ -31,11 +31,9 @@ function load(): HighlightsState {
 }
 
 function save(): void {
-  try {
-    fs.writeFileSync(getHighlightsPath(), JSON.stringify(state, null, 2), "utf-8");
-  } catch (err) {
-    console.error("[Vessel] Failed to save highlights:", err);
-  }
+  fs.promises
+    .writeFile(getHighlightsPath(), JSON.stringify(state, null, 2), "utf-8")
+    .catch((err) => console.error("[Vessel] Failed to save highlights:", err));
 }
 
 function emit(): void {

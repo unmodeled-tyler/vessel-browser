@@ -458,7 +458,7 @@ export class AgentRuntime {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private persistDirty = false;
 
-  private persistNow(): void {
+  private persistNow(): Promise<void> {
     this.persistDirty = false;
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
@@ -475,16 +475,18 @@ export class AgentRuntime {
       checkpoints: this.state.checkpoints.slice(-MAX_CHECKPOINTS),
     };
 
-    try {
-      fs.mkdirSync(path.dirname(getRuntimeStatePath()), { recursive: true });
-      fs.writeFileSync(
-        getRuntimeStatePath(),
-        JSON.stringify(persisted, null, 2),
-        "utf-8",
+    return fs.promises
+      .mkdir(path.dirname(getRuntimeStatePath()), { recursive: true })
+      .then(() =>
+        fs.promises.writeFile(
+          getRuntimeStatePath(),
+          JSON.stringify(persisted, null, 2),
+          "utf-8",
+        ),
+      )
+      .catch((err) =>
+        console.error("[Vessel] Failed to persist runtime state:", err),
       );
-    } catch (err) {
-      console.error("[Vessel] Failed to persist runtime state:", err);
-    }
   }
 
   private schedulePersist(): void {
@@ -497,8 +499,8 @@ export class AgentRuntime {
   }
 
   /** Flush any pending debounced persist to disk immediately. Call on shutdown. */
-  flushPersist(): void {
-    if (this.persistDirty) this.persistNow();
+  flushPersist(): Promise<void> {
+    return this.persistDirty ? this.persistNow() : Promise.resolve();
   }
 
   private emit(): void {

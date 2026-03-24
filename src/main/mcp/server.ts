@@ -5460,15 +5460,22 @@ export function startMcpServer(
         return;
       }
 
-      res.setHeader("Access-Control-Allow-Origin", "null");
-      res.setHeader(
-        "Access-Control-Allow-Methods",
-        "POST, GET, DELETE, OPTIONS",
-      );
-      res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, mcp-session-id, Authorization",
-      );
+      // Only allow CORS from localhost origins (defense-in-depth alongside auth token)
+      const origin = req.headers.origin;
+      if (
+        origin &&
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader(
+          "Access-Control-Allow-Methods",
+          "POST, GET, DELETE, OPTIONS",
+        );
+        res.setHeader(
+          "Access-Control-Allow-Headers",
+          "Content-Type, mcp-session-id, Authorization",
+        );
+      }
 
       if (req.method === "OPTIONS") {
         res.writeHead(204);
