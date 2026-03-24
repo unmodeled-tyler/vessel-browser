@@ -49,8 +49,8 @@ export class AnthropicProvider implements AIProvider {
           onChunk(event.delta.text);
         }
       }
-    } catch (err: any) {
-      if (err.name !== "AbortError") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== "AbortError") {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {
@@ -190,8 +190,9 @@ export class AnthropicProvider implements AIProvider {
           let result: string;
           try {
             result = await onToolCall(tb.name, tb.input);
-          } catch (toolErr: any) {
-            result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
+          } catch (toolErr: unknown) {
+            const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+            result = `Error: Tool execution failed — ${msg}. Try a different approach or call read_page to refresh context.`;
           }
 
           // Check if the result contains rich content (images)
@@ -234,8 +235,8 @@ export class AnthropicProvider implements AIProvider {
       if (iterationsUsed >= maxIterations) {
         onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
       }
-    } catch (err: any) {
-      if (err.name !== "AbortError") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== "AbortError") {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {

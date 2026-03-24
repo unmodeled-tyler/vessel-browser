@@ -4,7 +4,7 @@ import path from "path";
 import { TabManager } from "./tabs/tab-manager";
 import { loadSettings } from "./config/settings";
 import { Channels } from "../shared/channels";
-import type { UIState } from "../shared/types";
+import type { UIState, TabState } from "../shared/types";
 
 /**
  * Ensure clipboard keyboard shortcuts (Ctrl+C/V/X/A) work in a WebContentsView.
@@ -197,7 +197,7 @@ function getWindowIconPath(): string | undefined {
 }
 
 export function createMainWindow(
-  onTabStateChange: (tabs: any[], activeId: string) => void,
+  onTabStateChange: (tabs: TabState[], activeId: string) => void,
 ): WindowState {
   const mainWindow = new BaseWindow({
     width: 1280,

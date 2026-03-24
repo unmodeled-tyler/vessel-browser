@@ -4,7 +4,7 @@ import type { AIProvider } from './provider';
 import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
 import { loadSettings } from '../config/settings';
-import { isRichToolResult } from './tool-result';
+import { isRichToolResult, type TextBlock } from './tool-result';
 
 const DEFAULT_MAX_ITERATIONS = 200;
 
@@ -67,8 +67,8 @@ export class OpenAICompatProvider implements AIProvider {
           onChunk(delta);
         }
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {
@@ -198,8 +198,9 @@ export class OpenAICompatProvider implements AIProvider {
           let result: string;
           try {
             result = await onToolCall(tc.name, args);
-          } catch (toolErr: any) {
-            result = `Error: Tool execution failed — ${toolErr.message || toolErr}. Try a different approach or call read_page to refresh context.`;
+          } catch (toolErr: unknown) {
+            const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+            result = `Error: Tool execution failed — ${msg}. Try a different approach or call read_page to refresh context.`;
           }
 
           // OpenAI doesn't support image content in tool results — extract text only
@@ -208,8 +209,8 @@ export class OpenAICompatProvider implements AIProvider {
             const parsed = JSON.parse(result);
             if (isRichToolResult(parsed)) {
               toolContent = parsed.content
-                .filter((b: any) => b.type === 'text')
-                .map((b: any) => b.text)
+                .filter((b): b is TextBlock => b.type === 'text')
+                .map((b) => b.text)
                 .join('\n');
             }
           } catch {
@@ -226,8 +227,8 @@ export class OpenAICompatProvider implements AIProvider {
       if (iterationsUsed >= maxIterations) {
         onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
       }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== 'AbortError') {
         onChunk(`\n\n[Error: ${err.message}]`);
       }
     } finally {
