@@ -579,7 +579,7 @@ export class AgentRuntime {
       if (!toolBreakdown[name]) toolBreakdown[name] = { count: 0, totalMs: 0, avgMs: 0, errors: 0 };
       toolBreakdown[name].count++;
       if (action.durationMs != null) toolBreakdown[name].totalMs += action.durationMs;
-      if (action.status === "error") toolBreakdown[name].errors++;
+      if (action.status === "failed") toolBreakdown[name].errors++;
     }
     for (const entry of Object.values(toolBreakdown)) {
       entry.avgMs = entry.count > 0 ? Math.round(entry.totalMs / entry.count) : 0;
