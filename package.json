@@ -24,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "test:navigation-regression": "electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
-    "smoke:test": "node scripts/smoke-test.mjs"
+    "smoke:test": "node scripts/smoke-test.mjs",
+    "test:coverage": "c8 --reporter=text --reporter=html node --test tests/**/*.test.ts"
   },
   "keywords": [
     "agent-browser",
@@ -57,6 +58,7 @@
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "solid-js": "^1.9.11",
+    "c8": "^10.1.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite-plugin-solid": "^2.11.11"

@@ -86,7 +86,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     const poll = async () => {
       try {
         const count =
-          (await (window as any).vessel?.highlights?.getCount?.()) ?? 0;
+          (await window.vessel.highlights.getCount()) ?? 0;
         setHighlightCount(count);
         // Reset index if highlights were cleared
         if (count === 0 && highlightIndex() >= 0) setHighlightIndex(-1);
@@ -104,26 +104,26 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     if (count === 0) return;
     const clamped = Math.max(0, Math.min(idx, count - 1));
     setHighlightIndex(clamped);
-    await (window as any).vessel?.highlights?.scrollTo?.(clamped);
+    await window.vessel.highlights.scrollTo(clamped);
   };
 
   const removeCurrentHighlight = async () => {
     const idx = highlightIndex();
     if (idx < 0) return;
-    await (window as any).vessel?.highlights?.remove?.(idx);
+    await window.vessel.highlights.remove(idx);
     const newCount =
-      (await (window as any).vessel?.highlights?.getCount?.()) ?? 0;
+      (await window.vessel.highlights.getCount()) ?? 0;
     setHighlightCount(newCount);
     if (newCount === 0) {
       setHighlightIndex(-1);
     } else if (idx >= newCount) {
       setHighlightIndex(newCount - 1);
-      await (window as any).vessel?.highlights?.scrollTo?.(newCount - 1);
+      await window.vessel.highlights.scrollTo(newCount - 1);
     }
   };
 
   const clearAllHighlights = async () => {
-    await (window as any).vessel?.highlights?.clearAll?.();
+    await window.vessel.highlights.clearAll();
     setHighlightCount(0);
     setHighlightIndex(-1);
   };

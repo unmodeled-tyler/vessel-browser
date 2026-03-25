@@ -91,12 +91,12 @@ export function loadSettings(): VesselSettings {
 }
 
 function saveSettings(): void {
-  try {
-    fs.mkdirSync(path.dirname(getSettingsPath()), { recursive: true });
-    fs.writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2));
-  } catch (err) {
-    console.error("[Vessel] Failed to save settings:", err);
-  }
+  fs.promises
+    .mkdir(path.dirname(getSettingsPath()), { recursive: true })
+    .then(() =>
+      fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)),
+    )
+    .catch((err) => console.error("[Vessel] Failed to save settings:", err));
 }
 
 export function setSetting<K extends keyof VesselSettings>(
