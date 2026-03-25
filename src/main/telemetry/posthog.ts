@@ -1,0 +1,198 @@
+import { app } from "electron";
+import { randomUUID } from "crypto";
+import fs from "fs";
+import path from "path";
+import { loadSettings } from "../config/settings";
+import { isPremium } from "../premium/manager";
+
+/**
+ * Vessel Telemetry — anonymous usage analytics via PostHog.
+ *
+ * What we track:
+ *   - App launches (DAU/WAU/MAU)
+ *   - Tool calls by name (popularity, no arguments or results)
+ *   - AI provider type (anthropic/openai/ollama/etc, never keys)
+ *   - Premium status (free/active/trialing)
+ *   - Page types agents interact with
+ *   - Session duration (approximate)
+ *
+ * What we NEVER track:
+ *   - URLs, page content, queries, bookmarks, highlights
+ *   - API keys, emails, or any PII
+ *   - Tool arguments or results
+ *   - Specific page content or user data
+ *
+ * Users can opt out at any time in Settings.
+ */
+
+const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY || "phc_OMeM3P5cxJwl14lOKxYad0Yre52xvjNfkLEFnPtXyM";
+const POSTHOG_HOST =
+  process.env.POSTHOG_HOST || "https://us.i.posthog.com";
+
+const BATCH_INTERVAL_MS = 60_000; // Flush every 60 seconds
+const MAX_BATCH_SIZE = 50;
+
+// --- Anonymous device ID (persistent, no PII) ---
+
+function getDeviceIdPath(): string {
+  return path.join(app.getPath("userData"), ".vessel-device-id");
+}
+
+let deviceId: string | null = null;
+
+function getDeviceId(): string {
+  if (deviceId) return deviceId;
+  const idPath = getDeviceIdPath();
+  try {
+    deviceId = fs.readFileSync(idPath, "utf-8").trim();
+    if (deviceId) return deviceId;
+  } catch {
+    // File doesn't exist yet
+  }
+  deviceId = randomUUID();
+  try {
+    fs.mkdirSync(path.dirname(idPath), { recursive: true });
+    fs.writeFileSync(idPath, deviceId, "utf-8");
+  } catch {
+    // Non-critical — we'll generate a new one next launch
+  }
+  return deviceId;
+}
+
+// --- Event queue ---
+
+interface TelemetryEvent {
+  event: string;
+  properties: Record<string, unknown>;
+  timestamp: string;
+}
+
+let eventQueue: TelemetryEvent[] = [];
+let flushTimer: ReturnType<typeof setInterval> | null = null;
+let sessionStartedAt: number | null = null;
+
+function isEnabled(): boolean {
+  if (POSTHOG_API_KEY === "YOUR_POSTHOG_KEY_HERE") return false;
+  return loadSettings().telemetryEnabled !== false;
+}
+
+// --- Public API ---
+
+export function trackEvent(
+  event: string,
+  properties: Record<string, unknown> = {},
+): void {
+  if (!isEnabled()) return;
+
+  eventQueue.push({
+    event,
+    properties: {
+      ...properties,
+      premium_status: isPremium() ? "premium" : "free",
+      app_version: app.getVersion(),
+      platform: process.platform,
+      arch: process.arch,
+    },
+    timestamp: new Date().toISOString(),
+  });
+
+  if (eventQueue.length >= MAX_BATCH_SIZE) {
+    void flush();
+  }
+}
+
+export function trackToolCall(toolName: string, pageType?: string): void {
+  trackEvent("tool_called", {
+    tool_name: toolName,
+    page_type: pageType || "unknown",
+  });
+}
+
+export function trackProviderConfigured(providerId: string): void {
+  trackEvent("provider_configured", {
+    provider_id: providerId,
+  });
+}
+
+export function trackPageTypeDetected(pageType: string): void {
+  trackEvent("page_type_detected", {
+    page_type: pageType,
+  });
+}
+
+// --- Lifecycle ---
+
+export function startTelemetry(): void {
+  if (!isEnabled()) return;
+
+  sessionStartedAt = Date.now();
+
+  trackEvent("app_launched", {
+    electron_version: process.versions.electron,
+    chrome_version: process.versions.chrome,
+  });
+
+  // Periodic flush
+  flushTimer = setInterval(() => {
+    void flush();
+  }, BATCH_INTERVAL_MS);
+}
+
+export function stopTelemetry(): void {
+  if (sessionStartedAt) {
+    const durationMinutes = Math.round(
+      (Date.now() - sessionStartedAt) / 60_000,
+    );
+    trackEvent("app_session_ended", {
+      duration_minutes: durationMinutes,
+    });
+    sessionStartedAt = null;
+  }
+
+  if (flushTimer) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+
+  // Final synchronous flush on shutdown
+  void flush();
+}
+
+// --- PostHog batch API ---
+
+async function flush(): Promise<void> {
+  if (eventQueue.length === 0) return;
+  if (!isEnabled()) {
+    eventQueue = [];
+    return;
+  }
+
+  const batch = eventQueue.splice(0);
+  const distinctId = getDeviceId();
+
+  const payload = {
+    api_key: POSTHOG_API_KEY,
+    batch: batch.map((e) => ({
+      event: e.event,
+      properties: {
+        distinct_id: distinctId,
+        ...e.properties,
+      },
+      timestamp: e.timestamp,
+    })),
+  };
+
+  try {
+    await fetch(`${POSTHOG_HOST}/batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Silently fail — telemetry should never block the app.
+    // Re-queue events for next flush attempt (drop if too many).
+    if (eventQueue.length < MAX_BATCH_SIZE * 2) {
+      eventQueue.unshift(...batch);
+    }
+  }
+}

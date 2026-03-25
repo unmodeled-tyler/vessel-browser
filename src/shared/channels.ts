@@ -88,6 +88,14 @@ export const Channels = {
   DOWNLOAD_PROGRESS: "download:progress",
   DOWNLOAD_DONE: "download:done",
 
+  // Premium
+  PREMIUM_GET_STATE: "premium:get-state",
+  PREMIUM_ACTIVATE: "premium:activate",
+  PREMIUM_CHECKOUT: "premium:checkout",
+  PREMIUM_PORTAL: "premium:portal",
+  PREMIUM_RESET: "premium:reset",
+  PREMIUM_UPDATE: "premium:update",
+
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",

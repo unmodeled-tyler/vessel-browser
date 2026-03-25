@@ -3,8 +3,8 @@ import type Anthropic from '@anthropic-ai/sdk';
 import type { AIProvider } from './provider';
 import type { AIMessage, ProviderConfig } from '../../shared/types';
 import { PROVIDERS } from './providers';
-import { loadSettings } from '../config/settings';
 import { isRichToolResult, type TextBlock } from './tool-result';
+import { getEffectiveMaxIterations } from '../premium/manager';
 
 const DEFAULT_MAX_ITERATIONS = 200;
 
@@ -96,7 +96,7 @@ export class OpenAICompatProvider implements AIProvider {
     ];
 
     try {
-      const maxIterations = loadSettings().maxToolIterations || DEFAULT_MAX_ITERATIONS;
+      const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
