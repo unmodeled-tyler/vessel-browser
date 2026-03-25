@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { PageType } from "../ai/context-builder";
 import { TOOL_DEFINITIONS, type ToolDefinition } from "./definitions";
+import { isToolGated } from "../premium/manager";
 
 /**
  * Speedee System — Progressive Disclosure
@@ -215,8 +216,9 @@ export function pruneToolsForContext(
   const hints = CONTEXT_HINTS[ctx] ?? {};
   const intents = inferIntent(query);
 
-  // Score, sort, annotate
+  // Score, sort, annotate — filter out premium-gated tools for free-tier users
   const scored = tools
+    .filter((tool) => !isToolGated(tool.name))
     .filter((tool) => shouldIncludeTool(tool.name, ctx, intents))
     .map((tool) => ({
       tool,

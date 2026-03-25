@@ -17,6 +17,13 @@ const defaults: VesselSettings = {
   maxToolIterations: 200,
   domainPolicy: { allowedDomains: [], blockedDomains: [] },
   downloadPath: "",
+  premium: {
+    status: "free",
+    customerId: "",
+    email: "",
+    validatedAt: "",
+    expiresAt: "",
+  },
 };
 
 /** Allowlist of setting keys accepted via IPC. */

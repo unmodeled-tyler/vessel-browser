@@ -6,6 +6,13 @@ import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting, SETTABLE_KEYS } from "../config/settings";
 import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import { getRuntimeHealth } from "../health/runtime-health";
+import {
+  getPremiumState,
+  activateWithEmail,
+  getCheckoutUrl,
+  getPortalUrl,
+  resetPremium,
+} from "../premium/manager";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
@@ -472,6 +479,42 @@ export function registerIpcHandlers(
     windowState.uiState.devtoolsPanelHeight = clamped;
     layoutViews(windowState);
     return clamped;
+  });
+
+  // --- Premium subscription ---
+
+  ipcMain.handle(Channels.PREMIUM_GET_STATE, () => {
+    return getPremiumState();
+  });
+
+  ipcMain.handle(Channels.PREMIUM_ACTIVATE, async (_, email: string) => {
+    const result = await activateWithEmail(email);
+    if (result.ok) {
+      sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
+    }
+    return result;
+  });
+
+  ipcMain.handle(Channels.PREMIUM_CHECKOUT, async (_, email?: string) => {
+    const result = await getCheckoutUrl(email);
+    if (result.ok && result.url) {
+      tabManager.createTab(result.url);
+    }
+    return result;
+  });
+
+  ipcMain.handle(Channels.PREMIUM_RESET, () => {
+    const state = resetPremium();
+    sendToRendererViews(Channels.PREMIUM_UPDATE, state);
+    return state;
+  });
+
+  ipcMain.handle(Channels.PREMIUM_PORTAL, async () => {
+    const result = await getPortalUrl();
+    if (result.ok && result.url) {
+      tabManager.createTab(result.url);
+    }
+    return result;
   });
 
   // --- Window controls ---

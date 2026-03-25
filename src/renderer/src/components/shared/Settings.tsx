@@ -10,6 +10,7 @@ import {
 import { useUI } from "../../stores/ui";
 import type {
   AgentTranscriptDisplayMode,
+  PremiumState,
   ProviderId,
   ProviderConfig,
   RuntimeHealthState,
@@ -42,6 +43,26 @@ const Settings: Component = () => {
     kind: "success" | "error";
     text: string;
   } | null>(null);
+
+  // Premium subscription
+  const [premiumState, setPremiumState] = createSignal<PremiumState>({
+    status: "free",
+    customerId: "",
+    email: "",
+    validatedAt: "",
+    expiresAt: "",
+  });
+  const [premiumEmail, setPremiumEmail] = createSignal("");
+  const [premiumLoading, setPremiumLoading] = createSignal(false);
+  const [premiumMessage, setPremiumMessage] = createSignal<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  const premiumActive = () => {
+    const s = premiumState().status;
+    return s === "active" || s === "trialing";
+  };
 
   // Chat provider settings
   const [chatEnabled, setChatEnabled] = createSignal(false);
@@ -122,6 +143,12 @@ const Settings: Component = () => {
       setChatModel(cp.model);
       setChatBaseUrl(cp.baseUrl ?? "");
     }
+    // Load premium state
+    try {
+      const ps = await window.vessel.premium.getState();
+      setPremiumState(ps);
+      if (ps.email) setPremiumEmail(ps.email);
+    } catch { /* premium API not available */ }
   };
 
   onMount(() => {
@@ -263,21 +290,38 @@ const Settings: Component = () => {
             <label class="settings-label" for="max-tool-iterations">
               Max Tool Iterations
             </label>
-            <input
-              id="max-tool-iterations"
-              class="settings-input"
-              type="number"
-              min="10"
-              max="1000"
-              value={maxToolIterations()}
-              onInput={(e) => setMaxToolIterations(e.currentTarget.value)}
-              placeholder="200"
-            />
+            <Show
+              when={premiumActive()}
+              fallback={
+                <div
+                  class="settings-input settings-input-disabled"
+                  title="Upgrade to Vessel Premium for unlimited tool iterations"
+                >
+                  50
+                </div>
+              }
+            >
+              <input
+                id="max-tool-iterations"
+                class="settings-input"
+                type="number"
+                min="10"
+                max="1000"
+                value={maxToolIterations()}
+                onInput={(e) => setMaxToolIterations(e.currentTarget.value)}
+                placeholder="200"
+              />
+            </Show>
             <p class="settings-hint">
-              Maximum number of tool calls the AI agent can make per
-              conversation turn before pausing. Higher values let the agent
-              complete longer multi-step workflows without stopping.
-              Range: 10–1000.
+              <Show
+                when={premiumActive()}
+                fallback="Free tier: 50 tool calls per conversation turn. Upgrade to Vessel Premium to customize this limit (up to 1,000)."
+              >
+                Maximum number of tool calls the AI agent can make per
+                conversation turn before pausing. Higher values let the agent
+                complete longer multi-step workflows without stopping.
+                Range: 10–1000.
+              </Show>
             </p>
           </div>
 
@@ -528,6 +572,145 @@ const Settings: Component = () => {
             </Show>
           </Show>
 
+          <div class="settings-section-divider" />
+
+          {/* --- Premium Subscription --- */}
+          <div class="settings-field">
+            <label class="settings-label">Vessel Premium</label>
+            <Show
+              when={premiumActive()}
+              fallback={
+                <div class="premium-section">
+                  <p class="premium-description">
+                    Unlock screenshot/vision analysis, session management,
+                    Obsidian integration, workflow tracking, DevTools tools,
+                    table extraction, and unlimited tool iterations.
+                  </p>
+                  <div class="premium-activate-row">
+                    <input
+                      class="settings-input premium-email-input"
+                      type="email"
+                      placeholder="Enter your subscription email"
+                      value={premiumEmail()}
+                      onInput={(e) => setPremiumEmail(e.currentTarget.value)}
+                      spellcheck={false}
+                    />
+                    <button
+                      class="premium-btn premium-btn-activate"
+                      disabled={premiumLoading() || !premiumEmail().trim()}
+                      onClick={async () => {
+                        setPremiumLoading(true);
+                        setPremiumMessage(null);
+                        try {
+                          const result = await window.vessel.premium.activate(
+                            premiumEmail().trim(),
+                          );
+                          setPremiumState(result.state);
+                          if (result.ok) {
+                            setPremiumMessage({
+                              kind: "success",
+                              text: "Premium activated!",
+                            });
+                          } else {
+                            setPremiumMessage({
+                              kind: "error",
+                              text: result.error || "Activation failed",
+                            });
+                          }
+                        } catch (err) {
+                          setPremiumMessage({
+                            kind: "error",
+                            text:
+                              err instanceof Error
+                                ? err.message
+                                : "Activation failed",
+                          });
+                        } finally {
+                          setPremiumLoading(false);
+                        }
+                      }}
+                    >
+                      {premiumLoading() ? "Checking..." : "Activate"}
+                    </button>
+                  </div>
+                  <button
+                    class="premium-btn premium-btn-upgrade"
+                    onClick={() => {
+                      void window.vessel.premium.checkout(
+                        premiumEmail().trim() || undefined,
+                      );
+                    }}
+                  >
+                    Subscribe to Premium — 5-day free trial
+                  </button>
+                  <Show when={premiumMessage()}>
+                    {(msg) => (
+                      <p
+                        class="settings-status"
+                        classList={{
+                          success: msg().kind === "success",
+                          error: msg().kind === "error",
+                        }}
+                      >
+                        {msg().text}
+                      </p>
+                    )}
+                  </Show>
+                  <Show when={premiumState().email || premiumEmail()}>
+                    <button
+                      class="premium-btn premium-btn-reset"
+                      onClick={async () => {
+                        const state = await window.vessel.premium.reset();
+                        setPremiumState(state);
+                        setPremiumEmail("");
+                        setPremiumMessage(null);
+                      }}
+                    >
+                      Clear Saved Email
+                    </button>
+                  </Show>
+                </div>
+              }
+            >
+              <div class="premium-section">
+                <div class="premium-active-badge">
+                  Premium Active
+                  <Show when={premiumState().status === "trialing"}>
+                    {" "}(Trial)
+                  </Show>
+                </div>
+                <p class="premium-detail">
+                  {premiumState().email}
+                  <Show when={premiumState().expiresAt}>
+                    {" "}&middot; Renews{" "}
+                    {new Date(premiumState().expiresAt).toLocaleDateString()}
+                  </Show>
+                </p>
+                <div class="premium-actions-row">
+                  <button
+                    class="premium-btn premium-btn-manage"
+                    onClick={() => {
+                      void window.vessel.premium.portal();
+                    }}
+                  >
+                    Manage Subscription
+                  </button>
+                  <button
+                    class="premium-btn premium-btn-reset"
+                    onClick={async () => {
+                      const state = await window.vessel.premium.reset();
+                      setPremiumState(state);
+                      setPremiumEmail("");
+                      setPremiumMessage(null);
+                    }}
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            </Show>
+          </div>
+
           <div class="settings-actions">
             <button class="settings-save" onClick={handleSave}>
               Save
@@ -777,6 +960,116 @@ const Settings: Component = () => {
         .settings-refresh-btn:disabled {
           opacity: 0.4;
           cursor: default;
+        }
+
+        .settings-input-disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+          user-select: none;
+          display: flex;
+          align-items: center;
+        }
+
+        /* Premium section */
+        .premium-section {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .premium-description {
+          color: var(--text-secondary);
+          font-size: 12px;
+          line-height: 1.5;
+          margin: 0;
+        }
+        .premium-activate-row {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .premium-email-input {
+          flex: 1;
+          min-width: 0;
+        }
+        .premium-btn {
+          height: 34px;
+          padding: 0 16px;
+          border-radius: var(--radius-md);
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          border: none;
+          transition:
+            background var(--duration-fast) var(--ease-in-out),
+            transform var(--duration-fast) var(--ease-out-expo);
+          white-space: nowrap;
+        }
+        .premium-btn:active {
+          transform: scale(0.97);
+        }
+        .premium-btn:disabled {
+          opacity: 0.5;
+          cursor: default;
+        }
+        .premium-btn-activate {
+          background: var(--bg-tertiary);
+          color: var(--text-primary);
+          border: 1px solid var(--border-subtle);
+        }
+        .premium-btn-activate:hover:not(:disabled) {
+          background: var(--border-visible);
+        }
+        .premium-btn-upgrade {
+          background: var(--accent-primary);
+          color: white;
+          width: 100%;
+        }
+        .premium-btn-upgrade:hover {
+          background: #d4b06a;
+        }
+        .premium-btn-manage {
+          background: var(--bg-tertiary);
+          color: var(--text-secondary);
+          border: 1px solid var(--border-subtle);
+          align-self: flex-start;
+        }
+        .premium-btn-manage:hover {
+          background: var(--border-visible);
+          color: var(--text-primary);
+        }
+        .premium-active-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: rgba(240, 198, 54, 0.15);
+          color: #f0c636;
+          font-size: 12px;
+          font-weight: 600;
+          padding: 4px 12px;
+          border-radius: var(--radius-md);
+          align-self: flex-start;
+        }
+        .premium-detail {
+          color: var(--text-secondary);
+          font-size: 12px;
+          margin: 0;
+        }
+        .premium-actions-row {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        .premium-btn-reset {
+          background: transparent;
+          color: var(--text-tertiary, #71717a);
+          border: 1px solid var(--border-subtle);
+          font-size: 11px;
+          padding: 0 12px;
+          height: 30px;
+        }
+        .premium-btn-reset:hover {
+          color: var(--text-secondary);
+          background: var(--bg-tertiary);
         }
       `}</style>
     </Show>

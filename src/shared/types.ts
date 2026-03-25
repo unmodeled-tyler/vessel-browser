@@ -402,6 +402,16 @@ export interface HistoryState {
   entries: HistoryEntry[];
 }
 
+export type PremiumStatus = "free" | "active" | "trialing" | "past_due" | "canceled";
+
+export interface PremiumState {
+  status: PremiumStatus;
+  customerId: string;
+  email: string;
+  validatedAt: string;
+  expiresAt: string;
+}
+
 export interface VesselSettings {
   defaultUrl: string;
   theme: "dark";
@@ -416,6 +426,7 @@ export interface VesselSettings {
   maxToolIterations: number;
   domainPolicy: DomainPolicy;
   downloadPath: string;
+  premium: PremiumState;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";

@@ -9,6 +9,7 @@ import type {
   BookmarkFolder,
   BookmarksState,
   HistoryState,
+  PremiumState,
   RuntimeHealthState,
   SessionSnapshot,
   VesselSettings,
@@ -249,6 +250,24 @@ const api = {
       ipcRenderer.on(Channels.HISTORY_UPDATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.HISTORY_UPDATE, handler);
+    },
+  },
+  premium: {
+    getState: (): Promise<PremiumState> =>
+      ipcRenderer.invoke(Channels.PREMIUM_GET_STATE),
+    activate: (email: string): Promise<{ ok: boolean; state: PremiumState; error?: string }> =>
+      ipcRenderer.invoke(Channels.PREMIUM_ACTIVATE, email),
+    checkout: (email?: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(Channels.PREMIUM_CHECKOUT, email),
+    portal: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(Channels.PREMIUM_PORTAL),
+    reset: (): Promise<PremiumState> =>
+      ipcRenderer.invoke(Channels.PREMIUM_RESET),
+    onUpdate: (cb: (state: PremiumState) => void): (() => void) => {
+      const handler = (_: unknown, state: PremiumState) => cb(state);
+      ipcRenderer.on(Channels.PREMIUM_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.PREMIUM_UPDATE, handler);
     },
   },
   window: {
