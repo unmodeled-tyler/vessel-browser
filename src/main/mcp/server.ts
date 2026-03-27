@@ -2135,7 +2135,7 @@ function registerTools(
           ),
       },
     },
-    async ({ url }) => {
+    async ({ url, postBody }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asTextResponse("Error: No active tab");
       const preCheck = await validateLinkDestination(url);
@@ -2146,7 +2146,7 @@ function registerTools(
       }
       return withAction(runtime, tabManager, "navigate", { url }, async () => {
         const id = tabManager.getActiveTabId()!;
-        tabManager.navigateTab(id, url, args.postBody);
+        tabManager.navigateTab(id, url, postBody);
         const { httpStatus } = await waitForLoadWithStatus(
           tab.view.webContents,
         );
