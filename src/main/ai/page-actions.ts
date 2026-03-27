@@ -3329,7 +3329,7 @@ export async function executeAction(
           if (navValidation.status === "dead") {
             return `Navigation blocked: ${args.url} returned ${navValidation.detail || "dead link"}. Try a different URL or go back and choose another link.`;
           }
-          ctx.tabManager.navigateTab(tabId, args.url);
+          ctx.tabManager.navigateTab(tabId, args.url, args.postBody);
           await waitForLoad(wc);
           return `Navigated to ${wc.getURL()}${await getPostNavSummary(wc)}`;
         }

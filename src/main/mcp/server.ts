@@ -2123,8 +2123,17 @@ function registerTools(
     "vessel_navigate",
     {
       title: "Navigate",
-      description: "Navigate the active browser tab to a URL.",
-      inputSchema: { url: z.string().describe("The URL to navigate to") },
+      description:
+        "Navigate the active browser tab to a URL. Use postBody to submit data via POST request (e.g. form submissions).",
+      inputSchema: {
+        url: z.string().describe("The URL to navigate to"),
+        postBody: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            "Optional form fields to submit via POST (application/x-www-form-urlencoded). Only supported on http/https URLs.",
+          ),
+      },
     },
     async ({ url }) => {
       const tab = tabManager.getActiveTab();
@@ -2137,7 +2146,7 @@ function registerTools(
       }
       return withAction(runtime, tabManager, "navigate", { url }, async () => {
         const id = tabManager.getActiveTabId()!;
-        tabManager.navigateTab(id, url);
+        tabManager.navigateTab(id, url, args.postBody);
         const { httpStatus } = await waitForLoadWithStatus(
           tab.view.webContents,
         );

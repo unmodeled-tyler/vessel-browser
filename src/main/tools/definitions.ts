@@ -68,9 +68,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "navigate",
     title: "Navigate",
-    description: "Navigate the browser to a URL.",
+    description:
+      "Navigate the browser to a URL. Use postBody to submit data via POST request (e.g. form submissions).",
     inputSchema: {
       url: z.string().describe("The URL to navigate to"),
+      postBody: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          "Optional form fields to submit via POST (application/x-www-form-urlencoded). Only supported on http/https URLs.",
+        ),
     },
     tier: 0,
   },

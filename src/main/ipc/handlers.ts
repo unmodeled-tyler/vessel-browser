@@ -98,11 +98,14 @@ export function registerIpcHandlers(
     layoutViews(windowState);
   });
 
-  ipcMain.handle(Channels.TAB_NAVIGATE, (_, id: string, url: string) => {
-    assertString(id, "tabId");
-    assertString(url, "url");
-    tabManager.navigateTab(id, url);
-  });
+  ipcMain.handle(
+    Channels.TAB_NAVIGATE,
+    (_, id: string, url: string, postBody?: Record<string, string>) => {
+      assertString(id, "tabId");
+      assertString(url, "url");
+      tabManager.navigateTab(id, url, postBody);
+    },
+  );
 
   ipcMain.handle(Channels.TAB_BACK, (_, id: string) => {
     tabManager.goBack(id);

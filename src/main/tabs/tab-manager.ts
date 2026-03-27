@@ -100,9 +100,13 @@ export class TabManager {
     }
   }
 
-  navigateTab(id: string, url: string): void {
+  navigateTab(
+    id: string,
+    url: string,
+    postBody?: Record<string, string>,
+  ): void {
     const tab = this.tabs.get(id);
-    if (tab) tab.navigate(url);
+    if (tab) tab.navigate(url, postBody);
   }
 
   goBack(id: string): boolean {
