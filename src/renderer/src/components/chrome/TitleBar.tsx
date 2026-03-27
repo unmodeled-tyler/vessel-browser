@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, type Component } from 'solid-js';
+import { createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import type { RuntimeHealthState } from '../../../shared/types';
 import './chrome.css';
 
@@ -6,29 +6,31 @@ const TitleBar: Component = () => {
   const [mcpStatus, setMcpStatus] = createSignal<'ready' | 'error' | 'starting' | 'stopped'>('starting');
   const [mcpTooltip, setMcpTooltip] = createSignal('MCP: starting...');
 
-  const pollHealth = async () => {
+  const applyHealth = (health: RuntimeHealthState) => {
+    setMcpStatus(health.mcp.status as 'ready' | 'error' | 'starting' | 'stopped');
+    if (health.mcp.status === 'ready') {
+      setMcpTooltip(`MCP ready — ${health.mcp.endpoint}`);
+    } else if (health.mcp.status === 'error') {
+      setMcpTooltip(`MCP error: ${health.mcp.message}`);
+    } else {
+      setMcpTooltip(`MCP: ${health.mcp.status}`);
+    }
+  };
+
+  const loadHealth = async () => {
     try {
-      const health: RuntimeHealthState = await window.vessel.settings.getHealth();
-      setMcpStatus(health.mcp.status as 'ready' | 'error' | 'starting' | 'stopped');
-      if (health.mcp.status === 'ready') {
-        setMcpTooltip(`MCP ready — ${health.mcp.endpoint}`);
-      } else if (health.mcp.status === 'error') {
-        setMcpTooltip(`MCP error: ${health.mcp.message}`);
-      } else {
-        setMcpTooltip(`MCP: ${health.mcp.status}`);
-      }
+      applyHealth(await window.vessel.settings.getHealth());
     } catch {
       setMcpStatus('error');
       setMcpTooltip('MCP: status unavailable');
     }
   };
 
-  let healthInterval: ReturnType<typeof setInterval>;
   onMount(() => {
-    void pollHealth();
-    healthInterval = setInterval(() => void pollHealth(), 10000);
+    void loadHealth();
+    const unsubscribe = window.vessel.settings.onHealthUpdate(applyHealth);
+    onCleanup(unsubscribe);
   });
-  onCleanup(() => clearInterval(healthInterval));
 
   const handleMcpClick = () => {
     window.vessel.ui.setSettingsVisibility(true);

@@ -29,7 +29,9 @@ import {
   setupAppMenu,
   loadRenderers,
 } from "./startup";
+import { getHighlightCount } from "./highlights/inject";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
+import * as highlightsManager from "./highlights/manager";
 
 let runtime: AgentRuntime | null = null;
 
@@ -125,12 +127,39 @@ async function bootstrap(): Promise<void> {
   if (settings.clearBookmarksOnLaunch) {
     bookmarkManager.clearAll();
   }
+  const syncActiveHighlightCount = async (
+    state: ReturnType<typeof createMainWindow>,
+  ): Promise<void> => {
+    const activeTab = state.tabManager.getActiveTab();
+    const wc = activeTab?.view.webContents;
+    let count = 0;
+    if (wc && !wc.isDestroyed()) {
+      try {
+        count = (await getHighlightCount(wc)) ?? 0;
+      } catch {
+        count = 0;
+      }
+    }
+    if (!state.chromeView.webContents.isDestroyed()) {
+      state.chromeView.webContents.send(Channels.HIGHLIGHT_COUNT_UPDATE, count);
+    }
+    if (!state.sidebarView.webContents.isDestroyed()) {
+      state.sidebarView.webContents.send(Channels.HIGHLIGHT_COUNT_UPDATE, count);
+    }
+    if (!state.devtoolsPanelView.webContents.isDestroyed()) {
+      state.devtoolsPanelView.webContents.send(
+        Channels.HIGHLIGHT_COUNT_UPDATE,
+        count,
+      );
+    }
+  };
   const windowState = createMainWindow((tabs, activeId) => {
     windowState.chromeView.webContents.send(
       Channels.TAB_STATE_UPDATE,
       tabs,
       activeId,
     );
+    void syncActiveHighlightCount(windowState);
     layoutViews(windowState);
     runtime?.onTabStateChanged();
   });
@@ -210,7 +239,7 @@ app.whenReady().then(bootstrap).catch((error) => {
   app.quit();
 });
 
-app.on("window-all-closed", () => {
+  app.on("window-all-closed", () => {
   globalShortcut.unregisterAll();
   stopTelemetry();
   stopBackgroundRevalidation();
@@ -218,6 +247,7 @@ app.on("window-all-closed", () => {
     runtime?.flushPersist() ?? Promise.resolve(),
     bookmarkManager.flushPersist(),
     historyManager.flushPersist(),
+    highlightsManager.flushPersist(),
     flushSettingsPersist(),
   ]).finally(() => {
     void stopMcpServer().finally(() => {

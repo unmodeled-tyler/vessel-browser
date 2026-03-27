@@ -5,7 +5,9 @@ import type {
 } from "../../shared/types";
 
 type McpStatusChangeListener = (status: McpConnectionStatus) => void;
+type RuntimeHealthChangeListener = (state: RuntimeHealthState) => void;
 const mcpStatusChangeListeners = new Set<McpStatusChangeListener>();
+const runtimeHealthChangeListeners = new Set<RuntimeHealthChangeListener>();
 
 export function onMcpStatusChange(
   listener: McpStatusChangeListener,
@@ -16,8 +18,24 @@ export function onMcpStatusChange(
   };
 }
 
+export function onRuntimeHealthChange(
+  listener: RuntimeHealthChangeListener,
+): () => void {
+  runtimeHealthChangeListeners.add(listener);
+  return () => {
+    runtimeHealthChangeListeners.delete(listener);
+  };
+}
+
 export function getMcpStatus(): McpConnectionStatus {
   return state.mcp.status;
+}
+
+function emitRuntimeHealthChange(): void {
+  const snapshot = getRuntimeHealth();
+  for (const listener of runtimeHealthChangeListeners) {
+    listener(snapshot);
+  }
 }
 
 const state: RuntimeHealthState = {
@@ -45,10 +63,12 @@ export function initializeRuntimeHealth(paths: {
   state.mcp.endpoint = null;
   state.mcp.status = "stopped";
   state.mcp.message = "MCP server has not started yet.";
+  emitRuntimeHealthChange();
 }
 
 export function setStartupIssues(issues: RuntimeHealthIssue[]): void {
   state.startupIssues = issues.map((issue) => ({ ...issue }));
+  emitRuntimeHealthChange();
 }
 
 export function getRuntimeHealth(): RuntimeHealthState {
@@ -84,4 +104,5 @@ export function setMcpHealth(update: {
       listener(state.mcp.status);
     }
   }
+  emitRuntimeHealthChange();
 }

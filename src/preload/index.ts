@@ -119,6 +119,12 @@ const api = {
     },
     getCount: (): Promise<number> =>
       ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_COUNT),
+    onCountUpdate: (cb: (count: number) => void): (() => void) => {
+      const handler = (_: any, count: number) => cb(count);
+      ipcRenderer.on(Channels.HIGHLIGHT_COUNT_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.HIGHLIGHT_COUNT_UPDATE, handler);
+    },
     scrollTo: (index: number): Promise<boolean> =>
       ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_SCROLL, index),
     remove: (index: number): Promise<boolean> =>
@@ -159,6 +165,14 @@ const api = {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
     getHealth: (): Promise<RuntimeHealthState> =>
       ipcRenderer.invoke(Channels.SETTINGS_HEALTH_GET),
+    onHealthUpdate: (
+      cb: (health: RuntimeHealthState) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, health: RuntimeHealthState) => cb(health);
+      ipcRenderer.on(Channels.SETTINGS_HEALTH_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SETTINGS_HEALTH_UPDATE, handler);
+    },
     set: (key: string, value: unknown) =>
       ipcRenderer.invoke(Channels.SETTINGS_SET, key, value),
     onUpdate: (cb: (settings: VesselSettings) => void): (() => void) => {

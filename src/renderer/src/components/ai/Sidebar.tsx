@@ -81,23 +81,40 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [highlightCount, setHighlightCount] = createSignal(0);
   const [highlightIndex, setHighlightIndex] = createSignal(-1);
 
-  // Poll for highlight count when chat tab is active
-  createEffect(() => {
-    if (sidebarTab() !== "chat") return;
-    const poll = async () => {
-      try {
-        const count =
-          (await window.vessel.highlights.getCount()) ?? 0;
-        setHighlightCount(count);
-        // Reset index if highlights were cleared
-        if (count === 0 && highlightIndex() >= 0) setHighlightIndex(-1);
-      } catch {
-        /* ignore */
+  const syncHighlightCount = async () => {
+    try {
+      const count = (await window.vessel.highlights.getCount()) ?? 0;
+      setHighlightCount(count);
+      if (count === 0) {
+        setHighlightIndex(-1);
+        return;
       }
-    };
-    void poll();
-    const id = setInterval(poll, 2000);
-    onCleanup(() => clearInterval(id));
+      if (highlightIndex() >= count) {
+        setHighlightIndex(count - 1);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  createEffect(() => {
+    if (sidebarTab() === "chat") {
+      void syncHighlightCount();
+    }
+  });
+
+  createEffect(() => {
+    const unsubscribe = window.vessel.highlights.onCountUpdate((count) => {
+      setHighlightCount(count);
+      if (count === 0) {
+        setHighlightIndex(-1);
+        return;
+      }
+      if (highlightIndex() >= count) {
+        setHighlightIndex(count - 1);
+      }
+    });
+    onCleanup(unsubscribe);
   });
 
   const scrollToHighlight = async (idx: number) => {
@@ -112,14 +129,12 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     const idx = highlightIndex();
     if (idx < 0) return;
     await window.vessel.highlights.remove(idx);
-    const newCount =
-      (await window.vessel.highlights.getCount()) ?? 0;
-    setHighlightCount(newCount);
-    if (newCount === 0) {
+    const nextCount = highlightCount();
+    if (nextCount === 0) {
       setHighlightIndex(-1);
-    } else if (idx >= newCount) {
-      setHighlightIndex(newCount - 1);
-      await window.vessel.highlights.scrollTo(newCount - 1);
+    } else if (idx >= nextCount) {
+      setHighlightIndex(nextCount - 1);
+      await window.vessel.highlights.scrollTo(nextCount - 1);
     }
   };
 

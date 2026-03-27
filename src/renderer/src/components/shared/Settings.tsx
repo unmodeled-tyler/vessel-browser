@@ -3,6 +3,7 @@ import {
   createSignal,
   For,
   Show,
+  onCleanup,
   onMount,
   type Component,
 } from "solid-js";
@@ -223,6 +224,10 @@ const Settings: Component = () => {
 
   onMount(() => {
     void loadState();
+    const unsubscribe = window.vessel.settings.onHealthUpdate((nextHealth) => {
+      setHealth(nextHealth);
+    });
+    onCleanup(unsubscribe);
   });
 
   createEffect(() => {

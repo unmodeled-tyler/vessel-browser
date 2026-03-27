@@ -11,6 +11,9 @@ import type {
 
 let state: HighlightsState | null = null;
 const listeners = new Set<(state: HighlightsState) => void>();
+const SAVE_DEBOUNCE_MS = 250;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveDirty = false;
 
 function getHighlightsPath(): string {
   return path.join(app.getPath("userData"), "vessel-highlights.json");
@@ -30,10 +33,21 @@ function load(): HighlightsState {
   return state;
 }
 
-function save(): void {
-  fs.promises
+function persistNow(): Promise<void> {
+  if (!state) return Promise.resolve();
+  saveDirty = false;
+  return fs.promises
     .writeFile(getHighlightsPath(), JSON.stringify(state, null, 2), "utf-8")
     .catch((err) => console.error("[Vessel] Failed to save highlights:", err));
+}
+
+function save(): void {
+  saveDirty = true;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    void persistNow();
+  }, SAVE_DEBOUNCE_MS);
 }
 
 function emit(): void {
@@ -151,4 +165,13 @@ export function clearHighlightsForUrl(url: string): number {
     emit();
   }
   return removed;
+}
+
+export function flushPersist(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  if (!saveDirty) return Promise.resolve();
+  return persistNow();
 }

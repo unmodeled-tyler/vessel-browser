@@ -5,7 +5,10 @@ import * as historyManager from "../history/manager";
 import { generateReaderHTML } from "../content/reader-mode";
 import { loadSettings, setSetting, SETTABLE_KEYS } from "../config/settings";
 import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
-import { getRuntimeHealth } from "../health/runtime-health";
+import {
+  getRuntimeHealth,
+  onRuntimeHealthChange,
+} from "../health/runtime-health";
 import {
   getPremiumState,
   activateWithEmail,
@@ -76,8 +79,29 @@ export function registerIpcHandlers(
     devtoolsPanelView.webContents.send(channel, ...args);
   };
 
+  const getActiveHighlightCountSafe = async (): Promise<number> => {
+    const tab = tabManager.getActiveTab();
+    if (!tab) return 0;
+    const wc = tab.view.webContents;
+    if (wc.isDestroyed()) return 0;
+    try {
+      return (await getHighlightCount(wc)) ?? 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const emitHighlightCount = async (): Promise<void> => {
+    const count = await getActiveHighlightCountSafe();
+    sendToRendererViews(Channels.HIGHLIGHT_COUNT_UPDATE, count);
+  };
+
   runtime.setUpdateListener((state: AgentRuntimeState) => {
     sendToRendererViews(Channels.AGENT_RUNTIME_UPDATE, state);
+  });
+
+  onRuntimeHealthChange((health) => {
+    sendToRendererViews(Channels.SETTINGS_HEALTH_UPDATE, health);
   });
 
   // --- Tab handlers ---
@@ -369,6 +393,7 @@ export function registerIpcHandlers(
       const result = await captureSelectionHighlight(wc);
       if (result.success && result.text) {
         await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch(() => {});
+        await emitHighlightCount();
       }
       return result;
     } catch {
@@ -378,6 +403,9 @@ export function registerIpcHandlers(
 
   // Forward context-menu highlight captures to the chrome view for toast
   tabManager.onHighlightCapture((result) => {
+    if (result.success) {
+      void emitHighlightCount();
+    }
     if (!chromeView.webContents.isDestroyed()) {
       chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
     }
@@ -395,6 +423,7 @@ export function registerIpcHandlers(
 
       void persistAndMarkHighlight(wc, text).then((result) => {
         if (result.success && !chromeView.webContents.isDestroyed()) {
+          void emitHighlightCount();
           chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
         }
       });
@@ -406,15 +435,7 @@ export function registerIpcHandlers(
   // --- Highlight navigation ---
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_COUNT, () => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return 0;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return 0;
-    try {
-      return getHighlightCount(wc);
-    } catch {
-      return 0;
-    }
+    return getActiveHighlightCountSafe();
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (_, index: number) => {
@@ -429,25 +450,33 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, (_, index: number) => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (_, index: number) => {
     const tab = tabManager.getActiveTab();
     if (!tab) return false;
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return false;
     try {
-      return removeHighlightAtIndex(wc, index);
+      const removed = await removeHighlightAtIndex(wc, index);
+      if (removed) {
+        await emitHighlightCount();
+      }
+      return removed;
     } catch {
       return false;
     }
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, () => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, async () => {
     const tab = tabManager.getActiveTab();
     if (!tab) return false;
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return false;
     try {
-      return clearAllHighlightElements(wc);
+      const cleared = await clearAllHighlightElements(wc);
+      if (cleared) {
+        await emitHighlightCount();
+      }
+      return cleared;
     } catch {
       return false;
     }
