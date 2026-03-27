@@ -85,6 +85,52 @@ At the end, tell me:
 - A summary of all prices found
 - Any caveats worth knowing (limited stock, slow shipping, marketplace sellers, etc.)`,
   },
+  {
+    id: "form-filler",
+    name: "Form Filler",
+    description:
+      "Navigate to any form, fill it out with your details, and confirm before submitting.",
+    category: "forms",
+    icon: "ClipboardList",
+    estimatedMinutes: 3,
+    inputs: [
+      {
+        key: "url",
+        label: "Form URL",
+        type: "url",
+        placeholder: "https://example.com/contact",
+        required: true,
+      },
+      {
+        key: "formPurpose",
+        label: "What is this form for?",
+        type: "text",
+        placeholder: "e.g. contact inquiry, job application, newsletter signup",
+        hint: "Gives the agent context for how to interpret the fields",
+        required: false,
+      },
+      {
+        key: "details",
+        label: "Your details",
+        type: "textarea",
+        placeholder:
+          "Name: Jane Smith\nEmail: jane@example.com\nMessage: I'd like to learn more about...",
+        hint: "List as key: value pairs, one per line",
+        required: true,
+      },
+    ],
+    promptTemplate: `Navigate to {{url}} and fill out the form.
+{{formPurpose}}
+
+Use the following details to fill the form fields:
+{{details}}
+
+Steps:
+1. Navigate to the page and dismiss any cookie banners or overlays
+2. Read the form to understand what each field expects
+3. Match and fill all fields you have information for — skip fields you have no data for
+4. Do NOT submit yet — show me a summary of everything you filled in and wait for my confirmation`,
+  },
 ];
 
 /**

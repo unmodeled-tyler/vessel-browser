@@ -2082,12 +2082,65 @@
     gap: 8px;
 }
 
+.kit-list-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .kit-list-count {
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-muted);
+}
+
+.kit-install-btn {
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--accent-primary);
+    background: rgba(196, 160, 90, 0.08);
+    border: 1px solid rgba(196, 160, 90, 0.2);
+    transition:
+        background var(--duration-fast) var(--ease-in-out),
+        border-color var(--duration-fast) var(--ease-in-out);
+}
+
+.kit-install-btn:hover {
+    background: rgba(196, 160, 90, 0.14);
+    border-color: rgba(196, 160, 90, 0.3);
+}
+
+.kit-install-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    background: rgba(220, 80, 80, 0.08);
+    border: 1px solid rgba(220, 80, 80, 0.2);
+    font-size: 11px;
+    color: #e07070;
+    line-height: 1.4;
+}
+
+.kit-install-error-dismiss {
+    flex-shrink: 0;
+    font-size: 14px;
+    color: #e07070;
+    opacity: 0.7;
+    line-height: 1;
+    padding: 0 2px;
+    transition: opacity var(--duration-fast) var(--ease-in-out);
+}
+
+.kit-install-error-dismiss:hover {
+    opacity: 1;
 }
 
 /* ── Kit cards ── */
@@ -2175,6 +2228,31 @@
 
 .kit-card:hover .kit-card-caret {
     color: var(--accent-primary);
+}
+
+.kit-remove-btn {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+    line-height: 1;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--duration-fast) var(--ease-in-out),
+        color var(--duration-fast) var(--ease-in-out),
+        border-color var(--duration-fast) var(--ease-in-out);
+}
+
+.kit-remove-btn:hover {
+    background: rgba(220, 80, 80, 0.1);
+    border-color: rgba(220, 80, 80, 0.2);
+    color: #e07070;
 }
 
 /* ── Form view ── */

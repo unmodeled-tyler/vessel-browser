@@ -3,6 +3,7 @@ import {
   createSignal,
   For,
   Show,
+  createMemo,
   type Component,
   type JSX,
 } from "solid-js";
@@ -40,6 +41,8 @@ const KitIcon = (props: { name: string; size?: number; class?: string }) => {
   return <Icon size={props.size ?? 18} class={props.class} />;
 };
 
+const BUNDLED_KIT_IDS = new Set(BUNDLED_KITS.map((k) => k.id));
+
 interface AutomationTabProps {
   /** Called after launching a kit so the parent can switch to the supervisor tab */
   onRun: () => void;
@@ -54,15 +57,29 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
   const [fieldValues, setFieldValues] = createSignal<Record<string, string>>(
     {},
   );
+  const [installError, setInstallError] = createSignal<string | null>(null);
 
   const [premiumData] = createResource(() =>
     window.vessel.premium.getState().catch(() => ({ status: "free" as const })),
+  );
+
+  const [installedKits, { refetch: refetchInstalled }] = createResource(
+    () => isPremium(),
+    (active) =>
+      active
+        ? window.vessel.automation.getInstalled().catch(() => [])
+        : Promise.resolve([]),
   );
 
   const isPremium = () => {
     const s = premiumData()?.status;
     return s === "active" || s === "trialing";
   };
+
+  const allKits = createMemo(() => [
+    ...BUNDLED_KITS,
+    ...(installedKits() ?? []),
+  ]);
 
   const selectKit = (kit: AutomationKit) => {
     const defaults: Record<string, string> = {};
@@ -94,6 +111,28 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
     await query(prompt);
   };
 
+  const handleInstall = async () => {
+    setInstallError(null);
+    const result = await window.vessel.automation.installFromFile();
+    if (!result.ok) {
+      if (result.error !== "canceled") {
+        setInstallError(result.error ?? "Installation failed.");
+      }
+      return;
+    }
+    void refetchInstalled();
+  };
+
+  const handleUninstall = async (e: MouseEvent, id: string) => {
+    e.stopPropagation();
+    const result = await window.vessel.automation.uninstall(id);
+    if (!result.ok) {
+      setInstallError(result.error ?? "Could not remove kit.");
+      return;
+    }
+    void refetchInstalled();
+  };
+
   return (
     <section class="automation-panel">
       {/* ── Premium gate ── */}
@@ -121,15 +160,42 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
       <Show when={isPremium() && selectedKit() === null}>
         <div class="kit-list-header">
           <span class="agent-panel-title">Automation Kits</span>
-          <span class="kit-list-count">{BUNDLED_KITS.length} kits</span>
+          <div class="kit-list-header-actions">
+            <span class="kit-list-count">{allKits().length} kits</span>
+            <button
+              class="kit-install-btn"
+              type="button"
+              title="Install a kit from a .kit.json file"
+              onClick={() => void handleInstall()}
+            >
+              + Install
+            </button>
+          </div>
         </div>
+
+        <Show when={installError() !== null}>
+          <div class="kit-install-error">
+            <span>{installError()}</span>
+            <button
+              class="kit-install-error-dismiss"
+              type="button"
+              onClick={() => setInstallError(null)}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        </Show>
+
         <div class="kit-list">
-          <For each={BUNDLED_KITS}>
+          <For each={allKits()}>
             {(kit) => (
-              <button
+              <div
                 class="kit-card"
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => selectKit(kit)}
+                onKeyDown={(e) => e.key === "Enter" && selectKit(kit)}
               >
                 <span class="kit-card-icon" aria-hidden="true">
                   <KitIcon name={kit.icon} size={18} />
@@ -141,23 +207,38 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                     <div class="kit-card-meta">~{kit.estimatedMinutes} min</div>
                   </Show>
                 </div>
-                <svg
-                  class="kit-card-caret"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  aria-hidden="true"
+                <Show
+                  when={!BUNDLED_KIT_IDS.has(kit.id)}
+                  fallback={
+                    <svg
+                      class="kit-card-caret"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M5 3l4 4-4 4"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  }
                 >
-                  <path
-                    d="M5 3l4 4-4 4"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </button>
+                  <button
+                    class="kit-remove-btn"
+                    type="button"
+                    title={`Remove ${kit.name}`}
+                    onClick={(e) => void handleUninstall(e, kit.id)}
+                    aria-label={`Remove ${kit.name}`}
+                  >
+                    ×
+                  </button>
+                </Show>
+              </div>
             )}
           </For>
         </div>
@@ -165,106 +246,114 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
 
       {/* ── Kit form ── */}
       <Show when={isPremium() && selectedKit() !== null}>
-        {(kit) => (
-          <>
-            <div class="kit-form-header">
-              <button
-                class="kit-back-btn"
-                type="button"
-                onClick={() => setSelectedKit(null)}
-                title="Back to kits"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 14 14"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M9 11L5 7l4-4"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-                Back
-              </button>
-              <div class="kit-form-title">
-                <KitIcon name={selectedKit()!.icon} size={14} />
-                {selectedKit()!.name}
-              </div>
-            </div>
-
-            <p class="kit-form-desc">{selectedKit()!.description}</p>
-
-            <div class="kit-form-fields">
-              <For each={selectedKit()!.inputs}>
-                {(input) => (
-                  <div class="kit-form-field">
-                    <label class="kit-form-label">
-                      {input.label}
-                      <Show when={input.required}>
-                        <span class="kit-form-required" aria-hidden="true">
-                          *
-                        </span>
-                      </Show>
-                    </label>
-                    <Show
-                      when={input.type === "textarea"}
-                      fallback={
-                        <input
-                          class="kit-form-input"
-                          type={input.type === "url" ? "url" : input.type === "number" ? "number" : "text"}
-                          placeholder={input.placeholder ?? ""}
-                          value={fieldValues()[input.key] ?? ""}
-                          onInput={(e) => setField(input.key, e.currentTarget.value)}
-                        />
-                      }
-                    >
-                      <textarea
-                        class="kit-form-textarea"
-                        placeholder={input.placeholder ?? ""}
-                        rows={3}
-                        value={fieldValues()[input.key] ?? ""}
-                        onInput={(e) => setField(input.key, e.currentTarget.value)}
-                      />
-                    </Show>
-                    <Show when={input.hint}>
-                      <p class="kit-form-hint">{input.hint}</p>
-                    </Show>
-                  </div>
-                )}
-              </For>
-            </div>
-
-            <Show when={selectedKit()!.estimatedMinutes !== undefined}>
-              <p class="kit-form-estimate">
-                Estimated run time: ~{selectedKit()!.estimatedMinutes} min
-              </p>
-            </Show>
-
+        <>
+          <div class="kit-form-header">
             <button
-              class="agent-primary-button kit-run-btn"
+              class="kit-back-btn"
               type="button"
-              disabled={!canRun()}
-              onClick={() => void handleRun()}
+              onClick={() => setSelectedKit(null)}
+              title="Back to kits"
             >
-              <Show
-                when={!isStreaming()}
-                fallback={
-                  <>
-                    <span class="kit-run-spinner" aria-hidden="true" />
-                    Agent busy…
-                  </>
-                }
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                aria-hidden="true"
               >
-                Run Kit
-              </Show>
+                <path
+                  d="M9 11L5 7l4-4"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              Back
             </button>
-          </>
-        )}
+            <div class="kit-form-title">
+              <KitIcon name={selectedKit()!.icon} size={14} />
+              {selectedKit()!.name}
+            </div>
+          </div>
+
+          <p class="kit-form-desc">{selectedKit()!.description}</p>
+
+          <div class="kit-form-fields">
+            <For each={selectedKit()!.inputs}>
+              {(input) => (
+                <div class="kit-form-field">
+                  <label class="kit-form-label">
+                    {input.label}
+                    <Show when={input.required}>
+                      <span class="kit-form-required" aria-hidden="true">
+                        *
+                      </span>
+                    </Show>
+                  </label>
+                  <Show
+                    when={input.type === "textarea"}
+                    fallback={
+                      <input
+                        class="kit-form-input"
+                        type={
+                          input.type === "url"
+                            ? "url"
+                            : input.type === "number"
+                              ? "number"
+                              : "text"
+                        }
+                        placeholder={input.placeholder ?? ""}
+                        value={fieldValues()[input.key] ?? ""}
+                        onInput={(e) =>
+                          setField(input.key, e.currentTarget.value)
+                        }
+                      />
+                    }
+                  >
+                    <textarea
+                      class="kit-form-textarea"
+                      placeholder={input.placeholder ?? ""}
+                      rows={3}
+                      value={fieldValues()[input.key] ?? ""}
+                      onInput={(e) =>
+                        setField(input.key, e.currentTarget.value)
+                      }
+                    />
+                  </Show>
+                  <Show when={input.hint}>
+                    <p class="kit-form-hint">{input.hint}</p>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+
+          <Show when={selectedKit()!.estimatedMinutes !== undefined}>
+            <p class="kit-form-estimate">
+              Estimated run time: ~{selectedKit()!.estimatedMinutes} min
+            </p>
+          </Show>
+
+          <button
+            class="agent-primary-button kit-run-btn"
+            type="button"
+            disabled={!canRun()}
+            onClick={() => void handleRun()}
+          >
+            <Show
+              when={!isStreaming()}
+              fallback={
+                <>
+                  <span class="kit-run-spinner" aria-hidden="true" />
+                  Agent busy…
+                </>
+              }
+            >
+              Run Kit
+            </Show>
+          </button>
+        </>
       </Show>
     </section>
   );

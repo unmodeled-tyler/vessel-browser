@@ -105,6 +105,11 @@ export const Channels = {
   VAULT_REMOVE: "vault:remove",
   VAULT_AUDIT_LOG: "vault:audit-log",
 
+  // Automation kits
+  AUTOMATION_GET_INSTALLED: "automation:get-installed",
+  AUTOMATION_INSTALL_FROM_FILE: "automation:install-from-file",
+  AUTOMATION_UNINSTALL: "automation:uninstall",
+
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",

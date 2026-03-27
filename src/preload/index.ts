@@ -5,6 +5,7 @@ import type {
   AgentRuntimeState,
   AIMessage,
   ApprovalMode,
+  AutomationKit,
   Bookmark,
   BookmarkFolder,
   BookmarksState,
@@ -298,6 +299,14 @@ const api = {
       ipcRenderer.invoke(Channels.VAULT_REMOVE, id),
     auditLog: (limit?: number): Promise<Array<{ timestamp: string; credentialLabel: string; domain: string; action: string; approved: boolean }>> =>
       ipcRenderer.invoke(Channels.VAULT_AUDIT_LOG, limit),
+  },
+  automation: {
+    getInstalled: (): Promise<AutomationKit[]> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_GET_INSTALLED),
+    installFromFile: (): Promise<{ ok: boolean; kit?: AutomationKit; error?: string }> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_INSTALL_FROM_FILE),
+    uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_UNINSTALL, id),
   },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),

@@ -48,6 +48,11 @@ import {
 } from "../highlights/inject";
 import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlights/capture";
 import { startMcpServer, stopMcpServer } from "../mcp/server";
+import {
+  getInstalledKits,
+  installKitFromFile,
+  uninstallKit,
+} from "../automation/kit-registry";
 
 let activeChatProvider: AIProvider | null = null;
 
@@ -665,5 +670,20 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.WINDOW_CLOSE, () => {
     mainWindow.close();
+  });
+
+  // --- Automation kits ---
+
+  ipcMain.handle(Channels.AUTOMATION_GET_INSTALLED, () => {
+    return getInstalledKits();
+  });
+
+  ipcMain.handle(Channels.AUTOMATION_INSTALL_FROM_FILE, async () => {
+    return await installKitFromFile();
+  });
+
+  ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (_event, id: unknown) => {
+    assertString(id, "id");
+    return uninstallKit(id);
   });
 }
