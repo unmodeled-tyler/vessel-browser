@@ -498,7 +498,7 @@ export interface AutomationKit {
   name: string;
   description: string;
   category: KitCategory;
-  /** Emoji icon shown in the kit card */
+  /** Lucide icon name shown in the kit card (e.g. "BookOpen") */
   icon: string;
   inputs: KitInput[];
   /** Prompt template using {{key}} placeholders matching input keys */

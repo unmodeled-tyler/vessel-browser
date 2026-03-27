@@ -2124,10 +2124,16 @@
 }
 
 .kit-card-icon {
-    font-size: 18px;
-    line-height: 1;
     flex-shrink: 0;
-    margin-top: 1px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    background: rgba(196, 160, 90, 0.08);
+    border: 1px solid rgba(196, 160, 90, 0.14);
+    color: var(--accent-primary);
 }
 
 .kit-card-body {
@@ -2330,6 +2336,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    color: var(--accent-primary);
     margin-bottom: 2px;
 }
 

@@ -7,7 +7,7 @@ export const BUNDLED_KITS: AutomationKit[] = [
     description:
       "Browse the web to research a topic, compile key findings, and save the best sources as bookmarks.",
     category: "research",
-    icon: "🔍",
+    icon: "BookOpen",
     estimatedMinutes: 5,
     inputs: [
       {
@@ -51,7 +51,7 @@ When finished, summarize the most important findings in 3–5 bullet points and 
     description:
       "Search for a product across major retailers and surface the best current price.",
     category: "shopping",
-    icon: "💰",
+    icon: "Tag",
     estimatedMinutes: 4,
     inputs: [
       {

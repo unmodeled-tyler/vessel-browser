@@ -4,11 +4,41 @@ import {
   For,
   Show,
   type Component,
+  type JSX,
 } from "solid-js";
+import {
+  BookOpen,
+  Tag,
+  ClipboardList,
+  Search,
+  Globe,
+  Download,
+  Star,
+  Zap,
+  type IconProps,
+} from "lucide-solid";
 import { useAI } from "../../stores/ai";
 import { useUI } from "../../stores/ui";
 import { BUNDLED_KITS, renderKitPrompt } from "../../lib/automation-kits";
 import type { AutomationKit } from "../../../../shared/types";
+
+type LucideComponent = (props: IconProps) => JSX.Element;
+
+const ICON_MAP: Record<string, LucideComponent> = {
+  BookOpen,
+  Tag,
+  ClipboardList,
+  Search,
+  Globe,
+  Download,
+  Star,
+  Zap,
+};
+
+const KitIcon = (props: { name: string; size?: number; class?: string }) => {
+  const Icon = ICON_MAP[props.name] ?? Zap;
+  return <Icon size={props.size ?? 18} class={props.class} />;
+};
 
 interface AutomationTabProps {
   /** Called after launching a kit so the parent can switch to the supervisor tab */
@@ -70,16 +100,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
       <Show when={!premiumData.loading && !isPremium()}>
         <div class="kit-upsell">
           <div class="kit-upsell-icon" aria-hidden="true">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path
-                d="M14 3L17.5 10.5L26 11.5L20 17.5L21.5 26L14 22L6.5 26L8 17.5L2 11.5L10.5 10.5L14 3Z"
-                stroke="var(--accent-primary)"
-                stroke-width="1.5"
-                stroke-linejoin="round"
-                fill="none"
-                opacity="0.85"
-              />
-            </svg>
+            <Zap size={24} />
           </div>
           <p class="kit-upsell-title">Vessel Premium</p>
           <p class="kit-upsell-body">
@@ -111,7 +132,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                 onClick={() => selectKit(kit)}
               >
                 <span class="kit-card-icon" aria-hidden="true">
-                  {kit.icon}
+                  <KitIcon name={kit.icon} size={18} />
                 </span>
                 <div class="kit-card-body">
                   <div class="kit-card-name">{kit.name}</div>
@@ -171,7 +192,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                 Back
               </button>
               <div class="kit-form-title">
-                <span aria-hidden="true">{selectedKit()!.icon}</span>
+                <KitIcon name={selectedKit()!.icon} size={14} />
                 {selectedKit()!.name}
               </div>
             </div>
