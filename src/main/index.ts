@@ -5,6 +5,7 @@ import { createMainWindow, layoutViews } from "./window";
 import { registerIpcHandlers } from "./ipc/handlers";
 import { Channels } from "../shared/channels";
 import {
+  flushPersist as flushSettingsPersist,
   getSettingsLoadIssues,
   getSettingsPath,
   loadSettings,
@@ -213,8 +214,14 @@ app.on("window-all-closed", () => {
   globalShortcut.unregisterAll();
   stopTelemetry();
   stopBackgroundRevalidation();
-  runtime?.flushPersist();
-  void stopMcpServer().finally(() => {
-    app.quit();
+  void Promise.all([
+    runtime?.flushPersist() ?? Promise.resolve(),
+    bookmarkManager.flushPersist(),
+    historyManager.flushPersist(),
+    flushSettingsPersist(),
+  ]).finally(() => {
+    void stopMcpServer().finally(() => {
+      app.quit();
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { app, session } from "electron";
+import fs from "node:fs";
 import path from "path";
 import type { WebContentsView } from "electron";
 import { Channels } from "../../shared/channels";
@@ -10,6 +11,25 @@ export interface DownloadInfo {
   totalBytes: number;
   receivedBytes: number;
   state: "progressing" | "completed" | "cancelled" | "interrupted";
+}
+
+function resolveDownloadPath(downloadDir: string, filename: string): string {
+  fs.mkdirSync(downloadDir, { recursive: true });
+
+  const parsed = path.parse(filename);
+  let attempt = 0;
+
+  while (true) {
+    const candidateName =
+      attempt === 0
+        ? filename
+        : `${parsed.name} (${attempt})${parsed.ext}`;
+    const candidatePath = path.join(downloadDir, candidateName);
+    if (!fs.existsSync(candidatePath)) {
+      return candidatePath;
+    }
+    attempt += 1;
+  }
 }
 
 /**
@@ -27,7 +47,7 @@ export function installDownloadHandler(
       app.getPath("downloads");
 
     const filename = item.getFilename();
-    const savePath = path.join(downloadDir, filename);
+    const savePath = resolveDownloadPath(downloadDir, filename);
     item.setSavePath(savePath);
 
     const info: DownloadInfo = {

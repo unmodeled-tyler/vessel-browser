@@ -2,11 +2,11 @@ import {
   createSignal,
   createEffect,
   createMemo,
-  onCleanup,
   Show,
   type Component,
 } from "solid-js";
 import { useTabs } from "../../stores/tabs";
+import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import {
@@ -20,11 +20,8 @@ const AddressBar: Component = () => {
   const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings, toggleDevTools, devtoolsPanelOpen } = useUI();
   const [inputValue, setInputValue] = createSignal("");
-  const [now, setNow] = createSignal(Date.now());
+  const now = useNow();
   let inputRef: HTMLInputElement | undefined;
-
-  const ticker = setInterval(() => setNow(Date.now()), 1000);
-  onCleanup(() => clearInterval(ticker));
 
   const agentPresence = createMemo(() =>
     getAgentPresence(runtimeState(), now()),

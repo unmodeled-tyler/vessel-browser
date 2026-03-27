@@ -8,6 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import { useAI } from "../../stores/ai";
+import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import { useTabs } from "../../stores/tabs";
@@ -214,7 +215,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [actionsExpanded, setActionsExpanded] = createSignal(false);
   const [checkpointsExpanded, setCheckpointsExpanded] = createSignal(false);
   const [isDragging, setIsDragging] = createSignal(false);
-  const [elapsedSeconds, setElapsedSeconds] = createSignal(0);
+  const now = useNow();
   let messagesContainerRef: HTMLDivElement | undefined;
   let messagesEndRef: HTMLDivElement | undefined;
   let chatInputRef: HTMLTextAreaElement | undefined;
@@ -339,23 +340,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     });
   });
 
-  createEffect(() => {
-    if (!isStreaming() || !streamStartedAt()) {
-      setElapsedSeconds(0);
-      return;
-    }
-
-    const tick = () => {
-      const startedAt = streamStartedAt();
-      if (!startedAt) return;
-      setElapsedSeconds(
-        Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
-      );
-    };
-
-    tick();
-    const intervalId = window.setInterval(tick, 1000);
-    onCleanup(() => window.clearInterval(intervalId));
+  const elapsedSeconds = createMemo(() => {
+    const startedAt = streamStartedAt();
+    if (!isStreaming() || !startedAt) return 0;
+    return Math.max(0, Math.floor((now() - startedAt) / 1000));
   });
 
   const startResize = (e: PointerEvent) => {

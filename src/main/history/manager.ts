@@ -4,9 +4,12 @@ import fs from "fs";
 import type { HistoryEntry, HistoryState } from "../../shared/types";
 
 const MAX_HISTORY_ENTRIES = 5000;
+const SAVE_DEBOUNCE_MS = 250;
 
 let state: HistoryState | null = null;
 const listeners = new Set<(state: HistoryState) => void>();
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveDirty = false;
 
 function getHistoryPath(): string {
   return path.join(app.getPath("userData"), "vessel-history.json");
@@ -26,8 +29,13 @@ function load(): HistoryState {
   return state;
 }
 
-function save(): void {
-  fs.promises
+function persistNow(): Promise<void> {
+  saveDirty = false;
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  return fs.promises
     .mkdir(path.dirname(getHistoryPath()), { recursive: true })
     .then(() =>
       fs.promises.writeFile(
@@ -37,6 +45,17 @@ function save(): void {
       ),
     )
     .catch((err) => console.error("[Vessel] Failed to save history:", err));
+}
+
+function save(): void {
+  saveDirty = true;
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    if (saveDirty) {
+      void persistNow();
+    }
+  }, SAVE_DEBOUNCE_MS);
 }
 
 function emit(): void {
@@ -113,4 +132,8 @@ export function clearAll(): void {
   state = { entries: [] };
   save();
   emit();
+}
+
+export function flushPersist(): Promise<void> {
+  return saveDirty ? persistNow() : Promise.resolve();
 }

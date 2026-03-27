@@ -27,11 +27,15 @@ const defaults: VesselSettings = {
   },
 };
 
+const SAVE_DEBOUNCE_MS = 150;
+
 /** Allowlist of setting keys accepted via IPC. */
 export const SETTABLE_KEYS: ReadonlySet<string> = new Set(Object.keys(defaults));
 
 let settings: VesselSettings | null = null;
 let settingsIssues: RuntimeHealthIssue[] = [];
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let saveDirty = false;
 
 function getUserDataPath(): string {
   if (typeof app?.getPath === "function") {
@@ -105,13 +109,29 @@ export function loadSettings(): VesselSettings {
   return settings!;
 }
 
-function saveSettings(): void {
-  fs.promises
+function persistNow(): Promise<void> {
+  saveDirty = false;
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  return fs.promises
     .mkdir(path.dirname(getSettingsPath()), { recursive: true })
     .then(() =>
       fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)),
     )
     .catch((err) => console.error("[Vessel] Failed to save settings:", err));
+}
+
+function saveSettings(): void {
+  saveDirty = true;
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    if (saveDirty) {
+      void persistNow();
+    }
+  }, SAVE_DEBOUNCE_MS);
 }
 
 export function setSetting<K extends keyof VesselSettings>(
@@ -126,4 +146,8 @@ export function setSetting<K extends keyof VesselSettings>(
   }
   saveSettings();
   return { ...settings! };
+}
+
+export function flushPersist(): Promise<void> {
+  return saveDirty ? persistNow() : Promise.resolve();
 }

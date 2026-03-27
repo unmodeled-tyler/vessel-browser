@@ -1,5 +1,6 @@
-import { For, Show, createMemo, createSignal, onCleanup, type Component } from "solid-js";
+import { For, Show, createMemo, createSignal, type Component } from "solid-js";
 import { useTabs } from "../../stores/tabs";
+import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { getAgentActiveTabIds } from "../../lib/agentActivity";
 import "./chrome.css";
@@ -47,11 +48,7 @@ const TabFavicon = (props: { favicon?: string; title: string; url: string }) => 
 const TabBar: Component = () => {
   const { tabs, activeTabId, switchTab, closeTab, createTab } = useTabs();
   const { runtimeState } = useRuntime();
-
-  // Tick every second so "recent" calculations stay fresh
-  const [now, setNow] = createSignal(Date.now());
-  const ticker = setInterval(() => setNow(Date.now()), 1000);
-  onCleanup(() => clearInterval(ticker));
+  const now = useNow();
 
   const modelActiveTabIds = createMemo(() =>
     getAgentActiveTabIds(runtimeState(), now()),
