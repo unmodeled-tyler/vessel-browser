@@ -105,7 +105,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "click",
     title: "Click Element",
     description:
-      "Click an element on the page by its index number or CSS selector.",
+      "Click an element on the page by its index number or CSS selector. Use this to check or uncheck checkboxes and to select radio buttons — do NOT use select_option for those.",
     inputSchema: {
       index: z
         .number()
@@ -138,7 +138,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "select_option",
     title: "Select Option",
     description:
-      "Select an option in a dropdown by visible label or option value.",
+      "Select an option in a <select> dropdown by visible label or option value. Only works on <select> elements — for checkboxes or radio buttons use click instead.",
     inputSchema: {
       index: z.number().optional().describe("The select element index number"),
       selector: z.string().optional().describe("CSS selector as fallback"),
