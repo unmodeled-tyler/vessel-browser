@@ -476,6 +476,37 @@ export interface BookmarksState {
   bookmarks: Bookmark[];
 }
 
+// --- Automation Kits ---
+
+export type KitInputType = "text" | "url" | "number" | "textarea";
+
+export type KitCategory = "research" | "shopping" | "productivity" | "forms";
+
+export interface KitInput {
+  key: string;
+  label: string;
+  type: KitInputType;
+  placeholder?: string;
+  /** Short helper text shown below the field */
+  hint?: string;
+  required?: boolean;
+  defaultValue?: string;
+}
+
+export interface AutomationKit {
+  id: string;
+  name: string;
+  description: string;
+  category: KitCategory;
+  /** Emoji icon shown in the kit card */
+  icon: string;
+  inputs: KitInput[];
+  /** Prompt template using {{key}} placeholders matching input keys */
+  promptTemplate: string;
+  /** Rough time estimate shown in the UI (minutes) */
+  estimatedMinutes?: number;
+}
+
 // --- Highlights ---
 
 export type HighlightColor =

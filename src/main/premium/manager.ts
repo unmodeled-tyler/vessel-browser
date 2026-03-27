@@ -46,6 +46,7 @@ export const PREMIUM_FEATURES = new Set([
   "devtools",
   "unlimited_iterations",
   "vault",
+  "automation_kits",
 ]);
 
 // --- Status checks ---
