@@ -323,7 +323,10 @@ export class Tab {
     return { ...this._state };
   }
 
-  navigate(url: string): string | null {
+  navigate(
+    url: string,
+    postBody?: Record<string, string>,
+  ): string | null {
     // Auto-add protocol if missing
     if (!/^https?:\/\//i.test(url) && !url.startsWith("about:")) {
       if (url.includes(".") && !url.includes(" ")) {
@@ -340,7 +343,24 @@ export class Tab {
     const policyError = checkDomainPolicy(url);
     if (policyError) return policyError;
 
-    this.view.webContents.loadURL(url);
+    if (postBody) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(postBody)) {
+        params.set(key, value);
+      }
+      this.view.webContents.loadURL(url, {
+        method: "POST",
+        extraHeaders: "Content-Type: application/x-www-form-urlencoded\r\n",
+        postData: [
+          {
+            type: "rawData",
+            bytes: Buffer.from(params.toString()),
+          },
+        ],
+      });
+    } else {
+      this.view.webContents.loadURL(url);
+    }
     return null;
   }
 

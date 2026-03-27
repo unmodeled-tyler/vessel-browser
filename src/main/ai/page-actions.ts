@@ -3315,7 +3315,7 @@ export async function executeAction(
               ? args.url.trim()
               : "about:blank",
           );
-          const created = ctx.tabManager.getActiveTab();
+          const created = ctx.tabManager.getTab(createdId);
           if (created) {
             await waitForLoad(created.view.webContents);
             return `Created tab ${createdId}${await getPostNavSummary(created.view.webContents)}`;
@@ -3329,7 +3329,8 @@ export async function executeAction(
           if (navValidation.status === "dead") {
             return `Navigation blocked: ${args.url} returned ${navValidation.detail || "dead link"}. Try a different URL or go back and choose another link.`;
           }
-          ctx.tabManager.navigateTab(tabId, args.url);
+          const navError = ctx.tabManager.navigateTab(tabId, args.url, args.postBody);
+          if (navError) return navError;
           await waitForLoad(wc);
           return `Navigated to ${wc.getURL()}${await getPostNavSummary(wc)}`;
         }

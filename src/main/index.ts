@@ -1,4 +1,4 @@
-import { app, dialog, globalShortcut, Menu } from "electron";
+import { app, dialog, globalShortcut } from "electron";
 import fs from "node:fs";
 import path from "path";
 import { createMainWindow, layoutViews } from "./window";
@@ -23,16 +23,14 @@ import {
   initializeRuntimeHealth,
   setStartupIssues,
 } from "./health/runtime-health";
+import {
+  registerHighlightShortcut,
+  setupAppMenu,
+  loadRenderers,
+} from "./startup";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
 
 let runtime: AgentRuntime | null = null;
-
-function rendererUrlFor(view: "chrome" | "sidebar" | "devtools"): string | null {
-  if (!process.env.ELECTRON_RENDERER_URL) return null;
-  const url = new URL(process.env.ELECTRON_RENDERER_URL);
-  url.searchParams.set("view", view);
-  return url.toString();
-}
 
 function checkWritableUserData(userDataPath: string): RuntimeHealthIssue[] {
   const issues: RuntimeHealthIssue[] = [];
@@ -149,39 +147,11 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers(windowState, runtime);
 
-  // Register global shortcut for Ctrl+H highlight capture
-  const registerHighlightShortcut = () => {
-    globalShortcut.unregister("CommandOrControl+H");
-    const success = globalShortcut.register("CommandOrControl+H", () => {
-      const activeTab = tabManager.getActiveTab();
-      if (!activeTab) return;
-      tabManager.captureHighlightFromActiveTab();
-    });
-    if (!success) {
-      console.warn("[Vessel] Failed to register Ctrl+H shortcut");
-    }
-  };
-  registerHighlightShortcut();
+  // Register Ctrl+H highlight capture shortcut
+  registerHighlightShortcut(windowState.mainWindow, tabManager);
 
-  // Re-register shortcut when window gains focus (needed on some platforms)
-  windowState.mainWindow.on("focus", registerHighlightShortcut);
-
-  // Application menu with standard edit operations
-  const appMenu = Menu.buildFromTemplate([
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-      ],
-    },
-  ]);
-  Menu.setApplicationMenu(appMenu);
+  // Set up the application menu
+  setupAppMenu();
 
   bookmarkManager.subscribe((state) => {
     chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
@@ -197,27 +167,8 @@ async function bootstrap(): Promise<void> {
   startBackgroundRevalidation();
   startTelemetry();
 
-  // Load renderer
-  const chromeUrl = rendererUrlFor("chrome");
-  const sidebarUrl = rendererUrlFor("sidebar");
-  const devtoolsUrl = rendererUrlFor("devtools");
-
-  if (chromeUrl && sidebarUrl && devtoolsUrl) {
-    chromeView.webContents.loadURL(chromeUrl);
-    sidebarView.webContents.loadURL(sidebarUrl);
-    devtoolsPanelView.webContents.loadURL(devtoolsUrl);
-  } else {
-    const rendererFile = path.join(__dirname, "../renderer/index.html");
-    chromeView.webContents.loadFile(rendererFile, {
-      query: { view: "chrome" },
-    });
-    sidebarView.webContents.loadFile(rendererFile, {
-      query: { view: "sidebar" },
-    });
-    devtoolsPanelView.webContents.loadFile(rendererFile, {
-      query: { view: "devtools" },
-    });
-  }
+  // Load renderer views
+  loadRenderers(chromeView, sidebarView, devtoolsPanelView);
 
   // Start MCP server for external agent integration
   await startMcpServer(tabManager, runtime, settings.mcpPort);
@@ -236,6 +187,22 @@ async function bootstrap(): Promise<void> {
     void maybeShowStartupHealthDialog(windowState);
   });
 }
+
+// --- Top-level error handlers (before app is ready) ---
+
+/** Prevent silent crashes — log and exit gracefully. */
+process.on("uncaughtException", (error: Error) => {
+  console.error("[Vessel] Uncaught exception:", error.message, error.stack);
+  app.quit();
+});
+
+/** Handle rejected Promises that bubble up without a .catch() */
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error(
+    "[Vessel] Unhandled rejection:",
+    reason instanceof Error ? reason.message : reason,
+  );
+});
 
 app.whenReady().then(bootstrap).catch((error) => {
   console.error("[Vessel] Failed to bootstrap application:", error);

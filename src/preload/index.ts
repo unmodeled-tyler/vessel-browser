@@ -20,8 +20,8 @@ const api = {
     create: (url?: string) => ipcRenderer.invoke(Channels.TAB_CREATE, url),
     close: (id: string) => ipcRenderer.invoke(Channels.TAB_CLOSE, id),
     switch: (id: string) => ipcRenderer.invoke(Channels.TAB_SWITCH, id),
-    navigate: (id: string, url: string) =>
-      ipcRenderer.invoke(Channels.TAB_NAVIGATE, id, url),
+    navigate: (id: string, url: string, postBody?: Record<string, string>) =>
+      ipcRenderer.invoke(Channels.TAB_NAVIGATE, id, url, postBody),
     back: (id: string) => ipcRenderer.invoke(Channels.TAB_BACK, id),
     forward: (id: string) => ipcRenderer.invoke(Channels.TAB_FORWARD, id),
     reload: (id: string) => ipcRenderer.invoke(Channels.TAB_RELOAD, id),
