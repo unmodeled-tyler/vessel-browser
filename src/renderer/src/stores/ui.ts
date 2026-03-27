@@ -4,7 +4,7 @@ const DEFAULT_SIDEBAR_WIDTH = 400;
 const MIN_SIDEBAR = 240;
 const MAX_SIDEBAR = 800;
 
-const [sidebarOpen, setSidebarOpen] = createSignal(false);
+const [sidebarOpen, setSidebarOpen] = createSignal(true);
 const [sidebarWidth, setSidebarWidth] = createSignal(DEFAULT_SIDEBAR_WIDTH);
 
 // Sync initial sidebar width from persisted settings so the sidebar view

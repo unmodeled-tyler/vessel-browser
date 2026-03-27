@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { app, BrowserWindow } from "electron";
 
 function findIconBase64(): string {
@@ -23,6 +24,8 @@ function findIconBase64(): string {
 }
 
 function buildSplashHTML(iconSrc: string): string {
+  // iconSrc is a data: URI embedded directly in the img src attribute —
+  // this is just HTML file content, no URL-length restrictions apply.
   const imgTag = iconSrc
     ? `<img class="logo" src="${iconSrc}" alt="" />`
     : `<div class="logo-fallback">V</div>`;
@@ -146,6 +149,7 @@ export function createSplashWindow(): BrowserWindow {
     height: 800,
     center: true,
     frame: false,
+    show: false, // only show once content has painted — prevents black-window flash
     resizable: false,
     movable: true,
     alwaysOnTop: true,
@@ -157,22 +161,27 @@ export function createSplashWindow(): BrowserWindow {
     },
   });
 
+  // Show only after the renderer has painted at least one frame
+  splash.once("ready-to-show", () => splash.show());
+
+  // Write HTML (which may embed a base64 image in an src attribute) to a temp
+  // file and use loadFile() — avoids all URL-length limits that break data: URLs.
   const iconSrc = findIconBase64();
   const html = buildSplashHTML(iconSrc);
-  void splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  const tmpPath = path.join(os.tmpdir(), "vessel-splash.html");
+  try {
+    fs.writeFileSync(tmpPath, html, "utf-8");
+    void splash.loadFile(tmpPath);
+  } catch (err) {
+    console.warn("[splash] Failed to write temp HTML, using fallback:", err);
+    void splash.loadFile(path.join(__dirname, "../../resources/vessel-icon.png"));
+  }
 
   return splash;
 }
 
-/**
- * Closes the splash window after the main window is visible.
- * Waits a brief moment so the main window has time to paint before
- * the splash disappears.
- */
-export function closeSplash(splash: BrowserWindow, delayMs = 180): void {
+export function closeSplash(splash: BrowserWindow, delayMs = 0): void {
   setTimeout(() => {
-    if (!splash.isDestroyed()) {
-      splash.close();
-    }
+    if (!splash.isDestroyed()) splash.close();
   }, delayMs);
 }
