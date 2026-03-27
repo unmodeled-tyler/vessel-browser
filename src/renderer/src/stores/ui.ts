@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 
-const DEFAULT_SIDEBAR_WIDTH = 340;
+const DEFAULT_SIDEBAR_WIDTH = 400;
 const MIN_SIDEBAR = 240;
 const MAX_SIDEBAR = 800;
 
