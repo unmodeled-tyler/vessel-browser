@@ -29,6 +29,7 @@ import {
   setupAppMenu,
   loadRenderers,
 } from "./startup";
+import { createSplashWindow, closeSplash } from "./splash";
 import { getHighlightCount } from "./highlights/inject";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
 import * as highlightsManager from "./highlights/manager";
@@ -116,6 +117,12 @@ async function maybeShowStartupHealthDialog(
 }
 
 async function bootstrap(): Promise<void> {
+  const splash = createSplashWindow();
+  // Safety valve: close splash after 8s regardless of load state
+  const splashTimeout = setTimeout(() => {
+    if (!splash.isDestroyed()) splash.close();
+  }, 8000);
+
   const settings = loadSettings();
   const userDataPath = app.getPath("userData");
   initializeRuntimeHealth({
@@ -214,6 +221,12 @@ async function bootstrap(): Promise<void> {
     }
     layoutViews(windowState);
     setImmediate(() => layoutViews(windowState));
+
+    // Reveal the main window and retire the splash
+    windowState.mainWindow.show();
+    clearTimeout(splashTimeout);
+    closeSplash(splash);
+
     void maybeShowStartupHealthDialog(windowState);
   });
 }
