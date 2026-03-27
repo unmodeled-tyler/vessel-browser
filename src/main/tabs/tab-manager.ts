@@ -1,4 +1,4 @@
-aliimport { BaseWindow, type WebContents } from "electron";
+import { BaseWindow, type WebContents } from "electron";
 import { Tab } from "./tab";
 import { randomUUID } from "crypto";
 import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";

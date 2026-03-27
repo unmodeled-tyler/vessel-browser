@@ -5851,8 +5851,7 @@ export function startMcpServer(
         status: "ready",
         message: `MCP server listening on ${endpoint}.`,
       });
-      console.log(`[Vessel MCP] Server listening on ${endpoint}`);
-      console.log(`[Vessel MCP] Auth token: ${mcpAuthToken}`);
+      console.log(`[Vessel MCP] Server listening on ${endpoint} (auth enabled)`);
       finish({
         ok: true,
         configuredPort: port,

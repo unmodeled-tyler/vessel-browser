@@ -10,7 +10,7 @@ const [sidebarWidth, setSidebarWidth] = createSignal(DEFAULT_SIDEBAR_WIDTH);
 // Sync initial sidebar width from persisted settings so the sidebar view
 // (a separate WebContentsView) renders at the correct width on first open
 // instead of using the hardcoded default.
-window.vessel?.settings?.get().then((settings: any) => {
+window.vessel?.settings?.get().then((settings: { sidebarWidth?: number }) => {
   if (settings?.sidebarWidth && typeof settings.sidebarWidth === "number") {
     setSidebarWidth(
       Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, settings.sidebarWidth)),

@@ -7,7 +7,8 @@ let started = false;
 export function useNow(): typeof now {
   if (!started) {
     started = true;
-    window.setInterval(() => setNow(Date.now()), 1000);
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    window.addEventListener("unload", () => clearInterval(id));
   }
   return now;
 }

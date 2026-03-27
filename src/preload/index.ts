@@ -10,10 +10,13 @@ import type {
   BookmarksState,
   HistoryState,
   PremiumState,
+  ProviderConfig,
   RuntimeHealthState,
   SessionSnapshot,
+  TabState,
   VesselSettings,
 } from "../shared/types";
+import type { DevToolsPanelState } from "../main/devtools/types";
 
 const api = {
   tabs: {
@@ -26,9 +29,9 @@ const api = {
     forward: (id: string) => ipcRenderer.invoke(Channels.TAB_FORWARD, id),
     reload: (id: string) => ipcRenderer.invoke(Channels.TAB_RELOAD, id),
     onStateUpdate: (
-      cb: (tabs: any[], activeId: string) => void,
+      cb: (tabs: TabState[], activeId: string) => void,
     ): (() => void) => {
-      const handler = (_: any, tabs: any[], activeId: string) =>
+      const handler = (_: unknown, tabs: TabState[], activeId: string) =>
         cb(tabs, activeId);
       ipcRenderer.on(Channels.TAB_STATE_UPDATE, handler);
       return () =>
@@ -39,13 +42,13 @@ const api = {
     query: (prompt: string, history?: AIMessage[]) =>
       ipcRenderer.invoke(Channels.AI_QUERY, prompt, history),
     onStreamStart: (cb: (prompt: string) => void): (() => void) => {
-      const handler = (_: any, prompt: string) => cb(prompt);
+      const handler = (_: unknown, prompt: string) => cb(prompt);
       ipcRenderer.on(Channels.AI_STREAM_START, handler);
       return () =>
         ipcRenderer.removeListener(Channels.AI_STREAM_START, handler);
     },
     onStreamChunk: (cb: (chunk: string) => void): (() => void) => {
-      const handler = (_: any, chunk: string) => cb(chunk);
+      const handler = (_: unknown, chunk: string) => cb(chunk);
       ipcRenderer.on(Channels.AI_STREAM_CHUNK, handler);
       return () =>
         ipcRenderer.removeListener(Channels.AI_STREAM_CHUNK, handler);
@@ -63,7 +66,7 @@ const api = {
     getRuntime: (): Promise<AgentRuntimeState> =>
       ipcRenderer.invoke(Channels.AGENT_RUNTIME_GET),
     onRuntimeUpdate: (cb: (state: AgentRuntimeState) => void): (() => void) => {
-      const handler = (_: any, state: AgentRuntimeState) => cb(state);
+      const handler = (_: unknown, state: AgentRuntimeState) => cb(state);
       ipcRenderer.on(Channels.AGENT_RUNTIME_UPDATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.AGENT_RUNTIME_UPDATE, handler);
@@ -112,7 +115,7 @@ const api = {
         message?: string;
       }) => void,
     ): (() => void) => {
-      const handler = (_: any, result: any) => cb(result);
+      const handler = (_: unknown, result: { success: boolean; text?: string; message?: string }) => cb(result);
       ipcRenderer.on(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
       return () =>
         ipcRenderer.removeListener(Channels.HIGHLIGHT_CAPTURE_RESULT, handler);
@@ -120,7 +123,7 @@ const api = {
     getCount: (): Promise<number> =>
       ipcRenderer.invoke(Channels.HIGHLIGHT_NAV_COUNT),
     onCountUpdate: (cb: (count: number) => void): (() => void) => {
-      const handler = (_: any, count: number) => cb(count);
+      const handler = (_: unknown, count: number) => cb(count);
       ipcRenderer.on(Channels.HIGHLIGHT_COUNT_UPDATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.HIGHLIGHT_COUNT_UPDATE, handler);
@@ -230,8 +233,8 @@ const api = {
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
     resize: (height: number) =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE, height),
-    onStateUpdate: (cb: (state: any) => void): (() => void) => {
-      const handler = (_: any, state: any) => cb(state);
+    onStateUpdate: (cb: (state: DevToolsPanelState) => void): (() => void) => {
+      const handler = (_: unknown, state: DevToolsPanelState) => cb(state);
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_STATE, handler);
@@ -247,7 +250,7 @@ const api = {
     onResult: (
       cb: (result: { requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void,
     ): (() => void) => {
-      const handler = (_: unknown, result: any) => cb(result);
+      const handler = (_: unknown, result: { requestId: number; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => cb(result);
       ipcRenderer.on(Channels.FIND_IN_PAGE_RESULT, handler);
       return () =>
         ipcRenderer.removeListener(Channels.FIND_IN_PAGE_RESULT, handler);
