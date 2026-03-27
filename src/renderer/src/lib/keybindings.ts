@@ -7,6 +7,7 @@ interface KeyBindingHandlers {
   openSettings: () => void;
   captureHighlight: () => void;
   toggleDevTools?: () => void;
+  toggleKeyboardHelp?: () => void;
 }
 
 export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
@@ -67,6 +68,16 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
       e.preventDefault();
       handlers.toggleDevTools?.();
       return;
+    }
+
+    // ? — keyboard shortcut help (only when not in an input/textarea)
+    if (e.key === '?' && !ctrl && !e.altKey) {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !(e.target as HTMLElement)?.isContentEditable) {
+        e.preventDefault();
+        handlers.toggleKeyboardHelp?.();
+        return;
+      }
     }
   };
 

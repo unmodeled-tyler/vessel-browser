@@ -60,6 +60,16 @@ const Settings: Component = () => {
   const [vaultNewNotes, setVaultNewNotes] = createSignal("");
   const [vaultMessage, setVaultMessage] = createSignal<{ kind: "success" | "error"; text: string } | null>(null);
 
+  // First-run detection
+  const FIRST_RUN_KEY = "vessel.onboarding.dismissed";
+  const [showWelcome, setShowWelcome] = createSignal(
+    !localStorage.getItem(FIRST_RUN_KEY),
+  );
+  const dismissWelcome = () => {
+    localStorage.setItem(FIRST_RUN_KEY, "1");
+    setShowWelcome(false);
+  };
+
   const loadVaultEntries = async () => {
     try {
       const entries = await window.vessel.vault.list();
@@ -299,6 +309,27 @@ const Settings: Component = () => {
           onKeyDown={handleKeyDown}
         >
           <h2 class="settings-title">Runtime Settings</h2>
+
+          <Show when={showWelcome()}>
+            <div class="welcome-banner">
+              <div class="welcome-banner-header">
+                <span class="welcome-banner-title">Welcome to Vessel</span>
+                <button class="welcome-banner-dismiss" onClick={dismissWelcome}>&times;</button>
+              </div>
+              <p class="welcome-banner-text">Get started in three steps:</p>
+              <ol class="welcome-banner-steps">
+                <li classList={{ done: chatEnabled() }}>
+                  <strong>Configure a chat provider</strong> — scroll to Chat Assistant below and add an API key
+                </li>
+                <li>
+                  <strong>Connect your agent harness</strong> — point it at the MCP endpoint shown below
+                </li>
+                <li>
+                  <strong>Learn the shortcuts</strong> — press <kbd>?</kbd> anytime for a quick reference
+                </li>
+              </ol>
+            </div>
+          </Show>
 
           <div class="settings-callout">
             <div class="settings-callout-title">External Agent Control</div>
@@ -1291,6 +1322,73 @@ const Settings: Component = () => {
         .premium-btn-reset:hover {
           color: var(--text-secondary);
           background: var(--bg-tertiary);
+        }
+
+        /* Welcome banner */
+        .welcome-banner {
+          margin-bottom: 20px;
+          padding: 16px;
+          border-radius: var(--radius-md);
+          border: 1px solid rgba(196, 160, 90, 0.25);
+          background: rgba(196, 160, 90, 0.08);
+        }
+        .welcome-banner-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+        .welcome-banner-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--accent-primary);
+        }
+        .welcome-banner-dismiss {
+          width: 22px;
+          height: 22px;
+          border-radius: 4px;
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          font-size: 16px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .welcome-banner-dismiss:hover {
+          background: rgba(255, 255, 255, 0.08);
+          color: var(--text-primary);
+        }
+        .welcome-banner-text {
+          font-size: 12px;
+          color: var(--text-secondary);
+          margin: 0 0 8px;
+        }
+        .welcome-banner-steps {
+          margin: 0;
+          padding-left: 20px;
+          font-size: 12px;
+          line-height: 1.7;
+          color: var(--text-secondary);
+        }
+        .welcome-banner-steps li {
+          margin-bottom: 2px;
+        }
+        .welcome-banner-steps li.done {
+          color: var(--text-muted);
+          text-decoration: line-through;
+          opacity: 0.6;
+        }
+        .welcome-banner-steps kbd {
+          display: inline-block;
+          padding: 0 5px;
+          font-size: 11px;
+          font-family: var(--font-mono);
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+          color: var(--text-primary);
         }
 
         /* Agent Credential Vault */

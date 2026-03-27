@@ -9,6 +9,7 @@ import CommandBar from "./components/ai/CommandBar";
 import Sidebar from "./components/ai/Sidebar";
 import DevToolsPanel from "./components/devtools/DevToolsPanel";
 import Settings from "./components/shared/Settings";
+import KeyboardHelp from "./components/shared/KeyboardHelp";
 import { useUI } from "./stores/ui";
 import { useTabs } from "./stores/tabs";
 import { setupKeybindings } from "./lib/keybindings";
@@ -28,6 +29,7 @@ const App: Component = () => {
     title: string;
     message: string;
   } | null>(null);
+  const [keyboardHelpOpen, setKeyboardHelpOpen] = createSignal(false);
 
   const captureHighlight = async () => {
     try {
@@ -87,6 +89,7 @@ const App: Component = () => {
       toggleDevTools: () => {
         window.vessel.devtoolsPanel.toggle();
       },
+      toggleKeyboardHelp: () => setKeyboardHelpOpen((v) => !v),
     });
 
     // Listen for Ctrl+H captures triggered from the page view
@@ -123,6 +126,7 @@ const App: Component = () => {
       </div>
       <CommandBar />
       <Settings />
+      <KeyboardHelp open={keyboardHelpOpen()} onClose={() => setKeyboardHelpOpen(false)} />
     </div>
   );
 };

@@ -1,13 +1,19 @@
-import { createSignal, For, Show, type Component } from 'solid-js';
+import { createSignal, createResource, For, Show, type Component } from 'solid-js';
 import { useUI } from '../../stores/ui';
 import { useAI } from '../../stores/ai';
 import './ai.css';
 
 const CommandBar: Component = () => {
-  const { commandBarOpen, closeCommandBar, toggleSidebar } = useUI();
+  const { commandBarOpen, closeCommandBar, toggleSidebar, openSettings } = useUI();
   const { query, recentQueries, isStreaming, cancel } = useAI();
   const [input, setInput] = createSignal('');
   let inputRef: HTMLInputElement | undefined;
+
+  const [settings] = createResource(
+    () => commandBarOpen(),
+    async (open) => open ? window.vessel.settings.get() : null,
+  );
+  const hasProvider = () => settings()?.chatProvider !== null && settings()?.chatProvider !== undefined;
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
@@ -73,11 +79,23 @@ const CommandBar: Component = () => {
               value={input()}
               onInput={(e) => setInput(e.currentTarget.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about this page, summarize, or search..."
+              placeholder={hasProvider() ? "Ask about this page, summarize, or search..." : "No chat provider configured"}
               spellcheck={false}
+              disabled={!hasProvider()}
             />
           </form>
-          <Show when={recentQueries().length > 0 && !input().trim()}>
+          <Show when={!hasProvider()}>
+            <div class="command-bar-no-provider">
+              <p>Configure a chat provider to start using the AI assistant.</p>
+              <button
+                class="command-bar-no-provider-btn"
+                onClick={() => { closeCommandBar(); openSettings(); }}
+              >
+                Open Settings <kbd>Ctrl+,</kbd>
+              </button>
+            </div>
+          </Show>
+          <Show when={hasProvider() && recentQueries().length > 0 && !input().trim()}>
             <div class="command-bar-recent">
               <span class="command-bar-recent-label">Recent</span>
               <div class="command-bar-recent-list">
@@ -102,7 +120,9 @@ const CommandBar: Component = () => {
             <span>
               <kbd>Esc</kbd> to close
             </span>
-            <span>Try "summarize" or ask a question</span>
+            <Show when={hasProvider()} fallback={<span>Set up a provider in Settings first</span>}>
+              <span>Try "summarize" or ask a question</span>
+            </Show>
           </div>
         </div>
       </div>
