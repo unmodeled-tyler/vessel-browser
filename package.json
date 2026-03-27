@@ -23,7 +23,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE electron scripts/run-navigation-regression.mjs -- --no-sandbox --disable-setuid-sandbox",
+    "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
     "smoke:test": "node scripts/smoke-test.mjs",
     "test:coverage": "c8 --reporter=text --reporter=html tsx --test tests/*.test.ts"
   },
