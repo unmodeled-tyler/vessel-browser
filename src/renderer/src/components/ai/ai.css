@@ -2626,6 +2626,19 @@
     margin-top: 4px;
 }
 
+.sched-edit-panel .kit-schedule-time {
+    max-width: 100%;
+}
+
+.sched-edit-panel .kit-schedule-row {
+    gap: 6px;
+}
+
+.sched-edit-panel .kit-schedule-row label {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 /* ── Schedule form ── */
 
 .kit-schedule-section {
