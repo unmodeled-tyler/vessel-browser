@@ -41,6 +41,22 @@ import { startMcpServer, stopMcpServer } from "../mcp/server";
 
 let activeChatProvider: AIProvider | null = null;
 
+// --- IPC input validation helpers ---
+
+function assertString(value: unknown, name: string): asserts value is string {
+  if (typeof value !== "string") throw new Error(`${name} must be a string`);
+}
+
+function assertOptionalString(value: unknown, name: string): asserts value is string | undefined {
+  if (value !== undefined && typeof value !== "string") throw new Error(`${name} must be a string`);
+}
+
+function assertNumber(value: unknown, name: string): asserts value is number {
+  if (typeof value !== "number" || Number.isNaN(value)) throw new Error(`${name} must be a number`);
+}
+
+const VALID_APPROVAL_MODES = new Set(["auto", "confirm-dangerous", "manual"]);
+
 export function registerIpcHandlers(
   windowState: WindowState,
   runtime: AgentRuntime,
@@ -76,6 +92,8 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.TAB_NAVIGATE, (_, id: string, url: string) => {
+    assertString(id, "tabId");
+    assertString(url, "url");
     tabManager.navigateTab(id, url);
   });
 
@@ -137,6 +155,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.AI_FETCH_MODELS, async (_, config: unknown) => {
     try {
+      if (!config || typeof config !== "object" || !("id" in config)) {
+        return { ok: false, models: [], error: "Invalid provider configuration" };
+      }
       const models = await fetchProviderModels(config as Parameters<typeof fetchProviderModels>[0]);
       return { ok: true, models };
     } catch (err: unknown) {
@@ -191,6 +212,7 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.SIDEBAR_RESIZE, (_, width: number) => {
+    assertNumber(width, "width");
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
     return clamped;
@@ -222,6 +244,7 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
 
   ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: unknown) => {
+    assertString(key, "key");
     if (!SETTABLE_KEYS.has(key)) {
       throw new Error(`Unknown setting key: ${key}`);
     }
@@ -249,6 +272,10 @@ export function registerIpcHandlers(
   ipcMain.handle(
     Channels.AGENT_SET_APPROVAL_MODE,
     (_, mode: ApprovalMode): AgentRuntimeState => {
+      assertString(mode, "mode");
+      if (!VALID_APPROVAL_MODES.has(mode)) {
+        throw new Error(`Invalid approval mode: ${mode}`);
+      }
       setSetting("approvalMode", mode);
       return runtime.setApprovalMode(mode);
     },
@@ -492,6 +519,10 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.PREMIUM_ACTIVATE, async (_, email: string) => {
+    assertString(email, "email");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return { ok: false, state: getPremiumState(), error: "Invalid email format" };
+    }
     const result = await activateWithEmail(email);
     if (result.ok) {
       sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
@@ -530,6 +561,16 @@ export function registerIpcHandlers(
   ipcMain.handle(
     Channels.VAULT_ADD,
     (_, entry: { label: string; domainPattern: string; username: string; password: string; totpSecret?: string; notes?: string }) => {
+      if (!entry || typeof entry !== "object") throw new Error("Invalid vault entry");
+      assertString(entry.label, "label");
+      assertString(entry.domainPattern, "domainPattern");
+      assertString(entry.username, "username");
+      assertString(entry.password, "password");
+      if (!entry.label.trim() || !entry.domainPattern.trim() || !entry.username.trim() || !entry.password.trim()) {
+        throw new Error("Label, domain, username, and password are required");
+      }
+      assertOptionalString(entry.totpSecret, "totpSecret");
+      assertOptionalString(entry.notes, "notes");
       const created = vaultManager.addEntry(entry);
       return { id: created.id, label: created.label, domainPattern: created.domainPattern, username: created.username };
     },
@@ -538,11 +579,14 @@ export function registerIpcHandlers(
   ipcMain.handle(
     Channels.VAULT_UPDATE,
     (_, id: string, updates: Partial<{ label: string; domainPattern: string; username: string; password: string; totpSecret: string; notes: string }>) => {
+      assertString(id, "id");
+      if (!updates || typeof updates !== "object") throw new Error("Invalid updates");
       return vaultManager.updateEntry(id, updates) !== null;
     },
   );
 
   ipcMain.handle(Channels.VAULT_REMOVE, (_, id: string) => {
+    assertString(id, "id");
     return vaultManager.removeEntry(id);
   });
 
