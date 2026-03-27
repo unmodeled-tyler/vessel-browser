@@ -507,6 +507,37 @@ export interface AutomationKit {
   estimatedMinutes?: number;
 }
 
+// --- Scheduled Jobs ---
+
+export type ScheduleType = "once" | "hourly" | "daily" | "weekly";
+
+export interface ScheduleConfig {
+  type: ScheduleType;
+  /** ISO datetime string — only for "once" */
+  runAt?: string;
+  /** Hour of day (0–23) — used for "daily" and "weekly" */
+  hour?: number;
+  /** Minute (0–59) — used for "daily" and "weekly" */
+  minute?: number;
+  /** Day of week (0 = Sunday … 6 = Saturday) — only for "weekly" */
+  dayOfWeek?: number;
+}
+
+export interface ScheduledJob {
+  id: string;
+  kitId: string;
+  kitName: string;
+  kitIcon: string;
+  /** Pre-rendered prompt ready to pass directly to the agent */
+  renderedPrompt: string;
+  schedule: ScheduleConfig;
+  enabled: boolean;
+  createdAt: string;
+  lastRunAt?: string;
+  /** ISO datetime of the next scheduled execution */
+  nextRunAt: string;
+}
+
 // --- Highlights ---
 
 export type HighlightColor =

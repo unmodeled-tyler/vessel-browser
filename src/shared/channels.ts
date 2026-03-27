@@ -110,6 +110,13 @@ export const Channels = {
   AUTOMATION_INSTALL_FROM_FILE: "automation:install-from-file",
   AUTOMATION_UNINSTALL: "automation:uninstall",
 
+  // Scheduled jobs
+  SCHEDULE_GET_ALL: "schedule:get-all",
+  SCHEDULE_CREATE: "schedule:create",
+  SCHEDULE_UPDATE: "schedule:update",
+  SCHEDULE_DELETE: "schedule:delete",
+  SCHEDULE_JOBS_UPDATE: "schedule:jobs-update",
+
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",

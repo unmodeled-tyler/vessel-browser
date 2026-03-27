@@ -13,6 +13,7 @@ import type {
   PremiumState,
   ProviderConfig,
   RuntimeHealthState,
+  ScheduledJob,
   SessionSnapshot,
   TabState,
   VesselSettings,
@@ -307,6 +308,27 @@ const api = {
       ipcRenderer.invoke(Channels.AUTOMATION_INSTALL_FROM_FILE),
     uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(Channels.AUTOMATION_UNINSTALL, id),
+  },
+  schedule: {
+    getAll: (): Promise<ScheduledJob[]> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_GET_ALL),
+    create: (
+      job: Omit<ScheduledJob, "id" | "createdAt" | "nextRunAt">,
+    ): Promise<ScheduledJob> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_CREATE, job),
+    update: (
+      id: string,
+      updates: Partial<Pick<ScheduledJob, "enabled" | "schedule">>,
+    ): Promise<ScheduledJob | null> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_UPDATE, id, updates),
+    delete: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.SCHEDULE_DELETE, id),
+    onJobsUpdate: (cb: (jobs: ScheduledJob[]) => void): (() => void) => {
+      const handler = (_: unknown, updatedJobs: ScheduledJob[]) => cb(updatedJobs);
+      ipcRenderer.on(Channels.SCHEDULE_JOBS_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SCHEDULE_JOBS_UPDATE, handler);
+    },
   },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),
