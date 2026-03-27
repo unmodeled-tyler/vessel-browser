@@ -129,6 +129,9 @@ Steps:
 1. Navigate to the page and dismiss any cookie banners or overlays
 2. Read the form to understand what each field expects
 3. Match and fill all fields you have information for — skip fields you have no data for
+   - Text inputs, textareas, and <select> dropdowns: use fill_form_field or select_option
+   - Checkboxes and radio buttons: use click — do NOT use select_option on these
+   - For multi-checkbox groups (e.g. "select all that apply"), click each relevant option individually
 4. Do NOT submit yet — show me a summary of everything you filled in and wait for my confirmation`,
   },
 ];
