@@ -53,6 +53,7 @@ import {
   installKitFromFile,
   uninstallKit,
 } from "../automation/kit-registry";
+import { registerScheduleHandlers } from "../automation/scheduler";
 
 let activeChatProvider: AIProvider | null = null;
 
@@ -686,4 +687,8 @@ export function registerIpcHandlers(
     assertString(id, "id");
     return uninstallKit(id);
   });
+
+  // --- Scheduled jobs ---
+
+  registerScheduleHandlers(windowState, runtime, sendToRendererViews);
 }
