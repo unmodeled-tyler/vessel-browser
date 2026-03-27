@@ -6,7 +6,7 @@ import type { RuntimeHealthIssue, VesselSettings } from "../../shared/types";
 const defaults: VesselSettings = {
   defaultUrl: "https://start.duckduckgo.com",
   theme: "dark",
-  sidebarWidth: 340,
+  sidebarWidth: 400,
   mcpPort: 3100,
   autoRestoreSession: true,
   clearBookmarksOnLaunch: false,
