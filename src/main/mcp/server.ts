@@ -2146,7 +2146,8 @@ function registerTools(
       }
       return withAction(runtime, tabManager, "navigate", { url }, async () => {
         const id = tabManager.getActiveTabId()!;
-        tabManager.navigateTab(id, url, postBody);
+        const navError = tabManager.navigateTab(id, url, postBody);
+        if (navError) return navError;
         const { httpStatus } = await waitForLoadWithStatus(
           tab.view.webContents,
         );

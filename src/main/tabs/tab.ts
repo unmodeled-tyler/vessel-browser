@@ -350,10 +350,11 @@ export class Tab {
       }
       this.view.webContents.loadURL(url, {
         method: "POST",
+        extraHeaders: "Content-Type: application/x-www-form-urlencoded\r\n",
         postData: [
           {
-            type: "application/x-www-form-urlencoded",
-            data: params.toString(),
+            type: "rawData",
+            bytes: Buffer.from(params.toString()),
           },
         ],
       });

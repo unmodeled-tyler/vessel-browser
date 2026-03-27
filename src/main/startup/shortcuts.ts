@@ -25,7 +25,7 @@ export function registerHighlightShortcut(
   mainWindow.on("focus", register);
 
   return () => {
-    globalShortcut.unregisterAll();
+    globalShortcut.unregister("CommandOrControl+H");
     mainWindow.removeListener("focus", register);
   };
 }

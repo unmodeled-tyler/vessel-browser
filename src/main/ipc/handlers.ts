@@ -103,7 +103,7 @@ export function registerIpcHandlers(
     (_, id: string, url: string, postBody?: Record<string, string>) => {
       assertString(id, "tabId");
       assertString(url, "url");
-      tabManager.navigateTab(id, url, postBody);
+      return tabManager.navigateTab(id, url, postBody);
     },
   );
 

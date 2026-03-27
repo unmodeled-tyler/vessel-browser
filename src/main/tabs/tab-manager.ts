@@ -104,9 +104,10 @@ export class TabManager {
     id: string,
     url: string,
     postBody?: Record<string, string>,
-  ): void {
+  ): string | null {
     const tab = this.tabs.get(id);
-    if (tab) tab.navigate(url, postBody);
+    if (!tab) return `No tab with id ${id}`;
+    return tab.navigate(url, postBody);
   }
 
   goBack(id: string): boolean {
