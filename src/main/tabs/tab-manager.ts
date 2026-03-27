@@ -1,4 +1,4 @@
-import { BaseWindow, type WebContents } from "electron";
+aliimport { BaseWindow, type WebContents } from "electron";
 import { Tab } from "./tab";
 import { randomUUID } from "crypto";
 import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
@@ -82,6 +82,12 @@ export class TabManager {
   closeTab(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
+
+    // Clean up lastReapply entry to prevent memory leak
+    const wcId = tab.webContentsId;
+    if (wcId !== undefined) {
+      this.lastReapply.delete(wcId);
+    }
 
     destroySession(id);
     this.window.contentView.removeChildView(tab.view);

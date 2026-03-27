@@ -2144,6 +2144,14 @@ function registerTools(
           `Navigation blocked: ${url} returned ${preCheck.detail || "dead link"}. Try a different URL or go back and choose another link.`,
         );
       }
+      // Block unsafe URL schemes (javascript:, file:, data:, etc.)
+      try {
+        assertSafeURL(url);
+      } catch (err) {
+        return asTextResponse(
+          `Navigation blocked: ${err instanceof Error ? err.message : "Unsafe URL scheme"}`,
+        );
+      }
       return withAction(runtime, tabManager, "navigate", { url }, async () => {
         const id = tabManager.getActiveTabId()!;
         const navError = tabManager.navigateTab(id, url, postBody);
@@ -2970,29 +2978,6 @@ function registerTools(
       ),
   );
 
-  server.registerTool(
-    "vessel_create_checkpoint",
-    {
-      title: "Create Checkpoint",
-      description:
-        "Alias for vessel_checkpoint_create. Capture the current session as a checkpoint.",
-      inputSchema: {
-        name: z.string().optional().describe("Optional checkpoint name"),
-        note: z.string().optional().describe("Optional note"),
-      },
-    },
-    async ({ name, note }) =>
-      withAction(
-        runtime,
-        tabManager,
-        "create_checkpoint",
-        { name, note },
-        async () => {
-          const checkpoint = runtime.createCheckpoint(name, note);
-          return `Created checkpoint ${checkpoint.name} (${checkpoint.id})`;
-        },
-      ),
-  );
 
   server.registerTool(
     "vessel_checkpoint_restore",
@@ -3024,36 +3009,6 @@ function registerTools(
       ),
   );
 
-  server.registerTool(
-    "vessel_restore_checkpoint",
-    {
-      title: "Restore Checkpoint",
-      description:
-        "Alias for vessel_checkpoint_restore. Restore a saved checkpoint by ID or exact name.",
-      inputSchema: {
-        checkpointId: z.string().optional().describe("Checkpoint ID"),
-        name: z.string().optional().describe("Exact checkpoint name"),
-      },
-    },
-    async ({ checkpointId, name }) =>
-      withAction(
-        runtime,
-        tabManager,
-        "restore_checkpoint",
-        { checkpointId, name },
-        async () => {
-          const state = runtime.getState();
-          const checkpoint =
-            state.checkpoints.find((item) => item.id === checkpointId) ||
-            state.checkpoints.find((item) => item.name === name);
-          if (!checkpoint) {
-            return "Error: No matching checkpoint found";
-          }
-          runtime.restoreCheckpoint(checkpoint.id);
-          return `Restored checkpoint ${checkpoint.name}`;
-        },
-      ),
-  );
 
   server.registerTool(
     "vessel_save_session",
