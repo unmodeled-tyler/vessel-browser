@@ -502,3 +502,33 @@ export interface StoredHighlight {
 export interface HighlightsState {
   highlights: StoredHighlight[];
 }
+
+// --- Agent Credential Vault ---
+
+export interface VaultEntry {
+  id: string;
+  label: string;
+  domainPattern: string;
+  username: string;
+  password: string;
+  totpSecret?: string;
+  notes?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  useCount: number;
+}
+
+export interface VaultAuditEntry {
+  timestamp: string;
+  credentialId: string;
+  credentialLabel: string;
+  domain: string;
+  action: "login_fill" | "totp_generate" | "status_check";
+  sessionId?: string;
+  approved: boolean;
+}
+
+export interface VaultState {
+  entries: VaultEntry[];
+  auditLog: VaultAuditEntry[];
+}

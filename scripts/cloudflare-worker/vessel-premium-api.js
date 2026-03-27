@@ -125,6 +125,15 @@ async function handleCheckout(request, env) {
     return corsResponse({ error: session.error.message }, 400);
   }
 
+  // GET requests (e.g. clicking a link on the website) get a redirect;
+  // POST requests (e.g. from the Vessel app) get JSON.
+  if (request.method === "GET") {
+    return new Response(null, {
+      status: 302,
+      headers: { Location: session.url, ...CORS_HEADERS },
+    });
+  }
+
   return corsResponse({ url: session.url });
 }
 
@@ -292,7 +301,7 @@ export default {
     const path = url.pathname;
 
     try {
-      if (path === "/checkout" && request.method === "POST") {
+      if (path === "/checkout" && (request.method === "GET" || request.method === "POST")) {
         return handleCheckout(request, env);
       }
       if (path === "/portal" && request.method === "POST") {

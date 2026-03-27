@@ -152,10 +152,13 @@ export class OpenAICompatProvider implements AIProvider {
 
         // Sanitize tool call arguments — ensure valid JSON for message history
         // (malformed args from the model would cause a 400 on the next API call)
+        // Track which ones were malformed so we can send errors instead of executing
+        const malformedToolCalls = new Set<string>();
         for (const tc of toolCalls) {
           try {
             JSON.parse(tc.argsJson || '{}');
           } catch {
+            malformedToolCalls.add(tc.id);
             tc.argsJson = '{}';
           }
         }
@@ -180,16 +183,27 @@ export class OpenAICompatProvider implements AIProvider {
 
         // Execute each tool and collect results
         for (const tc of toolCalls) {
-          let args: Record<string, any> = {};
-          try {
-            args = JSON.parse(tc.argsJson || '{}');
-          } catch {
-            // Malformed tool arguments — send error back to model for retry
+          // If this tool call had malformed args (sanitized above), send error to model
+          if (malformedToolCalls.has(tc.id)) {
             onChunk(`\n<<tool:${tc.name}:⚠ invalid args>>\n`);
             messages.push({
               role: 'tool',
               tool_call_id: tc.id,
-              content: `Error: Invalid JSON in tool arguments. Please retry with valid JSON. Raw: ${tc.argsJson}`,
+              content: `Error: Invalid JSON in tool arguments. The arguments could not be parsed. Please retry with valid JSON.`,
+            });
+            continue;
+          }
+
+          let args: Record<string, any> = {};
+          try {
+            args = JSON.parse(tc.argsJson || '{}');
+          } catch {
+            // Shouldn't reach here after sanitization, but handle gracefully
+            onChunk(`\n<<tool:${tc.name}:⚠ invalid args>>\n`);
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: `Error: Invalid JSON in tool arguments. Please retry with valid JSON.`,
             });
             continue;
           }

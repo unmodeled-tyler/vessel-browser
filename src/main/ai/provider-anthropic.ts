@@ -99,6 +99,7 @@ export class AnthropicProvider implements AIProvider {
           id: string;
           name: string;
           input: Record<string, any>;
+          _malformedArgs?: string;
         }> = [];
         let currentToolUse: {
           id: string;
@@ -147,10 +148,13 @@ export class AnthropicProvider implements AIProvider {
                   input: JSON.parse(currentToolUse.inputJson || "{}"),
                 });
               } catch {
+                // Track the malformed args so we can send an error result
+                // instead of executing the tool with empty args
                 toolUseBlocks.push({
                   id: currentToolUse.id,
                   name: currentToolUse.name,
                   input: {},
+                  _malformedArgs: currentToolUse.inputJson,
                 });
               }
               currentToolUse = null;
@@ -185,6 +189,18 @@ export class AnthropicProvider implements AIProvider {
         // Execute tools and build tool_result messages
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
         for (const tb of toolUseBlocks) {
+          // If the model sent malformed JSON args, send an error instead of executing
+          if (tb._malformedArgs !== undefined) {
+            onChunk(`\n<<tool:${tb.name}:⚠ invalid args>>\n`);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tb.id,
+              content: `Error: Invalid JSON in tool arguments — could not parse. Please retry with valid JSON. Raw input: ${tb._malformedArgs.slice(0, 200)}`,
+              is_error: true,
+            });
+            continue;
+          }
+
           const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
           onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
           let result: string;

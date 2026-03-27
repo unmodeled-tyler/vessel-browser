@@ -2,6 +2,7 @@ import type { WebContents } from "electron";
 import type { PageContent } from "../../shared/types";
 import { detectPageIssues } from "./page-access-issues";
 import { extractStructuredDataFromJsonLd } from "./structured-data";
+import { trackExtractionFailed } from "../telemetry/posthog";
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -50,7 +51,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
   (function() {
     // Time budget: stop expensive DOM traversals after this many ms so heavy
     // pages (Newegg, Wikipedia, etc.) don't stall the agent for 30-60s+.
-    var BUDGET_MS = 5000;
+    var BUDGET_MS = 8000;
     var _budgetStart = performance.now();
     function withinBudget() {
       return (performance.now() - _budgetStart) < BUDGET_MS;
@@ -912,7 +913,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const EXECUTE_SCRIPT_TIMEOUT_MS = 1500;
+const EXECUTE_SCRIPT_TIMEOUT_MS = 3000;
 
 async function waitForDomReady(
   webContents: WebContents,
@@ -1097,7 +1098,29 @@ function mergePageContent(
   };
 }
 
-const EXTRACT_TIMEOUT_MS = 8000;
+const EXTRACT_TIMEOUT_BASE_MS = 12000;
+const EXTRACT_TIMEOUT_MAX_MS = 20000;
+
+/** Estimate extraction timeout based on page complexity. */
+async function estimateExtractionTimeout(webContents: WebContents): Promise<number> {
+  try {
+    const elementCount = await executeScript(
+      webContents,
+      `(function() { try { return document.querySelectorAll('*').length; } catch { return 0; } })()`,
+    );
+    if (typeof elementCount === "number" && elementCount > 5000) {
+      // Heavy page — scale timeout: +1s per 2000 elements beyond 5000, capped
+      const extra = Math.min(
+        EXTRACT_TIMEOUT_MAX_MS - EXTRACT_TIMEOUT_BASE_MS,
+        Math.ceil((elementCount - 5000) / 2000) * 1000,
+      );
+      return EXTRACT_TIMEOUT_BASE_MS + extra;
+    }
+  } catch {
+    // Can't estimate — use base
+  }
+  return EXTRACT_TIMEOUT_BASE_MS;
+}
 
 async function extractContentInner(
   webContents: WebContents,
@@ -1120,20 +1143,26 @@ export async function extractContent(
   webContents: WebContents,
 ): Promise<PageContent> {
   try {
+    const timeoutMs = await estimateExtractionTimeout(webContents);
     return await Promise.race([
       extractContentInner(webContents),
       new Promise<never>((_, reject) =>
         setTimeout(
           () => reject(new Error("extractContent timeout")),
-          EXTRACT_TIMEOUT_MS,
+          timeoutMs,
         ),
       ),
     ]);
-  } catch {
+  } catch (err) {
+    const url = webContents.getURL() || "";
+    let domain = "unknown";
+    try { domain = new URL(url).hostname; } catch { /* invalid URL */ }
+    const reason = err instanceof Error ? err.message : "unknown";
+    trackExtractionFailed(domain, reason);
     return {
       ...EMPTY_PAGE_CONTENT,
       title: webContents.getTitle() || "",
-      url: webContents.getURL() || "",
+      url,
     };
   }
 }

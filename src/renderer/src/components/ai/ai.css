@@ -144,6 +144,56 @@
     font-weight: 500;
 }
 
+.command-bar-no-provider {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border-subtle);
+    text-align: center;
+}
+
+.command-bar-no-provider p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0 0 10px;
+    line-height: 1.5;
+}
+
+.command-bar-no-provider-btn {
+    height: 32px;
+    padding: 0 16px;
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--accent-primary);
+    color: white;
+    border: none;
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-in-out),
+                transform var(--duration-fast) var(--ease-out-expo);
+}
+
+.command-bar-no-provider-btn:hover {
+    background: #d4b06a;
+}
+
+.command-bar-no-provider-btn:active {
+    transform: scale(0.97);
+}
+
+.command-bar-no-provider-btn kbd {
+    margin-left: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: var(--font-ui);
+    font-size: 10px;
+}
+
+.command-bar-input:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 
 /* ═══════════════════════════════════════
    Sidebar — refined panel

@@ -270,6 +270,18 @@ const api = {
         ipcRenderer.removeListener(Channels.PREMIUM_UPDATE, handler);
     },
   },
+  vault: {
+    list: (): Promise<Array<{ id: string; label: string; domainPattern: string; username: string; notes?: string; createdAt: string; lastUsedAt?: string; useCount: number }>> =>
+      ipcRenderer.invoke(Channels.VAULT_LIST),
+    add: (entry: { label: string; domainPattern: string; username: string; password: string; totpSecret?: string; notes?: string }): Promise<{ id: string; label: string; domainPattern: string; username: string }> =>
+      ipcRenderer.invoke(Channels.VAULT_ADD, entry),
+    update: (id: string, updates: { label?: string; domainPattern?: string; username?: string; password?: string; totpSecret?: string; notes?: string }): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.VAULT_UPDATE, id, updates),
+    remove: (id: string): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.VAULT_REMOVE, id),
+    auditLog: (limit?: number): Promise<Array<{ timestamp: string; credentialLabel: string; domain: string; action: string; approved: boolean }>> =>
+      ipcRenderer.invoke(Channels.VAULT_AUDIT_LOG, limit),
+  },
   window: {
     minimize: () => ipcRenderer.invoke(Channels.WINDOW_MINIMIZE),
     maximize: () => ipcRenderer.invoke(Channels.WINDOW_MAXIMIZE),

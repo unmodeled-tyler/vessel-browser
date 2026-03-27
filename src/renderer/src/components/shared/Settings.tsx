@@ -47,6 +47,70 @@ const Settings: Component = () => {
   // Telemetry
   const [telemetryEnabled, setTelemetryEnabled] = createSignal(true);
 
+  // Agent Credential Vault
+  type VaultListEntry = { id: string; label: string; domainPattern: string; username: string; notes?: string; createdAt: string; lastUsedAt?: string; useCount: number };
+  const [vaultEntries, setVaultEntries] = createSignal<VaultListEntry[]>([]);
+  const [vaultExpanded, setVaultExpanded] = createSignal(false);
+  const [vaultAdding, setVaultAdding] = createSignal(false);
+  const [vaultNewLabel, setVaultNewLabel] = createSignal("");
+  const [vaultNewDomain, setVaultNewDomain] = createSignal("");
+  const [vaultNewUsername, setVaultNewUsername] = createSignal("");
+  const [vaultNewPassword, setVaultNewPassword] = createSignal("");
+  const [vaultNewTotp, setVaultNewTotp] = createSignal("");
+  const [vaultNewNotes, setVaultNewNotes] = createSignal("");
+  const [vaultMessage, setVaultMessage] = createSignal<{ kind: "success" | "error"; text: string } | null>(null);
+
+  // First-run detection
+  const FIRST_RUN_KEY = "vessel.onboarding.dismissed";
+  const [showWelcome, setShowWelcome] = createSignal(
+    !localStorage.getItem(FIRST_RUN_KEY),
+  );
+  const dismissWelcome = () => {
+    localStorage.setItem(FIRST_RUN_KEY, "1");
+    setShowWelcome(false);
+  };
+
+  const loadVaultEntries = async () => {
+    try {
+      const entries = await window.vessel.vault.list();
+      setVaultEntries(entries);
+    } catch { /* vault not available */ }
+  };
+
+  const handleVaultAdd = async () => {
+    if (!vaultNewLabel().trim() || !vaultNewDomain().trim() || !vaultNewUsername().trim() || !vaultNewPassword().trim()) {
+      setVaultMessage({ kind: "error", text: "Label, domain, username, and password are required." });
+      return;
+    }
+    try {
+      await window.vessel.vault.add({
+        label: vaultNewLabel().trim(),
+        domainPattern: vaultNewDomain().trim(),
+        username: vaultNewUsername().trim(),
+        password: vaultNewPassword().trim(),
+        totpSecret: vaultNewTotp().trim() || undefined,
+        notes: vaultNewNotes().trim() || undefined,
+      });
+      setVaultNewLabel(""); setVaultNewDomain(""); setVaultNewUsername("");
+      setVaultNewPassword(""); setVaultNewTotp(""); setVaultNewNotes("");
+      setVaultAdding(false);
+      setVaultMessage({ kind: "success", text: "Credential added." });
+      await loadVaultEntries();
+    } catch (err) {
+      setVaultMessage({ kind: "error", text: err instanceof Error ? err.message : "Failed to add credential." });
+    }
+  };
+
+  const handleVaultRemove = async (id: string) => {
+    try {
+      await window.vessel.vault.remove(id);
+      await loadVaultEntries();
+      setVaultMessage({ kind: "success", text: "Credential removed." });
+    } catch {
+      setVaultMessage({ kind: "error", text: "Failed to remove credential." });
+    }
+  };
+
   // Premium subscription
   const [premiumState, setPremiumState] = createSignal<PremiumState>({
     status: "free",
@@ -153,6 +217,8 @@ const Settings: Component = () => {
       setPremiumState(ps);
       if (ps.email) setPremiumEmail(ps.email);
     } catch { /* premium API not available */ }
+    // Load vault entries
+    await loadVaultEntries();
   };
 
   onMount(() => {
@@ -243,6 +309,27 @@ const Settings: Component = () => {
           onKeyDown={handleKeyDown}
         >
           <h2 class="settings-title">Runtime Settings</h2>
+
+          <Show when={showWelcome()}>
+            <div class="welcome-banner">
+              <div class="welcome-banner-header">
+                <span class="welcome-banner-title">Welcome to Vessel</span>
+                <button class="welcome-banner-dismiss" onClick={dismissWelcome}>&times;</button>
+              </div>
+              <p class="welcome-banner-text">Get started in three steps:</p>
+              <ol class="welcome-banner-steps">
+                <li classList={{ done: chatEnabled() }}>
+                  <strong>Configure a chat provider</strong> — scroll to Chat Assistant below and add an API key
+                </li>
+                <li>
+                  <strong>Connect your agent harness</strong> — point it at the MCP endpoint shown below
+                </li>
+                <li>
+                  <strong>Learn the shortcuts</strong> — press <kbd>?</kbd> anytime for a quick reference
+                </li>
+              </ol>
+            </div>
+          </Show>
 
           <div class="settings-callout">
             <div class="settings-callout-title">External Agent Control</div>
@@ -589,7 +676,8 @@ const Settings: Component = () => {
                   <p class="premium-description">
                     Unlock screenshot/vision analysis, session management,
                     Obsidian integration, workflow tracking, DevTools tools,
-                    table extraction, and unlimited tool iterations.
+                    table extraction, Agent Credential Vault, and unlimited
+                    tool iterations.
                   </p>
                   <div class="premium-activate-row">
                     <input
@@ -713,6 +801,142 @@ const Settings: Component = () => {
                   </button>
                 </div>
               </div>
+            </Show>
+          </div>
+
+          <div class="settings-section-divider" />
+
+          {/* --- Agent Credential Vault --- */}
+          <div class="settings-field">
+            <label class="settings-label">
+              Agent Credential Vault
+              <Show when={!premiumActive()}>
+                <span class="vault-premium-badge">Premium</span>
+              </Show>
+            </label>
+            <Show
+              when={premiumActive()}
+              fallback={
+                <p class="settings-hint">
+                  Securely store credentials for agent-driven logins. Upgrade to Premium to unlock the Agent Credential Vault.
+                </p>
+              }
+            >
+              <p class="settings-hint" style="margin-bottom: 10px">
+                Store credentials for agent-driven logins. Credentials are encrypted at rest and never sent to AI providers — they are filled directly into login forms with your consent.
+              </p>
+
+              <Show when={vaultEntries().length > 0}>
+                <div class="vault-entries">
+                  <For each={vaultEntries()}>
+                    {(entry) => (
+                      <div class="vault-entry">
+                        <div class="vault-entry-info">
+                          <span class="vault-entry-label">{entry.label}</span>
+                          <span class="vault-entry-detail">
+                            {entry.username} &middot; {entry.domainPattern}
+                            <Show when={entry.useCount > 0}>
+                              {" "}&middot; Used {entry.useCount}x
+                            </Show>
+                          </span>
+                        </div>
+                        <button
+                          class="vault-entry-remove"
+                          onClick={() => handleVaultRemove(entry.id)}
+                          title="Remove credential"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
+              <Show when={!vaultAdding()}>
+                <button
+                  class="vault-add-btn"
+                  onClick={() => { setVaultAdding(true); setVaultMessage(null); }}
+                >
+                  + Add Credential
+                </button>
+              </Show>
+
+              <Show when={vaultAdding()}>
+                <div class="vault-add-form">
+                  <input
+                    class="settings-input"
+                    placeholder="Label (e.g. Work GitHub)"
+                    value={vaultNewLabel()}
+                    onInput={(e) => setVaultNewLabel(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <input
+                    class="settings-input"
+                    placeholder="Domain pattern (e.g. github.com, *.aws.amazon.com)"
+                    value={vaultNewDomain()}
+                    onInput={(e) => setVaultNewDomain(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <input
+                    class="settings-input"
+                    placeholder="Username / email"
+                    value={vaultNewUsername()}
+                    onInput={(e) => setVaultNewUsername(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <input
+                    class="settings-input"
+                    type="password"
+                    placeholder="Password"
+                    value={vaultNewPassword()}
+                    onInput={(e) => setVaultNewPassword(e.currentTarget.value)}
+                  />
+                  <input
+                    class="settings-input"
+                    placeholder="TOTP secret (optional, base32)"
+                    value={vaultNewTotp()}
+                    onInput={(e) => setVaultNewTotp(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <input
+                    class="settings-input"
+                    placeholder="Notes (optional)"
+                    value={vaultNewNotes()}
+                    onInput={(e) => setVaultNewNotes(e.currentTarget.value)}
+                    spellcheck={false}
+                  />
+                  <div class="vault-add-actions">
+                    <button class="premium-btn premium-btn-activate" onClick={handleVaultAdd}>
+                      Save Credential
+                    </button>
+                    <button
+                      class="premium-btn premium-btn-reset"
+                      onClick={() => {
+                        setVaultAdding(false);
+                        setVaultNewLabel(""); setVaultNewDomain(""); setVaultNewUsername("");
+                        setVaultNewPassword(""); setVaultNewTotp(""); setVaultNewNotes("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </Show>
+
+              <Show when={vaultMessage()}>
+                {(msg) => (
+                  <p
+                    class="settings-status"
+                    classList={{
+                      success: msg().kind === "success",
+                      error: msg().kind === "error",
+                    }}
+                  >
+                    {msg().text}
+                  </p>
+                )}
+              </Show>
             </Show>
           </div>
 
@@ -1098,6 +1322,173 @@ const Settings: Component = () => {
         .premium-btn-reset:hover {
           color: var(--text-secondary);
           background: var(--bg-tertiary);
+        }
+
+        /* Welcome banner */
+        .welcome-banner {
+          margin-bottom: 20px;
+          padding: 16px;
+          border-radius: var(--radius-md);
+          border: 1px solid rgba(196, 160, 90, 0.25);
+          background: rgba(196, 160, 90, 0.08);
+        }
+        .welcome-banner-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+        .welcome-banner-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--accent-primary);
+        }
+        .welcome-banner-dismiss {
+          width: 22px;
+          height: 22px;
+          border-radius: 4px;
+          background: transparent;
+          border: none;
+          color: var(--text-muted);
+          font-size: 16px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .welcome-banner-dismiss:hover {
+          background: rgba(255, 255, 255, 0.08);
+          color: var(--text-primary);
+        }
+        .welcome-banner-text {
+          font-size: 12px;
+          color: var(--text-secondary);
+          margin: 0 0 8px;
+        }
+        .welcome-banner-steps {
+          margin: 0;
+          padding-left: 20px;
+          font-size: 12px;
+          line-height: 1.7;
+          color: var(--text-secondary);
+        }
+        .welcome-banner-steps li {
+          margin-bottom: 2px;
+        }
+        .welcome-banner-steps li.done {
+          color: var(--text-muted);
+          text-decoration: line-through;
+          opacity: 0.6;
+        }
+        .welcome-banner-steps kbd {
+          display: inline-block;
+          padding: 0 5px;
+          font-size: 11px;
+          font-family: var(--font-mono);
+          background: rgba(255, 255, 255, 0.08);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+          color: var(--text-primary);
+        }
+
+        /* Agent Credential Vault */
+        .vault-premium-badge {
+          display: inline-block;
+          font-size: 10px;
+          font-weight: 600;
+          color: #f0c636;
+          background: rgba(240, 198, 54, 0.15);
+          padding: 1px 6px;
+          border-radius: 4px;
+          margin-left: 8px;
+          vertical-align: middle;
+        }
+        .vault-entries {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-bottom: 10px;
+        }
+        .vault-entry {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 8px 12px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-md);
+        }
+        .vault-entry-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
+        .vault-entry-label {
+          font-size: 12px;
+          font-weight: 500;
+          color: var(--text-primary);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .vault-entry-detail {
+          font-size: 11px;
+          color: var(--text-muted);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .vault-entry-remove {
+          flex-shrink: 0;
+          width: 24px;
+          height: 24px;
+          border-radius: 4px;
+          background: transparent;
+          border: none;
+          color: var(--text-tertiary, #71717a);
+          font-size: 16px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: background var(--duration-fast), color var(--duration-fast);
+        }
+        .vault-entry-remove:hover {
+          background: rgba(255, 108, 91, 0.12);
+          color: #ff8e8e;
+        }
+        .vault-add-btn {
+          height: 32px;
+          padding: 0 14px;
+          border-radius: var(--radius-md);
+          font-size: 12px;
+          font-weight: 500;
+          background: var(--bg-tertiary);
+          border: 1px dashed var(--border-subtle);
+          color: var(--text-secondary);
+          cursor: pointer;
+          width: 100%;
+          transition: background var(--duration-fast), border-color var(--duration-fast);
+        }
+        .vault-add-btn:hover {
+          background: var(--border-visible);
+          border-color: var(--border-visible);
+        }
+        .vault-add-form {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 12px;
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid var(--border-subtle);
+          border-radius: var(--radius-md);
+        }
+        .vault-add-actions {
+          display: flex;
+          gap: 8px;
+          justify-content: flex-end;
+          margin-top: 4px;
         }
       `}</style>
     </Show>

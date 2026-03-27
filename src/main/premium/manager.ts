@@ -35,6 +35,9 @@ export const PREMIUM_TOOLS = new Set([
   "flow_end",
   "metrics",
   "extract_table",
+  "vault_login",
+  "vault_status",
+  "vault_totp",
 ]);
 
 /** Features gated behind premium (checked by name in UI/IPC) */
@@ -42,6 +45,7 @@ export const PREMIUM_FEATURES = new Set([
   "obsidian",
   "devtools",
   "unlimited_iterations",
+  "vault",
 ]);
 
 // --- Status checks ---

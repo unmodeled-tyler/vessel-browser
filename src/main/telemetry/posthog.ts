@@ -120,6 +120,35 @@ export function trackPageTypeDetected(pageType: string): void {
   });
 }
 
+// --- Feature usage tracking ---
+
+export function trackSettingChanged(key: string): void {
+  trackEvent("setting_changed", { setting_key: key });
+}
+
+export function trackApprovalModeChanged(mode: string): void {
+  trackEvent("approval_mode_changed", { mode });
+}
+
+export function trackBookmarkAction(action: "save" | "remove" | "folder_create" | "folder_remove"): void {
+  trackEvent("bookmark_action", { action });
+}
+
+export function trackVaultAction(action: "credential_added" | "credential_removed" | "login_fill" | "totp_fill"): void {
+  trackEvent("vault_action", { action });
+}
+
+export function trackExtractionFailed(domain: string, reason: string): void {
+  trackEvent("extraction_failed", { domain, reason });
+}
+
+export function trackPremiumFunnel(
+  step: "activation_attempted" | "activation_succeeded" | "activation_failed" | "checkout_clicked" | "portal_opened" | "reset",
+  context?: Record<string, unknown>,
+): void {
+  trackEvent("premium_funnel", { step, ...context });
+}
+
 // --- Lifecycle ---
 
 export function startTelemetry(): void {

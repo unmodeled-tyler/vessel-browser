@@ -84,6 +84,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Structured Page Visibility Context** — extraction can report in-viewport elements, obscured controls, active overlays, and dormant consent/modal UI
 - **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
 - **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
+- **Agent Credential Vault** (Premium) — encrypted credential storage for agent-driven logins; credentials are filled directly into login forms via a "blind fill" pattern and are never sent to AI providers; user consent dialog before every use; TOTP 2FA support; domain-scoped access; append-only audit log
 - **Obsidian Memory Hooks** — optional vault path for agent-written markdown notes, page captures, and research breadcrumbs
 - **Runtime Health Checks** — startup warnings for MCP port conflicts, unreadable settings, and user-data write failures
 - **Reader Mode** — extract article content into a clean, distraction-free view; toggle on and off from the address bar
@@ -246,6 +247,21 @@ Named session tools exposed today include:
 
 Session files are sensitive because they may contain login cookies and tokens. Vessel stores them under the app user-data directory with restrictive file permissions.
 
+Agent Credential Vault tools (Premium):
+
+- `vessel_vault_status` — check whether stored credentials exist for a domain (returns labels/usernames, never passwords)
+- `vessel_vault_login` — fill a login form using stored credentials (blind fill — credentials go directly into the page, never into the AI conversation)
+- `vessel_vault_totp` — generate and fill a TOTP 2FA code from a stored secret
+
+Vault security model:
+
+- Credentials are encrypted at rest using AES-256-GCM with a key protected by the OS keychain (Electron safeStorage)
+- Credential values are **never** sent to AI providers — they flow only through the main process to the content script
+- Every credential use triggers a user consent dialog ("Allow Once" / "Allow for Session" / "Deny")
+- All credential access is recorded in an append-only audit log
+- Credentials are domain-scoped — they can only be used on matching domains
+- Users manage credentials in Settings > Agent Credential Vault
+
 Notable extraction modes include:
 
 - `visible_only` — only currently visible, in-viewport, unobstructed interactive elements plus active overlays
@@ -361,6 +377,7 @@ src/
 │   ├── content/          # Readability extraction, reader mode
 │   ├── config/           # Settings persistence
 │   ├── ipc/              # IPC handler registry
+│   ├── vault/            # Agent Credential Vault (encrypted storage, consent, audit)
 │   ├── mcp/              # MCP server for external agent control
 │   ├── devtools/         # CDP session management for Dev Tools panel
 │   ├── window.ts         # Window layout manager

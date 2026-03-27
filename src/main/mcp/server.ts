@@ -60,6 +60,10 @@ import { setMcpHealth } from "../health/runtime-health";
 import { registerDevTools } from "../devtools/tools";
 import { assertSafeURL } from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";
+import * as vaultManager from "../vault/manager";
+import { requestConsent } from "../vault/consent";
+import { appendAuditEntry } from "../vault/audit";
+import { trackVaultAction } from "../telemetry/posthog";
 
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
@@ -5231,6 +5235,331 @@ function registerTools(
             ? `Navigation complete: ${title} (${afterUrl})`
             : `Page loaded: ${title} (${afterUrl})`;
         },
+      );
+    },
+  );
+
+  // --- Agent Credential Vault ---
+  // These tools implement the "blind fill" pattern: credential values NEVER
+  // enter the AI conversation. The agent requests a fill, the main process
+  // shows a consent dialog, and fills the form directly via the content script.
+
+  server.registerTool(
+    "vessel_vault_status",
+    {
+      title: "Check Vault Credentials",
+      description:
+        "Check whether stored credentials exist for a domain. Returns credential labels and usernames but NEVER password values. Use this before vault_login to verify credentials are available.",
+      inputSchema: {
+        domain: z
+          .string()
+          .describe(
+            "The domain to check credentials for (e.g. 'github.com'). If omitted, checks the active tab's domain.",
+          )
+          .optional(),
+      },
+    },
+    async ({ domain }) => {
+      let targetDomain = domain;
+      if (!targetDomain) {
+        const tab = tabManager.getActiveTab();
+        if (!tab) return asTextResponse("Error: No active tab and no domain specified");
+        try {
+          targetDomain = new URL(tab.state.url).hostname;
+        } catch {
+          return asTextResponse("Error: Could not parse active tab URL");
+        }
+      }
+
+      const matches = vaultManager.findEntriesForDomain(
+        targetDomain.includes("://") ? targetDomain : `https://${targetDomain}`,
+      );
+
+      if (matches.length === 0) {
+        return asTextResponse(
+          `No stored credentials found for ${targetDomain}. The user needs to add credentials in Settings > Agent Credential Vault before the agent can log in.`,
+        );
+      }
+
+      appendAuditEntry({
+        timestamp: new Date().toISOString(),
+        credentialId: matches[0].id,
+        credentialLabel: matches[0].label,
+        domain: targetDomain,
+        action: "status_check",
+        approved: true,
+      });
+
+      const summary = matches
+        .map((m) => `  - "${m.label}" (${m.username})`)
+        .join("\n");
+
+      return asTextResponse(
+        `Found ${matches.length} credential(s) for ${targetDomain}:\n${summary}\n\nUse vessel_vault_login to fill the login form. Credentials are filled directly — you will NOT see the password values.`,
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_vault_login",
+    {
+      title: "Fill Login with Vault Credentials",
+      description:
+        "Fill a login form on the current page using stored credentials from the Agent Credential Vault. The credential values are filled directly into the page — they are NEVER returned in this response. The user will see a consent dialog before credentials are used.",
+      inputSchema: {
+        credential_label: z
+          .string()
+          .optional()
+          .describe(
+            "Label of the credential to use. If omitted, uses the first matching credential for the current domain.",
+          ),
+        username_index: z
+          .number()
+          .optional()
+          .describe(
+            "Element index of the username/email input field from read_page.",
+          ),
+        password_index: z
+          .number()
+          .optional()
+          .describe(
+            "Element index of the password input field from read_page.",
+          ),
+        submit_after: z
+          .boolean()
+          .optional()
+          .describe(
+            "Whether to click the submit button after filling credentials. Defaults to false.",
+          ),
+        submit_index: z
+          .number()
+          .optional()
+          .describe(
+            "Element index of the submit button. Required if submit_after is true.",
+          ),
+      },
+    },
+    async ({
+      credential_label,
+      username_index,
+      password_index,
+      submit_after,
+      submit_index,
+    }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+
+      const wc = tab.view.webContents;
+      let hostname: string;
+      try {
+        hostname = new URL(tab.state.url).hostname;
+      } catch {
+        return asTextResponse("Error: Could not parse active tab URL");
+      }
+
+      // Find matching credentials
+      const matches = vaultManager.findEntriesForDomain(`https://${hostname}`);
+      if (matches.length === 0) {
+        return asTextResponse(
+          `No stored credentials for ${hostname}. The user needs to add credentials in Settings > Agent Credential Vault.`,
+        );
+      }
+
+      const match = credential_label
+        ? matches.find(
+            (m) => m.label.toLowerCase() === credential_label.toLowerCase(),
+          )
+        : matches[0];
+
+      if (!match) {
+        return asTextResponse(
+          `No credential named "${credential_label}" found for ${hostname}. Available: ${matches.map((m) => m.label).join(", ")}`,
+        );
+      }
+
+      // Request user consent
+      const consent = await requestConsent({
+        credentialLabel: match.label,
+        username: match.username,
+        domain: hostname,
+      });
+
+      appendAuditEntry({
+        timestamp: new Date().toISOString(),
+        credentialId: match.id,
+        credentialLabel: match.label,
+        domain: hostname,
+        action: "login_fill",
+        approved: consent.approved,
+      });
+
+      if (!consent.approved) {
+        return asTextResponse(
+          `User denied credential access for ${hostname}. The agent should not retry without being asked.`,
+        );
+      }
+
+      // Get raw credentials (NEVER sent to AI — used only for form fill)
+      const creds = vaultManager.getCredential(match.id);
+      if (!creds) {
+        return asTextResponse("Error: Credential not found in vault");
+      }
+
+      // Fill username field
+      const results: string[] = [];
+      if (username_index != null) {
+        const usernameResult = await wc.executeJavaScript(
+          `window.__vessel?.interactByIndex?.(${username_index}, "value", ${JSON.stringify(creds.username)}) || "Error: interactByIndex not available"`,
+        );
+        results.push(`Username: ${usernameResult}`);
+      }
+
+      // Fill password field
+      if (password_index != null) {
+        const passwordResult = await wc.executeJavaScript(
+          `window.__vessel?.interactByIndex?.(${password_index}, "value", ${JSON.stringify(creds.password)}) || "Error: interactByIndex not available"`,
+        );
+        results.push(`Password: ${passwordResult.replace(/Typed into:.*/, "Typed into: [password field]")}`);
+      }
+
+      // Record usage
+      vaultManager.recordUsage(match.id);
+      trackVaultAction("login_fill");
+
+      // Optionally submit
+      if (submit_after && submit_index != null) {
+        const submitResult = await wc.executeJavaScript(
+          `window.__vessel?.interactByIndex?.(${submit_index}, "click") || "Error: interactByIndex not available"`,
+        );
+        results.push(`Submit: ${submitResult}`);
+      }
+
+      // Clear credential references from this scope
+      // (they exist briefly in memory only during the fill)
+
+      return asTextResponse(
+        [
+          `Login form filled for ${hostname} using credential "${match.label}".`,
+          ...results,
+          "",
+          "Note: Credential values were filled directly into the page. They are NOT included in this response.",
+        ].join("\n"),
+      );
+    },
+  );
+
+  server.registerTool(
+    "vessel_vault_totp",
+    {
+      title: "Fill TOTP Code from Vault",
+      description:
+        "Generate a TOTP 2FA code from a stored secret and fill it into a code input field. The TOTP secret and generated code are NEVER returned — only filled directly into the page.",
+      inputSchema: {
+        credential_label: z
+          .string()
+          .optional()
+          .describe(
+            "Label of the credential whose TOTP secret to use. If omitted, uses the first matching credential with a TOTP secret.",
+          ),
+        code_index: z
+          .number()
+          .describe(
+            "Element index of the TOTP/2FA code input field from read_page.",
+          ),
+        submit_after: z
+          .boolean()
+          .optional()
+          .describe("Whether to click submit after filling the code."),
+        submit_index: z
+          .number()
+          .optional()
+          .describe("Element index of the submit button."),
+      },
+    },
+    async ({ credential_label, code_index, submit_after, submit_index }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asTextResponse("Error: No active tab");
+
+      const wc = tab.view.webContents;
+      let hostname: string;
+      try {
+        hostname = new URL(tab.state.url).hostname;
+      } catch {
+        return asTextResponse("Error: Could not parse active tab URL");
+      }
+
+      const matches = vaultManager.findEntriesForDomain(`https://${hostname}`);
+      const match = credential_label
+        ? matches.find(
+            (m) => m.label.toLowerCase() === credential_label.toLowerCase(),
+          )
+        : matches.find((m) => {
+            const secret = vaultManager.getTotpSecret(m.id);
+            return secret != null;
+          });
+
+      if (!match) {
+        return asTextResponse(
+          `No credential with TOTP secret found for ${hostname}.`,
+        );
+      }
+
+      const secret = vaultManager.getTotpSecret(match.id);
+      if (!secret) {
+        return asTextResponse(
+          `Credential "${match.label}" does not have a TOTP secret configured.`,
+        );
+      }
+
+      // Request user consent
+      const consent = await requestConsent({
+        credentialLabel: match.label,
+        username: match.username,
+        domain: hostname,
+      });
+
+      appendAuditEntry({
+        timestamp: new Date().toISOString(),
+        credentialId: match.id,
+        credentialLabel: match.label,
+        domain: hostname,
+        action: "totp_generate",
+        approved: consent.approved,
+      });
+
+      if (!consent.approved) {
+        return asTextResponse(
+          `User denied TOTP access for ${hostname}.`,
+        );
+      }
+
+      // Generate TOTP code (NEVER sent to AI)
+      const code = vaultManager.generateTotpCode(secret);
+
+      // Fill the code field
+      const fillResult = await wc.executeJavaScript(
+        `window.__vessel?.interactByIndex?.(${code_index}, "value", ${JSON.stringify(code)}) || "Error: interactByIndex not available"`,
+      );
+
+      vaultManager.recordUsage(match.id);
+      trackVaultAction("totp_fill");
+
+      const results = [`2FA code filled: ${fillResult.replace(/Typed into:.*/, "Typed into: [2FA field]")}`];
+
+      if (submit_after && submit_index != null) {
+        const submitResult = await wc.executeJavaScript(
+          `window.__vessel?.interactByIndex?.(${submit_index}, "click") || "Error: interactByIndex not available"`,
+        );
+        results.push(`Submit: ${submitResult}`);
+      }
+
+      return asTextResponse(
+        [
+          `TOTP code filled for ${hostname} using credential "${match.label}".`,
+          ...results,
+          "",
+          "Note: The TOTP code was filled directly into the page. It is NOT included in this response.",
+        ].join("\n"),
       );
     },
   );

@@ -13,7 +13,16 @@ import {
   getPortalUrl,
   resetPremium,
 } from "../premium/manager";
-import { trackProviderConfigured } from "../telemetry/posthog";
+import * as vaultManager from "../vault/manager";
+import { readAuditLog } from "../vault/audit";
+import {
+  trackProviderConfigured,
+  trackSettingChanged,
+  trackApprovalModeChanged,
+  trackBookmarkAction,
+  trackVaultAction,
+  trackPremiumFunnel,
+} from "../telemetry/posthog";
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
@@ -38,6 +47,22 @@ import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlight
 import { startMcpServer, stopMcpServer } from "../mcp/server";
 
 let activeChatProvider: AIProvider | null = null;
+
+// --- IPC input validation helpers ---
+
+function assertString(value: unknown, name: string): asserts value is string {
+  if (typeof value !== "string") throw new Error(`${name} must be a string`);
+}
+
+function assertOptionalString(value: unknown, name: string): asserts value is string | undefined {
+  if (value !== undefined && typeof value !== "string") throw new Error(`${name} must be a string`);
+}
+
+function assertNumber(value: unknown, name: string): asserts value is number {
+  if (typeof value !== "number" || Number.isNaN(value)) throw new Error(`${name} must be a number`);
+}
+
+const VALID_APPROVAL_MODES = new Set(["auto", "confirm-dangerous", "manual"]);
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -74,6 +99,8 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.TAB_NAVIGATE, (_, id: string, url: string) => {
+    assertString(id, "tabId");
+    assertString(url, "url");
     tabManager.navigateTab(id, url);
   });
 
@@ -135,6 +162,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.AI_FETCH_MODELS, async (_, config: unknown) => {
     try {
+      if (!config || typeof config !== "object" || !("id" in config)) {
+        return { ok: false, models: [], error: "Invalid provider configuration" };
+      }
       const models = await fetchProviderModels(config as Parameters<typeof fetchProviderModels>[0]);
       return { ok: true, models };
     } catch (err: unknown) {
@@ -189,6 +219,7 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.SIDEBAR_RESIZE, (_, width: number) => {
+    assertNumber(width, "width");
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
     return clamped;
@@ -220,11 +251,13 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
 
   ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: unknown) => {
+    assertString(key, "key");
     if (!SETTABLE_KEYS.has(key)) {
       throw new Error(`Unknown setting key: ${key}`);
     }
     const settingsKey = key as keyof VesselSettings;
     const updatedSettings = setSetting(settingsKey, value as VesselSettings[typeof settingsKey]);
+    trackSettingChanged(key);
     if (key === "approvalMode") {
       runtime.setApprovalMode(value as ApprovalMode);
     }
@@ -247,6 +280,11 @@ export function registerIpcHandlers(
   ipcMain.handle(
     Channels.AGENT_SET_APPROVAL_MODE,
     (_, mode: ApprovalMode): AgentRuntimeState => {
+      assertString(mode, "mode");
+      if (!VALID_APPROVAL_MODES.has(mode)) {
+        throw new Error(`Invalid approval mode: ${mode}`);
+      }
+      trackApprovalModeChanged(mode);
       setSetting("approvalMode", mode);
       return runtime.setApprovalMode(mode);
     },
@@ -285,21 +323,26 @@ export function registerIpcHandlers(
   ipcMain.handle(
     Channels.FOLDER_CREATE,
     (_, name: string, summary?: string) => {
+      trackBookmarkAction("folder_create");
       return bookmarkManager.createFolderWithSummary(name, summary);
     },
   );
 
   ipcMain.handle(
     Channels.BOOKMARK_SAVE,
-    (_, url: string, title: string, folderId?: string, note?: string) =>
-      bookmarkManager.saveBookmark(url, title, folderId, note),
+    (_, url: string, title: string, folderId?: string, note?: string) => {
+      trackBookmarkAction("save");
+      return bookmarkManager.saveBookmark(url, title, folderId, note);
+    },
   );
 
   ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
+    trackBookmarkAction("remove");
     return bookmarkManager.removeBookmark(id);
   });
 
   ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string) => {
+    trackBookmarkAction("folder_remove");
     return bookmarkManager.removeFolder(id);
   });
 
@@ -490,14 +533,23 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.PREMIUM_ACTIVATE, async (_, email: string) => {
+    assertString(email, "email");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return { ok: false, state: getPremiumState(), error: "Invalid email format" };
+    }
+    trackPremiumFunnel("activation_attempted");
     const result = await activateWithEmail(email);
     if (result.ok) {
+      trackPremiumFunnel("activation_succeeded", { status: result.state.status });
       sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
+    } else {
+      trackPremiumFunnel("activation_failed", { status: result.state.status });
     }
     return result;
   });
 
   ipcMain.handle(Channels.PREMIUM_CHECKOUT, async (_, email?: string) => {
+    trackPremiumFunnel("checkout_clicked");
     const result = await getCheckoutUrl(email);
     if (result.ok && result.url) {
       tabManager.createTab(result.url);
@@ -506,17 +558,63 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.PREMIUM_RESET, () => {
+    trackPremiumFunnel("reset");
     const state = resetPremium();
     sendToRendererViews(Channels.PREMIUM_UPDATE, state);
     return state;
   });
 
   ipcMain.handle(Channels.PREMIUM_PORTAL, async () => {
+    trackPremiumFunnel("portal_opened");
     const result = await getPortalUrl();
     if (result.ok && result.url) {
       tabManager.createTab(result.url);
     }
     return result;
+  });
+
+  // --- Agent Credential Vault ---
+
+  ipcMain.handle(Channels.VAULT_LIST, () => {
+    return vaultManager.listEntries();
+  });
+
+  ipcMain.handle(
+    Channels.VAULT_ADD,
+    (_, entry: { label: string; domainPattern: string; username: string; password: string; totpSecret?: string; notes?: string }) => {
+      if (!entry || typeof entry !== "object") throw new Error("Invalid vault entry");
+      assertString(entry.label, "label");
+      assertString(entry.domainPattern, "domainPattern");
+      assertString(entry.username, "username");
+      assertString(entry.password, "password");
+      if (!entry.label.trim() || !entry.domainPattern.trim() || !entry.username.trim() || !entry.password.trim()) {
+        throw new Error("Label, domain, username, and password are required");
+      }
+      assertOptionalString(entry.totpSecret, "totpSecret");
+      assertOptionalString(entry.notes, "notes");
+      trackVaultAction("credential_added");
+      const created = vaultManager.addEntry(entry);
+      return { id: created.id, label: created.label, domainPattern: created.domainPattern, username: created.username };
+    },
+  );
+
+  ipcMain.handle(
+    Channels.VAULT_UPDATE,
+    (_, id: string, updates: Partial<{ label: string; domainPattern: string; username: string; password: string; totpSecret: string; notes: string }>) => {
+      assertString(id, "id");
+      if (!updates || typeof updates !== "object") throw new Error("Invalid updates");
+      return vaultManager.updateEntry(id, updates) !== null;
+    },
+  );
+
+  ipcMain.handle(Channels.VAULT_REMOVE, (_, id: string) => {
+    assertString(id, "id");
+    trackVaultAction("credential_removed");
+    return vaultManager.removeEntry(id);
+  });
+
+  ipcMain.handle(Channels.VAULT_AUDIT_LOG, (_, limit?: number) => {
+    return readAuditLog(limit);
   });
 
   // --- Window controls ---

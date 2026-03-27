@@ -96,6 +96,13 @@ export const Channels = {
   PREMIUM_RESET: "premium:reset",
   PREMIUM_UPDATE: "premium:update",
 
+  // Agent Credential Vault
+  VAULT_LIST: "vault:list",
+  VAULT_ADD: "vault:add",
+  VAULT_UPDATE: "vault:update",
+  VAULT_REMOVE: "vault:remove",
+  VAULT_AUDIT_LOG: "vault:audit-log",
+
   // Window controls
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",
