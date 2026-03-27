@@ -22,6 +22,7 @@ import {
 import type { BookmarkFolder } from "../../../../shared/types";
 import { useScrollFade } from "../../lib/useScrollFade";
 import DropdownSelect from "../shared/DropdownSelect";
+import AutomationTab from "./AutomationTab";
 import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
 
@@ -75,7 +76,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     renameFolder,
   } = useBookmarks();
   const [sidebarTab, setSidebarTab] = createSignal<
-    "supervisor" | "bookmarks" | "checkpoints" | "chat"
+    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation"
   >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
@@ -555,6 +556,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             onClick={() => setSidebarTab("chat")}
           >
             Chat
+          </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "automation" }}
+            role="tab"
+            aria-selected={sidebarTab() === "automation"}
+            onClick={() => setSidebarTab("automation")}
+          >
+            Automate
           </button>
         </div>
 
@@ -1084,6 +1094,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 </Show>
               </div>
             </section>
+          </Show>
+
+          <Show when={sidebarTab() === "automation"}>
+            <AutomationTab onRun={() => setSidebarTab("supervisor")} />
           </Show>
 
           <Show when={sidebarTab() === "chat"}>
