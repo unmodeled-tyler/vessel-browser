@@ -171,6 +171,7 @@ async function bootstrap(): Promise<void> {
     runtime?.onTabStateChanged();
   });
 
+
   const { chromeView, sidebarView, devtoolsPanelView, tabManager } = windowState;
   runtime = new AgentRuntime(tabManager);
   installAdBlocking(tabManager);
@@ -222,10 +223,12 @@ async function bootstrap(): Promise<void> {
     layoutViews(windowState);
     setImmediate(() => layoutViews(windowState));
 
-    // Reveal the main window and retire the splash
+    // Show the main window then immediately close the splash.
+    // Because ready-to-show ensured the splash only appeared once painted,
+    // and the chrome renderer is now fully loaded, both transitions are clean.
     windowState.mainWindow.show();
     clearTimeout(splashTimeout);
-    closeSplash(splash);
+    closeSplash(splash, 0);
 
     void maybeShowStartupHealthDialog(windowState);
   });

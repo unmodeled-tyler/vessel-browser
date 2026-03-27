@@ -258,7 +258,7 @@ export function createMainWindow(
 
   const settings = loadSettings();
   const uiState: UIState = {
-    sidebarOpen: false,
+    sidebarOpen: true,
     sidebarWidth: settings.sidebarWidth,
     focusMode: false,
     settingsOpen: false,
