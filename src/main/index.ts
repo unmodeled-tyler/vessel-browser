@@ -208,10 +208,8 @@ async function bootstrap(): Promise<void> {
   // Load renderer views
   loadRenderers(chromeView, sidebarView, devtoolsPanelView);
 
-  // Start MCP server for external agent integration
-  await startMcpServer(tabManager, runtime, settings.mcpPort);
-
-  // Restore previous session, or open the default tab once chrome is ready
+  // Register did-finish-load BEFORE any awaits so we never miss the event
+  // if the renderer finishes loading while something else is still starting.
   chromeView.webContents.once("did-finish-load", () => {
     const savedSession = runtime.getState().session;
     if (settings.autoRestoreSession && savedSession?.tabs.length) {
@@ -223,14 +221,17 @@ async function bootstrap(): Promise<void> {
     layoutViews(windowState);
     setImmediate(() => layoutViews(windowState));
 
-    // Show the main window then immediately close the splash.
-    // Because ready-to-show ensured the splash only appeared once painted,
-    // and the chrome renderer is now fully loaded, both transitions are clean.
     windowState.mainWindow.show();
     clearTimeout(splashTimeout);
     closeSplash(splash, 0);
 
     void maybeShowStartupHealthDialog(windowState);
+  });
+
+  // Start MCP server in parallel — it doesn't need to be ready before the
+  // renderer shows, and awaiting it was blocking did-finish-load registration.
+  startMcpServer(tabManager, runtime, settings.mcpPort).catch((err: unknown) => {
+    console.error("[bootstrap] MCP server failed to start:", err);
   });
 }
 
