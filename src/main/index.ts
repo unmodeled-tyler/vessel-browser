@@ -118,11 +118,6 @@ async function maybeShowStartupHealthDialog(
 
 async function bootstrap(): Promise<void> {
   const splash = createSplashWindow();
-  // Safety valve: close splash after 8s regardless of load state
-  const splashTimeout = setTimeout(() => {
-    if (!splash.isDestroyed()) splash.close();
-  }, 8000);
-
   const settings = loadSettings();
   const userDataPath = app.getPath("userData");
   initializeRuntimeHealth({
@@ -170,6 +165,20 @@ async function bootstrap(): Promise<void> {
     layoutViews(windowState);
     runtime?.onTabStateChanged();
   });
+
+  let didRevealMainWindow = false;
+  const revealMainWindow = () => {
+    if (didRevealMainWindow) return;
+    didRevealMainWindow = true;
+    windowState.mainWindow.show();
+    closeSplash(splash, 0);
+  };
+
+  // Safety valve: never leave both the splash and the main window hidden.
+  const splashTimeout = setTimeout(() => {
+    console.warn("[bootstrap] Renderer did not finish loading before splash timeout");
+    revealMainWindow();
+  }, 8000);
 
 
   const { chromeView, sidebarView, devtoolsPanelView, tabManager } = windowState;
@@ -221,12 +230,26 @@ async function bootstrap(): Promise<void> {
     layoutViews(windowState);
     setImmediate(() => layoutViews(windowState));
 
-    windowState.mainWindow.show();
     clearTimeout(splashTimeout);
-    closeSplash(splash, 0);
+    revealMainWindow();
 
     void maybeShowStartupHealthDialog(windowState);
   });
+
+  chromeView.webContents.once(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
+      console.error(
+        "[bootstrap] Chrome renderer failed to load:",
+        errorCode,
+        errorDescription,
+        validatedURL,
+      );
+      clearTimeout(splashTimeout);
+      revealMainWindow();
+    },
+  );
 
   // Start MCP server in parallel — it doesn't need to be ready before the
   // renderer shows, and awaiting it was blocking did-finish-load registration.

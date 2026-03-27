@@ -29,6 +29,7 @@ import {
 import { createProvider, fetchProviderModels } from "../ai/provider";
 import type { AIProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
+import { endAIStream, tryBeginAIStream } from "../ai/stream-lock";
 import type {
   AIMessage,
   ApprovalMode,
@@ -155,9 +156,8 @@ export function registerIpcHandlers(
     const settings = loadSettings();
     const chatConfig = settings.chatProvider;
 
-    sendToRendererViews(Channels.AI_STREAM_START, query);
-
     if (!chatConfig) {
+      sendToRendererViews(Channels.AI_STREAM_START, query);
       sendToRendererViews(
         Channels.AI_STREAM_CHUNK,
         "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
@@ -165,6 +165,12 @@ export function registerIpcHandlers(
       sendToRendererViews(Channels.AI_STREAM_END);
       return;
     }
+
+    if (!tryBeginAIStream("manual")) {
+      return;
+    }
+
+    sendToRendererViews(Channels.AI_STREAM_START, query);
 
     try {
       activeChatProvider = createProvider(chatConfig);
@@ -186,6 +192,7 @@ export function registerIpcHandlers(
       sendToRendererViews(Channels.AI_STREAM_END);
     } finally {
       activeChatProvider = null;
+      endAIStream("manual");
     }
   });
 

@@ -6,12 +6,19 @@ import type { ScheduleConfig, ScheduledJob } from "../../shared/types";
 import { loadSettings } from "../config/settings";
 import { createProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
+import {
+  endAIStream,
+  isAIStreamActive,
+  onAIStreamIdle,
+  tryBeginAIStream,
+} from "../ai/stream-lock";
 import type { WindowState } from "../window";
 import type { AgentRuntime } from "../agent/runtime";
 
 let jobs: ScheduledJob[] = [];
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 let alignStartTimeout: ReturnType<typeof setTimeout> | null = null;
+let removeIdleListener: (() => void) | null = null;
 let broadcastFn: ((channel: string, ...args: unknown[]) => void) | null = null;
 
 function getJobsPath(): string {
@@ -36,6 +43,39 @@ function saveJobs(): void {
   } catch (err) {
     console.warn("[scheduler] Failed to save jobs:", err);
   }
+}
+
+function normalizeJob(job: ScheduledJob, now: Date = new Date()): boolean {
+  if (!job.enabled) return false;
+
+  if (job.schedule.type === "once") {
+    const runAt = job.schedule.runAt ? new Date(job.schedule.runAt) : null;
+    if (!runAt || Number.isNaN(runAt.getTime()) || runAt <= now) {
+      job.enabled = false;
+      return true;
+    }
+    const nextRunAt = runAt.toISOString();
+    if (job.nextRunAt !== nextRunAt) {
+      job.nextRunAt = nextRunAt;
+      return true;
+    }
+    return false;
+  }
+
+  const nextRunAt = computeNextRun(job.schedule, now).toISOString();
+  if (job.nextRunAt !== nextRunAt) {
+    job.nextRunAt = nextRunAt;
+    return true;
+  }
+  return false;
+}
+
+function normalizeJobs(now: Date = new Date()): boolean {
+  let changed = false;
+  for (const job of jobs) {
+    changed = normalizeJob(job, now) || changed;
+  }
+  return changed;
 }
 
 export function computeNextRun(schedule: ScheduleConfig, from: Date = new Date()): Date {
@@ -144,14 +184,20 @@ async function fireJob(
 }
 
 function tick(windowState: WindowState, runtime: AgentRuntime): void {
+  if (isAIStreamActive()) return;
+
   const now = new Date();
   let changed = false;
 
   for (const job of jobs) {
     if (!job.enabled) continue;
     if (now < new Date(job.nextRunAt)) continue;
+    if (!tryBeginAIStream("scheduled")) break;
 
-    void fireJob(job, windowState, runtime);
+    void fireJob(job, windowState, runtime).finally(() => {
+      endAIStream("scheduled");
+      queueMicrotask(() => tick(windowState, runtime));
+    });
     job.lastRunAt = now.toISOString();
 
     if (job.schedule.type === "once") {
@@ -160,6 +206,7 @@ function tick(windowState: WindowState, runtime: AgentRuntime): void {
       job.nextRunAt = computeNextRun(job.schedule, now).toISOString();
     }
     changed = true;
+    break;
   }
 
   if (changed) {
@@ -175,6 +222,12 @@ export function registerScheduleHandlers(
 ): void {
   broadcastFn = sendToAll;
   loadJobs();
+  if (normalizeJobs()) {
+    saveJobs();
+  }
+
+  removeIdleListener?.();
+  removeIdleListener = onAIStreamIdle(() => tick(windowState, runtime));
 
   // Align the first tick to the top of the next minute so jobs fire at :00 seconds.
   const now = new Date();
@@ -211,6 +264,7 @@ export function registerScheduleHandlers(
     if (!job) return null;
     if (updates && typeof updates === "object") {
       const u = updates as Partial<Pick<ScheduledJob, "enabled" | "schedule" | "renderedPrompt" | "fieldValues">>;
+      const wasEnabled = job.enabled;
       if (u.enabled !== undefined) job.enabled = u.enabled;
       if (u.schedule !== undefined && isValidScheduleConfig(u.schedule)) {
         job.schedule = u.schedule;
@@ -221,6 +275,9 @@ export function registerScheduleHandlers(
       }
       if (u.fieldValues !== undefined && typeof u.fieldValues === "object") {
         job.fieldValues = u.fieldValues as Record<string, string>;
+      }
+      if ((u.schedule !== undefined || (u.enabled === true && !wasEnabled)) && job.enabled) {
+        normalizeJob(job);
       }
     }
     saveJobs();
@@ -240,6 +297,10 @@ export function registerScheduleHandlers(
 }
 
 export function stopScheduler(): void {
+  if (removeIdleListener) {
+    removeIdleListener();
+    removeIdleListener = null;
+  }
   if (alignStartTimeout) {
     clearTimeout(alignStartTimeout);
     alignStartTimeout = null;
