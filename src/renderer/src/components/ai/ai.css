@@ -2528,6 +2528,92 @@
     gap: 4px;
 }
 
+.kit-activity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.kit-activity-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--border-subtle);
+}
+
+.kit-activity-running {
+    border-color: rgba(196, 160, 90, 0.26);
+}
+
+.kit-activity-failed {
+    border-color: rgba(202, 92, 92, 0.28);
+}
+
+.kit-activity-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.kit-activity-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+}
+
+.kit-activity-title-copy {
+    min-width: 0;
+}
+
+.kit-activity-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 1px;
+}
+
+.kit-activity-badge {
+    flex-shrink: 0;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-subtle);
+}
+
+.kit-activity-running .kit-activity-badge {
+    color: var(--accent-primary);
+    border-color: rgba(196, 160, 90, 0.24);
+    background: rgba(196, 160, 90, 0.08);
+}
+
+.kit-activity-failed .kit-activity-badge {
+    color: #d98b8b;
+    border-color: rgba(202, 92, 92, 0.28);
+    background: rgba(202, 92, 92, 0.09);
+}
+
+.kit-activity-output {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    max-height: 180px;
+    overflow: auto;
+}
+
+.kit-activity-placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 .kit-sched-card {
     position: relative;
     display: flex;

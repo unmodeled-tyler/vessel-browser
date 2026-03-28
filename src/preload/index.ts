@@ -3,6 +3,7 @@ import { Channels } from "../shared/channels";
 import type {
   AgentCheckpoint,
   AgentRuntimeState,
+  AutomationActivityEntry,
   AIMessage,
   ApprovalMode,
   AutomationKit,
@@ -61,6 +62,42 @@ const api = {
       const handler = () => cb();
       ipcRenderer.on(Channels.AI_STREAM_END, handler);
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
+    },
+    onAutomationActivityStart: (
+      cb: (entry: AutomationActivityEntry) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, entry: AutomationActivityEntry) => cb(entry);
+      ipcRenderer.on(Channels.AUTOMATION_ACTIVITY_START, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AUTOMATION_ACTIVITY_START, handler);
+    },
+    onAutomationActivityChunk: (
+      cb: (payload: { id: string; chunk: string }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, payload: { id: string; chunk: string }) =>
+        cb(payload);
+      ipcRenderer.on(Channels.AUTOMATION_ACTIVITY_CHUNK, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AUTOMATION_ACTIVITY_CHUNK, handler);
+    },
+    onAutomationActivityEnd: (
+      cb: (payload: {
+        id: string;
+        status: "completed" | "failed";
+        finishedAt: string;
+      }) => void,
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        payload: {
+          id: string;
+          status: "completed" | "failed";
+          finishedAt: string;
+        },
+      ) => cb(payload);
+      ipcRenderer.on(Channels.AUTOMATION_ACTIVITY_END, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.AUTOMATION_ACTIVITY_END, handler);
     },
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
     fetchModels: (

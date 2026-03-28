@@ -1,5 +1,10 @@
 import { createSignal } from "solid-js";
-import type { AIMessage } from "../../../shared/types";
+import type { AIMessage, AutomationActivityEntry } from "../../../shared/types";
+import {
+  appendAutomationActivityChunk,
+  finishAutomationActivity,
+  startAutomationActivity,
+} from "./ai-activity";
 import {
   clearPendingPromptQueue,
   dequeuePendingPrompt,
@@ -18,6 +23,9 @@ const [streamStartedAt, setStreamStartedAt] = createSignal<number | null>(null);
 const [recentQueries, setRecentQueries] = createSignal<string[]>([]);
 const [pendingQueries, setPendingQueries] = createSignal<string[]>([]);
 const [queueNotice, setQueueNotice] = createSignal<string | null>(null);
+const [automationActivities, setAutomationActivities] = createSignal<
+  AutomationActivityEntry[]
+>([]);
 
 let initialized = false;
 
@@ -100,6 +108,19 @@ function init() {
       }
     });
   });
+  window.vessel.ai.onAutomationActivityStart((entry) => {
+    setAutomationActivities((prev) => startAutomationActivity(prev, entry));
+  });
+  window.vessel.ai.onAutomationActivityChunk(({ id, chunk }) => {
+    setAutomationActivities((prev) =>
+      appendAutomationActivityChunk(prev, id, chunk),
+    );
+  });
+  window.vessel.ai.onAutomationActivityEnd(({ id, status, finishedAt }) => {
+    setAutomationActivities((prev) =>
+      finishAutomationActivity(prev, id, status, finishedAt),
+    );
+  });
 }
 
 export function useAI() {
@@ -111,6 +132,7 @@ export function useAI() {
     hasFirstChunk,
     streamStartedAt,
     recentQueries,
+    automationActivities,
     pendingQueries,
     pendingQueryCount: () => pendingQueries().length,
     pendingQueryLimit: MAX_PENDING_QUERIES,

@@ -24,7 +24,13 @@ import {
 import { useAI } from "../../stores/ai";
 import { useUI } from "../../stores/ui";
 import { BUNDLED_KITS, renderKitPrompt } from "../../lib/automation-kits";
-import type { AutomationKit, ScheduleConfig, ScheduledJob, ScheduleType } from "../../../../shared/types";
+import type {
+  AutomationActivityEntry,
+  AutomationKit,
+  ScheduleConfig,
+  ScheduledJob,
+  ScheduleType,
+} from "../../../../shared/types";
 
 type LucideComponent = (props: IconProps) => JSX.Element;
 
@@ -73,6 +79,21 @@ function formatNextRun(isoStr: string): string {
   });
 }
 
+function formatActivityTime(isoStr: string): string {
+  return new Date(isoStr).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatActivityStatus(activity: AutomationActivityEntry): string {
+  if (activity.status === "running") return "Running";
+  if (activity.status === "failed") return "Failed";
+  return "Completed";
+}
+
 function toLocalDateTimeInput(iso: string): string {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -85,7 +106,7 @@ interface AutomationTabProps {
 }
 
 const AutomationTab: Component<AutomationTabProps> = (props) => {
-  const { query, isStreaming } = useAI();
+  const { query, isStreaming, automationActivities } = useAI();
   const { openSettings } = useUI();
   const [selectedKit, setSelectedKit] = createSignal<AutomationKit | null>(null);
   const [fieldValues, setFieldValues] = createSignal<Record<string, string>>({});
@@ -554,6 +575,56 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                         Delete
                       </button>
                     </div>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        <Show when={automationActivities().length > 0}>
+          <div class="kit-sched-section">
+            <Zap size={12} />
+            <span>Recent Activity</span>
+            <span class="kit-list-count">{automationActivities().length}</span>
+          </div>
+          <div class="kit-activity-list">
+            <For each={automationActivities()}>
+              {(activity) => (
+                <div
+                  class="kit-activity-card"
+                  classList={{
+                    "kit-activity-running": activity.status === "running",
+                    "kit-activity-failed": activity.status === "failed",
+                  }}
+                >
+                  <div class="kit-activity-header">
+                    <div class="kit-activity-title">
+                      <span class="kit-card-icon kit-sched-icon" aria-hidden="true">
+                        <KitIcon name={activity.icon ?? "Zap"} size={14} />
+                      </span>
+                      <div class="kit-activity-title-copy">
+                        <div class="kit-sched-name">{activity.title}</div>
+                        <div class="kit-activity-time">
+                          {formatActivityTime(activity.startedAt)}
+                        </div>
+                      </div>
+                    </div>
+                    <span class="kit-activity-badge">
+                      {formatActivityStatus(activity)}
+                    </span>
+                  </div>
+                  <Show
+                    when={activity.output.trim().length > 0}
+                    fallback={
+                      <div class="kit-activity-output kit-activity-placeholder">
+                        {activity.status === "running"
+                          ? "Waiting for output..."
+                          : "No output captured."}
+                      </div>
+                    }
+                  >
+                    <div class="kit-activity-output">{activity.output.trim()}</div>
                   </Show>
                 </div>
               )}

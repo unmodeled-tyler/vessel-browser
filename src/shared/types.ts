@@ -189,6 +189,19 @@ export interface AIMessage {
   content: string;
 }
 
+export type AutomationActivityStatus = "running" | "completed" | "failed";
+
+export interface AutomationActivityEntry {
+  id: string;
+  source: "scheduled";
+  title: string;
+  icon?: string;
+  status: AutomationActivityStatus;
+  startedAt: string;
+  finishedAt?: string;
+  output: string;
+}
+
 export type ApprovalMode = "auto" | "confirm-dangerous" | "manual";
 
 export type ActionSource = "ai" | "mcp" | "user" | "system";

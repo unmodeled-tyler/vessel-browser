@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { app, ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
-import type { ScheduleConfig, ScheduledJob } from "../../shared/types";
+import type {
+  AutomationActivityEntry,
+  ScheduleConfig,
+  ScheduledJob,
+} from "../../shared/types";
 import { loadSettings } from "../config/settings";
 import { createProvider } from "../ai/provider";
 import { handleAIQuery } from "../ai/commands";
@@ -177,13 +181,41 @@ async function fireJob(
   };
 
   const settings = loadSettings();
+  const activityId = `scheduled:${job.id}:${Date.now()}`;
+  const startActivity = () => {
+    const entry: AutomationActivityEntry = {
+      id: activityId,
+      source: "scheduled",
+      title: job.kitName,
+      icon: job.kitIcon,
+      status: "running",
+      startedAt: new Date().toISOString(),
+      output: "",
+    };
+    send(Channels.AUTOMATION_ACTIVITY_START, entry);
+  };
+  const appendActivity = (chunk: string) => {
+    send(Channels.AUTOMATION_ACTIVITY_CHUNK, { id: activityId, chunk });
+  };
+  const finishActivity = (status: "completed" | "failed") => {
+    send(Channels.AUTOMATION_ACTIVITY_END, {
+      id: activityId,
+      status,
+      finishedAt: new Date().toISOString(),
+    });
+  };
+
+  startActivity();
   if (!settings.chatProvider) {
     console.warn(`[scheduler] Job "${job.kitName}" skipped — no chat provider configured`);
+    appendActivity(
+      "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
+    );
+    finishActivity("failed");
     return;
   }
 
   console.log(`[scheduler] Firing scheduled job: ${job.kitName} (${job.id})`);
-  send(Channels.AI_STREAM_START, `[Scheduled Automation Kit] ${job.kitName}`);
   try {
     const provider = createProvider(settings.chatProvider);
     const activeTab = tabManager.getActiveTab();
@@ -191,15 +223,15 @@ async function fireJob(
       job.renderedPrompt,
       provider,
       activeTab?.view.webContents,
-      (chunk) => send(Channels.AI_STREAM_CHUNK, chunk),
-      () => send(Channels.AI_STREAM_END),
+      (chunk) => appendActivity(chunk),
+      () => finishActivity("completed"),
       tabManager,
       runtime,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    send(Channels.AI_STREAM_CHUNK, `\n[Scheduled Kit Error: ${msg}]`);
-    send(Channels.AI_STREAM_END);
+    appendActivity(`\n[Scheduled Kit Error: ${msg}]`);
+    finishActivity("failed");
   }
 }
 
