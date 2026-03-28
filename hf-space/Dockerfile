@@ -32,7 +32,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/resources ./resources
 
-COPY entrypoint.sh /entrypoint.sh
+COPY hf-space/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENV DISPLAY=:0
