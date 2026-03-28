@@ -7,11 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  linux-appimage:
+  # ── Determine version (shared by all jobs) ──
+  version:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -51,36 +54,91 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+  # ── Linux AppImage ──
+  build-linux:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
 
-      - name: Install dependencies
-        run: npm ci
-
+      - run: npm ci
       - name: Smoke test
         run: xvfb-run -a npm run smoke:test
 
-      - name: Build AppImage
-        run: npm run dist
+      - name: Build & package
+        run: npm run build && npx electron-builder --linux --publish never
 
       - name: Generate checksums
-        run: sha256sum dist/*.AppImage > dist/SHASUMS256.txt
+        run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
 
-      - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: vessel-linux-appimage
+          name: release-linux
           path: |
             dist/*.AppImage
-            dist/SHASUMS256.txt
+            dist/SHASUMS256-linux.txt
+
+  # ── Windows NSIS installer ──
+  build-windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - name: Build & package
+        run: npm run build && npx electron-builder --win --publish never
+
+      - name: Generate checksums
+        shell: bash
+        run: sha256sum dist/*-setup.exe > dist/SHASUMS256-win.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/*-setup.exe
+            dist/SHASUMS256-win.txt
+
+  # ── Publish (runs after both platforms succeed) ──
+  publish:
+    needs: [version, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-linux
+          path: dist-linux
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: dist-windows
+
+      - name: Merge checksums
+        run: cat dist-linux/SHASUMS256-linux.txt dist-windows/SHASUMS256-win.txt > SHASUMS256.txt
 
       - name: Sync package.json version
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
@@ -91,7 +149,9 @@ jobs:
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          generate_release_notes: true
           files: |
-            dist/*.AppImage
-            dist/SHASUMS256.txt
+            dist-linux/*.AppImage
+            dist-windows/*-setup.exe
+            SHASUMS256.txt

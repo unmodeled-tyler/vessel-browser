@@ -11,44 +11,81 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  preview-appimage:
+  # ── Linux AppImage ──
+  build-linux:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
-
+      - run: npm ci
       - name: Smoke test
         run: xvfb-run -a npm run smoke:test
 
-      - name: Build AppImage
-        run: npm run dist
+      - name: Build & package
+        run: npm run build && npx electron-builder --linux --publish never
 
       - name: Generate checksums
-        run: sha256sum dist/*.AppImage > dist/SHASUMS256.txt
+        run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
 
-      - name: Upload preview artifacts
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: vessel-preview-dev
+          name: vessel-preview-linux
           retention-days: 14
           path: |
             dist/*.AppImage
-            dist/SHASUMS256.txt
+            dist/SHASUMS256-linux.txt
+
+  # ── Windows NSIS installer ──
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - name: Build & package
+        run: npm run build && npx electron-builder --win --publish never
+
+      - name: Generate checksums
+        shell: bash
+        run: sha256sum dist/*-setup.exe > dist/SHASUMS256-win.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vessel-preview-windows
+          retention-days: 14
+          path: |
+            dist/*-setup.exe
+            dist/SHASUMS256-win.txt
+
+  # ── Publish rolling preview ──
+  publish-preview:
+    if: github.ref == 'refs/heads/dev'
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: vessel-preview-linux
+          path: dist-linux
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: vessel-preview-windows
+          path: dist-windows
 
       - name: Publish rolling preview release
-        if: github.ref == 'refs/heads/dev'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: edge
@@ -59,9 +96,9 @@ jobs:
           body: |
             Rolling preview build from `dev`.
 
-            Commit: `${{ github.sha }}`
-
             This prerelease is updated automatically on every push to `dev`.
           files: |
-            dist/*.AppImage
-            dist/SHASUMS256.txt
+            dist-linux/*.AppImage
+            dist-linux/SHASUMS256-linux.txt
+            dist-windows/*-setup.exe
+            dist-windows/SHASUMS256-win.txt

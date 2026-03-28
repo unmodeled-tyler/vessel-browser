@@ -1,5 +1,6 @@
 import path from "node:path";
-import type { BrowserView } from "electron";
+import { existsSync } from "node:fs";
+import { app, type BrowserView } from "electron";
 
 /**
  * Returns the dev-mode renderer URL for a given view name, or null if
@@ -12,6 +13,23 @@ function rendererUrlFor(
   const url = new URL(process.env.ELECTRON_RENDERER_URL);
   url.searchParams.set("view", view);
   return url.toString();
+}
+
+function resolveRendererFile(): string {
+  const candidates = [
+    path.join(__dirname, "../renderer/index.html"),
+    path.join(__dirname, "../../out/renderer/index.html"),
+    path.join(app.getAppPath(), "out/renderer/index.html"),
+    path.join(app.getAppPath(), "renderer/index.html"),
+  ];
+
+  const match = candidates.find((candidate) => existsSync(candidate));
+  if (!match) {
+    throw new Error(
+      `Could not locate renderer/index.html. Tried: ${candidates.join(", ")}`,
+    );
+  }
+  return match;
 }
 
 /**
@@ -33,7 +51,7 @@ export function loadRenderers(
     sidebarView.webContents.loadURL(sidebarUrl);
     devtoolsPanelView.webContents.loadURL(devtoolsUrl);
   } else {
-    const rendererFile = path.join(__dirname, "../../renderer/index.html");
+    const rendererFile = resolveRendererFile();
     chromeView.webContents.loadFile(rendererFile, {
       query: { view: "chrome" },
     });

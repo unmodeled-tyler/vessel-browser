@@ -21,3 +21,14 @@ linux:
   executableName: vessel
   icon: resources/vessel-icon.png
   artifactName: ${productName}-${version}-${arch}.${ext}
+
+win:
+  target:
+    - nsis
+  icon: resources/vessel-icon.png
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
