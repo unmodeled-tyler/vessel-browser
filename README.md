@@ -1,15 +1,5 @@
 ![vessel-logo-cropped](https://github.com/user-attachments/assets/58887932-26b3-45b5-be5e-21de562d2855)
 
-## Star History
-
-<a href="https://www.star-history.com/?repos=unmodeled-tyler%2Fvessel-browser&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=unmodeled-tyler/vessel-browser&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=unmodeled-tyler/vessel-browser&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=unmodeled-tyler/vessel-browser&type=date&legend=top-left" />
- </picture>
-</a>
-
 # Vessel: Your Agent's Browser
 
 Open-source browser runtime for persistent web agents on Linux.
