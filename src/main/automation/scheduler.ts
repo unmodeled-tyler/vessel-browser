@@ -117,7 +117,7 @@ export function computeNextRun(schedule: ScheduleConfig, from: Date = new Date()
   }
 }
 
-function isValidScheduleConfig(s: unknown): s is ScheduleConfig {
+export function isValidScheduleConfig(s: unknown): s is ScheduleConfig {
   if (!s || typeof s !== "object") return false;
   const sc = s as Record<string, unknown>;
   if (!["once", "hourly", "daily", "weekly"].includes(sc.type as string)) return false;
@@ -151,6 +151,13 @@ function isValidJobData(
     isValidScheduleConfig(j.schedule) &&
     typeof j.enabled === "boolean"
   );
+}
+
+export function normalizeScheduledJob(
+  job: ScheduledJob,
+  now: Date = new Date(),
+): boolean {
+  return normalizeJob(job, now);
 }
 
 async function fireJob(

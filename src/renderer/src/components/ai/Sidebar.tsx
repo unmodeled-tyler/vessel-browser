@@ -45,9 +45,12 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     isStreaming,
     hasFirstChunk,
     streamStartedAt,
+    pendingQueries,
     pendingQueryCount,
     pendingQueryLimit,
     queueNotice,
+    removePendingQuery,
+    clearPendingQueries,
     clearHistory,
     query,
     cancel,
@@ -1669,7 +1672,39 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           </Show>
           <Show when={queueNotice() !== null || pendingQueryCount() > 0}>
             <div class="chat-queue-status">
-              <span>{queueNotice() ?? `Queued ${pendingQueryCount()}/${pendingQueryLimit}.`}</span>
+              <div class="chat-queue-status-row">
+                <span>{queueNotice() ?? `Queued ${pendingQueryCount()}/${pendingQueryLimit}.`}</span>
+                <Show when={pendingQueryCount() > 0}>
+                  <button
+                    class="chat-queue-clear"
+                    type="button"
+                    onClick={() => clearPendingQueries()}
+                  >
+                    Clear queue
+                  </button>
+                </Show>
+              </div>
+              <Show when={pendingQueries().length > 0}>
+                <div class="chat-queue-list">
+                  <For each={pendingQueries()}>
+                    {(pendingPrompt, index) => (
+                      <div class="chat-queue-item">
+                        <span class="chat-queue-text" title={pendingPrompt}>
+                          {pendingPrompt}
+                        </span>
+                        <button
+                          class="chat-queue-remove"
+                          type="button"
+                          aria-label={`Remove queued prompt ${index() + 1}`}
+                          onClick={() => removePendingQuery(index())}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
           </Show>
           <div class="sidebar-input-area">

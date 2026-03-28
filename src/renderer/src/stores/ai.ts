@@ -1,9 +1,15 @@
 import { createSignal } from "solid-js";
 import type { AIMessage } from "../../../shared/types";
+import {
+  clearPendingPromptQueue,
+  dequeuePendingPrompt,
+  enqueuePendingPrompt,
+  MAX_PENDING_QUERIES,
+  removePendingPrompt,
+} from "./ai-queue";
 
 const MAX_RECENT_QUERIES = 5;
 const MAX_MESSAGE_HISTORY = 200;
-const MAX_PENDING_QUERIES = 5;
 const [messages, setMessages] = createSignal<AIMessage[]>([]);
 const [streamingText, setStreamingText] = createSignal("");
 const [isStreaming, setIsStreaming] = createSignal(false);
@@ -33,21 +39,6 @@ function buildHistory(): AIMessage[] {
   }));
 }
 
-function enqueuePrompt(prompt: string, atFront = false): "queued" | "rejected" {
-  const current = pendingQueries();
-  if (current.length >= MAX_PENDING_QUERIES) {
-    setQueueNotice(`Queue full. Finish or cancel the current run before adding more than ${MAX_PENDING_QUERIES} pending prompts.`);
-    return "rejected";
-  }
-
-  const next = atFront ? [prompt, ...current] : [...current, prompt];
-  setPendingQueries(next);
-  setQueueNotice(
-    `Queued ${next.length}/${MAX_PENDING_QUERIES}. I’ll send it automatically when the current run finishes.`,
-  );
-  return "queued";
-}
-
 async function dispatchQuery(prompt: string): Promise<boolean> {
   const result = await window.vessel.ai.query(prompt, buildHistory());
   return result.accepted;
@@ -56,7 +47,9 @@ async function dispatchQuery(prompt: string): Promise<boolean> {
 async function dispatchQueuedPrompt(prompt: string): Promise<void> {
   const accepted = await dispatchQuery(prompt);
   if (!accepted) {
-    enqueuePrompt(prompt, true);
+    const queued = enqueuePendingPrompt(pendingQueries(), prompt, { atFront: true });
+    setPendingQueries(queued.queue);
+    setQueueNotice(queued.notice);
   }
 }
 
@@ -92,19 +85,19 @@ function init() {
     setHasFirstChunk(false);
     setStreamStartedAt(null);
 
-    const queued = pendingQueries();
-    if (queued.length === 0) {
+    const pending = pendingQueries();
+    if (pending.length === 0) {
       setQueueNotice(null);
       return;
     }
 
-    const [nextPrompt, ...rest] = queued;
-    setPendingQueries(rest);
-    setQueueNotice(
-      rest.length > 0 ? `${rest.length} queued ${rest.length === 1 ? "prompt" : "prompts"} remaining.` : null,
-    );
+    const next = dequeuePendingPrompt(pending);
+    setPendingQueries(next.queue);
+    setQueueNotice(next.notice);
     queueMicrotask(() => {
-      void dispatchQueuedPrompt(nextPrompt);
+      if (next.nextPrompt) {
+        void dispatchQueuedPrompt(next.nextPrompt);
+      }
     });
   });
 }
@@ -118,6 +111,7 @@ export function useAI() {
     hasFirstChunk,
     streamStartedAt,
     recentQueries,
+    pendingQueries,
     pendingQueryCount: () => pendingQueries().length,
     pendingQueryLimit: MAX_PENDING_QUERIES,
     queueNotice,
@@ -125,21 +119,38 @@ export function useAI() {
       recordRecentQuery(prompt);
 
       if (isStreaming()) {
-        return enqueuePrompt(prompt);
+        const queued = enqueuePendingPrompt(pendingQueries(), prompt);
+        setPendingQueries(queued.queue);
+        setQueueNotice(queued.notice);
+        return queued.status;
       }
 
       setQueueNotice(null);
       const accepted = await dispatchQuery(prompt);
       if (!accepted) {
-        return enqueuePrompt(prompt, true);
+        const queued = enqueuePendingPrompt(pendingQueries(), prompt, { atFront: true });
+        setPendingQueries(queued.queue);
+        setQueueNotice(queued.notice);
+        return queued.status;
       }
       return "started" as const;
     },
     cancel: () => window.vessel.ai.cancel(),
+    removePendingQuery: (index: number) => {
+      const next = removePendingPrompt(pendingQueries(), index);
+      setPendingQueries(next.queue);
+      setQueueNotice(next.notice);
+    },
+    clearPendingQueries: () => {
+      const next = clearPendingPromptQueue();
+      setPendingQueries(next.queue);
+      setQueueNotice(next.notice);
+    },
     clearHistory: () => {
       setMessages([]);
-      setPendingQueries([]);
-      setQueueNotice(null);
+      const next = clearPendingPromptQueue();
+      setPendingQueries(next.queue);
+      setQueueNotice(next.notice);
     },
   };
 }

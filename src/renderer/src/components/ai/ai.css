@@ -1857,6 +1857,53 @@
     color: var(--text-muted);
 }
 
+.chat-queue-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.chat-queue-clear,
+.chat-queue-remove {
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    font-size: 11px;
+}
+
+.chat-queue-clear:hover,
+.chat-queue-remove:hover {
+    color: var(--text-primary);
+}
+
+.chat-queue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.chat-queue-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-queue-text {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .sidebar-input {
     flex: 1;
     background: var(--bg-tertiary);

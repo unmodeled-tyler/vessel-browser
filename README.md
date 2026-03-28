@@ -49,6 +49,8 @@ npm install
 npm run dev
 ```
 
+If you want extra local AI tracing in development, create an optional `src/main/telemetry/trace-logger.local.cjs` file. Vessel will load it only in local dev builds, and packaged production builds ignore it.
+
 ### Why Vessel?
 
 Most browser automation stacks are either headless, stateless, or designed around a human as the primary operator. Vessel is built around the opposite model: the browser is the agent's operating surface, and the human stays in the loop through a visible interface with clear supervisory controls.

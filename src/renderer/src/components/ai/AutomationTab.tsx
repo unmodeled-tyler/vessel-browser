@@ -756,7 +756,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                 </Show>
 
                 <p class="kit-schedule-note">
-                  Schedules run while Vessel is open.
+                  Schedules run only while Vessel is open. Missed runs are skipped.
                 </p>
 
                 <button
