@@ -32,10 +32,6 @@ src/main/telemetry/trace-logger.local.cjs
 .agents/skills/hf-cli/SKILL.md
 .gitignore
 .gitignore
-hf-space/entrypoint.sh
-hf-space/Dockerfile
-hf-space/.dockerignore
-hf-space/README.md
 .claude/settings.json
 .gitignore
 .security-audit-ignore
