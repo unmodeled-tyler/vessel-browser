@@ -1,0 +1,7 @@
+# This is the Dockerfile pushed to the HF Space repo.
+# It pulls the pre-built image from GitHub Container Registry
+# instead of building from source (which OOMs on cpu-basic).
+FROM ghcr.io/unmodeled-tyler/vessel-browser-demo:latest
+
+EXPOSE 7860
+CMD ["/entrypoint.sh"]
