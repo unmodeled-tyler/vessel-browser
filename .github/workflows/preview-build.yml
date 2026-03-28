@@ -29,7 +29,7 @@ jobs:
         run: npm run build && npx electron-builder --linux --publish never
 
       - name: Generate checksums
-        run: sha256sum dist/*.AppImage > dist/SHASUMS256.txt
+        run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -37,7 +37,7 @@ jobs:
           retention-days: 14
           path: |
             dist/*.AppImage
-            dist/SHASUMS256.txt
+            dist/SHASUMS256-linux.txt
 
   # ── Windows NSIS installer ──
   build-windows:
@@ -55,7 +55,7 @@ jobs:
 
       - name: Generate checksums
         shell: bash
-        run: sha256sum dist/*-setup.exe > dist/SHASUMS256.txt
+        run: sha256sum dist/*-setup.exe > dist/SHASUMS256-win.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -63,7 +63,7 @@ jobs:
           retention-days: 14
           path: |
             dist/*-setup.exe
-            dist/SHASUMS256.txt
+            dist/SHASUMS256-win.txt
 
   # ── Publish rolling preview ──
   publish-preview:
@@ -99,6 +99,6 @@ jobs:
             This prerelease is updated automatically on every push to `dev`.
           files: |
             dist-linux/*.AppImage
-            dist-linux/SHASUMS256.txt
+            dist-linux/SHASUMS256-linux.txt
             dist-windows/*-setup.exe
-            dist-windows/SHASUMS256.txt
+            dist-windows/SHASUMS256-win.txt
