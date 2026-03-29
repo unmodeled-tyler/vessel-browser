@@ -37,7 +37,7 @@ jobs:
           REPO: ${{ github.repository }}
           VERSION: ${{ steps.tag.outputs.tag }}
         run: |
-          asset_name="Vessel-${VERSION}-amd64.AppImage"
+          asset_name="Vessel-${VERSION}-x86_64.AppImage"
           echo "Waiting for asset: $asset_name"
           for i in $(seq 1 30); do
             url=$(gh api "repos/${REPO}/releases/tags/v${VERSION}" \

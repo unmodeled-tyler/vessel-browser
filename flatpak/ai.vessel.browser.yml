@@ -28,13 +28,13 @@ modules:
       - cp -r resources/* /app/resources/
     sources:
       - type: archive
-        url: https://github.com/unmodeled-tyler/quanta-vessel-browser/releases/download/vVERSION/Vessel-VERSION-amd64.AppImage
-        sha256: PLACEHOLDER_SHA256
+        url: https://github.com/unmodeled-tyler/vessel-browser/releases/download/v0.1.21/Vessel-0.1.0-x86_64.AppImage
+        sha256: 867a1f903016a4c61c3f8d235aba7aa915140ca013389d1c96940003669d5bf3
         dest-filename: vessel.AppImage
       - type: file
         path: ai.vessel.browser.desktop
       - type: file
         path: ai.vessel.browser.metainfo.xml
       - type: file
-        url: https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-browser/main/resources/vessel-icon.png
-        sha256: PLACEHOLDER_ICON_SHA256
+        url: https://raw.githubusercontent.com/unmodeled-tyler/vessel-browser/main/resources/vessel-icon.png
+        sha256: f393b8b0bb651c49b6654e4a73003f64f766bc224cd22cdb207ad63a3779a76c

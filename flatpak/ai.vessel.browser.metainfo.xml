@@ -22,8 +22,8 @@
   <launchable type="desktop-id">ai.vessel.browser.desktop</launchable>
 
   <url type="homepage">https://quantaintellect.com</url>
-  <url type="bugtracker">https://github.com/unmodeled-tyler/quanta-vessel-browser/issues</url>
-  <url type="vcs-browser">https://github.com/unmodeled-tyler/quanta-vessel-browser</url>
+  <url type="bugtracker">https://github.com/unmodeled-tyler/vessel-browser/issues</url>
+  <url type="vcs-browser">https://github.com/unmodeled-tyler/vessel-browser</url>
 
   <developer id="ai.vessel">
     <name>Quanta Intellect</name>
