@@ -75,17 +75,12 @@ jobs:
       - name: Import GPG key
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
           echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
-          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
-          gpgconf --kill gpg-agent
           GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format long | grep sec | awk '{print $2}' | cut -d'/' -f2)
           echo "GPG_KEY_ID=$GPG_KEY_ID" >> "$GITHUB_ENV"
 
       - name: Generate APT repo metadata
-        env:
-          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
         run: |
           cd website/apt
 
@@ -97,14 +92,9 @@ jobs:
           cd dists/stable
           apt-ftparchive release . > Release
 
-          # Sign Release file
-          echo "$APT_GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
-            --default-key "$GPG_KEY_ID" \
-            -abs -o Release.gpg Release
-
-          echo "$APT_GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
-            --default-key "$GPG_KEY_ID" \
-            --clearsign -o InRelease Release
+          # Sign Release file (key has no passphrase)
+          gpg --batch --yes --default-key "$GPG_KEY_ID" -abs -o Release.gpg Release
+          gpg --batch --yes --default-key "$GPG_KEY_ID" --clearsign -o InRelease Release
 
       - name: Push updated APT repo to website
         env:
