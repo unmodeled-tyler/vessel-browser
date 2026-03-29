@@ -1,6 +1,6 @@
 name: vessel-browser
+adopt-info: vessel
 base: core22
-version: "0.1.0"
 summary: AI-native web browser for Linux
 description: |
   Vessel is an AI-native web browser — a persistent browser runtime for
@@ -34,6 +34,9 @@ parts:
     plugin: dump
     source: .
     source-type: local
+    override-pull: |
+      craftctl default
+      craftctl set version="${VESSEL_VERSION:-0.1.0}"
     override-build: |
       npm ci
       npm run build

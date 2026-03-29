@@ -69,6 +69,11 @@ jobs:
       - name: Smoke test
         run: xvfb-run -a npm run smoke:test
 
+      - name: Sync package version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
       - name: Build & package
         run: npm run build && npx electron-builder --linux --publish never
 
@@ -94,6 +99,11 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - name: Sync package version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
+
       - name: Build & package
         run: npm run build && npx electron-builder --win --publish never
 

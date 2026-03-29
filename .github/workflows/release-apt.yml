@@ -50,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Smoke test
+        run: xvfb-run -a npm run smoke:test
+
       - name: Sync package version
         env:
           VERSION: ${{ steps.tag.outputs.version }}

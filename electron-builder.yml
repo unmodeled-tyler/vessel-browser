@@ -23,6 +23,9 @@ linux:
   icon: resources/vessel-icon.png
   artifactName: ${productName}-${version}-${arch}.${ext}
 
+deb:
+  packageName: vessel
+
 win:
   target:
     - nsis
