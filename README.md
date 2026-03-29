@@ -5,6 +5,7 @@
 <a href="https://snapcraft.io/vessel-browser">
     <img alt="Get it from the Snap Store" src=https://snapcraft.io/en/dark/install.svg />
   </a>
+  <a href="https://www.producthunt.com/products/quanta-intellect?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-vessel-browser-from-quanta-intellect" target="_blank" rel="noopener noreferrer"><img alt="Vessel Browser from Quanta Intellect - The browser where agents drive and humans supervise | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1107491&amp;theme=dark&amp;t=1774779141692"></a>
 
 # Vessel: Your Agent's Browser
 </div>
