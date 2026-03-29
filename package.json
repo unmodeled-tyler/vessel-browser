@@ -39,7 +39,7 @@
     "solidjs",
     "vessel"
   ],
-  "author": "Quanta Intellect <support@quantaintellect.ai>",
+  "author": "Quanta Intellect <hello@quantaintellect.com>",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
