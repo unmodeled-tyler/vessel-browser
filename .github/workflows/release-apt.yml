@@ -1,0 +1,118 @@
+name: Release APT
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v1.2.3). Defaults to latest tag."
+        required: false
+
+jobs:
+  apt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "ref=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$GITHUB_REF" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out vessel-browser
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.ref }}
+
+      - name: Extract version from tag
+        id: version
+        env:
+          TAG_REF: ${{ steps.tag.outputs.ref }}
+        run: |
+          version="${TAG_REF#refs/tags/v}"
+          version="${version#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build deb package
+        run: npm run build && npx electron-builder --linux deb --publish never
+
+      - name: Check out website repo
+        uses: actions/checkout@v4
+        with:
+          repository: unmodeled-tyler/quanta-intellect-website
+          token: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
+          path: website
+
+      - name: Set up APT repo structure
+        run: |
+          mkdir -p website/apt/pool/stable
+          mkdir -p website/apt/dists/stable/main/binary-amd64
+
+      - name: Copy deb to pool
+        run: cp dist/*.deb website/apt/pool/stable/
+
+      - name: Prune old versions (keep latest 5)
+        run: |
+          cd website/apt/pool/stable
+          ls -t *.deb | tail -n +6 | xargs -r rm -f
+
+      - name: Import GPG key
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          echo "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          GPG_KEY_ID=$(gpg --list-secret-keys --keyid-format long | grep sec | awk '{print $2}' | cut -d'/' -f2)
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> "$GITHUB_ENV"
+
+      - name: Generate APT repo metadata
+        env:
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          cd website/apt
+
+          # Generate Packages index
+          dpkg-scanpackages --arch amd64 pool/stable > dists/stable/main/binary-amd64/Packages
+          gzip -k -f dists/stable/main/binary-amd64/Packages
+
+          # Generate Release file
+          cd dists/stable
+          apt-ftparchive release . > Release
+
+          # Sign Release file
+          echo "$APT_GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
+            --default-key "$GPG_KEY_ID" \
+            -abs -o Release.gpg Release
+
+          echo "$APT_GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
+            --default-key "$GPG_KEY_ID" \
+            --clearsign -o InRelease Release
+
+      - name: Push updated APT repo to website
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd website
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apt/
+          git commit -m "apt: publish Vessel v${VERSION}"
+          git push
