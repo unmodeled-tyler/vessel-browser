@@ -34,17 +34,17 @@ parts:
     plugin: dump
     source: .
     source-type: local
+    build-snaps:
+      - node/22/stable
     override-pull: |
       craftctl default
       craftctl set version="${VESSEL_VERSION:-0.1.0}"
     override-build: |
+      export PATH="/snap/node/current/bin:$PATH"
       npm ci
       npm run build
       npx electron-builder --linux dir --publish never
       cp -r dist/linux-unpacked/* $CRAFT_PART_INSTALL/
-    build-packages:
-      - nodejs
-      - npm
     stage-packages:
       - libnotify4
       - libsecret-1-0
