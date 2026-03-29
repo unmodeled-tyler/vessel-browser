@@ -17,28 +17,29 @@ jobs:
       - name: Determine tag
         id: tag
         env:
+          GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
           GITHUB_REF: ${{ github.ref }}
+          REPO: ${{ github.repository }}
         run: |
           if [ -n "$INPUT_TAG" ]; then
-            echo "ref=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            tag="$INPUT_TAG"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
           else
-            echo "ref=$GITHUB_REF" >> "$GITHUB_OUTPUT"
+            tag=$(gh api "repos/${REPO}/tags?per_page=100" --paginate --jq '.[].name' | grep '^v' | sort -V | tail -n 1)
           fi
+          tag="${tag#refs/tags/}"
+          [[ "$tag" == v* ]] || tag="v$tag"
+          version="${tag#v}"
+          echo "ref=refs/tags/$tag" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Check out vessel-browser
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.tag.outputs.ref }}
-
-      - name: Extract version from tag
-        id: version
-        env:
-          TAG_REF: ${{ steps.tag.outputs.ref }}
-        run: |
-          version="${TAG_REF#refs/tags/v}"
-          version="${version#v}"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -48,6 +49,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Sync package version
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build deb package
         run: npm run build && npx electron-builder --linux deb --publish never
@@ -98,11 +104,15 @@ jobs:
 
       - name: Push updated APT repo to website
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.tag.outputs.version }}
         run: |
           cd website
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add apt/
+          if git diff --cached --quiet; then
+            echo "APT repo already up to date for v${VERSION}"
+            exit 0
+          fi
           git commit -m "apt: publish Vessel v${VERSION}"
           git push
