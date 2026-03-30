@@ -11,7 +11,7 @@
 </div>
 
 
-Open-source browser runtime for persistent web agents on Linux.
+Open source chromium-based browser for persistent web agents on Linux (Mac/Windows support to come).
 
 Vessel gives external agent harnesses a real browser with durable state, MCP control, and a human-visible supervisory UI. It is built for long-running workflows where the agent drives and the human audits, intervenes, and redirects when needed.
 
