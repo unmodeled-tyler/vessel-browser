@@ -68,6 +68,47 @@ import { trackVaultAction } from "../telemetry/posthog";
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
 
+// Well-known path where external MCP clients (e.g. Hermes) can read the
+// current auth token and endpoint.  Written on successful start, cleared on
+// stop.  Lives inside the Electron userData directory so it survives restarts
+// but is always fresh (token is regenerated each launch).
+const MCP_AUTH_FILENAME = "mcp-auth.json";
+
+function getMcpAuthFilePath(): string {
+  // Electron stores userData at ~/.config/<appName> on Linux.  We resolve the
+  // same directory via the XDG convention without importing `app` (which may
+  // not be available during tests).
+  const configDir =
+    process.env.VESSEL_CONFIG_DIR ||
+    path.join(
+      process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
+      "vessel",
+    );
+  return path.join(configDir, MCP_AUTH_FILENAME);
+}
+
+function writeMcpAuthFile(endpoint: string, token: string): void {
+  try {
+    const filePath = getMcpAuthFilePath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ endpoint, token, pid: process.pid }, null, 2) + "\n",
+      { mode: 0o600 },
+    );
+  } catch (err) {
+    console.warn("[Vessel MCP] Failed to write auth file:", err);
+  }
+}
+
+function clearMcpAuthFile(): void {
+  try {
+    fs.unlinkSync(getMcpAuthFilePath());
+  } catch {
+    // File may not exist — that's fine.
+  }
+}
+
 /** Returns the current MCP auth token (generated fresh on each server start). */
 export function getMcpAuthToken(): string | null {
   return mcpAuthToken;
@@ -5818,6 +5859,7 @@ export function startMcpServer(
           ? `Port ${port} is already in use. MCP server not started.`
           : error.message;
       console.error("[Vessel MCP] Server error:", error);
+      clearMcpAuthFile();
       setMcpHealth({
         configuredPort: port,
         activePort: null,
@@ -5852,6 +5894,9 @@ export function startMcpServer(
         message: `MCP server listening on ${endpoint}.`,
       });
       console.log(`[Vessel MCP] Server listening on ${endpoint} (auth enabled)`);
+      if (mcpAuthToken) {
+        writeMcpAuthFile(endpoint, mcpAuthToken);
+      }
       finish({
         ok: true,
         configuredPort: port,
@@ -5879,6 +5924,7 @@ export function stopMcpServer(): Promise<void> {
     const server = httpServer;
     httpServer = null;
     mcpAuthToken = null;
+    clearMcpAuthFile();
     server.close(() => {
       setMcpHealth({
         activePort: null,
