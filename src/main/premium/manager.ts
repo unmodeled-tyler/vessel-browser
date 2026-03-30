@@ -272,3 +272,7 @@ export function stopBackgroundRevalidation(): void {
     revalidationTimer = null;
   }
 }
+
+export function isPremiumActiveState(state: PremiumState): boolean {
+  return state.status === "active" || state.status === "trialing";
+}

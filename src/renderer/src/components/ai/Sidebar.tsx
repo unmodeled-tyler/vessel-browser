@@ -161,8 +161,11 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const trackPremiumContext = (
     step:
       | "chat_banner_viewed"
+      | "chat_banner_clicked"
       | "premium_gate_seen"
-      | "iteration_limit_seen",
+      | "premium_gate_clicked"
+      | "iteration_limit_seen"
+      | "iteration_limit_clicked",
   ) => {
     if (trackedPremiumContexts.has(step)) return;
     trackedPremiumContexts.add(step);
@@ -171,7 +174,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     });
   };
 
-  const openPremiumCheckout = () => {
+  const openPremiumCheckout = (
+    step:
+      | "chat_banner_clicked"
+      | "premium_gate_clicked"
+      | "iteration_limit_clicked",
+  ) => {
+    trackPremiumContext(step);
     void window.vessel.premium.checkout(premiumState().email || undefined);
   };
 
@@ -1245,7 +1254,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                   <button
                     class="agent-primary-button premium-inline-primary"
                     type="button"
-                    onClick={openPremiumCheckout}
+                    onClick={() => openPremiumCheckout("chat_banner_clicked")}
                   >
                     Start free trial
                   </button>
@@ -1274,7 +1283,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                       <PremiumPromptCard
                         kind={kind()}
                         compact
-                        onStartTrial={openPremiumCheckout}
+                        onStartTrial={() =>
+                          openPremiumCheckout(
+                            kind() === "premium_gate"
+                              ? "premium_gate_clicked"
+                              : "iteration_limit_clicked",
+                          )
+                        }
                         onOpenSettings={openPremiumDetails}
                       />
                     )}
@@ -1308,7 +1323,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                           <PremiumPromptCard
                             kind={kind()}
                             compact
-                            onStartTrial={openPremiumCheckout}
+                            onStartTrial={() =>
+                              openPremiumCheckout(
+                                kind() === "premium_gate"
+                                  ? "premium_gate_clicked"
+                                  : "iteration_limit_clicked",
+                              )
+                            }
                             onOpenSettings={openPremiumDetails}
                           />
                         )}

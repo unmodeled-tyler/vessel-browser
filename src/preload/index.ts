@@ -329,9 +329,14 @@ const api = {
     trackContext: (
       step:
         | "chat_banner_viewed"
+        | "chat_banner_clicked"
         | "settings_banner_viewed"
+        | "settings_banner_clicked"
+        | "welcome_banner_clicked"
         | "premium_gate_seen"
-        | "iteration_limit_seen",
+        | "premium_gate_clicked"
+        | "iteration_limit_seen"
+        | "iteration_limit_clicked",
     ): Promise<void> => ipcRenderer.invoke(Channels.PREMIUM_TRACK_CONTEXT, step),
     onUpdate: (cb: (state: PremiumState) => void): (() => void) => {
       const handler = (_: unknown, state: PremiumState) => cb(state);

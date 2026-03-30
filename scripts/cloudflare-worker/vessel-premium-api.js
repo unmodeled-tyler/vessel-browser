@@ -177,7 +177,29 @@ async function handleVerify(request, env) {
   }
 
   let customer;
-  if (identifier.startsWith("cus_")) {
+  if (identifier.startsWith("cs_")) {
+    const session = await stripeRequest(env, "GET", `/checkout/sessions/${identifier}`);
+    if (session.error || !session.customer) {
+      return corsResponse({
+        status: "free",
+        customerId: "",
+        email: session.customer_details?.email || "",
+        expiresAt: "",
+      });
+    }
+    customer =
+      typeof session.customer === "string"
+        ? await stripeRequest(env, "GET", `/customers/${session.customer}`)
+        : session.customer;
+    if (customer.error) {
+      return corsResponse({
+        status: "free",
+        customerId: "",
+        email: session.customer_details?.email || "",
+        expiresAt: "",
+      });
+    }
+  } else if (identifier.startsWith("cus_")) {
     customer = await stripeRequest(env, "GET", `/customers/${identifier}`);
     if (customer.error) {
       return corsResponse({ status: "free", customerId: "", email: "", expiresAt: "" });
@@ -226,8 +248,6 @@ async function handleWebhook(request, env) {
 }
 
 function handleSuccess(request) {
-  const url = new URL(request.url);
-  const sessionId = url.searchParams.get("session_id");
   return new Response(
     `<!DOCTYPE html>
 <html>
@@ -247,15 +267,17 @@ function handleSuccess(request) {
 <body>
   <div class="card">
     <h1>Welcome to Vessel Premium!</h1>
-    <p>Your subscription is active. Now activate it in the browser:</p>
+    <p>Your subscription is active.</p>
+    <p>If you started checkout from inside Vessel, the app should unlock automatically in a few seconds.</p>
     <ol class="steps">
-      <li>Open <strong>Vessel</strong></li>
-      <li>Go to <strong>Settings</strong> (Ctrl+,)</li>
+      <li>Return to <strong>Vessel</strong></li>
+      <li>Wait a few seconds for automatic activation</li>
+      <li>If Premium is still locked, open <strong>Settings</strong> (Ctrl+,)</li>
       <li>Scroll to the <strong>Premium</strong> section</li>
       <li>Enter the <strong>email</strong> you just used to subscribe</li>
       <li>Click <strong>Activate</strong></li>
     </ol>
-    <p>That's it — all premium features are now unlocked.</p>
+    <p>That fallback only takes a moment, but most in-app checkouts should now activate on their own.</p>
   </div>
 </body>
 </html>`,
