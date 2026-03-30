@@ -151,9 +151,19 @@ export function trackPremiumFunnel(
     | "portal_opened"
     | "reset"
     | "chat_banner_viewed"
+    | "chat_banner_clicked"
     | "settings_banner_viewed"
+    | "settings_banner_clicked"
+    | "welcome_banner_clicked"
     | "premium_gate_seen"
-    | "iteration_limit_seen",
+    | "premium_gate_clicked"
+    | "iteration_limit_seen"
+    | "iteration_limit_clicked"
+    | "checkout_success_seen"
+    | "checkout_canceled"
+    | "auto_activation_attempted"
+    | "auto_activation_succeeded"
+    | "auto_activation_failed",
   context?: Record<string, unknown>,
 ): void {
   trackEvent("premium_funnel", { step, ...context });

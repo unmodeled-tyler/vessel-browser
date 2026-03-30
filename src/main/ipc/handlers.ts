@@ -15,6 +15,8 @@ import {
   getCheckoutUrl,
   getPortalUrl,
   resetPremium,
+  verifySubscription,
+  isPremiumActiveState,
 } from "../premium/manager";
 import * as vaultManager from "../vault/manager";
 import { readAuditLog } from "../vault/audit";
@@ -79,11 +81,99 @@ export function registerIpcHandlers(
   runtime: AgentRuntime,
 ): void {
   const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
+  const premiumApiOrigin =
+    process.env.VESSEL_PREMIUM_API
+      ? new URL(process.env.VESSEL_PREMIUM_API).origin
+      : "https://vesselpremium.quantaintellect.com";
 
   const sendToRendererViews = (channel: string, ...args: unknown[]) => {
     chromeView.webContents.send(channel, ...args);
     sidebarView.webContents.send(channel, ...args);
     devtoolsPanelView.webContents.send(channel, ...args);
+  };
+
+  const watchPremiumCheckoutTab = (tabId: string) => {
+    const tab = tabManager.getTab(tabId);
+    const wc = tab?.view.webContents;
+    if (!wc) return;
+
+    let completed = false;
+
+    const cleanup = () => {
+      wc.removeListener("did-navigate", onNavigate);
+      wc.removeListener("did-navigate-in-page", onNavigateInPage);
+      wc.removeListener("destroyed", cleanup);
+    };
+
+    const handleUrl = async (rawUrl: string) => {
+      if (completed) return;
+
+      let parsed: URL;
+      try {
+        parsed = new URL(rawUrl);
+      } catch {
+        return;
+      }
+
+      if (parsed.origin !== premiumApiOrigin) return;
+
+      if (parsed.pathname === "/canceled") {
+        completed = true;
+        trackPremiumFunnel("checkout_canceled");
+        cleanup();
+        return;
+      }
+
+      if (parsed.pathname !== "/success") return;
+
+      completed = true;
+      trackPremiumFunnel("checkout_success_seen");
+
+      const sessionId = parsed.searchParams.get("session_id")?.trim();
+      if (!sessionId) {
+        trackPremiumFunnel("auto_activation_failed", {
+          reason: "missing_session_id",
+        });
+        cleanup();
+        return;
+      }
+
+      trackPremiumFunnel("auto_activation_attempted");
+      const state = await verifySubscription(sessionId);
+      if (isPremiumActiveState(state)) {
+        sendToRendererViews(Channels.PREMIUM_UPDATE, state);
+        trackPremiumFunnel("auto_activation_succeeded", {
+          status: state.status,
+        });
+      } else {
+        trackPremiumFunnel("auto_activation_failed", {
+          status: state.status,
+        });
+      }
+      cleanup();
+    };
+
+    const onNavigate = (_event: unknown, url: string) => {
+      void handleUrl(url);
+    };
+
+    const onNavigateInPage = (
+      _event: unknown,
+      url: string,
+      isMainFrame: boolean,
+    ) => {
+      if (!isMainFrame) return;
+      void handleUrl(url);
+    };
+
+    wc.on("did-navigate", onNavigate);
+    wc.on("did-navigate-in-page", onNavigateInPage);
+    wc.on("destroyed", cleanup);
+
+    const currentUrl = wc.getURL();
+    if (currentUrl) {
+      void handleUrl(currentUrl);
+    }
   };
 
   const getActiveHighlightCountSafe = async (): Promise<number> => {
@@ -603,7 +693,8 @@ export function registerIpcHandlers(
     trackPremiumFunnel("checkout_clicked");
     const result = await getCheckoutUrl(email);
     if (result.ok && result.url) {
-      tabManager.createTab(result.url);
+      const tabId = tabManager.createTab(result.url);
+      watchPremiumCheckoutTab(tabId);
     }
     return result;
   });
@@ -619,9 +710,14 @@ export function registerIpcHandlers(
     assertString(step, "step");
     if (
       step === "chat_banner_viewed" ||
+      step === "chat_banner_clicked" ||
       step === "settings_banner_viewed" ||
+      step === "settings_banner_clicked" ||
+      step === "welcome_banner_clicked" ||
       step === "premium_gate_seen" ||
-      step === "iteration_limit_seen"
+      step === "premium_gate_clicked" ||
+      step === "iteration_limit_seen" ||
+      step === "iteration_limit_clicked"
     ) {
       trackPremiumFunnel(step);
     }
