@@ -69,10 +69,15 @@ let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
 
 // Well-known path where external MCP clients (e.g. Hermes) can read the
-// current auth token and endpoint.  Written on successful start, cleared on
-// stop.  Lives inside the Electron userData directory so it survives restarts
-// but is always fresh (token is regenerated each launch).
+// current auth token and endpoint. Written on successful start. The token is
+// persisted across restarts so external MCP client configs remain valid.
 const MCP_AUTH_FILENAME = "mcp-auth.json";
+
+type McpAuthState = {
+  endpoint?: string;
+  token?: string;
+  pid?: number | null;
+};
 
 function getMcpAuthFilePath(): string {
   // Electron stores userData at ~/.config/<appName> on Linux.  We resolve the
@@ -85,6 +90,26 @@ function getMcpAuthFilePath(): string {
       "vessel",
     );
   return path.join(configDir, MCP_AUTH_FILENAME);
+}
+
+function readMcpAuthFile(): McpAuthState | null {
+  try {
+    const raw = fs.readFileSync(getMcpAuthFilePath(), "utf8");
+    const parsed = JSON.parse(raw) as McpAuthState;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+const MIN_TOKEN_LENGTH = 32;
+
+function getPersistentMcpAuthToken(): string {
+  const existingToken = readMcpAuthFile()?.token?.trim();
+  if (existingToken && existingToken.length >= MIN_TOKEN_LENGTH) {
+    return existingToken;
+  }
+  return crypto.randomBytes(32).toString("hex");
 }
 
 function writeMcpAuthFile(endpoint: string, token: string): void {
@@ -102,14 +127,33 @@ function writeMcpAuthFile(endpoint: string, token: string): void {
 }
 
 function clearMcpAuthFile(): void {
+  const existingToken = readMcpAuthFile()?.token?.trim();
+  if (!existingToken) {
+    try {
+      fs.unlinkSync(getMcpAuthFilePath());
+    } catch {
+      // File may not exist — that's fine.
+    }
+    return;
+  }
   try {
-    fs.unlinkSync(getMcpAuthFilePath());
-  } catch {
-    // File may not exist — that's fine.
+    const filePath = getMcpAuthFilePath();
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify(
+        { endpoint: "", token: existingToken, pid: null },
+        null,
+        2,
+      ) + "\n",
+      { mode: 0o600 },
+    );
+  } catch (err) {
+    console.warn("[Vessel MCP] Failed to clear auth file:", err);
   }
 }
 
-/** Returns the current MCP auth token (generated fresh on each server start). */
+/** Returns the current MCP auth token. */
 export function getMcpAuthToken(): string | null {
   return mcpAuthToken;
 }
@@ -5783,7 +5827,7 @@ export function startMcpServer(
     message: `Starting MCP server on port ${port}.`,
   });
 
-  mcpAuthToken = crypto.randomBytes(32).toString("hex");
+  mcpAuthToken = getPersistentMcpAuthToken();
 
   return new Promise((resolve) => {
     const server = http.createServer(async (req, res) => {
@@ -5818,9 +5862,16 @@ export function startMcpServer(
         return;
       }
 
-      // Validate bearer token on all non-OPTIONS requests
+      // Validate bearer token on all non-OPTIONS requests (constant-time
+      // comparison to prevent timing side-channel attacks on persistent tokens).
       const authHeader = req.headers.authorization;
-      if (!authHeader || authHeader !== `Bearer ${mcpAuthToken}`) {
+      const expected = `Bearer ${mcpAuthToken}`;
+      const headerBuf = Buffer.from(authHeader ?? "");
+      const expectedBuf = Buffer.from(expected);
+      const tokenValid =
+        headerBuf.length === expectedBuf.length &&
+        crypto.timingSafeEqual(headerBuf, expectedBuf);
+      if (!authHeader || !tokenValid) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Unauthorized — missing or invalid bearer token" }));
         return;

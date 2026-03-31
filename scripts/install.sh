@@ -8,6 +8,7 @@ BIN_DIR="${VESSEL_BIN_DIR:-$HOME/.local/bin}"
 DESKTOP_DIR="${VESSEL_DESKTOP_DIR:-$HOME/.local/share/applications}"
 CONFIG_DIR="${VESSEL_CONFIG_DIR:-$HOME/.config/vessel}"
 SETTINGS_PATH="$CONFIG_DIR/vessel-settings.json"
+MCP_AUTH_PATH="$CONFIG_DIR/mcp-auth.json"
 MCP_SNIPPET_PATH="$CONFIG_DIR/mcp-http-snippet.json"
 HERMES_SNIPPET_PATH="$CONFIG_DIR/mcp-hermes-snippet.yaml"
 MCP_PORT="${VESSEL_MCP_PORT:-3100}"
@@ -112,8 +113,10 @@ cat >"$MCP_HELPER_PATH" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 SETTINGS_PATH="${SETTINGS_PATH}"
+AUTH_PATH="${MCP_AUTH_PATH}"
 DEFAULT_PORT="${MCP_PORT}"
 FORMAT="json"
+INIT=0
 
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
@@ -133,14 +136,29 @@ while [[ \$# -gt 0 ]]; do
     --url)
       FORMAT="url"
       ;;
+    --token)
+      FORMAT="token"
+      ;;
+    --init)
+      INIT=1
+      ;;
     --help|-h)
       cat <<'HELP'
-Usage: vessel-browser-mcp [--format json|hermes|url]
+Usage: vessel-browser-mcp [--format json|hermes|url|token] [--init]
+
+Flags:
+  --format <fmt>  Output format (default: json)
+  --json          Alias for --format json
+  --hermes        Alias for --format hermes
+  --url           Alias for --format url
+  --token         Alias for --format token
+  --init          Bootstrap auth token if none exists (used by install script)
 
 Formats:
-  json    Generic MCP JSON snippet (default)
-  hermes  Hermes config.yaml snippet
+  json    Generic MCP JSON snippet with Authorization header (default)
+  hermes  Hermes config.yaml snippet with Authorization header
   url     Raw MCP endpoint URL
+  token   Raw MCP bearer token
 HELP
       exit 0
       ;;
@@ -152,29 +170,53 @@ HELP
   shift
 done
 
-PORT="\$DEFAULT_PORT"
-if [[ -f "\$SETTINGS_PATH" ]]; then
-  PARSED_PORT=\$(SETTINGS_PATH="\$SETTINGS_PATH" DEFAULT_PORT="\$DEFAULT_PORT" node <<'NODE'
+{ read -r ENDPOINT; read -r TOKEN; } < <(SETTINGS_PATH="\$SETTINGS_PATH" AUTH_PATH="\$AUTH_PATH" DEFAULT_PORT="\$DEFAULT_PORT" INIT="\${INIT:-0}" node <<'NODE'
 const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
 
 const settingsPath = process.env.SETTINGS_PATH;
+const authPath = process.env.AUTH_PATH;
 const defaultPort = Number(process.env.DEFAULT_PORT) || 3100;
+const init = process.env.INIT === "1";
+let port = defaultPort;
 
 try {
   const parsed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-  const port = Number(parsed?.mcpPort);
-  if (Number.isInteger(port) && port >= 1 && port <= 65535) {
-    process.stdout.write(String(port));
-  } else {
-    process.stdout.write(String(defaultPort));
+  const parsedPort = Number(parsed?.mcpPort);
+  if (Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535) {
+    port = parsedPort;
   }
-} catch {
-  process.stdout.write(String(defaultPort));
+} catch {}
+
+const endpoint = `http://127.0.0.1:${port}/mcp`;
+let token = "";
+
+try {
+  const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
+  if (typeof auth?.token === "string" && auth.token.trim()) {
+    token = auth.token.trim();
+  }
+} catch {}
+
+if (!token && init) {
+  token = crypto.randomBytes(32).toString("hex");
+  fs.mkdirSync(path.dirname(authPath), { recursive: true });
+  fs.writeFileSync(
+    authPath,
+    JSON.stringify({ endpoint, token, pid: null }, null, 2) + "\n",
+    { mode: 0o600 },
+  );
 }
+
+if (!token) {
+  process.stderr.write("No auth token found. Launch Vessel or re-run install to generate one.\n");
+  process.exit(1);
+}
+
+process.stdout.write(endpoint + "\n" + token + "\n");
 NODE
 )
-  PORT="\${PARSED_PORT:-\$DEFAULT_PORT}"
-fi
 
 case "\$FORMAT" in
   json)
@@ -183,7 +225,10 @@ case "\$FORMAT" in
   "mcpServers": {
     "vessel": {
       "type": "http",
-      "url": "http://127.0.0.1:\${PORT}/mcp"
+      "url": "\${ENDPOINT}",
+      "headers": {
+        "Authorization": "Bearer \${TOKEN}"
+      }
     }
   }
 }
@@ -193,13 +238,18 @@ JSON
     cat <<YAML
 mcp_servers:
   vessel:
-    url: "http://127.0.0.1:\${PORT}/mcp"
+    url: "\${ENDPOINT}"
+    headers:
+      Authorization: "Bearer \${TOKEN}"
     timeout: 180
     connect_timeout: 30
 YAML
     ;;
   url)
-    printf 'http://127.0.0.1:%s/mcp\n' "\$PORT"
+    printf '%s\n' "\$ENDPOINT"
+    ;;
+  token)
+    printf '%s\n' "\$TOKEN"
     ;;
   *)
     printf 'Unsupported format: %s\n' "\$FORMAT" >&2
@@ -258,25 +308,10 @@ fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
 EOF
 
 info "Writing MCP snippet to $MCP_SNIPPET_PATH"
-cat >"$MCP_SNIPPET_PATH" <<EOF
-{
-  "mcpServers": {
-    "vessel": {
-      "type": "http",
-      "url": "http://127.0.0.1:${MCP_PORT}/mcp"
-    }
-  }
-}
-EOF
+"$MCP_HELPER_PATH" --init >"$MCP_SNIPPET_PATH"
 
 info "Writing Hermes MCP snippet to $HERMES_SNIPPET_PATH"
-cat >"$HERMES_SNIPPET_PATH" <<EOF
-mcp_servers:
-  vessel:
-    url: "http://127.0.0.1:${MCP_PORT}/mcp"
-    timeout: 180
-    connect_timeout: 30
-EOF
+"$MCP_HELPER_PATH" --format hermes >"$HERMES_SNIPPET_PATH"
 
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
   warn "$BIN_DIR is not on your PATH."

@@ -323,7 +323,10 @@ Generic HTTP MCP config:
   "mcpServers": {
     "vessel": {
       "type": "http",
-      "url": "http://127.0.0.1:3100/mcp"
+      "url": "http://127.0.0.1:3100/mcp",
+      "headers": {
+        "Authorization": "Bearer <token from ~/.config/vessel/mcp-auth.json>"
+      }
     }
   }
 }
@@ -335,6 +338,8 @@ Hermes Agent `config.yaml` MCP config:
 mcp_servers:
   vessel:
     url: "http://127.0.0.1:3100/mcp"
+    headers:
+      Authorization: "Bearer <token from ~/.config/vessel/mcp-auth.json>"
     timeout: 180
     connect_timeout: 30
 ```
@@ -355,14 +360,17 @@ vessel-browser-mcp
 Helper examples:
 
 ```bash
-# Generic JSON snippet
+# Generic JSON snippet with Authorization header
 vessel-browser-mcp
 
-# Hermes-ready YAML snippet
+# Hermes-ready YAML snippet with Authorization header
 vessel-browser-mcp --format hermes
 
 # Raw MCP endpoint URL
 vessel-browser-mcp --format url
+
+# Raw MCP bearer token
+vessel-browser-mcp --format token
 ```
 
 Source install update helpers:
