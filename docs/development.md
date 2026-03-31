@@ -69,14 +69,17 @@ vessel-browser-mcp
 Helper examples:
 
 ```bash
-# Generic JSON snippet
+# Generic JSON snippet with Authorization header
 vessel-browser-mcp
 
-# Hermes-ready YAML snippet
+# Hermes-ready YAML snippet with Authorization header
 vessel-browser-mcp --format hermes
 
 # Raw MCP endpoint URL
 vessel-browser-mcp --format url
+
+# Raw MCP bearer token
+vessel-browser-mcp --format token
 ```
 
 Source install update helpers:

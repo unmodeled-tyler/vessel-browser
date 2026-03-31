@@ -7,7 +7,7 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 1. Launch Vessel
 2. Open Settings (`Ctrl+,`) to confirm MCP status, copy the endpoint, or change the MCP port
 3. Optional: set an Obsidian vault path or session preferences
-4. Start Hermes Agent, OpenClaw, Codex, or another MCP client and configure it to connect to `http://127.0.0.1:<mcpPort>/mcp`
+4. Start Hermes Agent, OpenClaw, Codex, or another MCP client and configure it to connect to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
 5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
 6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
 
@@ -99,6 +99,8 @@ Generic Codex or TOML-based config:
 url = "http://127.0.0.1:3100/mcp"
 ```
 
+Add the same `Authorization: Bearer <token>` header using your client's HTTP-header syntax.
+
 Generic HTTP MCP config:
 
 ```json
@@ -106,7 +108,10 @@ Generic HTTP MCP config:
   "mcpServers": {
     "vessel": {
       "type": "http",
-      "url": "http://127.0.0.1:3100/mcp"
+      "url": "http://127.0.0.1:3100/mcp",
+      "headers": {
+        "Authorization": "Bearer <token from ~/.config/vessel/mcp-auth.json>"
+      }
     }
   }
 }
@@ -118,6 +123,8 @@ Hermes Agent `config.yaml` MCP config:
 mcp_servers:
   vessel:
     url: "http://127.0.0.1:3100/mcp"
+    headers:
+      Authorization: "Bearer <token from ~/.config/vessel/mcp-auth.json>"
     timeout: 180
     connect_timeout: 30
 ```
