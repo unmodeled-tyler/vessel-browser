@@ -1873,10 +1873,96 @@ async function tryDismissConsentIframe(wc: WebContents): Promise<string | null> 
   return null;
 }
 
+async function tryAcceptCookiesQuickly(
+  wc: WebContents,
+): Promise<string | typeof PAGE_SCRIPT_TIMEOUT | null> {
+  const dismissed = await executePageScript<string | null>(
+    wc,
+    `
+      (function() {
+        var selectors = [
+          '#onetrust-accept-btn-handler',
+          '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+          '[data-cookiefirst-action="accept"]',
+          '.cookie-consent-accept-all',
+          '#accept-cookies',
+          '.cc-accept',
+          '.cc-btn.cc-allow',
+          '[aria-label="Accept cookies"]',
+          '[aria-label="Accept all cookies"]',
+          '[data-testid="cookie-accept"]',
+          '[data-testid="consent-accept"]',
+          '[data-testid="accept-all"]',
+          'button[class*="consent"][class*="accept"]',
+          'button[class*="privacy"][class*="accept"]',
+          '.fc-cta-consent',
+          '#sp_choice_button_accept',
+          '.message-component.message-button.no-children.focusable.sp_choice_type_11',
+          '[class*="truste"] [class*="accept"]',
+          '[id*="consent-accept"]',
+          '[class*="cmp-accept"]',
+        ];
+        var textPatterns = [
+          'accept all',
+          'accept cookies',
+          'allow all',
+          'allow cookies',
+          'agree',
+          'got it',
+          'ok',
+          'i agree',
+          'i accept',
+          'consent',
+          'continue',
+          'accept and continue',
+          'accept & continue'
+        ];
+        for (var i = 0; i < selectors.length; i++) {
+          var el = document.querySelector(selectors[i]);
+          if (el && el instanceof HTMLElement) {
+            el.click();
+            return "Dismissed cookie banner via: " + selectors[i];
+          }
+        }
+        var buttons = document.querySelectorAll('button, a[role="button"], [type="submit"]');
+        for (var j = 0; j < buttons.length; j++) {
+          var btn = buttons[j];
+          var text = (btn.textContent || '').trim().toLowerCase();
+          for (var k = 0; k < textPatterns.length; k++) {
+            if (text === textPatterns[k] || text.startsWith(textPatterns[k])) {
+              btn.click();
+              return "Dismissed cookie banner via text match: " + text;
+            }
+          }
+        }
+        return null;
+      })()
+    `,
+    {
+      label: "accept cookies",
+      timeoutMs: 1200,
+    },
+  );
+  if (dismissed) return dismissed;
+  return tryDismissConsentIframe(wc);
+}
+
 export async function clearOverlays(
   wc: WebContents,
   strategy: "auto" | "interactive" = "auto",
 ): Promise<string> {
+  const quickCookieResult = await tryAcceptCookiesQuickly(wc);
+  if (quickCookieResult === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("clear_overlays");
+  }
+  if (quickCookieResult) {
+    return [
+      quickCookieResult,
+      "Stopped after a lightweight consent pass to keep the page responsive. Re-run only if the banner is still blocking the page.",
+    ].join("\n");
+  }
+
+  await waitForJsReady(wc, 1500);
   const steps: string[] = [];
   let cleared = 0;
   const maxIterations = 8;
@@ -1946,6 +2032,12 @@ export async function clearOverlays(
     }
 
     steps.push(actionMessage);
+    if (overlay.kind === "cookie_consent") {
+      steps.push(
+        "Stopped after a lightweight consent pass to keep the page responsive. Re-run only if the banner is still blocking the page.",
+      );
+      return steps.join("\n");
+    }
     await sleep(250);
 
     const after = await extractContent(wc);
@@ -4443,11 +4535,20 @@ export async function executeAction(
               el.text === "»",
           );
           const hasOverlays = page.overlays.some((o) => o.blocksInteraction);
+          const hasCookieConsent = page.overlays.some(
+            (overlay) =>
+              overlay.blocksInteraction && overlay.kind === "cookie_consent",
+          );
 
           if (hasOverlays) {
             suggestions.push("BLOCKING OVERLAY detected — dismiss it first:");
-            suggestions.push("  → clear_overlays for stacked modals");
-            suggestions.push("  → or dismiss_popup for a single popup");
+            if (hasCookieConsent) {
+              suggestions.push("  → accept_cookies for consent banners");
+              suggestions.push("  → clear_overlays only if consent handling does not unblock the page");
+            } else {
+              suggestions.push("  → clear_overlays for stacked modals");
+              suggestions.push("  → or dismiss_popup for a single popup");
+            }
             suggestions.push("");
           }
 
@@ -4688,66 +4789,11 @@ export async function executeAction(
 
         case "accept_cookies": {
           if (!wc) return "Error: No active tab";
-          const dismissed = await executePageScript<string | null>(
-            wc,
-            `
-            (function() {
-              // Common cookie consent selectors — OneTrust, CookieBot, GDPR banners
-              var selectors = [
-                '#onetrust-accept-btn-handler',
-                '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-                '[data-cookiefirst-action="accept"]',
-                '.cookie-consent-accept-all',
-                '#accept-cookies',
-                '.cc-accept',
-                '.cc-btn.cc-allow',
-                '[aria-label="Accept cookies"]',
-                '[aria-label="Accept all cookies"]',
-                '[data-testid="cookie-accept"]',
-                // CNN / WarnerMedia / common consent SDKs
-                '[data-testid="consent-accept"]',
-                '[data-testid="accept-all"]',
-                'button[class*="consent"][class*="accept"]',
-                'button[class*="privacy"][class*="accept"]',
-                '.fc-cta-consent',
-                '#sp_choice_button_accept',
-                '.message-component.message-button.no-children.focusable.sp_choice_type_11',
-                '[class*="truste"] [class*="accept"]',
-                '[id*="consent-accept"]',
-                '[class*="cmp-accept"]',
-              ];
-              // Also try text-matching on buttons
-              var textPatterns = ['accept all', 'accept cookies', 'allow all', 'allow cookies', 'agree', 'got it', 'ok', 'i agree', 'i accept', 'consent', 'continue', 'accept and continue', 'accept & continue'];
-              for (var i = 0; i < selectors.length; i++) {
-                var el = document.querySelector(selectors[i]);
-                if (el && el instanceof HTMLElement) { el.click(); return "Dismissed cookie banner via: " + selectors[i]; }
-              }
-              var buttons = document.querySelectorAll('button, a[role="button"], [type="submit"]');
-              for (var j = 0; j < buttons.length; j++) {
-                var btn = buttons[j];
-                var text = (btn.textContent || '').trim().toLowerCase();
-                for (var k = 0; k < textPatterns.length; k++) {
-                  if (text === textPatterns[k] || text.startsWith(textPatterns[k])) {
-                    btn.click();
-                    return "Dismissed cookie banner via text match: " + text;
-                  }
-                }
-              }
-              return null;
-            })()
-          `,
-            {
-              label: "accept cookies",
-            },
-          );
+          const dismissed = await tryAcceptCookiesQuickly(wc);
           if (dismissed === PAGE_SCRIPT_TIMEOUT) {
             return pageBusyError("accept_cookies");
           }
           if (dismissed) return dismissed;
-
-          // Main frame selectors didn't match — try iframe-based consent (Sourcepoint, etc.)
-          const iframeResult = await tryDismissConsentIframe(wc);
-          if (iframeResult) return iframeResult;
 
           return "No cookie consent banner detected. Try dismiss_popup for other overlays.";
         }

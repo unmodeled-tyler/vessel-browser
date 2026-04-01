@@ -512,29 +512,63 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     document.body.style.userSelect = "none";
 
     // Expand the sidebar view to full window so pointer capture works across the drag
-    window.vessel.ui.startSidebarResize();
+    void window.vessel.ui.startSidebarResize().catch(() => {
+      /* ignore IPC failures during drag start */
+    });
 
     // Capture initial state so the reference frame stays fixed during drag
     const startX = e.screenX;
     const startWidth = sidebarWidth();
+    let finished = false;
+
+    const clearPointerTracking = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      target.removeEventListener("lostpointercapture", onPointerUp);
+      if (target.hasPointerCapture?.(e.pointerId)) {
+        target.releasePointerCapture(e.pointerId);
+      }
+    };
 
     const onPointerMove = (ev: PointerEvent) => {
       const delta = startX - ev.screenX;
       resizeSidebar(startWidth + delta);
     };
 
-    const onPointerUp = () => {
+    const finishResize = () => {
+      if (finished) return;
+      finished = true;
       setIsDragging(false);
-      commitResize();
-      target.removeEventListener("pointermove", onPointerMove);
-      target.removeEventListener("pointerup", onPointerUp);
-      target.removeEventListener("lostpointercapture", onPointerUp);
+      clearPointerTracking();
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      void commitResize().catch(() => {
+        /* ignore commit failures during drag cleanup */
+      });
     };
 
-    target.addEventListener("pointermove", onPointerMove);
-    target.addEventListener("pointerup", onPointerUp);
+    const onPointerUp = () => {
+      finishResize();
+    };
+
+    const onWindowBlur = () => {
+      finishResize();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        finishResize();
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("blur", onWindowBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     target.addEventListener("lostpointercapture", onPointerUp);
   };
 
