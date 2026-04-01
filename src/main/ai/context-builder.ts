@@ -1527,21 +1527,29 @@ export function detectPageType(page: PageContent): PageType {
   const hasPasswordField = page.forms.some((f) =>
     f.fields.some((el) => el.inputType === "password"),
   );
+  const searchInputs = page.interactiveElements.filter(
+    (el) =>
+      el.inputType === "search" ||
+      el.name === "q" ||
+      el.name === "query" ||
+      el.name === "search" ||
+      (el.placeholder || "").toLowerCase().includes("search"),
+  );
   const hasSearchInput =
-    page.interactiveElements.some(
-      (el) =>
-        el.inputType === "search" ||
-        el.name === "q" ||
-        el.name === "query" ||
-        el.name === "search" ||
-        (el.placeholder || "").toLowerCase().includes("search"),
-    ) ||
+    searchInputs.length > 0 ||
     page.forms.some((f) =>
       f.fields.some(
         (el) =>
           el.inputType === "search" || el.name === "q" || el.name === "query",
       ),
     );
+  const hasVisibleSearchInput = searchInputs.some(
+    (el) =>
+      el.visible === true &&
+      el.inViewport === true &&
+      el.obscured !== true &&
+      el.blockedByOverlay !== true,
+  );
   const formCount = page.forms.length;
   const hasCart =
     page.interactiveElements.some(
@@ -1551,8 +1559,15 @@ export function detectPageType(page: PageContent): PageType {
     ) ||
     url.includes("cart") ||
     url.includes("checkout");
-  const hasResults =
-    page.interactiveElements.filter((el) => el.type === "link").length > 10;
+  const contentLinks = page.interactiveElements.filter(
+    (el) =>
+      el.type === "link" &&
+      el.context !== "nav" &&
+      el.context !== "header" &&
+      el.context !== "sidebar" &&
+      (el.href || "").startsWith("http"),
+  );
+  const hasResults = contentLinks.length > 10;
   const hasPagination = page.interactiveElements.some(
     (el) =>
       (el.text || "").toLowerCase() === "next" ||
@@ -1560,13 +1575,22 @@ export function detectPageType(page: PageContent): PageType {
       el.text === "»" ||
       (el.label || "").toLowerCase().includes("next page"),
   );
+  const listingLike =
+    isSearchOrListingPage(page) ||
+    hasPagination ||
+    /[?&](d|q|query|search)=/.test(url) ||
+    /\/(search|results)\b/.test(url) ||
+    /\/p\/pl\b/.test(url);
 
   if (hasPasswordField) return "LOGIN";
-  if (hasSearchInput && !hasResults) return "SEARCH_READY";
-  if (hasResults && hasSearchInput) return "SEARCH_RESULTS";
+  if (hasSearchInput && hasVisibleSearchInput && !listingLike) {
+    return "SEARCH_READY";
+  }
+  if (hasResults && hasSearchInput && listingLike) return "SEARCH_RESULTS";
   if (hasCart) return "SHOPPING";
   if (formCount > 0 && !hasPasswordField) return "FORM";
-  if (hasPagination) return "PAGINATED_LIST";
+  if (hasPagination && listingLike) return "PAGINATED_LIST";
+  if (hasSearchInput && !listingLike) return "SEARCH_READY";
   if (page.content.length > 3000 && page.interactiveElements.length < 10)
     return "ARTICLE";
   return "GENERAL";
@@ -1614,6 +1638,9 @@ function analyzePageIntent(page: PageContent): string {
       hints.push("Page type: SEARCH READY");
       hints.push(
         "Suggested: vessel_search → auto-finds search box, types query, and submits",
+      );
+      hints.push(
+        "Treat the visible site search box as the primary navigation control before jumping to direct URLs.",
       );
       break;
     case "SEARCH_RESULTS":

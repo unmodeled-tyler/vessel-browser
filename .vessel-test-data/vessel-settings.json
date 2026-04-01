@@ -1,0 +1,26 @@
+{
+  "defaultUrl": "https://start.duckduckgo.com",
+  "theme": "dark",
+  "sidebarWidth": 400,
+  "mcpPort": 3100,
+  "autoRestoreSession": true,
+  "clearBookmarksOnLaunch": false,
+  "obsidianVaultPath": "",
+  "approvalMode": "confirm-dangerous",
+  "agentTranscriptMode": "summary",
+  "chatProvider": null,
+  "maxToolIterations": 200,
+  "domainPolicy": {
+    "allowedDomains": [],
+    "blockedDomains": []
+  },
+  "downloadPath": "",
+  "telemetryEnabled": true,
+  "premium": {
+    "status": "free",
+    "customerId": "",
+    "email": "",
+    "validatedAt": "",
+    "expiresAt": ""
+  }
+}
