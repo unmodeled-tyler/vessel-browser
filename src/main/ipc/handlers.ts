@@ -362,6 +362,7 @@ export function registerIpcHandlers(
     assertNumber(width, "width");
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
+    resizeSidebarViews(windowState);
     return clamped;
   });
 
