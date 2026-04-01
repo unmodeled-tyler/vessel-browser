@@ -116,6 +116,36 @@ test("agent default read mode stays narrow for navigation-heavy pages", () => {
       ],
     }),
   );
+  const storefrontHomePage = chooseAgentReadMode(
+    buildPage({
+      title: "Newegg",
+      url: "https://www.newegg.com/",
+      interactiveElements: [
+        {
+          type: "input",
+          label: "Search products",
+          inputType: "search",
+          placeholder: "Search products",
+          context: "header",
+          index: 1,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        ...Array.from({ length: 14 }, (_, i) => ({
+          type: "link" as const,
+          text: `Promo ${i + 1}`,
+          href: `https://www.newegg.com/promo-${i + 1}`,
+          context: i < 4 ? "nav" : "content",
+          selector: `a.promo-${i + 1}`,
+          index: i + 2,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        })),
+      ],
+    }),
+  );
   const resultsPage = chooseAgentReadMode(
     buildPage({
       title: "GPU Search Results",
@@ -156,6 +186,7 @@ test("agent default read mode stays narrow for navigation-heavy pages", () => {
   );
 
   assert.equal(searchReady, "visible_only");
+  assert.equal(storefrontHomePage, "visible_only");
   assert.equal(resultsPage, "results_only");
   assert.equal(articlePage, "summary");
 });

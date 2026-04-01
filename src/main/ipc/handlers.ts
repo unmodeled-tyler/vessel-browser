@@ -266,28 +266,32 @@ export function registerIpcHandlers(
 
     sendToRendererViews(Channels.AI_STREAM_START, query);
 
-    try {
-      activeChatProvider = createProvider(chatConfig);
-      trackProviderConfigured(chatConfig.id);
-      const activeTab = tabManager.getActiveTab();
-      await handleAIQuery(
-        query,
-        activeChatProvider,
-        activeTab?.view.webContents,
-        (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
-        () => sendToRendererViews(Channels.AI_STREAM_END),
-        tabManager,
-        runtime,
-        history,
-      );
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      sendToRendererViews(Channels.AI_STREAM_CHUNK, `\n[Error: ${msg}]`);
-      sendToRendererViews(Channels.AI_STREAM_END);
-    } finally {
-      activeChatProvider = null;
-      endAIStream("manual");
-    }
+    // Fire-and-forget: run the stream in the background so the IPC call
+    // resolves immediately and the renderer can clear the input field.
+    (async () => {
+      try {
+        activeChatProvider = createProvider(chatConfig);
+        trackProviderConfigured(chatConfig.id);
+        const activeTab = tabManager.getActiveTab();
+        await handleAIQuery(
+          query,
+          activeChatProvider,
+          activeTab?.view.webContents,
+          (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
+          () => sendToRendererViews(Channels.AI_STREAM_END),
+          tabManager,
+          runtime,
+          history,
+        );
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        sendToRendererViews(Channels.AI_STREAM_CHUNK, `\n[Error: ${msg}]`);
+        sendToRendererViews(Channels.AI_STREAM_END);
+      } finally {
+        activeChatProvider = null;
+        endAIStream("manual");
+      }
+    })();
 
     return { accepted: true as const };
   });
@@ -358,6 +362,7 @@ export function registerIpcHandlers(
     assertNumber(width, "width");
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
+    resizeSidebarViews(windowState);
     return clamped;
   });
 

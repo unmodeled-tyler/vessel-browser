@@ -2983,6 +2983,333 @@ export async function submitFormBySelector(
   return submitForm(wc, { selector });
 }
 
+type SearchTargetInfo = {
+  selector: string;
+  submitSelector?: string | null;
+};
+
+async function locateSearchTarget(
+  wc: WebContents,
+  explicitSelector?: string,
+): Promise<SearchTargetInfo | null | typeof PAGE_SCRIPT_TIMEOUT> {
+  if (explicitSelector) {
+    return { selector: explicitSelector, submitSelector: null };
+  }
+
+  return executePageScript<SearchTargetInfo | null>(
+    wc,
+    `
+      (function() {
+        function text(value) {
+          return value == null ? "" : String(value).trim();
+        }
+
+        function normalize(value) {
+          return text(value).toLowerCase();
+        }
+
+        function isVisible(el) {
+          if (!(el instanceof HTMLElement)) return true;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+            return false;
+          }
+          if (el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true") {
+            return false;
+          }
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }
+
+        function inViewport(el) {
+          if (!(el instanceof HTMLElement)) return true;
+          const rect = el.getBoundingClientRect();
+          const vw = window.innerWidth || document.documentElement?.clientWidth || 0;
+          const vh = window.innerHeight || document.documentElement?.clientHeight || 0;
+          return rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw;
+        }
+
+        function escapeSelectorValue(value) {
+          if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+            return CSS.escape(value);
+          }
+          return String(value).replace(/["\\\\]/g, "\\\\$&");
+        }
+
+        function uniqueSelector(candidate) {
+          if (!candidate) return null;
+          try {
+            return document.querySelectorAll(candidate).length === 1 ? candidate : null;
+          } catch {
+            return null;
+          }
+        }
+
+        function uniqueAttributeSelector(el, attribute) {
+          const value = text(el.getAttribute && el.getAttribute(attribute));
+          if (!value) return null;
+          const candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
+          return uniqueSelector(candidate);
+        }
+
+        function selectorFor(el) {
+          if (!el) return null;
+          if (el.id) return "#" + escapeSelectorValue(el.id);
+          for (const attribute of ["data-testid", "name", "form", "aria-label", "placeholder"]) {
+            const candidate = uniqueAttributeSelector(el, attribute);
+            if (candidate) return candidate;
+          }
+          const parts = [];
+          let current = el;
+          while (current) {
+            if (current.id) {
+              parts.unshift("#" + escapeSelectorValue(current.id));
+              break;
+            }
+            const tag = current.tagName.toLowerCase();
+            const parent = current.parentElement;
+            if (!parent) {
+              parts.unshift(tag);
+              break;
+            }
+            const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+            const index = siblings.indexOf(current) + 1;
+            parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
+            current = parent;
+          }
+          const candidate = parts.join(" > ");
+          return uniqueSelector(candidate) || candidate;
+        }
+
+        function isDisabled(el) {
+          return !!(el && el.hasAttribute && (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true"));
+        }
+
+        function nearestSearchScope(input) {
+          return input.closest('[role="search"], form, header, nav, [class*="search" i], [id*="search" i]');
+        }
+
+        function collectCandidates() {
+          const seen = new Set();
+          const ordered = [];
+          const specific = document.querySelectorAll(
+            'input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]'
+          );
+          specific.forEach((el) => {
+            if (!seen.has(el)) {
+              seen.add(el);
+              ordered.push(el);
+            }
+          });
+          document.querySelectorAll('input[type="text"], input:not([type])').forEach((el) => {
+            if (seen.has(el)) return;
+            const scope = nearestSearchScope(el);
+            if (!scope) return;
+            seen.add(el);
+            ordered.push(el);
+          });
+          return ordered;
+        }
+
+        function scoreInput(el) {
+          if (!(el instanceof HTMLInputElement)) return -1;
+          if (isDisabled(el) || !isVisible(el)) return -1;
+          const type = normalize(el.getAttribute("type") || el.type);
+          if (type && !["search", "text", ""].includes(type)) return -1;
+
+          let score = 0;
+          if (inViewport(el)) score += 120;
+          const rect = el.getBoundingClientRect();
+          score += Math.max(0, 40 - Math.min(40, Math.floor(Math.max(0, rect.top) / 20)));
+
+          const name = normalize(el.name);
+          const placeholder = normalize(el.getAttribute("placeholder"));
+          const aria = normalize(el.getAttribute("aria-label"));
+          if (type === "search") score += 80;
+          if (name === "q" || name === "query" || name === "search") score += 70;
+          if (placeholder.includes("search")) score += 55;
+          if (aria.includes("search")) score += 55;
+
+          const scope = nearestSearchScope(el);
+          if (scope) {
+            score += 35;
+            const scopeRole = normalize(scope.getAttribute && scope.getAttribute("role"));
+            const scopeLabel = normalize(
+              [
+                scope.id,
+                scope.className,
+                scope.getAttribute && scope.getAttribute("aria-label"),
+                scope.getAttribute && scope.getAttribute("action"),
+              ].filter(Boolean).join(" ")
+            );
+            if (scopeRole === "search") score += 35;
+            if (scopeLabel.includes("search")) score += 30;
+            const tag = normalize(scope.tagName);
+            if (tag === "header" || tag === "nav") score += 20;
+          }
+
+          return score;
+        }
+
+        function pickSearchButton(input) {
+          const scopes = [
+            input.closest('[role="search"]'),
+            input.closest('form'),
+            nearestSearchScope(input),
+            input.parentElement,
+          ].filter(Boolean);
+          const seen = new Set();
+          let best = null;
+          let bestScore = -1;
+
+          for (const scope of scopes) {
+            scope.querySelectorAll('button, input[type="submit"], input[type="button"], [role="button"]').forEach((candidate) => {
+              if (seen.has(candidate)) return;
+              seen.add(candidate);
+              if (!(candidate instanceof HTMLElement)) return;
+              if (candidate === input || isDisabled(candidate) || !isVisible(candidate)) return;
+
+              const label = normalize(
+                candidate.getAttribute("aria-label") ||
+                  candidate.textContent ||
+                  candidate.getAttribute("title") ||
+                  candidate.getAttribute("value")
+              );
+              const rect = candidate.getBoundingClientRect();
+              const inputRect = input.getBoundingClientRect();
+              const closeToInput =
+                Math.abs(rect.top - inputRect.top) < 80 &&
+                Math.abs(rect.left - inputRect.right) < 260;
+
+              let score = 0;
+              if (inViewport(candidate)) score += 40;
+              if (closeToInput) score += 35;
+              if (label.includes("search") || label.includes("go") || label.includes("submit")) score += 45;
+              if (candidate.getAttribute("type") === "submit") score += 20;
+              if (candidate.closest('[role="search"]') === input.closest('[role="search"]')) score += 20;
+              if (candidate.closest('form') && candidate.closest('form') === input.closest('form')) score += 15;
+
+              if (score > bestScore) {
+                best = candidate;
+                bestScore = score;
+              }
+            });
+          }
+
+          return bestScore >= 35 ? best : null;
+        }
+
+        let bestInput = null;
+        let bestScore = -1;
+        for (const candidate of collectCandidates()) {
+          const score = scoreInput(candidate);
+          if (score > bestScore) {
+            bestInput = candidate;
+            bestScore = score;
+          }
+        }
+
+        if (!bestInput) return null;
+        const selector = selectorFor(bestInput);
+        if (!selector) return null;
+        const submit = pickSearchButton(bestInput);
+        return {
+          selector: selector,
+          submitSelector: submit ? selectorFor(submit) : null,
+        };
+      })()
+    `,
+    {
+      timeoutMs: 2200,
+      label: "find search input",
+    },
+  );
+}
+
+export async function searchPage(
+  wc: WebContents,
+  args: Record<string, any>,
+): Promise<string> {
+  const query = String(args.query || "");
+  if (!query) return "Error: No search query provided.";
+
+  const queryLower = query.toLowerCase().trim();
+  const buttonLikePatterns = [
+    "add to cart",
+    "add to bag",
+    "add to basket",
+    "buy now",
+    "buy it now",
+    "purchase",
+    "continue shopping",
+    "keep shopping",
+    "view cart",
+    "view bag",
+    "view basket",
+    "go to cart",
+    "go to checkout",
+    "checkout",
+    "check out",
+    "proceed to checkout",
+    "place order",
+    "submit",
+    "subscribe",
+    "sign up",
+    "sign in",
+    "log in",
+    "register",
+    "continue",
+  ];
+  if (buttonLikePatterns.some((p) => queryLower.includes(p))) {
+    return `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`;
+  }
+
+  const searchInfo = await locateSearchTarget(
+    wc,
+    typeof args.selector === "string" ? args.selector : undefined,
+  );
+  if (searchInfo === PAGE_SCRIPT_TIMEOUT) {
+    return pageBusyError("search");
+  }
+  if (!searchInfo?.selector) {
+    return "Error: Could not find a visible search input. Try read_page(mode=\"visible_only\") or provide a selector.";
+  }
+
+  const fillResult = await setElementValue(wc, searchInfo.selector, query);
+  if (fillResult.startsWith("Error:")) {
+    return fillResult;
+  }
+  await sleep(100);
+
+  const beforeUrl = wc.getURL();
+  const keyResult = await pressKey(wc, {
+    key: "Enter",
+    selector: searchInfo.selector,
+  });
+  if (keyResult.startsWith("Error:")) {
+    return keyResult;
+  }
+
+  await waitForPotentialNavigation(wc, beforeUrl, 3000);
+  let afterUrl = wc.getURL();
+  if (afterUrl !== beforeUrl) {
+    return `Searched "${query}" → ${afterUrl}`;
+  }
+
+  if (searchInfo.submitSelector) {
+    const clickResult = await clickElementBySelector(wc, searchInfo.submitSelector);
+    if (!clickResult.startsWith("Error:")) {
+      await waitForPotentialNavigation(wc, beforeUrl, 3000);
+      afterUrl = wc.getURL();
+      if (afterUrl !== beforeUrl) {
+        return `Searched "${query}" (via search button) → ${afterUrl}`;
+      }
+    }
+  }
+
+  return `Searched "${query}" (same page — results may have loaded dynamically; inspect with read_page(mode="results_only") or read_page(mode="visible_only") before navigating directly elsewhere)`;
+}
+
 async function pressKey(
   wc: WebContents,
   args: Record<string, any>,
@@ -4303,188 +4630,7 @@ export async function executeAction(
 
         case "search": {
           if (!wc) return "Error: No active tab";
-          const query = String(args.query || "");
-          if (!query) return "Error: No search query provided.";
-
-          // Guard: reject queries that look like button/UI labels, not search terms
-          const queryLower = query.toLowerCase().trim();
-          const buttonLikePatterns = [
-            "add to cart",
-            "add to bag",
-            "add to basket",
-            "buy now",
-            "buy it now",
-            "purchase",
-            "continue shopping",
-            "keep shopping",
-            "view cart",
-            "view bag",
-            "view basket",
-            "go to cart",
-            "go to checkout",
-            "checkout",
-            "check out",
-            "proceed to checkout",
-            "place order",
-            "submit",
-            "subscribe",
-            "sign up",
-            "sign in",
-            "log in",
-            "register",
-            "continue",
-          ];
-          if (buttonLikePatterns.some((p) => queryLower.includes(p))) {
-            return `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`;
-          }
-
-          // Step 1: Find the search input — polls inside the page for up
-          // to 5 seconds so we catch it as soon as the framework renders
-          // it, without needing the JS thread to be fully idle.
-          const searchInfo = args.selector
-            ? { selector: args.selector, formAction: null, formMethod: null }
-            : await executePageScript<{
-                selector: string;
-                formAction: string | null;
-                formMethod: string | null;
-                inputName?: string;
-              } | null>(
-                wc,
-                `
-              (function() {
-                var SELECTORS = 'input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]';
-                function find() {
-                  var el = document.querySelector(SELECTORS);
-                  if (!el) {
-                    var inputs = document.querySelectorAll('input[type="text"]');
-                    for (var i = 0; i < inputs.length; i++) {
-                      var form = inputs[i].closest('form');
-                      if (form && (form.getAttribute('role') === 'search' || (form.action && form.action.includes('search')))) {
-                        el = inputs[i];
-                        break;
-                      }
-                    }
-                  }
-                  if (!el) return null;
-                  var sel = el.id ? '#' + CSS.escape(el.id) : el.name ? 'input[name="' + el.name + '"]' : null;
-                  var form = el.closest('form');
-                  return {
-                    selector: sel,
-                    formAction: form ? form.action : null,
-                    formMethod: form ? (form.method || 'GET').toUpperCase() : null,
-                    inputName: el.name || 'q',
-                  };
-                }
-                return new Promise(function(resolve) {
-                  var result = find();
-                  if (result) { resolve(result); return; }
-                  var attempts = 0;
-                  var timer = setInterval(function() {
-                    result = find();
-                    if (result || ++attempts >= 20) {
-                      clearInterval(timer);
-                      resolve(result);
-                    }
-                  }, 250);
-                });
-              })()
-            `,
-                {
-                  timeoutMs: 1800,
-                  label: "find search input",
-                },
-              );
-          if (searchInfo === PAGE_SCRIPT_TIMEOUT) {
-            return pageBusyError("search");
-          }
-          if (!searchInfo?.selector)
-            return "Error: Could not find search input. Try providing a selector.";
-
-          // Step 2: Fill the search box
-          const fillResult = await setElementValue(
-            wc,
-            searchInfo.selector,
-            query,
-          );
-          if (fillResult.startsWith("Error:")) {
-            return fillResult;
-          }
-          await sleep(100); // Let autocomplete/JS process the input
-
-          // Step 3: Focus and press Enter via native input events
-          const focusResult = await executePageScript(
-            wc,
-            `
-            (function() {
-              var el = document.querySelector(${JSON.stringify(searchInfo.selector)});
-              if (el) el.focus();
-            })()
-          `,
-            {
-              label: "focus search input",
-            },
-          );
-          if (focusResult === PAGE_SCRIPT_TIMEOUT) {
-            return pageBusyError("search");
-          }
-          await sleep(50);
-          const beforeUrl = wc.getURL();
-          wc.sendInputEvent({ type: "keyDown", keyCode: "Return" });
-          await sleep(16);
-          wc.sendInputEvent({ type: "keyUp", keyCode: "Return" });
-
-          await waitForPotentialNavigation(wc, beforeUrl, 3000);
-          let afterUrl = wc.getURL();
-          if (afterUrl !== beforeUrl) {
-            return `Searched "${query}" → ${afterUrl}`;
-          }
-
-          // Step 4: Enter didn't navigate — try clicking the submit/search button
-          const clickedSubmit = await executePageScript<boolean>(
-            wc,
-            `
-            (function() {
-              var form = document.querySelector(${JSON.stringify(searchInfo.selector)})?.closest('form');
-              if (!form) return false;
-              var btn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
-              if (btn) { btn.click(); return true; }
-              // Try any button in the form
-              var anyBtn = form.querySelector('button');
-              if (anyBtn) { anyBtn.click(); return true; }
-              return false;
-            })()
-          `,
-            {
-              label: "click search submit",
-            },
-          );
-          if (clickedSubmit === PAGE_SCRIPT_TIMEOUT) {
-            return pageBusyError("search");
-          }
-          if (clickedSubmit) {
-            await waitForPotentialNavigation(wc, beforeUrl, 3000);
-            afterUrl = wc.getURL();
-            if (afterUrl !== beforeUrl) {
-              return `Searched "${query}" (via submit button) → ${afterUrl}`;
-            }
-          }
-
-          // Step 5: Button click didn't work either — construct URL directly for GET forms
-          if (searchInfo.formAction && searchInfo.formMethod === "GET") {
-            try {
-              const url = new URL(searchInfo.formAction);
-              url.searchParams.set(searchInfo.inputName || "q", query);
-              assertSafeURL(url.toString());
-              wc.loadURL(url.toString());
-              await waitForPotentialNavigation(wc, beforeUrl);
-              afterUrl = wc.getURL();
-              return `Searched "${query}" (via direct URL) → ${afterUrl}`;
-            } catch {
-              // URL construction failed, continue to final fallback
-            }
-          }
-
-          return `Searched "${query}" (same page — results may have loaded dynamically)`;
+          return searchPage(wc, args);
         }
 
         case "paginate": {

@@ -25,7 +25,7 @@ const CHAT_PROVIDERS: Array<{ id: ProviderId; name: string; requiresKey: boolean
   { id: "mistral", name: "Mistral AI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "mistral-large-latest", models: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"] },
   { id: "xai", name: "xAI (Grok)", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "xai-...", defaultModel: "grok-3", models: ["grok-3", "grok-3-mini"] },
   { id: "google", name: "Google Gemini", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "AI...", defaultModel: "gemini-2.5-pro", models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"] },
-  { id: "custom", name: "Custom (OAI-Compatible)", requiresKey: false, needsBaseUrl: true, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "", defaultModel: "", models: [] },
+  { id: "custom", name: "Custom (OAI-Compatible)", requiresKey: false, needsBaseUrl: true, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "Bearer token or API key", defaultModel: "", models: [] },
 ];
 
 const Settings: Component = () => {
@@ -678,18 +678,28 @@ const Settings: Component = () => {
               </select>
             </div>
 
-            <Show when={chatProviderMeta().requiresKey}>
+            <Show when={chatProviderMeta().requiresKey || chatProviderId() === "custom"}>
               <div class="settings-field">
-                <label class="settings-label" for="chat-api-key">API Key</label>
+                <label class="settings-label" for="chat-api-key">
+                  API Key
+                  <Show when={!chatProviderMeta().requiresKey}>
+                    <span class="settings-label-optional"> (optional)</span>
+                  </Show>
+                </label>
                 <input
                   id="chat-api-key"
                   class="settings-input"
                   type="password"
                   value={chatApiKey()}
                   onInput={(e) => setChatApiKey(e.currentTarget.value)}
-                  placeholder={chatProviderMeta().keyPlaceholder}
+                  placeholder={chatProviderMeta().keyPlaceholder || "Bearer token or API key"}
                   spellcheck={false}
                 />
+                <Show when={chatProviderId() === "custom"}>
+                  <p class="settings-hint">
+                    If your endpoint requires authentication, enter the API key or bearer token here.
+                  </p>
+                </Show>
               </div>
             </Show>
 
@@ -1177,6 +1187,10 @@ const Settings: Component = () => {
           margin-bottom: 6px;
           font-weight: 500;
           letter-spacing: 0.01em;
+        }
+        .settings-label-optional {
+          font-weight: 400;
+          opacity: 0.6;
         }
         .settings-input {
           width: 100%;

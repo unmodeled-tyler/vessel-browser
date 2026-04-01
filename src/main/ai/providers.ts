@@ -86,7 +86,7 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     models: [],
     requiresApiKey: false,
     defaultBaseUrl: 'http://localhost:8080/v1',
-    apiKeyPlaceholder: '',
-    apiKeyHint: 'Any OpenAI-compatible API endpoint',
+    apiKeyPlaceholder: 'Bearer token or API key',
+    apiKeyHint: 'Optional — only if your endpoint requires authentication',
   },
 };

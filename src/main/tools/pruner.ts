@@ -69,6 +69,18 @@ function scoreForContext(toolName: string, pageType: PageType): number {
   const def = defByName[toolName];
   if (!def) return 500; // unknown tool, push to end
 
+  if (pageType === "SEARCH_READY") {
+    if (toolName === "search") return -20;
+    if (toolName === "type_text") return 5;
+    if (toolName === "press_key") return 6;
+  }
+
+  if (pageType === "SEARCH_RESULTS") {
+    if (toolName === "search") return -10;
+    if (toolName === "type_text") return 12;
+    if (toolName === "press_key") return 13;
+  }
+
   const tier = def.tier ?? 1;
 
   // Tier 0 always comes first

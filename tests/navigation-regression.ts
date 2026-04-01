@@ -11,6 +11,7 @@ import {
   dismissPopup,
   fillFormFields,
   pressKey,
+  searchPage,
   setElementValue,
   submitFormBySelector,
   waitForLoad,
@@ -487,6 +488,51 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "trusted Enter key presses trigger focused input handlers",
+    );
+
+    await runScenario(
+      "search prefers the visible desktop search box and nearby button",
+      async () => {
+        await withTab(`${harness.baseUrl}/search-visibility`, async (tab) => {
+          const wc = tab.view.webContents;
+          const query = "Intel Core i5-13600KF";
+
+          const result = await searchPage(wc, { query });
+
+          assert.match(result, /via search button/);
+          assert.equal(
+            wc.getURL(),
+            `${harness.baseUrl}/search-visibility-result?term=${encodeURIComponent(query)}`,
+          );
+        });
+      },
+    );
+    completedScenarios.push(
+      "search prefers the visible desktop search box and nearby button",
+    );
+
+    await runScenario(
+      "search does not synthesize a direct URL when the site search UI does not submit",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/search-no-shortcut`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            const result = await searchPage(wc, { query: "rtx 5070" });
+
+            assert.match(result, /same page/);
+            assert.equal(wc.getURL(), `${harness.baseUrl}/search-no-shortcut`);
+            const status = await wc.executeJavaScript(
+              `document.getElementById("status")?.textContent || ""`,
+            );
+            assert.equal(status, "submit-blocked");
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "search does not synthesize a direct URL when the site search UI does not submit",
     );
 
     await runScenario(

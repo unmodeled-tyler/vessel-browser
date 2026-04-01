@@ -28,6 +28,8 @@ function renderPage(title: string, body: string): string {
       <a href="/external-submit">External submit</a>
       <a href="/same-page-action">Same-page action</a>
       <a href="/trusted-enter-source">Trusted Enter</a>
+      <a href="/search-visibility">Search visibility</a>
+      <a href="/search-no-shortcut">Search no shortcut</a>
       <a href="/language-popup">Language popup</a>
     </nav>
     <main>
@@ -552,6 +554,108 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
           `
             <h1>Trusted Enter Result</h1>
             <p id="trusted-enter-value">${value}</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/search-visibility") {
+      sendHtml(
+        res,
+        renderPage(
+          "search-visibility",
+          `
+            <h1>Search Visibility</h1>
+            <div style="display:none">
+              <form action="/wrong-result" method="GET">
+                <label>Hidden search <input id="hidden-search" type="search" name="q" /></label>
+                <button type="submit">Hidden Search</button>
+              </form>
+            </div>
+
+            <header style="padding: 16px 0;">
+              <div id="desktop-search-shell" role="search" aria-label="Catalog search" style="display:flex;gap:8px;align-items:center;">
+                <label for="desktop-search">Search products</label>
+                <input id="desktop-search" type="text" name="term" placeholder="Search catalog" />
+                <button id="desktop-search-button" type="button" aria-label="Search catalog">
+                  Search
+                </button>
+              </div>
+            </header>
+
+            <script>
+              const input = document.getElementById('desktop-search');
+              input?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                }
+              });
+              document.getElementById('desktop-search-button')?.addEventListener('click', () => {
+                window.location.href = '/search-visibility-result?term=' + encodeURIComponent(input?.value || '');
+              });
+            </script>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/search-visibility-result") {
+      const value = url.searchParams.get("term") || "";
+      sendHtml(
+        res,
+        renderPage(
+          "search-visibility-result",
+          `
+            <h1>Search Visibility Result</h1>
+            <p id="search-visibility-value">${value}</p>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/search-no-shortcut") {
+      sendHtml(
+        res,
+        renderPage(
+          "search-no-shortcut",
+          `
+            <h1>Search No Shortcut</h1>
+            <form
+              id="blocked-search-form"
+              action="/search-no-shortcut-result"
+              method="GET"
+              onsubmit="event.preventDefault(); document.getElementById('status').textContent = 'submit-blocked';"
+            >
+              <label for="blocked-search-input">Search inventory</label>
+              <input id="blocked-search-input" type="search" name="term" placeholder="Search inventory" />
+              <button id="blocked-search-button" type="button">Not wired</button>
+            </form>
+            <p id="status">idle</p>
+            <script>
+              document.getElementById('blocked-search-input')?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                }
+              });
+            </script>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/search-no-shortcut-result") {
+      const value = url.searchParams.get("term") || "";
+      sendHtml(
+        res,
+        renderPage(
+          "search-no-shortcut-result",
+          `
+            <h1>Search No Shortcut Result</h1>
+            <p id="search-no-shortcut-value">${value}</p>
           `,
         ),
       );
