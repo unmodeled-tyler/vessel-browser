@@ -4119,24 +4119,36 @@ function registerTools(
     "folder_remove",
     {
       title: "Remove Bookmark Folder",
-      description: "Remove a folder. Bookmarks in it are moved to Unsorted.",
+      description:
+        "Remove a folder. By default bookmarks in it are moved to Unsorted. Set delete_contents to true to delete them with the folder.",
       inputSchema: {
         folder_id: z.string().describe("ID of the folder to remove"),
+        delete_contents: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "If true, delete all bookmarks in the folder. If false (default), move them to Unsorted.",
+          ),
       },
     },
-    async ({ folder_id }) => {
+    async ({ folder_id, delete_contents }) => {
       return withAction(
         runtime,
         tabManager,
         "remove_bookmark_folder",
-        { folder_id },
+        { folder_id, delete_contents },
         async () => {
-          const removed = bookmarkManager.removeFolder(folder_id);
-          return removed
-            ? composeFolderAwareResponse(
-                `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`,
-              )
-            : `Folder ${folder_id} not found`;
+          const removed = bookmarkManager.removeFolder(
+            folder_id,
+            delete_contents,
+          );
+          if (!removed) return `Folder ${folder_id} not found`;
+          return composeFolderAwareResponse(
+            delete_contents
+              ? `Removed folder ${folder_id} and deleted its bookmarks.`
+              : `Removed folder ${folder_id}. Bookmarks moved to Unsorted.`,
+          );
         },
       );
     },

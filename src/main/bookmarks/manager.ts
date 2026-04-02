@@ -404,14 +404,18 @@ export function updateBookmark(
   return { ...bookmark };
 }
 
-export function removeFolder(id: string): boolean {
+export function removeFolder(id: string, deleteContents = false): boolean {
   load();
   const exists = state!.folders.some((f) => f.id === id);
   if (!exists) return false;
-  // Reassign orphaned bookmarks to unsorted
-  state!.bookmarks = state!.bookmarks.map((b) =>
-    b.folderId === id ? { ...b, folderId: UNSORTED_ID } : b,
-  );
+  if (deleteContents) {
+    state!.bookmarks = state!.bookmarks.filter((b) => b.folderId !== id);
+  } else {
+    // Reassign orphaned bookmarks to unsorted
+    state!.bookmarks = state!.bookmarks.map((b) =>
+      b.folderId === id ? { ...b, folderId: UNSORTED_ID } : b,
+    );
+  }
   state!.folders = state!.folders.filter((f) => f.id !== id);
   save();
   emit();

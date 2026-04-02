@@ -691,6 +691,27 @@
     align-items: stretch;
 }
 
+.bookmark-folder-delete-confirm {
+    padding: 8px 12px;
+    background: rgba(255, 142, 142, 0.04);
+    border: 1px solid rgba(255, 142, 142, 0.12);
+    border-radius: var(--radius-md);
+    margin-top: 4px;
+}
+
+.bookmark-delete-prompt {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0 0 8px;
+    line-height: 1.4;
+}
+
+.bookmark-delete-options {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
 .bookmark-folder-form-fields {
     display: flex;
     flex: 1;

@@ -81,10 +81,61 @@ export function registerIpcHandlers(
   runtime: AgentRuntime,
 ): void {
   const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
+  let sidebarResizeRecoveryTimer: NodeJS.Timeout | null = null;
+  let sidebarResizeActive = false;
+  let runtimeUpdateTimer: NodeJS.Timeout | null = null;
+  let pendingRuntimeState: AgentRuntimeState | null = null;
   const premiumApiOrigin =
     process.env.VESSEL_PREMIUM_API
       ? new URL(process.env.VESSEL_PREMIUM_API).origin
       : "https://vesselpremium.quantaintellect.com";
+
+  const clearSidebarResizeRecoveryTimer = () => {
+    if (sidebarResizeRecoveryTimer) {
+      clearTimeout(sidebarResizeRecoveryTimer);
+      sidebarResizeRecoveryTimer = null;
+    }
+  };
+
+  const restoreSidebarLayoutAfterResize = () => {
+    clearSidebarResizeRecoveryTimer();
+    if (!sidebarResizeActive) return;
+    sidebarResizeActive = false;
+    layoutViews(windowState);
+  };
+
+  const scheduleSidebarResizeRecovery = () => {
+    clearSidebarResizeRecoveryTimer();
+    sidebarResizeRecoveryTimer = setTimeout(() => {
+      restoreSidebarLayoutAfterResize();
+    }, 1200);
+  };
+
+  const flushRuntimeUpdate = () => {
+    runtimeUpdateTimer = null;
+    if (!pendingRuntimeState) return;
+    if (!chromeView.webContents.isDestroyed()) {
+      chromeView.webContents.send(
+        Channels.AGENT_RUNTIME_UPDATE,
+        pendingRuntimeState,
+      );
+    }
+    if (!sidebarView.webContents.isDestroyed()) {
+      sidebarView.webContents.send(
+        Channels.AGENT_RUNTIME_UPDATE,
+        pendingRuntimeState,
+      );
+    }
+    pendingRuntimeState = null;
+  };
+
+  const scheduleRuntimeUpdate = (state: AgentRuntimeState) => {
+    pendingRuntimeState = state;
+    if (runtimeUpdateTimer) return;
+    runtimeUpdateTimer = setTimeout(() => {
+      flushRuntimeUpdate();
+    }, 32);
+  };
 
   const sendToRendererViews = (channel: string, ...args: unknown[]) => {
     chromeView.webContents.send(channel, ...args);
@@ -194,7 +245,7 @@ export function registerIpcHandlers(
   };
 
   runtime.setUpdateListener((state: AgentRuntimeState) => {
-    sendToRendererViews(Channels.AGENT_RUNTIME_UPDATE, state);
+    scheduleRuntimeUpdate(state);
   });
 
   onRuntimeHealthChange((health) => {
@@ -353,9 +404,12 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.SIDEBAR_RESIZE_START, () => {
+    sidebarResizeActive = true;
+    clearSidebarResizeRecoveryTimer();
     // Expand sidebar view to full window width so pointer capture works across the drag range
     const [width, height] = windowState.mainWindow.getContentSize();
     windowState.sidebarView.setBounds({ x: 0, y: 0, width, height });
+    scheduleSidebarResizeRecovery();
   });
 
   ipcMain.handle(Channels.SIDEBAR_RESIZE, (_, width: number) => {
@@ -363,10 +417,13 @@ export function registerIpcHandlers(
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
     resizeSidebarViews(windowState);
+    scheduleSidebarResizeRecovery();
     return clamped;
   });
 
   ipcMain.handle(Channels.SIDEBAR_RESIZE_COMMIT, () => {
+    sidebarResizeActive = false;
+    clearSidebarResizeRecoveryTimer();
     setSetting("sidebarWidth", windowState.uiState.sidebarWidth);
     layoutViews(windowState);
   });
@@ -482,9 +539,9 @@ export function registerIpcHandlers(
     return bookmarkManager.removeBookmark(id);
   });
 
-  ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string) => {
+  ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string, deleteContents?: boolean) => {
     trackBookmarkAction("folder_remove");
-    return bookmarkManager.removeFolder(id);
+    return bookmarkManager.removeFolder(id, deleteContents ?? false);
   });
 
   ipcMain.handle(

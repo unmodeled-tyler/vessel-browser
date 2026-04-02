@@ -22,16 +22,31 @@ const [commandBarOpen, setCommandBarOpen] = createSignal(false);
 const [settingsOpen, setSettingsOpen] = createSignal(false);
 const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
 
-// Throttled IPC for resize — fire at most once per animation frame
-let resizeRafId: number | null = null;
 let pendingWidth: number | null = null;
+let resizeInFlight: Promise<void> | null = null;
 
-function flushResize() {
-  if (pendingWidth !== null) {
-    window.vessel.ui.resizeSidebar(pendingWidth);
-    pendingWidth = null;
+async function flushResize(): Promise<void> {
+  if (resizeInFlight) {
+    await resizeInFlight;
+    if (pendingWidth !== null) {
+      return flushResize();
+    }
+    return;
   }
-  resizeRafId = null;
+
+  resizeInFlight = (async () => {
+    while (pendingWidth !== null) {
+      const nextWidth = pendingWidth;
+      pendingWidth = null;
+      await window.vessel.ui.resizeSidebar(nextWidth);
+    }
+  })();
+
+  try {
+    await resizeInFlight;
+  } finally {
+    resizeInFlight = null;
+  }
 }
 
 export function useUI() {
@@ -48,29 +63,19 @@ export function useUI() {
       setSidebarWidth(result.width);
     },
     resizeSidebar: (width: number) => {
-      // Clamp + update CSS immediately (no await)
+      // Clamp + update CSS immediately.
       const clamped = Math.max(
         MIN_SIDEBAR,
         Math.min(MAX_SIDEBAR, Math.round(width)),
       );
       setSidebarWidth(clamped);
-      // Batch IPC to main process via rAF
       pendingWidth = clamped;
-      if (resizeRafId === null) {
-        resizeRafId = requestAnimationFrame(flushResize);
-      }
+      void flushResize();
     },
-    commitResize: () => {
-      // Force flush on mouseup so final width is persisted
-      if (resizeRafId !== null) {
-        cancelAnimationFrame(resizeRafId);
-        resizeRafId = null;
-      }
-      if (pendingWidth !== null) {
-        window.vessel.ui.resizeSidebar(pendingWidth);
-        pendingWidth = null;
-      }
-      window.vessel.ui.commitSidebarResize();
+    commitResize: async () => {
+      pendingWidth = sidebarWidth();
+      await flushResize();
+      await window.vessel.ui.commitSidebarResize();
     },
     toggleFocusMode: async () => {
       const result = await window.vessel.ui.toggleFocusMode();

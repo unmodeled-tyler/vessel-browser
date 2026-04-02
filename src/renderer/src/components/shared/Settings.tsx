@@ -379,7 +379,7 @@ const Settings: Component = () => {
                       startPremiumCheckout();
                     }}
                   >
-                    Try Premium free for 5 days
+                    Try Premium free for 7 days — $5.99/mo after
                   </button>
                   <span class="welcome-banner-note">
                     Best for screenshots, saved sessions, credential vault, and longer autonomous runs.
@@ -401,7 +401,7 @@ const Settings: Component = () => {
           <Show when={!premiumActive()}>
             <div class="settings-callout settings-premium-callout">
               <div class="settings-callout-title">
-                Start Vessel Premium with a 5-day free trial
+                Start Vessel Premium with a 7-day free trial
               </div>
               <p class="settings-callout-copy">
                 Unlock screenshots, saved sessions, workflow tracking, table
@@ -416,7 +416,7 @@ const Settings: Component = () => {
                     startPremiumCheckout();
                   }}
                 >
-                  Start free trial
+                  Start 7-day free trial — $5.99/mo after
                 </button>
                 <button
                   class="premium-btn premium-btn-activate"
@@ -838,7 +838,7 @@ const Settings: Component = () => {
                       startPremiumCheckout();
                     }}
                   >
-                    Subscribe to Premium — 5-day free trial
+                    Subscribe to Premium — $5.99/mo after 7-day free trial
                   </button>
                   <Show when={premiumMessage()}>
                     {(msg) => (

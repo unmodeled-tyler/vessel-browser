@@ -250,8 +250,8 @@ const api = {
       summary?: string,
     ): Promise<BookmarkFolder> =>
       ipcRenderer.invoke(Channels.FOLDER_CREATE, name, summary),
-    removeFolder: (id: string): Promise<boolean> =>
-      ipcRenderer.invoke(Channels.FOLDER_REMOVE, id),
+    removeFolder: (id: string, deleteContents?: boolean): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.FOLDER_REMOVE, id, deleteContents),
     renameFolder: (
       id: string,
       newName: string,

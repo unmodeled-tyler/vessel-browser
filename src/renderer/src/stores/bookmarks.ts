@@ -42,7 +42,8 @@ export function useBookmarks() {
     createFolder: (name: string) => window.vessel.bookmarks.createFolder(name),
     createFolderWithSummary: (name: string, summary?: string) =>
       window.vessel.bookmarks.createFolderWithSummary(name, summary),
-    removeFolder: (id: string) => window.vessel.bookmarks.removeFolder(id),
+    removeFolder: (id: string, deleteContents?: boolean) =>
+      window.vessel.bookmarks.removeFolder(id, deleteContents),
     renameFolder: (id: string, newName: string, summary?: string) =>
       window.vessel.bookmarks.renameFolder(id, newName, summary),
   };

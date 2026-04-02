@@ -63,7 +63,7 @@ const PremiumPromptCard = (props: {
       : "Need a longer autonomous run?";
   const body =
     props.kind === "premium_gate"
-      ? "Unlock screenshots, saved sessions, workflow tracking, table extraction, and the credential vault with a 5-day free trial."
+      ? "Unlock screenshots, saved sessions, workflow tracking, table extraction, and the credential vault with a 7-day free trial."
       : "Free chats pause after 50 tool calls in a turn. Vessel Premium raises the ceiling so the agent can finish longer workflows without stopping.";
 
   return (
@@ -80,7 +80,7 @@ const PremiumPromptCard = (props: {
           type="button"
           onClick={props.onStartTrial}
         >
-          Start free trial
+          Start 7-day free trial — $5.99/mo after
         </button>
         <button
           class="agent-control-button premium-inline-secondary"
@@ -366,6 +366,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   );
   const [editingFolderName, setEditingFolderName] = createSignal("");
   const [editingFolderSummary, setEditingFolderSummary] = createSignal("");
+  const [deletingFolderId, setDeletingFolderId] = createSignal<string | null>(
+    null,
+  );
   const [expandedFolderIds, setExpandedFolderIds] = createSignal<string[]>([
     UNSORTED_FOLDER.id,
   ]);
@@ -512,29 +515,63 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     document.body.style.userSelect = "none";
 
     // Expand the sidebar view to full window so pointer capture works across the drag
-    window.vessel.ui.startSidebarResize();
+    void window.vessel.ui.startSidebarResize().catch(() => {
+      /* ignore IPC failures during drag start */
+    });
 
     // Capture initial state so the reference frame stays fixed during drag
     const startX = e.screenX;
     const startWidth = sidebarWidth();
+    let finished = false;
+
+    const clearPointerTracking = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("blur", onWindowBlur);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      target.removeEventListener("lostpointercapture", onPointerUp);
+      if (target.hasPointerCapture?.(e.pointerId)) {
+        target.releasePointerCapture(e.pointerId);
+      }
+    };
 
     const onPointerMove = (ev: PointerEvent) => {
       const delta = startX - ev.screenX;
       resizeSidebar(startWidth + delta);
     };
 
-    const onPointerUp = () => {
+    const finishResize = () => {
+      if (finished) return;
+      finished = true;
       setIsDragging(false);
-      commitResize();
-      target.removeEventListener("pointermove", onPointerMove);
-      target.removeEventListener("pointerup", onPointerUp);
-      target.removeEventListener("lostpointercapture", onPointerUp);
+      clearPointerTracking();
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      void commitResize().catch(() => {
+        /* ignore commit failures during drag cleanup */
+      });
     };
 
-    target.addEventListener("pointermove", onPointerMove);
-    target.addEventListener("pointerup", onPointerUp);
+    const onPointerUp = () => {
+      finishResize();
+    };
+
+    const onWindowBlur = () => {
+      finishResize();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        finishResize();
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("blur", onWindowBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     target.addEventListener("lostpointercapture", onPointerUp);
   };
 
@@ -581,13 +618,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     setEditingFolderSummary("");
   };
 
-  const handleRemoveFolder = async (folderId: string) => {
-    const confirmed = window.confirm(
-      "Delete this folder? Its bookmarks will move to Unsorted.",
-    );
-    if (!confirmed) return;
-    const removed = await removeFolder(folderId);
+  const handleRemoveFolder = async (
+    folderId: string,
+    deleteContents: boolean,
+  ) => {
+    const removed = await removeFolder(folderId, deleteContents);
     if (!removed) return;
+    setDeletingFolderId(null);
     if (selectedFolderId() === folderId) {
       setSelectedFolderId(UNSORTED_FOLDER.id);
     }
@@ -1039,7 +1076,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  void handleRemoveFolder(folder.id);
+                                  setDeletingFolderId(folder.id);
                                 }}
                               >
                                 Delete
@@ -1047,6 +1084,48 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                             </div>
                           </Show>
                         </div>
+
+                        <Show when={deletingFolderId() === folder.id}>
+                          <div class="bookmark-folder-delete-confirm">
+                            <p class="bookmark-delete-prompt">
+                              Delete "{folder.name}"?
+                              {folder.items.length > 0
+                                ? ` This folder has ${folder.items.length} bookmark${folder.items.length === 1 ? "" : "s"}.`
+                                : ""}
+                            </p>
+                            <div class="bookmark-delete-options">
+                              <Show when={folder.items.length > 0}>
+                                <button
+                                  class="bookmark-ghost-button"
+                                  type="button"
+                                  onClick={() =>
+                                    void handleRemoveFolder(folder.id, false)
+                                  }
+                                >
+                                  Keep bookmarks
+                                </button>
+                              </Show>
+                              <button
+                                class="bookmark-ghost-button danger"
+                                type="button"
+                                onClick={() =>
+                                  void handleRemoveFolder(folder.id, true)
+                                }
+                              >
+                                {folder.items.length > 0
+                                  ? "Delete all"
+                                  : "Delete folder"}
+                              </button>
+                              <button
+                                class="bookmark-ghost-button"
+                                type="button"
+                                onClick={() => setDeletingFolderId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </Show>
 
                         <Show when={editingFolderId() === folder.id}>
                           <div class="bookmark-folder-edit">
@@ -1256,7 +1335,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                     type="button"
                     onClick={() => openPremiumCheckout("chat_banner_clicked")}
                   >
-                    Start free trial
+                    Start 7-day free trial — $5.99/mo after
                   </button>
                   <button
                     class="agent-control-button premium-inline-secondary"

@@ -29,7 +29,7 @@ https://github.com/user-attachments/assets/0a72b48a-873a-4eb0-b8f2-23e34d8472c4
 
 ## Quick Start
 
-Want the full agent toolkit from day one? [Start a 5-Day Free Trial of Vessel Premium](https://vesselpremium.quantaintellect.com/checkout).
+Want the full agent toolkit from day one? [Start a 7-Day Free Trial of Vessel Premium — $5.99/mo](https://vesselpremium.quantaintellect.com/checkout).
 
 ### Fastest Install Today
 
