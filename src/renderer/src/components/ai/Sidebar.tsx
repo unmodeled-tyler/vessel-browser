@@ -63,7 +63,7 @@ const PremiumPromptCard = (props: {
       : "Need a longer autonomous run?";
   const body =
     props.kind === "premium_gate"
-      ? "Unlock screenshots, saved sessions, workflow tracking, table extraction, and the credential vault with a 5-day free trial."
+      ? "Unlock screenshots, saved sessions, workflow tracking, table extraction, and the credential vault with a 7-day free trial."
       : "Free chats pause after 50 tool calls in a turn. Vessel Premium raises the ceiling so the agent can finish longer workflows without stopping.";
 
   return (
