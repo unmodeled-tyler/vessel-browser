@@ -14,7 +14,7 @@ Vessel gives external agent harnesses a real browser with durable state, MCP con
 
 ## Quick Start
 
-Want the full agent toolkit from day one? [Start a 5-Day Free Trial of Vessel Premium](https://vesselpremium.quantaintellect.com/checkout).
+Want the full agent toolkit from day one? [Start a 7-Day Free Trial of Vessel Premium — $5.99/mo](https://vesselpremium.quantaintellect.com/checkout).
 
 ### Fastest Install Today
 

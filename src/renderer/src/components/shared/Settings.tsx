@@ -379,7 +379,7 @@ const Settings: Component = () => {
                       startPremiumCheckout();
                     }}
                   >
-                    Try Premium free for 7 days
+                    Try Premium free for 7 days — $5.99/mo after
                   </button>
                   <span class="welcome-banner-note">
                     Best for screenshots, saved sessions, credential vault, and longer autonomous runs.
@@ -416,7 +416,7 @@ const Settings: Component = () => {
                     startPremiumCheckout();
                   }}
                 >
-                  Start free trial
+                  Start 7-day free trial — $5.99/mo after
                 </button>
                 <button
                   class="premium-btn premium-btn-activate"

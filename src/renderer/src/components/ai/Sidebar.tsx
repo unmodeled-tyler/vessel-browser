@@ -80,7 +80,7 @@ const PremiumPromptCard = (props: {
           type="button"
           onClick={props.onStartTrial}
         >
-          Start free trial
+          Start 7-day free trial — $5.99/mo after
         </button>
         <button
           class="agent-control-button premium-inline-secondary"
@@ -1335,7 +1335,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                     type="button"
                     onClick={() => openPremiumCheckout("chat_banner_clicked")}
                   >
-                    Start free trial
+                    Start 7-day free trial — $5.99/mo after
                   </button>
                   <button
                     class="agent-control-button premium-inline-secondary"
