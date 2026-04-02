@@ -228,9 +228,8 @@ export function pruneToolsForContext(
   const hints = CONTEXT_HINTS[ctx] ?? {};
   const intents = inferIntent(query);
 
-  // Score, sort, annotate — filter out premium-gated tools for free-tier users
+  // Score, sort, annotate — keep premium tools visible but tag their descriptions
   const scored = tools
-    .filter((tool) => !isToolGated(tool.name))
     .filter((tool) => shouldIncludeTool(tool.name, ctx, intents))
     .map((tool) => ({
       tool,
@@ -240,14 +239,15 @@ export function pruneToolsForContext(
   scored.sort((a, b) => a.score - b.score);
 
   return scored.map(({ tool, score }) => {
+    let description = tool.description ?? "";
     const hint = hints[tool.name];
     if (hint && score <= 20) {
       // Promoted tool — prepend context hint to description
-      return {
-        ...tool,
-        description: hint + tool.description,
-      };
+      description = hint + description;
     }
-    return tool;
+    if (isToolGated(tool.name)) {
+      description = `[Premium — requires Vessel Premium] ${description}`;
+    }
+    return description !== tool.description ? { ...tool, description } : tool;
   });
 }

@@ -396,7 +396,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
             type="button"
             onClick={() => void openSettings()}
           >
-            Upgrade to Premium
+            Start 7-day free trial — $5.99/mo after
           </button>
         </div>
       </Show>
