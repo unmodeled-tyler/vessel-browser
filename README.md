@@ -145,9 +145,10 @@ The installer:
 - creates a `vessel-browser-status` helper in `~/.local/bin`
 - creates a desktop entry for Linux app launchers
 - writes `~/.config/vessel/vessel-settings.json` with MCP port `3100`
+- writes `~/.config/vessel/mcp-stdio-snippet.json`
 - writes `~/.config/vessel/mcp-http-snippet.json`
 - installs a `vessel-browser-mcp` helper that can run as a stdio-to-HTTP proxy (`--stdio`) or print config snippets
-- prints the exact HTTP MCP snippet to paste into your harness config
+- prints the exact recommended stdio MCP snippet to paste into your harness config
 
 The packaged AppImage path:
 
@@ -188,7 +189,7 @@ Notes:
 
 - `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
 - packaged builds created with `npm run dist` / `npm run dist:dir` use the Vessel app icon
-- the tracked smoke test runs typecheck, build, and the Electron navigation regression harness
+- the tracked smoke test runs typecheck, build, the MCP stdio proxy regression check, and the Electron navigation regression harness
 - for headless CI, run the smoke test under `xvfb-run -a npm run smoke:test`
 
 ### Setting up Vessel for Hermes Agent or OpenClaw
@@ -314,6 +315,7 @@ Stdio proxy MCP config (recommended — resolves auth automatically):
 ```
 
 The stdio proxy reads the bearer token from `~/.config/vessel/mcp-auth.json` at connection time, so no manual token management is needed.
+Vessel must already be running when your MCP client connects, and `~/.config/vessel/mcp-auth.json` must exist from install or first launch.
 
 Generic HTTP MCP config (requires copying the token manually):
 
@@ -345,8 +347,9 @@ mcp_servers:
 
 ## Configuration 
 
-The installer writes both snippets to:
+The installer writes three snippets to:
 
+- `~/.config/vessel/mcp-stdio-snippet.json`
 - `~/.config/vessel/mcp-http-snippet.json`
 - `~/.config/vessel/mcp-hermes-snippet.yaml`
 
@@ -362,8 +365,11 @@ Helper examples:
 # Run as stdio-to-HTTP proxy (for MCP client integration)
 vessel-browser-mcp --stdio
 
-# Generic JSON snippet with Authorization header
+# Recommended stdio MCP snippet
 vessel-browser-mcp
+
+# Generic JSON snippet with Authorization header
+vessel-browser-mcp --format json
 
 # Hermes-ready YAML snippet with Authorization header
 vessel-browser-mcp --format hermes

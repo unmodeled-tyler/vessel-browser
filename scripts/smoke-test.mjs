@@ -6,6 +6,7 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const steps = [
   { name: 'Typecheck', args: ['run', 'typecheck'] },
   { name: 'Build', args: ['run', 'build'] },
+  { name: 'MCP stdio proxy regression', args: ['run', 'test:mcp-proxy'] },
   { name: 'Navigation regression', args: ['run', 'test:navigation-regression'] },
 ];
 

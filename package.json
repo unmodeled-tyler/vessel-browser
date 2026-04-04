@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
+    "test:mcp-proxy": "node scripts/test-mcp-stdio-proxy.mjs",
     "smoke:test": "node scripts/smoke-test.mjs",
     "test:coverage": "c8 --reporter=text --reporter=html tsx --test tests/*.test.ts"
   },

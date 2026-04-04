@@ -18,8 +18,9 @@ The source installer:
 - creates a `vessel-browser-status` helper in `~/.local/bin`
 - creates a desktop entry for Linux app launchers
 - writes `~/.config/vessel/vessel-settings.json` with MCP port `3100`
+- writes `~/.config/vessel/mcp-stdio-snippet.json`
 - writes `~/.config/vessel/mcp-http-snippet.json`
-- prints the exact HTTP MCP snippet to paste into your harness config
+- prints the exact recommended stdio MCP snippet to paste into your harness config
 
 After a source install:
 
@@ -50,13 +51,14 @@ Notes:
 
 - `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
 - packaged builds created with `npm run dist` or `npm run dist:dir` use the Vessel app icon
-- the tracked smoke test runs typecheck, build, and the Electron navigation regression harness
+- the tracked smoke test runs typecheck, build, the MCP stdio proxy regression check, and the Electron navigation regression harness
 - for headless CI, run the smoke test under `xvfb-run -a npm run smoke:test`
 
 ## Helper Commands
 
-The installer writes both MCP snippets to:
+The installer writes three MCP snippets to:
 
+- `~/.config/vessel/mcp-stdio-snippet.json`
 - `~/.config/vessel/mcp-http-snippet.json`
 - `~/.config/vessel/mcp-hermes-snippet.yaml`
 
@@ -69,8 +71,11 @@ vessel-browser-mcp
 Helper examples:
 
 ```bash
-# Generic JSON snippet with Authorization header
+# Recommended stdio MCP snippet
 vessel-browser-mcp
+
+# Generic JSON snippet with Authorization header
+vessel-browser-mcp --format json
 
 # Hermes-ready YAML snippet with Authorization header
 vessel-browser-mcp --format hermes
@@ -81,6 +86,8 @@ vessel-browser-mcp --format url
 # Raw MCP bearer token
 vessel-browser-mcp --format token
 ```
+
+The stdio snippet assumes Vessel is already running and `~/.config/vessel/mcp-auth.json` exists from install or first launch.
 
 Source install update helpers:
 
