@@ -1863,6 +1863,37 @@ function interactByIndex(
   if (action === "click") {
     el.focus();
     el.click();
+    if (el instanceof HTMLInputElement) {
+      if (el.type === "checkbox") {
+        const label =
+          getInputLabel(el) ||
+          el.getAttribute("aria-label") ||
+          el.name ||
+          "checkbox";
+        return `${el.checked ? "Checked" : "Unchecked"}: ${label}`;
+      }
+      if (el.type === "radio") {
+        const label =
+          getTrimmedText(el.value) ||
+          getInputLabel(el) ||
+          el.getAttribute("aria-label") ||
+          el.name ||
+          "radio";
+        return `${el.checked ? "Selected" : "Clicked"}: ${label}`;
+      }
+    }
+    const role = el.getAttribute("role");
+    if (role === "checkbox" || role === "radio") {
+      const label =
+        getTrimmedText(el.getAttribute("aria-label")) ||
+        getTrimmedText(el.textContent) ||
+        el.tagName.toLowerCase();
+      const ariaChecked = el.getAttribute("aria-checked");
+      if (role === "checkbox") {
+        return `${ariaChecked === "true" ? "Checked" : "Unchecked"}: ${label}`;
+      }
+      return `${ariaChecked === "true" ? "Selected" : "Clicked"}: ${label}`;
+    }
     return (
       "Clicked: " +
       (el.getAttribute("aria-label") ||

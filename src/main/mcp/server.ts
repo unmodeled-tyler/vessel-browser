@@ -2485,7 +2485,12 @@ function registerTools(
         { index, selector },
         async () => {
           const wc = tab.view.webContents;
-          const resolvedSelector = await resolveSelector(wc, index, selector);
+          const resolvedSelector =
+            typeof selector === "string" && selector.trim()
+              ? await resolveSelector(wc, undefined, selector)
+              : typeof index === "number"
+                ? `__vessel_idx:${index}`
+                : await resolveSelector(wc, index, selector);
           if (!resolvedSelector) {
             return "Error: No index or selector provided";
           }

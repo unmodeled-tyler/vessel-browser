@@ -3791,7 +3791,12 @@ export async function executeAction(
 
         case "click": {
           if (!wc) return "Error: No active tab";
-          const selector = await resolveSelector(wc, args.index, args.selector);
+          const selector =
+            typeof args.selector === "string" && args.selector.trim()
+              ? await resolveSelector(wc, undefined, args.selector)
+              : typeof args.index === "number"
+                ? `__vessel_idx:${args.index}`
+                : await resolveSelector(wc, args.index, args.selector);
           if (!selector) return "Error: No element index or selector provided";
           return clickResolvedSelector(wc, selector);
         }
