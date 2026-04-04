@@ -4,8 +4,6 @@ import type { AIMessage } from "../../shared/types";
 import { isRichToolResult, type RichToolResult } from "./tool-result";
 import { getEffectiveMaxIterations } from "../premium/manager";
 
-const DEFAULT_MAX_ITERATIONS = 200;
-
 export class AnthropicProvider implements AIProvider {
   private client: Anthropic;
   private model: string;
@@ -80,9 +78,6 @@ export class AnthropicProvider implements AIProvider {
       let iterationsUsed = 0;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
-        const msgTokenEstimate = JSON.stringify(messages).length;
-        const sysTokenEstimate = systemPrompt.length;
-        const streamStartTime = Date.now();
         const stream = this.client.messages.stream(
           {
             model: this.model,

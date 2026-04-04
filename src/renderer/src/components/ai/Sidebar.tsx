@@ -16,6 +16,7 @@ import { useTabs } from "../../stores/tabs";
 import { useBookmarks } from "../../stores/bookmarks";
 import { buildAndRememberBookmarkContext } from "../../lib/bookmark-context";
 import { renderMarkdown } from "../../lib/markdown";
+import { isPremiumStatus } from "../../lib/premium";
 import {
   getBookmarkSearchMatch,
   normalizeBookmarkSearchText,
@@ -153,10 +154,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   });
   const trackedPremiumContexts = new Set<string>();
 
-  const isPremium = () => {
-    const status = premiumState().status;
-    return status === "active" || status === "trialing";
-  };
+  const isPremium = () => isPremiumStatus(premiumState().status);
 
   const trackPremiumContext = (
     step:

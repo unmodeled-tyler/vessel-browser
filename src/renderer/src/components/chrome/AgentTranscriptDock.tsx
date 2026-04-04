@@ -9,6 +9,7 @@ import {
 } from "solid-js";
 import { useRuntime } from "../../stores/runtime";
 import { useScrollFade } from "../../lib/useScrollFade";
+import { formatTime } from "../../lib/format-time";
 import type { AgentTranscriptDisplayMode } from "../../../../shared/types";
 import "./chrome.css";
 
@@ -35,15 +36,6 @@ const AgentTranscriptDock: Component = () => {
   const hasStreamingEntry = createMemo(() =>
     visibleEntries().some((entry) => entry.status === "streaming"),
   );
-
-  const formatTime = (value: string) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  };
 
   const hideDock = async () => {
     setMode("off");
