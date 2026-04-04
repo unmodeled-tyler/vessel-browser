@@ -45,6 +45,30 @@
     }
 }
 
+@keyframes command-bar-exit {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-12px) scale(0.97);
+    }
+}
+
+@keyframes overlay-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.command-bar-overlay.closing {
+    animation: overlay-fade-out 200ms var(--ease-in-out) both;
+}
+
+.command-bar-overlay.closing .command-bar {
+    animation: command-bar-exit 200ms var(--ease-in-out) both;
+}
+
 .command-bar form {
     display: flex;
     align-items: center;

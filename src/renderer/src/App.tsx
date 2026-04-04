@@ -13,6 +13,7 @@ import KeyboardHelp from "./components/shared/KeyboardHelp";
 import { useUI } from "./stores/ui";
 import { useTabs } from "./stores/tabs";
 import { setupKeybindings } from "./lib/keybindings";
+import { useAnimatedPresence } from "./lib/useAnimatedPresence";
 
 const App: Component = () => {
   const view =
@@ -30,6 +31,7 @@ const App: Component = () => {
     message: string;
   } | null>(null);
   const [keyboardHelpOpen, setKeyboardHelpOpen] = createSignal(false);
+  const loadingPresence = useAnimatedPresence(() => !!activeTab()?.isLoading, 300);
 
   const showHighlightResult = (result: {
     success: boolean;
@@ -109,8 +111,8 @@ const App: Component = () => {
         <TitleBar />
         <TabBar />
         <AddressBar />
-        <Show when={activeTab()?.isLoading}>
-          <div class="loading-bar" />
+        <Show when={loadingPresence.visible()}>
+          <div class="loading-bar" classList={{ closing: loadingPresence.closing() }} />
         </Show>
       </div>
       <CommandBar />

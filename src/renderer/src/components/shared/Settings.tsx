@@ -9,6 +9,7 @@ import {
 } from "solid-js";
 
 import { useUI } from "../../stores/ui";
+import { useAnimatedPresence } from "../../lib/useAnimatedPresence";
 import type {
   AgentTranscriptDisplayMode,
   PremiumState,
@@ -30,6 +31,7 @@ const CHAT_PROVIDERS: Array<{ id: ProviderId; name: string; requiresKey: boolean
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
+  const { visible: settingsVisible, closing: settingsClosing } = useAnimatedPresence(settingsOpen, 200);
   const [autoRestoreSession, setAutoRestoreSession] = createSignal(true);
   const [clearBookmarksOnLaunch, setClearBookmarksOnLaunch] =
     createSignal(false);
@@ -343,8 +345,8 @@ const Settings: Component = () => {
   };
 
   return (
-    <Show when={settingsOpen()}>
-      <div class="command-bar-overlay" onClick={closeSettings}>
+    <Show when={settingsVisible()}>
+      <div class="command-bar-overlay" classList={{ closing: settingsClosing() }} onClick={closeSettings}>
         <div
           class="settings-panel"
           onClick={(e) => e.stopPropagation()}
@@ -1108,6 +1110,9 @@ const Settings: Component = () => {
             0 24px 64px rgba(0, 0, 0, 0.3),
             inset 0 1px 0 rgba(255, 255, 255, 0.04);
           animation: command-bar-enter 350ms var(--ease-out-expo) both;
+        }
+        .command-bar-overlay.closing .settings-panel {
+          animation: command-bar-exit 200ms var(--ease-in-out) both;
         }
         .settings-title {
           font-size: 16px;

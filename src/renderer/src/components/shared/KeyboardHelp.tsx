@@ -1,4 +1,5 @@
 import { Show, type Component } from "solid-js";
+import { useAnimatedPresence } from "../../lib/useAnimatedPresence";
 
 interface KeyboardHelpProps {
   open: boolean;
@@ -18,9 +19,11 @@ const SHORTCUTS = [
 ];
 
 const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
+  const { visible, closing } = useAnimatedPresence(() => props.open, 200);
+
   return (
-    <Show when={props.open}>
-      <div class="command-bar-overlay" onClick={props.onClose}>
+    <Show when={visible()}>
+      <div class="command-bar-overlay" classList={{ closing: closing() }} onClick={props.onClose}>
         <div class="keyboard-help" onClick={(e) => e.stopPropagation()}>
           <div class="keyboard-help-header">
             <h2 class="keyboard-help-title">Keyboard Shortcuts</h2>
@@ -58,6 +61,9 @@ const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
             0 24px 64px rgba(0, 0, 0, 0.3),
             inset 0 1px 0 rgba(255, 255, 255, 0.04);
           animation: command-bar-enter 350ms var(--ease-out-expo) both;
+        }
+        .command-bar-overlay.closing .keyboard-help {
+          animation: command-bar-exit 200ms var(--ease-in-out) both;
         }
         .keyboard-help-header {
           display: flex;

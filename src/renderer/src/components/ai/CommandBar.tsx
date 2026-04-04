@@ -1,10 +1,14 @@
 import { createSignal, createResource, For, Show, type Component } from 'solid-js';
 import { useUI } from '../../stores/ui';
 import { useAI } from '../../stores/ai';
+import { useAnimatedPresence } from '../../lib/useAnimatedPresence';
 import './ai.css';
+
+const COMMAND_BAR_EXIT_MS = 200;
 
 const CommandBar: Component = () => {
   const { commandBarOpen, closeCommandBar, toggleSidebar, openSettings } = useUI();
+  const { visible, closing } = useAnimatedPresence(commandBarOpen, COMMAND_BAR_EXIT_MS);
   const { query, recentQueries, isStreaming, cancel } = useAI();
   const [input, setInput] = createSignal('');
   let inputRef: HTMLInputElement | undefined;
@@ -48,8 +52,8 @@ const CommandBar: Component = () => {
   };
 
   return (
-    <Show when={commandBarOpen()}>
-      <div class="command-bar-overlay" onClick={closeCommandBar}>
+    <Show when={visible()}>
+      <div class="command-bar-overlay" classList={{ closing: closing() }} onClick={closeCommandBar}>
         <div class="command-bar" onClick={(e) => e.stopPropagation()}>
           <form onSubmit={handleSubmit}>
             <div class="command-bar-icon">

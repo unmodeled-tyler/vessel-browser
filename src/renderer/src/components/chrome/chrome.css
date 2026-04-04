@@ -177,6 +177,24 @@
     }
 }
 
+.tab-item.closing {
+    animation: tab-close 200ms var(--ease-in-out) both;
+    pointer-events: none;
+}
+
+@keyframes tab-close {
+    from {
+        max-width: 200px;
+        padding: 0 12px;
+        opacity: 1;
+    }
+    to {
+        max-width: 0;
+        padding: 0;
+        opacity: 0;
+    }
+}
+
 .tab-item:hover {
     background: rgba(255, 255, 255, 0.04);
     color: var(--text-secondary);

@@ -115,6 +115,11 @@ button:active:not(:disabled) {
         loading-bar-enter var(--duration-normal) var(--ease-out-expo) both,
         loading-bar-shimmer 1.6s ease-in-out infinite;
     z-index: 10;
+    transition: opacity 300ms var(--ease-in-out);
+}
+
+.loading-bar.closing {
+    opacity: 0;
 }
 
 @keyframes loading-bar-enter {
