@@ -1,0 +1,697 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for main/ai/commands.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../prettify.css" />
+    <link rel="stylesheet" href="../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">main/ai</a> commands.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">8.82% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>18/204</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">66.66% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>4/6</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">57.14% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>4/7</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">8.82% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>18/204</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line low'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a>
+<a name='L155'></a><a href='#L155'>155</a>
+<a name='L156'></a><a href='#L156'>156</a>
+<a name='L157'></a><a href='#L157'>157</a>
+<a name='L158'></a><a href='#L158'>158</a>
+<a name='L159'></a><a href='#L159'>159</a>
+<a name='L160'></a><a href='#L160'>160</a>
+<a name='L161'></a><a href='#L161'>161</a>
+<a name='L162'></a><a href='#L162'>162</a>
+<a name='L163'></a><a href='#L163'>163</a>
+<a name='L164'></a><a href='#L164'>164</a>
+<a name='L165'></a><a href='#L165'>165</a>
+<a name='L166'></a><a href='#L166'>166</a>
+<a name='L167'></a><a href='#L167'>167</a>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a>
+<a name='L187'></a><a href='#L187'>187</a>
+<a name='L188'></a><a href='#L188'>188</a>
+<a name='L189'></a><a href='#L189'>189</a>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ><span class="fstat-no" title="function not covered" ><span class="branch-0 cbranch-no" title="branch not covered" >import type { AIProvider } from "./provider";</span></span></span></span>
+import type { AIMessage } from "../../shared/types";
+import { createTraceSession } from "../telemetry/dev-trace";
+import {
+  buildSummarizePrompt,
+  buildQuestionPrompt,
+  buildGeneralPrompt,
+  buildScopedContext,
+  chooseAgentReadMode,
+  detectPageType,
+} from "./context-builder";
+import { extractContent } from "../content/extractor";
+import { AGENT_TOOLS } from "./tools";
+import { pruneToolsForContext } from "../tools/pruner";
+import { executeAction, type ActionContext } from "./page-actions";
+import type { TabManager } from "../tabs/tab-manager";
+import type { WebContents } from "electron";
+import type { AgentRuntime } from "../agent/runtime";
+&nbsp;
+<span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >export async function handleAIQuery(</span></span>
+<span class="cstat-no" title="statement not covered" >  query: string,</span>
+<span class="cstat-no" title="statement not covered" >  provider: AIProvider,</span>
+<span class="cstat-no" title="statement not covered" >  activeWebContents: WebContents | undefined,</span>
+<span class="cstat-no" title="statement not covered" >  onChunk: (text: string) =&gt; void,</span>
+<span class="cstat-no" title="statement not covered" >  onEnd: () =&gt; void,</span>
+<span class="cstat-no" title="statement not covered" >  tabManager?: TabManager,</span>
+<span class="cstat-no" title="statement not covered" >  runtime?: AgentRuntime,</span>
+<span class="cstat-no" title="statement not covered" >  history?: AIMessage[],</span>
+<span class="cstat-no" title="statement not covered" >): Promise&lt;void&gt; {</span>
+<span class="cstat-no" title="statement not covered" >  const lowerQuery = query.toLowerCase().trim();</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >  const isSummarize =</span>
+<span class="cstat-no" title="statement not covered" >    lowerQuery.startsWith("summarize") ||</span>
+<span class="cstat-no" title="statement not covered" >    lowerQuery.startsWith("tldr") ||</span>
+<span class="cstat-no" title="statement not covered" >    lowerQuery === "summary";</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >  // Use agent path when provider supports tools and we have a tab manager</span>
+<span class="cstat-no" title="statement not covered" >  if (provider.streamAgentQuery &amp;&amp; tabManager &amp;&amp; activeWebContents &amp;&amp; runtime) {</span>
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      const pageContent = await extractContent(activeWebContents);</span>
+<span class="cstat-no" title="statement not covered" >      const pageType = detectPageType(pageContent);</span>
+<span class="cstat-no" title="statement not covered" >      const defaultReadMode = chooseAgentReadMode(pageContent);</span>
+<span class="cstat-no" title="statement not covered" >      const structuredContext = buildScopedContext(</span>
+<span class="cstat-no" title="statement not covered" >        pageContent,</span>
+<span class="cstat-no" title="statement not covered" >        defaultReadMode,</span>
+<span class="cstat-no" title="statement not covered" >      );</span>
+<span class="cstat-no" title="statement not covered" >      const runtimeState = runtime.getState();</span>
+<span class="cstat-no" title="statement not covered" >      const recentCheckpoints = runtimeState.checkpoints</span>
+<span class="cstat-no" title="statement not covered" >        .slice(-3)</span>
+<span class="cstat-no" title="statement not covered" >        .map((item) =&gt; `- ${item.name} (${item.id})`)</span>
+<span class="cstat-no" title="statement not covered" >        .join("\n");</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      const activeTabTitle = pageContent.title || "(untitled)";</span>
+<span class="cstat-no" title="statement not covered" >      const activeTabUrl = pageContent.url || activeWebContents.getURL();</span>
+<span class="cstat-no" title="statement not covered" >      const allTabs = tabManager.getAllStates();</span>
+<span class="cstat-no" title="statement not covered" >      const activeTabId = tabManager.getActiveTabId();</span>
+<span class="cstat-no" title="statement not covered" >      const tabSummary =</span>
+<span class="cstat-no" title="statement not covered" >        allTabs.length &gt; 1</span>
+<span class="cstat-no" title="statement not covered" >          ? `\nAll open tabs: ${allTabs.map((t) =&gt; `${t.id === activeTabId ? "→ " : ""}${t.title || "New Tab"} (${t.url})`).join(" | ")}`</span>
+<span class="cstat-no" title="statement not covered" >          : "";</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      const systemPrompt = `You are Vessel, an AI agent embedded in a web browser. You can see the current page and interact with it using tools.</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >THE USER IS CURRENTLY LOOKING AT:</span>
+<span class="cstat-no" title="statement not covered" >  Title: ${activeTabTitle}</span>
+<span class="cstat-no" title="statement not covered" >  URL: ${activeTabUrl}${tabSummary}</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >When the user says "this page", "this article", "this site", or asks about what they're viewing, they mean the page above. The context below is from that page — answer directly without needing to call read_page or current_tab first.</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >Current page context:</span>
+<span class="cstat-no" title="statement not covered" >This brief is intentionally minimal and filtered for speed. It omits most page text and low-value chrome unless you explicitly ask for more.</span>
+<span class="cstat-no" title="statement not covered" >Default brief mode: ${defaultReadMode}</span>
+<span class="cstat-no" title="statement not covered" >Detected page type: ${pageType}</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >${structuredContext}</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >Supervisor state:</span>
+<span class="cstat-no" title="statement not covered" >- paused: ${runtimeState.supervisor.paused ? "yes" : "no"}</span>
+<span class="cstat-no" title="statement not covered" >- approval mode: ${runtimeState.supervisor.approvalMode}</span>
+<span class="cstat-no" title="statement not covered" >- pending approvals: ${runtimeState.supervisor.pendingApprovals.length}</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >Recent checkpoints:</span>
+<span class="cstat-no" title="statement not covered" >${recentCheckpoints || "- none"<span class="branch-0 cbranch-no" title="branch not covered" >}</span></span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >Instructions:</span>
+<span class="cstat-no" title="statement not covered" >- You can see the page the user is viewing. The content above is from the page.</span>
+<span class="cstat-no" title="statement not covered" >- The structured page context always refers to the tab currently visible to the human unless a later tool call changes tabs.</span>
+<span class="cstat-no" title="statement not covered" >- Use tools to interact with the page when asked to do something (navigate, click, type, select options, submit forms, press keys, scroll).</span>
+<span class="cstat-no" title="statement not covered" >- Only say you completed an action after the corresponding tool succeeds. If no tool supports the request, say so plainly.</span>
+<span class="cstat-no" title="statement not covered" >- Use current_tab when you only need to know what the human is currently looking at. Use list_tabs before switching context across multiple tabs.</span>
+<span class="cstat-no" title="statement not covered" >- Create a checkpoint before risky multi-step flows or before leaving an important state.</span>
+<span class="cstat-no" title="statement not covered" >- Use save_session after completing a login flow you may need again later, and load_session to resume that authenticated state in future runs.</span>
+<span class="cstat-no" title="statement not covered" >- Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.</span>
+<span class="cstat-no" title="statement not covered" >- After navigating to a new site, DO NOT call read_page immediately. Instead, act on what you already know: use the search tool to search the site, type_text to enter queries in search bars, or click on known navigation patterns. You know what major sites look like — use that knowledge. Only call read_page if you're genuinely stuck and need to discover unfamiliar page structure.</span>
+<span class="cstat-no" title="statement not covered" >- On retail and marketplace sites (like Newegg, Amazon, Walmart, Etsy, eBay), prefer the site's visible search box, filters, and result pages over direct product URLs. Only navigate directly to a product page if the user gave you that URL or the site's own search UI is clearly unavailable after a reasonable attempt.</span>
+<span class="cstat-no" title="statement not covered" >- The page brief you start with is intentionally sparse. It is optimized for navigation speed, not completeness.</span>
+<span class="cstat-no" title="statement not covered" >- When you only need detail on one product/result/card/form section, use inspect_element instead of reading the page.</span>
+<span class="cstat-no" title="statement not covered" >- Escalate page reads progressively: read_page(mode="glance") for a fast viewport snapshot on heavy/slow pages, then read_page(mode="visible_only"), read_page(mode="results_only"), read_page(mode="forms_only"), read_page(mode="summary"), or read_page(mode="text_only") depending on what you need.</span>
+<span class="cstat-no" title="statement not covered" >- Use read_page(mode="glance") when a page is slow to load or extraction times out — it shows what's on screen (headings, links, buttons, inputs) without waiting for heavy JS. It's what a human would see by just looking at the page.</span>
+<span class="cstat-no" title="statement not covered" >- Use read_page(mode="debug") only as a last resort when the narrower modes are insufficient.</span>
+<span class="cstat-no" title="statement not covered" >- If read_page returns empty or times out, do NOT retry with the same mode. Switch to read_page(mode="glance") or use screenshot to see the page visually.</span>
+<span class="cstat-no" title="statement not covered" >- Use screenshot when you need to see exactly what the user sees — visual layout, rendered content, images, or when text extraction is failing. The screenshot returns the actual rendered page image for visual analysis. It works even when the JS thread is completely blocked.</span>
+<span class="cstat-no" title="statement not covered" >- VIEWPORT SYNC: Treat scrolling as a real, user-visible browser action. If you say you are going to scroll, call scroll or scroll_to_element so the human sees the page move too.</span>
+<span class="cstat-no" title="statement not covered" >- read_page inspects the page without moving the human-visible viewport. Do not describe read_page as scrolling. If you want more context without changing the user's view, say you're reading the page; if you want the user to follow along lower on the page, actually scroll first.</span>
+<span class="cstat-no" title="statement not covered" >- After clicking or submitting a form, prefer wait_for on a specific result signal or a narrow read_page mode. Do not jump straight to read_page(mode="debug").</span>
+<span class="cstat-no" title="statement not covered" >- If the user says they highlighted or selected text, use read_page before falling back to screenshots because it includes active selection and visible unsaved highlights.</span>
+<span class="cstat-no" title="statement not covered" >- If a page behaves abnormally or key UI fails to load, consider disabling ad blocking for that tab and reloading before retrying.</span>
+<span class="cstat-no" title="statement not covered" >- For broad discovery tasks, prefer direct sources, official sites, venue directories, and site-specific search over generic search engines, which often rate-limit automated browser traffic.</span>
+<span class="cstat-no" title="statement not covered" >- If the page context reports a rate limit, human verification, or access warning, stop using that page and switch to a different source.</span>
+<span class="cstat-no" title="statement not covered" >- Reference interactive elements by their index number (shown as [#N] in the listings above).</span>
+<span class="cstat-no" title="statement not covered" >- Be concise. Explain what you're doing as you go.</span>
+<span class="cstat-no" title="statement not covered" >- For simple questions about the page, just answer directly without using tools.</span>
+<span class="cstat-no" title="statement not covered" >- VISUAL AWARENESS: The human is watching the browser alongside this chat. Highlights are your pointing finger — they show the user exactly what you're looking at on the page. Use them proactively: highlight key findings, important elements, errors, or anything you're referencing. Don't wait to be asked. If you mention something specific on the page, highlight it. Colors: yellow (default/attention), red (errors/warnings), green (success/good), blue (info/neutral), purple (important/notable), orange (caution). Clear highlights when moving to a new topic or page.</span>
+<span class="cstat-no" title="statement not covered" >- After completing a task or answering a question, offer 1-2 brief, natural follow-up suggestions that make sense in context (e.g. "Want me to highlight any of these?" or "I can save these to a bookmark folder if you'd like"). Keep suggestions short and conversational — don't list every possible action.</span>
+<span class="cstat-no" title="statement not covered" >- Call one tool at a time unless you are certain your provider supports parallel tool calls. Sequential calls are more reliable.</span>
+<span class="cstat-no" title="statement not covered" >- MINIMIZE TOOL CALLS: Every tool call takes time and costs a round trip. Be efficient. Don't use flow_start/flow_advance for simple multi-step tasks — just do the work. Don't call read_page after navigating — use search or type_text directly. Don't retry failed tools with slight variations — if search fails, go straight to type_text + press_key Enter, don't try read_page in between. The fastest path is usually: navigate → search → wait_for or read_page(mode="results_only") → click.</span>
+<span class="cstat-no" title="statement not covered" >- ACT, DON'T HEDGE: You have a full browser — you can navigate to any website, see live content, search, click, add to cart, fill forms, and interact with real pages in real time. Never claim you "don't have access" to a website's inventory, pricing, or content. If the user asks you to go somewhere and do something, start doing it immediately. Don't ask for permission to do what the user just asked you to do — that's redundant and frustrating. Jump straight into action.</span>
+<span class="cstat-no" title="statement not covered" >- USE YOUR KNOWLEDGE: You have broad, practical knowledge about technology, products, cooking, travel, finance, and countless other domains. When the user asks for recommendations, GIVE them — don't deflect to Reddit, YouTubers, or other sources. You know enough to recommend PC parts, suggest restaurants, pick a good laptop, or advise on most consumer decisions. Make a clear recommendation, explain your reasoning briefly, and then execute. If there's genuine ambiguity (e.g. AMD vs Intel is preference-dependent), state your pick and why, then ask only the questions that would actually change your recommendation. Never refuse a recommendation by claiming you're "not an expert" — the user chose to ask you, so help them.</span>
+<span class="cstat-no" title="statement not covered" >- NEVER USE EMOJIS unless the user uses them first.`;</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      const actionCtx: ActionContext = { tabManager, runtime };</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      // Speedee: dynamically reorder tools based on current page context</span>
+<span class="cstat-no" title="statement not covered" >      const contextualTools = pruneToolsForContext(</span>
+<span class="cstat-no" title="statement not covered" >        AGENT_TOOLS,</span>
+<span class="cstat-no" title="statement not covered" >        pageType,</span>
+<span class="cstat-no" title="statement not covered" >        query,</span>
+<span class="cstat-no" title="statement not covered" >      );</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      const trace = createTraceSession(query, activeTabUrl, activeTabTitle);</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      let accumulatedResponse = "";</span>
+<span class="cstat-no" title="statement not covered" >      const tracedOnChunk = (text: string) =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        accumulatedResponse += text;</span>
+<span class="cstat-no" title="statement not covered" >        onChunk(text);</span>
+<span class="cstat-no" title="statement not covered" >      };</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      const tracedOnEnd = () =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        trace.end(accumulatedResponse);</span>
+<span class="cstat-no" title="statement not covered" >        onEnd();</span>
+<span class="cstat-no" title="statement not covered" >      };</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      const tracedExecuteAction = async (</span>
+<span class="cstat-no" title="statement not covered" >        name: string,</span>
+<span class="cstat-no" title="statement not covered" >        args: Record&lt;string, unknown&gt;,</span>
+<span class="cstat-no" title="statement not covered" >      ): Promise&lt;string&gt; =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        const t0 = Date.now();</span>
+<span class="cstat-no" title="statement not covered" >        let output = "";</span>
+<span class="cstat-no" title="statement not covered" >        let isError = false;</span>
+<span class="cstat-no" title="statement not covered" >        try {</span>
+<span class="cstat-no" title="statement not covered" >          // eslint-disable-next-line @typescript-eslint/no-explicit-any</span>
+<span class="cstat-no" title="statement not covered" >          output = await executeAction(name, args as Record&lt;string, any&gt;, actionCtx);</span>
+<span class="cstat-no" title="statement not covered" >        } catch (err) {</span>
+<span class="cstat-no" title="statement not covered" >          isError = true;</span>
+<span class="cstat-no" title="statement not covered" >          output = err instanceof Error ? err.message : String(err);</span>
+<span class="cstat-no" title="statement not covered" >          throw err;</span>
+<span class="cstat-no" title="statement not covered" >        } finally {</span>
+<span class="cstat-no" title="statement not covered" >          trace.logToolCall(name, args, output, Date.now() - t0, isError);</span>
+<span class="cstat-no" title="statement not covered" >        }</span>
+<span class="cstat-no" title="statement not covered" >        return output;</span>
+<span class="cstat-no" title="statement not covered" >      };</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      await provider.streamAgentQuery(</span>
+<span class="cstat-no" title="statement not covered" >        systemPrompt,</span>
+<span class="cstat-no" title="statement not covered" >        query,</span>
+<span class="cstat-no" title="statement not covered" >        contextualTools,</span>
+<span class="cstat-no" title="statement not covered" >        tracedOnChunk,</span>
+<span class="cstat-no" title="statement not covered" >        tracedExecuteAction,</span>
+<span class="cstat-no" title="statement not covered" >        tracedOnEnd,</span>
+<span class="cstat-no" title="statement not covered" >        history,</span>
+<span class="cstat-no" title="statement not covered" >      );</span>
+<span class="cstat-no" title="statement not covered" >      return;</span>
+<span class="cstat-no" title="statement not covered" >    } catch {</span>
+<span class="cstat-no" title="statement not covered" >      // Fall through to simple path on error</span>
+<span class="cstat-no" title="statement not covered" >    }</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >  // Simple path (no tools) — for non-Anthropic providers or when no tab is active</span>
+<span class="cstat-no" title="statement not covered" >  let prompt: { system: string; user: string };</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >  if (activeWebContents) {</span>
+<span class="cstat-no" title="statement not covered" >    try {</span>
+<span class="cstat-no" title="statement not covered" >      const pageContent = await extractContent(activeWebContents);</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      if (isSummarize) {</span>
+<span class="cstat-no" title="statement not covered" >        prompt = buildSummarizePrompt(pageContent);</span>
+<span class="cstat-no" title="statement not covered" >      } else {</span>
+<span class="cstat-no" title="statement not covered" >        prompt = buildQuestionPrompt(pageContent, query);</span>
+<span class="cstat-no" title="statement not covered" >      }</span>
+<span class="cstat-no" title="statement not covered" >    } catch {</span>
+<span class="cstat-no" title="statement not covered" >      prompt = buildGeneralPrompt(query);</span>
+<span class="cstat-no" title="statement not covered" >    }</span>
+<span class="cstat-no" title="statement not covered" >  } else {</span>
+<span class="cstat-no" title="statement not covered" >    prompt = buildGeneralPrompt(query);</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >  await provider.streamQuery(</span>
+<span class="cstat-no" title="statement not covered" >    prompt.system,</span>
+<span class="cstat-no" title="statement not covered" >    prompt.user,</span>
+<span class="cstat-no" title="statement not covered" >    onChunk,</span>
+<span class="cstat-no" title="statement not covered" >    onEnd,</span>
+<span class="cstat-no" title="statement not covered" >    history,</span>
+<span class="cstat-no" title="statement not covered" >  );</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-04-04T08:43:28.503Z
+            </div>
+        <script src="../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../sorter.js"></script>
+        <script src="../../block-navigation.js"></script>
+    </body>
+</html>
+    

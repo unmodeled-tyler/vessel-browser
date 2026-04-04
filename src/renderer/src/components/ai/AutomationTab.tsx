@@ -24,6 +24,7 @@ import {
 import { useAI } from "../../stores/ai";
 import { useUI } from "../../stores/ui";
 import { BUNDLED_KITS, renderKitPrompt } from "../../lib/automation-kits";
+import { isPremiumStatus } from "../../lib/premium";
 import type {
   AutomationActivityEntry,
   AutomationKit,
@@ -162,10 +163,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
     window.vessel.premium.getState().catch(() => ({ status: "free" as const })),
   );
 
-  const isPremium = () => {
-    const s = premiumData()?.status;
-    return s === "active" || s === "trialing";
-  };
+  const isPremium = () => isPremiumStatus(premiumData()?.status);
 
   const [installedKits, { refetch: refetchInstalled }] = createResource(
     () => isPremium(),

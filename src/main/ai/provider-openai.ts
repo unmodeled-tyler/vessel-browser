@@ -6,8 +6,6 @@ import { PROVIDERS } from './providers';
 import { isRichToolResult, type TextBlock } from './tool-result';
 import { getEffectiveMaxIterations } from '../premium/manager';
 
-const DEFAULT_MAX_ITERATIONS = 200;
-
 function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.ChatCompletionTool[] {
   return tools.map((t) => ({
     type: 'function' as const,
@@ -100,9 +98,6 @@ export class OpenAICompatProvider implements AIProvider {
       let iterationsUsed = 0;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
-        const msgTokenEstimate = JSON.stringify(messages).length;
-        const streamStartTime = Date.now();
-        // Accumulate text and tool calls across streamed chunks
         let textAccum = '';
         const toolCallAccums: Record<number, { id: string; name: string; argsJson: string }> = {};
         let finishReason: string | null = null;

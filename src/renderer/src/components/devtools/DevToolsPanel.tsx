@@ -57,18 +57,7 @@ interface PanelState {
 type PanelTab = "console" | "network" | "activity";
 type DateMode = "today" | "custom";
 
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return "";
-  }
-}
+import { formatTime } from "../../lib/format-time";
 
 function statusClass(status?: number): string {
   if (status == null) return "pending";
@@ -155,7 +144,7 @@ const ConsoleView: Component<{ entries: ConsoleEntry[] }> = (props) => {
           {(entry) => (
             <div class={`console-entry level-${entry.level}`}>
               <span class={`console-level ${entry.level}`}>{entry.level}</span>
-              <span class="console-time">{formatTime(entry.timestamp)}</span>
+              <span class="console-time">{formatTime(entry.timestamp, { includeSeconds: true })}</span>
               <span class="console-text">{entry.text}</span>
               <span class="console-source">
                 {shortenSource(entry.url, entry.line)}
@@ -253,7 +242,7 @@ const ActivityView: Component<{ entries: ActivityEntry[] }> = (props) => {
           {(entry) => (
             <div class="activity-entry">
               <span class="activity-time">
-                {formatTime(entry.timestamp)}
+                {formatTime(entry.timestamp, { includeSeconds: true })}
               </span>
               <span class="activity-tool">
                 {entry.tool.replace("devtools_", "")}
