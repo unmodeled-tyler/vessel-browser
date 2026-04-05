@@ -14,6 +14,11 @@ icon: snap/gui/vessel-icon.png
 architectures:
   - build-on: amd64
 
+plugs:
+  browser-sandbox:
+    interface: browser-support
+    allow-sandbox: true
+
 apps:
   vessel-browser:
     command: vessel
@@ -22,7 +27,7 @@ apps:
     plugs:
       - network
       - network-bind
-      - browser-support
+      - browser-sandbox
       - opengl
       - audio-playback
       - home
