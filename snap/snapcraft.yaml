@@ -15,19 +15,21 @@ architectures:
   - build-on: amd64
 
 plugs:
-  browser-sandbox:
+  browser-support:
     interface: browser-support
-    allow-sandbox: true
+    allow-sandbox: false
 
 apps:
   vessel-browser:
-    command: vessel
+    command: vessel --no-sandbox --disable-setuid-sandbox
     desktop: snap/gui/vessel-browser.desktop
     extensions: [gnome]
+    environment:
+      ELECTRON_DISABLE_SANDBOX: "1"
     plugs:
       - network
       - network-bind
-      - browser-sandbox
+      - browser-support
       - opengl
       - audio-playback
       - home
