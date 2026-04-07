@@ -2,6 +2,7 @@ node_modules/
 out/
 dist/
 .venv/
+.idea/
 *.log
 .env
 .mcpregistry_*

@@ -3089,7 +3089,7 @@ type SearchShortcut = {
   appliedFilters: string[];
 };
 
-const HUGGING_FACE_HOME_HOSTS = new Set(["huggingface.co", "www.huggingface.co"]);
+const HUGGING_FACE_HUB_HOSTS = new Set(["huggingface.co", "www.huggingface.co"]);
 
 const HUGGING_FACE_MODEL_TASKS: Array<{
   value: string;
@@ -3223,6 +3223,10 @@ function collapseSearchTerms(query: string): string {
     .trim();
 }
 
+function normalizeSearchQuery(query: string): string {
+  return query.replace(/\s+/g, " ").trim();
+}
+
 function extractFirstMatchingFilter(
   query: string,
   filters: Array<{ value: string; label: string; phrases: string[] }>,
@@ -3345,10 +3349,7 @@ export function buildHuggingFaceSearchShortcut(
   }
 
   const hostname = url.hostname.toLowerCase();
-  if (
-    !HUGGING_FACE_HOME_HOSTS.has(hostname) &&
-    !(hostname.endsWith(".huggingface.co") || hostname.endsWith(".hf.co"))
-  ) {
+  if (!HUGGING_FACE_HUB_HOSTS.has(hostname)) {
     return null;
   }
 
@@ -3359,7 +3360,7 @@ export function buildHuggingFaceSearchShortcut(
   if (!section) return null;
 
   let remainingQuery = query;
-  const target = new URL(`https://${hostname}/${section}`);
+  const target = new URL(`https://huggingface.co/${section}`);
   const appliedFilters: string[] = [];
 
   if (section === "models") {
@@ -3457,7 +3458,7 @@ export function buildCommonSearchUrlShortcut(
     return null;
   }
 
-  const query = collapseSearchTerms(rawQuery);
+  const query = normalizeSearchQuery(rawQuery);
   if (!query) return null;
 
   const existingParam = COMMON_SEARCH_QUERY_PARAMS.find((param) =>

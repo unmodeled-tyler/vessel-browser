@@ -31,6 +31,18 @@ test("common search shortcut does not invent search URLs on arbitrary pages", ()
   assert.equal(shortcut, null);
 });
 
+test("common search shortcut preserves literal query text", () => {
+  const shortcut = buildCommonSearchUrlShortcut(
+    "https://example.com/search?q=old+query",
+    "The Last of Us",
+  );
+
+  assert.ok(shortcut);
+
+  const url = new URL(shortcut.url);
+  assert.equal(url.searchParams.get("q"), "The Last of Us");
+});
+
 test("hugging face shortcut routes model searches into the models index with filters", () => {
   const shortcut = buildHuggingFaceSearchShortcut(
     "https://huggingface.co/",
@@ -47,6 +59,15 @@ test("hugging face shortcut routes model searches into the models index with fil
   assert.equal(url.searchParams.get("pipeline_tag"), "text-generation");
   assert.equal(url.searchParams.get("library"), "transformers");
   assert.equal(url.searchParams.get("num_parameters"), "6B<n<9B");
+});
+
+test("hugging face shortcut ignores non-hub subdomains", () => {
+  const shortcut = buildHuggingFaceSearchShortcut(
+    "https://cdn-lfs.huggingface.co/repos/example",
+    "llama 8b models",
+  );
+
+  assert.equal(shortcut, null);
 });
 
 test("search shortcut falls back to generic URL rewriting for non-HF search pages", () => {
