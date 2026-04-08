@@ -7,7 +7,9 @@ type QueryResult = { accepted: true } | { accepted: false; reason: "busy" };
 function createMockAI(results: QueryResult[]) {
   const streamStartListeners = new Set<(prompt: string) => void>();
   const streamChunkListeners = new Set<(chunk: string) => void>();
-  const streamEndListeners = new Set<() => void>();
+  const streamEndListeners = new Set<
+    (status: "completed" | "failed") => void
+  >();
   const streamIdleListeners = new Set<() => void>();
   const automationStartListeners = new Set<
     (entry: AutomationActivityEntry) => void
@@ -40,7 +42,7 @@ function createMockAI(results: QueryResult[]) {
         streamChunkListeners.add(cb);
         return () => streamChunkListeners.delete(cb);
       },
-      onStreamEnd: (cb: () => void) => {
+      onStreamEnd: (cb: (status: "completed" | "failed") => void) => {
         streamEndListeners.add(cb);
         return () => streamEndListeners.delete(cb);
       },
@@ -76,8 +78,8 @@ function createMockAI(results: QueryResult[]) {
     emitStreamChunk(chunk: string) {
       for (const listener of streamChunkListeners) listener(chunk);
     },
-    emitStreamEnd() {
-      for (const listener of streamEndListeners) listener();
+    emitStreamEnd(status: "completed" | "failed" = "completed") {
+      for (const listener of streamEndListeners) listener(status);
     },
     emitStreamIdle() {
       for (const listener of streamIdleListeners) listener();
@@ -156,4 +158,80 @@ test("stream end plus idle only dispatches one queued retry", async () => {
     ["Current run", "Queued one"],
   );
   assert.equal(store.pendingQueryCount(), 1);
+});
+
+test("automation prompt activity starts on stream start and keeps failure status", async () => {
+  const mockAI = createMockAI([{ accepted: true }]);
+  const store = await loadUseAI(mockAI);
+
+  const result = await store.runAutomationPrompt("Run this kit", {
+    id: "adhoc:test:1",
+    title: "Research & Collect",
+    icon: "BookOpen",
+  });
+  assert.equal(result, "started");
+  assert.equal(store.automationActivities().length, 0);
+
+  mockAI.emitStreamStart("Run this kit");
+  assert.equal(store.automationActivities()[0]?.id, "adhoc:test:1");
+  assert.equal(store.automationActivities()[0]?.status, "running");
+
+  mockAI.emitStreamChunk("First step");
+  mockAI.emitStreamChunk("\nSecond step");
+  mockAI.emitStreamEnd("failed");
+
+  assert.equal(store.automationActivities()[0]?.output, "First step\nSecond step");
+  assert.equal(store.automationActivities()[0]?.status, "failed");
+  assert.ok(store.automationActivities()[0]?.finishedAt);
+});
+
+test("queued automation prompt does not leak metadata into a later unrelated stream", async () => {
+  const mockAI = createMockAI([{ accepted: false, reason: "busy" }]);
+  const store = await loadUseAI(mockAI);
+
+  const result = await store.runAutomationPrompt("Run this kit later", {
+    id: "adhoc:test:queued",
+    title: "Price Scout",
+    icon: "Tag",
+  });
+  assert.equal(result, "queued");
+  assert.equal(store.automationActivities().length, 0);
+
+  mockAI.emitStreamStart("Different prompt");
+  mockAI.emitStreamChunk("Hello");
+  mockAI.emitStreamEnd("completed");
+
+  assert.equal(store.automationActivities().length, 0);
+});
+
+test("queued automation prompt starts its activity when the retried prompt actually begins", async () => {
+  const mockAI = createMockAI([
+    { accepted: false, reason: "busy" },
+    { accepted: true },
+  ]);
+  const store = await loadUseAI(mockAI);
+
+  const result = await store.runAutomationPrompt("Run this kit later", {
+    id: "adhoc:test:retry",
+    title: "Price Scout",
+    icon: "Tag",
+  });
+  assert.equal(result, "queued");
+  assert.equal(store.automationActivities().length, 0);
+
+  mockAI.emitStreamIdle();
+  await flushAsyncWork();
+
+  assert.deepEqual(
+    mockAI.queryCalls.map((call) => call.prompt),
+    ["Run this kit later", "Run this kit later"],
+  );
+
+  mockAI.emitStreamStart("Run this kit later");
+  mockAI.emitStreamChunk("Found result");
+  mockAI.emitStreamEnd("completed");
+
+  assert.equal(store.automationActivities()[0]?.id, "adhoc:test:retry");
+  assert.equal(store.automationActivities()[0]?.status, "completed");
+  assert.equal(store.automationActivities()[0]?.output, "Found result");
 });

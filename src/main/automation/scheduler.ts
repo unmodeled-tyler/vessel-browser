@@ -25,6 +25,10 @@ let alignStartTimeout: ReturnType<typeof setTimeout> | null = null;
 let removeIdleListener: (() => void) | null = null;
 let broadcastFn: ((channel: string, ...args: unknown[]) => void) | null = null;
 
+export function getScheduledKitIds(): ReadonlySet<string> {
+  return new Set(jobs.filter((j) => j.enabled).map((j) => j.kitId));
+}
+
 function getJobsPath(): string {
   return path.join(app.getPath("userData"), "scheduled-jobs.json");
 }
@@ -56,7 +60,7 @@ function normalizeJob(job: ScheduledJob, now: Date = new Date()): boolean {
     const runAt = job.schedule.runAt ? new Date(job.schedule.runAt) : null;
     if (!runAt || Number.isNaN(runAt.getTime()) || runAt <= now) {
       job.enabled = false;
-      return true;
+      return true; // disabled stale job — persist the change
     }
     const nextRunAt = runAt.toISOString();
     if (job.nextRunAt !== nextRunAt) {
@@ -238,33 +242,54 @@ async function fireJob(
 function tick(windowState: WindowState, runtime: AgentRuntime): void {
   if (isAIStreamActive()) return;
 
-  const now = new Date();
-  let changed = false;
+  const dueIds = jobs
+    .filter((job) => job.enabled && new Date() >= new Date(job.nextRunAt))
+    .map((job) => job.id);
 
-  for (const job of jobs) {
-    if (!job.enabled) continue;
-    if (now < new Date(job.nextRunAt)) continue;
-    if (!tryBeginAIStream("scheduled")) break;
+  if (dueIds.length === 0) return;
+  if (!tryBeginAIStream("scheduled")) return;
 
-    void fireJob(job, windowState, runtime).finally(() => {
+  let idx = 0;
+
+  const fireNext = (): void => {
+    if (idx >= dueIds.length) {
       endAIStream("scheduled");
       queueMicrotask(() => tick(windowState, runtime));
-    });
-    job.lastRunAt = now.toISOString();
+      return;
+    }
+
+    const jobId = dueIds[idx++];
+    const job = jobs.find((candidate) => candidate.id === jobId);
+    if (!job || !job.enabled) {
+      fireNext();
+      return;
+    }
+
+    const firedAt = new Date();
+    if (firedAt < new Date(job.nextRunAt)) {
+      fireNext();
+      return;
+    }
+
+    job.lastRunAt = firedAt.toISOString();
 
     if (job.schedule.type === "once") {
       job.enabled = false;
     } else {
-      job.nextRunAt = computeNextRun(job.schedule, now).toISOString();
+      job.nextRunAt = computeNextRun(job.schedule, firedAt).toISOString();
     }
-    changed = true;
-    break;
-  }
 
-  if (changed) {
     saveJobs();
     broadcastFn?.(Channels.SCHEDULE_JOBS_UPDATE, jobs);
-  }
+
+    void fireJob(job, windowState, runtime)
+      .catch((err) => {
+        console.warn("[scheduler] Unexpected error firing job:", err);
+      })
+      .finally(fireNext);
+  };
+
+  fireNext();
 }
 
 export function registerScheduleHandlers(

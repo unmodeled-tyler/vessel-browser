@@ -1,0 +1,79 @@
+name: R2 Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      prefix:
+        description: "Optional object prefix under downloads/windows/test"
+        required: false
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create smoke test file
+        env:
+          PREFIX_INPUT: ${{ github.event.inputs.prefix }}
+          VERSION_LABEL: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          prefix_root="downloads/windows/test"
+          if [ -n "${PREFIX_INPUT:-}" ]; then
+            safe_prefix="${PREFIX_INPUT#/}"
+            safe_prefix="${safe_prefix%/}"
+            prefix_root="${prefix_root}/${safe_prefix}"
+          fi
+          object_name="r2-smoke-${GITHUB_RUN_ID}.txt"
+          object_key="${prefix_root}/${object_name}"
+          content="R2 smoke test ok ${GITHUB_RUN_ID} ${VERSION_LABEL}"
+
+          printf '%s\n' "$content" > smoke-test.txt
+          echo "object_key=$object_key" >> "$GITHUB_ENV"
+          echo "object_name=$object_name" >> "$GITHUB_ENV"
+          echo "content=$content" >> "$GITHUB_ENV"
+
+      - name: Upload smoke test file to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: true
+          R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${R2_ACCOUNT_ID:-}" ] || [ -z "${R2_BUCKET:-}" ]; then
+            echo "Missing Cloudflare R2 configuration."
+            exit 1
+          fi
+
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          aws s3 cp smoke-test.txt "s3://${R2_BUCKET}/${object_key}" --endpoint-url "$endpoint"
+
+      - name: Verify public download URL
+        env:
+          R2_PUBLIC_BASE_URL: ${{ vars.CLOUDFLARE_R2_PUBLIC_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${R2_PUBLIC_BASE_URL:-}" ]; then
+            echo "Missing CLOUDFLARE_R2_PUBLIC_BASE_URL."
+            exit 1
+          fi
+
+          public_url="${R2_PUBLIC_BASE_URL%/}/${object_key}"
+          status_code="$(curl -sS -o downloaded.txt -w '%{http_code}' "$public_url")"
+
+          if [ "$status_code" != "200" ]; then
+            echo "Expected HTTP 200 from $public_url, got $status_code"
+            exit 1
+          fi
+
+          diff -u smoke-test.txt downloaded.txt
+
+          {
+            echo "## R2 Smoke Test"
+            echo
+            echo "- Uploaded object: \`${object_key}\`"
+            echo "- Public URL: ${public_url}"
+            echo "- Verification: passed"
+          } >> "$GITHUB_STEP_SUMMARY"

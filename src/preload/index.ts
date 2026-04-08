@@ -58,8 +58,13 @@ const api = {
       return () =>
         ipcRenderer.removeListener(Channels.AI_STREAM_CHUNK, handler);
     },
-    onStreamEnd: (cb: () => void): (() => void) => {
-      const handler = () => cb();
+    onStreamEnd: (
+      cb: (status: "completed" | "failed") => void,
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        status: "completed" | "failed" = "completed",
+      ) => cb(status);
       ipcRenderer.on(Channels.AI_STREAM_END, handler);
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_END, handler);
     },

@@ -144,6 +144,13 @@ export function renderKitPrompt(
   kit: AutomationKit,
   values: Record<string, string>,
 ): string {
+  for (const input of kit.inputs) {
+    if (input.required && !values[input.key]?.trim()) {
+      console.warn(
+        `[automation-kits] Required field "${input.key}" is empty for kit "${kit.id}".`,
+      );
+    }
+  }
   return kit.promptTemplate.replace(
     /\{\{(\w+)\}\}/g,
     (_, key: string) => values[key] ?? "",

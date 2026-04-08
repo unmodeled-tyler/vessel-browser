@@ -7,39 +7,73 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build (e.g. v1.2.3). Defaults to latest tag."
+        description: "Existing tag to build (e.g. v1.2.3). Leave blank to mint the next patch version."
         required: false
 
 jobs:
-  snap:
+  version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      ref: ${{ steps.version.outputs.ref }}
     steps:
-      - name: Determine tag
-        id: tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-          GITHUB_REF: ${{ github.ref }}
-          REPO: ${{ github.repository }}
-        run: |
-          if [ -n "$INPUT_TAG" ]; then
-            tag="$INPUT_TAG"
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-          else
-            tag=$(gh api "repos/${REPO}/tags?per_page=100" --paginate --jq '.[].name' | grep '^v' | sort -V | tail -n 1)
-          fi
-          tag="${tag#refs/tags/}"
-          [[ "$tag" == v* ]] || tag="v$tag"
-          version="${tag#v}"
-          echo "ref=refs/tags/$tag" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Determine snap release version
+        id: version
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          GIT_REF: ${{ github.ref }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            tag="${INPUT_TAG#refs/tags/}"
+            [[ "$tag" == v* ]] || tag="v$tag"
+            version="${tag#v}"
+          elif [[ "$GIT_REF" == refs/tags/v* ]]; then
+            version="${GIT_REF#refs/tags/v}"
+            tag="v$version"
+          else
+            pkg_version=$(node -p "require('./package.json').version")
+            latest_patch=$(git tag --list "v${pkg_version%.*}.*" --sort=-version:refname | head -1 | sed 's/^v//')
+            if [ -z "$latest_patch" ]; then
+              version="$pkg_version"
+            else
+              major_minor="${latest_patch%.*}"
+              patch="${latest_patch##*.}"
+              version="${major_minor}.$((patch + 1))"
+            fi
+            tag="v$version"
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ref=refs/tags/$tag" >> "$GITHUB_OUTPUT"
+          echo "Snap release version: $version"
+
+      - name: Create tag if needed
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag == ''
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+  snap:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -55,14 +89,14 @@ jobs:
 
       - name: Sync package metadata
         env:
-          VERSION: ${{ steps.tag.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build snap
         uses: snapcore/action-build@v1
         id: snapcraft
         env:
-          VESSEL_VERSION: ${{ steps.tag.outputs.version }}
+          VESSEL_VERSION: ${{ needs.version.outputs.version }}
 
       - name: Upload to Snap Store
         env:
