@@ -21,6 +21,7 @@ import {
   Clock,
   type IconProps,
 } from "lucide-solid";
+import { BUNDLED_KIT_IDS } from "../../../../shared/automation-kit-constants";
 import { useAI } from "../../stores/ai";
 import { useUI } from "../../stores/ui";
 import { BUNDLED_KITS, renderKitPrompt } from "../../lib/automation-kits";
@@ -51,8 +52,6 @@ const KitIcon = (props: { name: string; size?: number; class?: string }) => {
   const Icon = ICON_MAP[props.name] ?? Zap;
   return <Icon size={props.size ?? 18} class={props.class} />;
 };
-
-const BUNDLED_KIT_IDS = new Set(BUNDLED_KITS.map((k) => k.id));
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 

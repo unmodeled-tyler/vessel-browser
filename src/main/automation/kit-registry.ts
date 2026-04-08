@@ -1,14 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { app, dialog } from "electron";
-import type { AutomationKit } from "../../shared/types";
-
-/** IDs of kits that ship with the app — installs cannot overwrite these */
-const BUNDLED_KIT_IDS = new Set([
-  "research-collect",
-  "price-scout",
-  "form-filler",
-]);
+import {
+  BUNDLED_KIT_IDS,
+  isSafeAutomationKitId,
+  VALID_KIT_CATEGORIES,
+} from "../../shared/automation-kit-constants";
+import type { AutomationKit, KitCategory } from "../../shared/types";
 
 function getUserKitsDir(): string {
   return path.join(app.getPath("userData"), "kits");
@@ -21,13 +19,22 @@ function ensureKitsDir(): void {
   }
 }
 
+function getKitFilePath(id: string): string | null {
+  if (!isSafeAutomationKitId(id)) return null;
+
+  const kitsDir = path.resolve(getUserKitsDir());
+  const target = path.resolve(kitsDir, `${id}.kit.json`);
+  return target.startsWith(`${kitsDir}${path.sep}`) ? target : null;
+}
+
 function isValidKit(value: unknown): value is AutomationKit {
   if (!value || typeof value !== "object") return false;
   const k = value as Record<string, unknown>;
   return (
-    typeof k.id === "string" && k.id.length > 0 &&
+    typeof k.id === "string" && isSafeAutomationKitId(k.id) &&
     typeof k.name === "string" && k.name.length > 0 &&
     typeof k.description === "string" &&
+    typeof k.category === "string" && VALID_KIT_CATEGORIES.has(k.category as KitCategory) &&
     typeof k.icon === "string" &&
     typeof k.promptTemplate === "string" && k.promptTemplate.length > 0 &&
     Array.isArray(k.inputs)
@@ -106,7 +113,10 @@ export async function installKitFromFile(): Promise<{
   }
 
   ensureKitsDir();
-  const dest = path.join(getUserKitsDir(), `${parsed.id}.kit.json`);
+  const dest = getKitFilePath(parsed.id);
+  if (!dest) {
+    return { ok: false, error: "Kit id contains unsupported characters." };
+  }
   try {
     fs.writeFileSync(dest, JSON.stringify(parsed, null, 2), "utf-8");
   } catch {
@@ -116,13 +126,27 @@ export async function installKitFromFile(): Promise<{
   return { ok: true, kit: parsed };
 }
 
-export function uninstallKit(id: string): { ok: boolean; error?: string } {
+export function uninstallKit(
+  id: string,
+  scheduledKitIds?: ReadonlySet<string>,
+): { ok: boolean; error?: string } {
   if (BUNDLED_KIT_IDS.has(id)) {
     return { ok: false, error: "Built-in kits cannot be removed." };
   }
 
+  if (scheduledKitIds?.has(id)) {
+    return {
+      ok: false,
+      error:
+        "This kit has active scheduled jobs. Delete or reassign them first.",
+    };
+  }
+
   ensureKitsDir();
-  const target = path.join(getUserKitsDir(), `${id}.kit.json`);
+  const target = getKitFilePath(id);
+  if (!target) {
+    return { ok: false, error: "Kit id contains unsupported characters." };
+  }
   if (!fs.existsSync(target)) {
     return { ok: false, error: "Kit not found." };
   }

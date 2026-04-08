@@ -56,7 +56,7 @@ import {
   installKitFromFile,
   uninstallKit,
 } from "../automation/kit-registry";
-import { registerScheduleHandlers } from "../automation/scheduler";
+import { registerScheduleHandlers, getScheduledKitIds } from "../automation/scheduler";
 
 let activeChatProvider: AIProvider | null = null;
 
@@ -868,7 +868,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (_event, id: unknown) => {
     assertString(id, "id");
-    return uninstallKit(id);
+    return uninstallKit(id, getScheduledKitIds());
   });
 
   // --- Scheduled jobs ---
