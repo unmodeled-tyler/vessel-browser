@@ -60,7 +60,7 @@ function normalizeJob(job: ScheduledJob, now: Date = new Date()): boolean {
     const runAt = job.schedule.runAt ? new Date(job.schedule.runAt) : null;
     if (!runAt || Number.isNaN(runAt.getTime()) || runAt <= now) {
       job.enabled = false;
-      return true;
+      return true; // disabled stale job — persist the change
     }
     const nextRunAt = runAt.toISOString();
     if (job.nextRunAt !== nextRunAt) {

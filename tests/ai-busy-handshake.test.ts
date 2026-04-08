@@ -203,3 +203,35 @@ test("queued automation prompt does not leak metadata into a later unrelated str
 
   assert.equal(store.automationActivities().length, 0);
 });
+
+test("queued automation prompt starts its activity when the retried prompt actually begins", async () => {
+  const mockAI = createMockAI([
+    { accepted: false, reason: "busy" },
+    { accepted: true },
+  ]);
+  const store = await loadUseAI(mockAI);
+
+  const result = await store.runAutomationPrompt("Run this kit later", {
+    id: "adhoc:test:retry",
+    title: "Price Scout",
+    icon: "Tag",
+  });
+  assert.equal(result, "queued");
+  assert.equal(store.automationActivities().length, 0);
+
+  mockAI.emitStreamIdle();
+  await flushAsyncWork();
+
+  assert.deepEqual(
+    mockAI.queryCalls.map((call) => call.prompt),
+    ["Run this kit later", "Run this kit later"],
+  );
+
+  mockAI.emitStreamStart("Run this kit later");
+  mockAI.emitStreamChunk("Found result");
+  mockAI.emitStreamEnd("completed");
+
+  assert.equal(store.automationActivities()[0]?.id, "adhoc:test:retry");
+  assert.equal(store.automationActivities()[0]?.status, "completed");
+  assert.equal(store.automationActivities()[0]?.output, "Found result");
+});
