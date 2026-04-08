@@ -106,7 +106,7 @@ interface AutomationTabProps {
 }
 
 const AutomationTab: Component<AutomationTabProps> = (props) => {
-  const { query, isStreaming, automationActivities } = useAI();
+  const { runAutomationPrompt, isStreaming, automationActivities } = useAI();
   const { openSettings } = useUI();
   const [selectedKit, setSelectedKit] = createSignal<AutomationKit | null>(null);
   const [fieldValues, setFieldValues] = createSignal<Record<string, string>>({});
@@ -219,9 +219,15 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
     const kit = selectedKit();
     if (!kit || !canRun()) return;
     const prompt = renderKitPrompt(kit, fieldValues());
+    const activityId = `adhoc:${kit.id}:${Date.now()}`;
+    const result = await runAutomationPrompt(prompt, {
+      id: activityId,
+      title: kit.name,
+      icon: kit.icon,
+    });
+    if (result === "rejected") return;
     setSelectedKit(null);
     props.onRun();
-    await query(prompt);
   };
 
   const handleSchedule = async () => {

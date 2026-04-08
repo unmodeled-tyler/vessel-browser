@@ -30,6 +30,10 @@ const [automationActivities, setAutomationActivities] = createSignal<
 let initialized = false;
 let pendingDrainScheduled = false;
 let listenerCleanups: Array<() => void> = [];
+let pendingAutomationActivity:
+  | { id: string; title: string; icon?: string }
+  | null = null;
+let activeAutomationActivityId: string | null = null;
 
 function trimMessages(next: AIMessage[]): AIMessage[] {
   return next.length > MAX_MESSAGE_HISTORY ? next.slice(-MAX_MESSAGE_HISTORY) : next;
@@ -96,14 +100,36 @@ function init() {
     setIsStreaming(true);
     setHasFirstChunk(false);
     setStreamStartedAt(Date.now());
+
+    if (pendingAutomationActivity) {
+      const activity = pendingAutomationActivity;
+      activeAutomationActivityId = activity.id;
+      setAutomationActivities((prev) =>
+        startAutomationActivity(prev, {
+          id: activity.id,
+          source: "scheduled",
+          title: activity.title,
+          icon: activity.icon,
+          status: "running",
+          startedAt: new Date().toISOString(),
+        }),
+      );
+      pendingAutomationActivity = null;
+    }
   }));
   listenerCleanups.push(window.vessel.ai.onStreamChunk((chunk: string) => {
     if (!hasFirstChunk()) {
       setHasFirstChunk(true);
     }
     setStreamingText((prev) => prev + chunk);
+    if (activeAutomationActivityId) {
+      const activityId = activeAutomationActivityId;
+      setAutomationActivities((prev) =>
+        appendAutomationActivityChunk(prev, activityId, chunk),
+      );
+    }
   }));
-  listenerCleanups.push(window.vessel.ai.onStreamEnd(() => {
+  listenerCleanups.push(window.vessel.ai.onStreamEnd((status) => {
     const finalText = streamingText();
     if (finalText) {
       setMessages((prev) => {
@@ -111,6 +137,19 @@ function init() {
         return trimMessages(next);
       });
     }
+    if (activeAutomationActivityId) {
+      const activityId = activeAutomationActivityId;
+      setAutomationActivities((prev) =>
+        finishAutomationActivity(
+          prev,
+          activityId,
+          status,
+          new Date().toISOString(),
+        ),
+      );
+      activeAutomationActivityId = null;
+    }
+    pendingAutomationActivity = null;
     setStreamingText("");
     setIsStreaming(false);
     setHasFirstChunk(false);
@@ -142,6 +181,8 @@ export function resetAIStoreForTests(): void {
   listenerCleanups = [];
   initialized = false;
   pendingDrainScheduled = false;
+  pendingAutomationActivity = null;
+  activeAutomationActivityId = null;
   setMessages([]);
   setStreamingText("");
   setIsStreaming(false);
@@ -155,6 +196,27 @@ export function resetAIStoreForTests(): void {
 
 export function useAI() {
   init();
+  const query = async (prompt: string) => {
+    recordRecentQuery(prompt);
+
+    if (isStreaming()) {
+      const queued = enqueuePendingPrompt(pendingQueries(), prompt);
+      setPendingQueries(queued.queue);
+      setQueueNotice(queued.notice);
+      return queued.status;
+    }
+
+    setQueueNotice(null);
+    const accepted = await dispatchQuery(prompt);
+    if (!accepted) {
+      const queued = enqueuePendingPrompt(pendingQueries(), prompt, { atFront: true });
+      setPendingQueries(queued.queue);
+      setQueueNotice(queued.notice);
+      return queued.status;
+    }
+    return "started" as const;
+  };
+
   return {
     messages,
     streamingText,
@@ -167,25 +229,17 @@ export function useAI() {
     pendingQueryCount: () => pendingQueries().length,
     pendingQueryLimit: MAX_PENDING_QUERIES,
     queueNotice,
-    query: async (prompt: string) => {
-      recordRecentQuery(prompt);
-
-      if (isStreaming()) {
-        const queued = enqueuePendingPrompt(pendingQueries(), prompt);
-        setPendingQueries(queued.queue);
-        setQueueNotice(queued.notice);
-        return queued.status;
+    query,
+    runAutomationPrompt: async (
+      prompt: string,
+      activity: { id: string; title: string; icon?: string },
+    ) => {
+      pendingAutomationActivity = activity;
+      const status = await query(prompt);
+      if (status !== "started") {
+        pendingAutomationActivity = null;
       }
-
-      setQueueNotice(null);
-      const accepted = await dispatchQuery(prompt);
-      if (!accepted) {
-        const queued = enqueuePendingPrompt(pendingQueries(), prompt, { atFront: true });
-        setPendingQueries(queued.queue);
-        setQueueNotice(queued.notice);
-        return queued.status;
-      }
-      return "started" as const;
+      return status;
     },
     cancel: () => window.vessel.ai.cancel(),
     removePendingQuery: (index: number) => {

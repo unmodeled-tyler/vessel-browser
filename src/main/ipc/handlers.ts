@@ -307,7 +307,7 @@ export function registerIpcHandlers(
         Channels.AI_STREAM_CHUNK,
         "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
       );
-      sendToRendererViews(Channels.AI_STREAM_END);
+      sendToRendererViews(Channels.AI_STREAM_END, "failed");
       return { accepted: true as const };
     }
 
@@ -329,7 +329,7 @@ export function registerIpcHandlers(
           activeChatProvider,
           activeTab?.view.webContents,
           (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
-          () => sendToRendererViews(Channels.AI_STREAM_END),
+          () => sendToRendererViews(Channels.AI_STREAM_END, "completed"),
           tabManager,
           runtime,
           history,
@@ -337,7 +337,7 @@ export function registerIpcHandlers(
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
         sendToRendererViews(Channels.AI_STREAM_CHUNK, `\n[Error: ${msg}]`);
-        sendToRendererViews(Channels.AI_STREAM_END);
+        sendToRendererViews(Channels.AI_STREAM_END, "failed");
       } finally {
         activeChatProvider = null;
         endAIStream("manual");
