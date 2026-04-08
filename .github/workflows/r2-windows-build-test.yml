@@ -102,6 +102,7 @@ jobs:
           base_url="${R2_PUBLIC_BASE_URL%/}"
           shopt -s nullglob
           windows_files=(dist-windows/*-setup.exe dist-windows/SHASUMS256-win.txt)
+          user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 
           {
             echo "## R2 Windows Build Test"
@@ -111,9 +112,18 @@ jobs:
           for file in "${windows_files[@]}"; do
             name="$(basename "$file")"
             public_url="${base_url}/${prefix_root}/${name}"
-            status_code="$(curl -sS -o /tmp/$(basename "$file") -w '%{http_code}' "$public_url")"
+            status_code=""
+            for attempt in 1 2 3 4 5 6; do
+              status_code="$(curl -sS -L -A "$user_agent" -o "/tmp/$(basename "$file")" -w '%{http_code}' "$public_url")"
+              if [ "$status_code" = "200" ]; then
+                break
+              fi
+              echo "Attempt ${attempt} returned HTTP ${status_code} for ${public_url}; retrying..."
+              sleep 10
+            done
             if [ "$status_code" != "200" ]; then
               echo "Expected HTTP 200 from $public_url, got $status_code"
+              curl -sSI -A "$user_agent" "$public_url" || true
               exit 1
             fi
             echo "- ${public_url}" >> "$GITHUB_STEP_SUMMARY"
