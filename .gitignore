@@ -45,3 +45,4 @@ docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 .superpowers/brainstorm/1166882-1775108470/state/server.pid
 *.superpowers*
 .claude/settings.local.json
+docs/cloudflare-r2-windows-distribution.md

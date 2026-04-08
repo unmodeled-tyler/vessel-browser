@@ -169,3 +169,59 @@ jobs:
             dist-linux/*.AppImage
             dist-windows/*-setup.exe
             SHASUMS256.txt
+
+      - name: Publish Windows installers to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: true
+          R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ vars.CLOUDFLARE_R2_PUBLIC_BASE_URL }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${R2_ACCOUNT_ID:-}" ] || [ -z "${R2_BUCKET:-}" ]; then
+            echo "Cloudflare R2 is not configured. Set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_R2_ACCESS_KEY_ID, CLOUDFLARE_R2_SECRET_ACCESS_KEY, CLOUDFLARE_R2_BUCKET, and optionally CLOUDFLARE_R2_PUBLIC_BASE_URL."
+            exit 1
+          fi
+
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          version_prefix="downloads/windows/${VERSION}"
+          latest_prefix="downloads/windows/latest"
+
+          shopt -s nullglob
+          windows_files=(dist-windows/*-setup.exe dist-windows/SHASUMS256-win.txt)
+          if [ "${#windows_files[@]}" -eq 0 ]; then
+            echo "No Windows release artifacts found to upload."
+            exit 1
+          fi
+
+          for file in "${windows_files[@]}"; do
+            name="$(basename "$file")"
+            aws s3 cp "$file" "s3://${R2_BUCKET}/${version_prefix}/${name}" --endpoint-url "$endpoint"
+            aws s3 cp "$file" "s3://${R2_BUCKET}/${latest_prefix}/${name}" --endpoint-url "$endpoint"
+          done
+
+          if [ -n "${R2_PUBLIC_BASE_URL:-}" ]; then
+            base_url="${R2_PUBLIC_BASE_URL%/}"
+            {
+              echo "## Cloudflare R2 Uploads"
+              echo
+              echo "Store-safe versioned URLs:"
+              for file in "${windows_files[@]}"; do
+                name="$(basename "$file")"
+                echo "- ${base_url}/${version_prefix}/${name}"
+              done
+              echo
+              echo "Mutable latest URLs:"
+              for file in "${windows_files[@]}"; do
+                name="$(basename "$file")"
+                echo "- ${base_url}/${latest_prefix}/${name}"
+              done
+              echo
+              echo "Use the versioned installer URL in Microsoft Partner Center, not the latest alias."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
