@@ -59,7 +59,7 @@ jobs:
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build deb package
-        run: npm run build && npx electron-builder --linux deb --publish never
+        run: npm run build && npx electron-builder --config electron-builder.config.cjs --linux deb --publish never
 
       - name: Check out website repo
         uses: actions/checkout@v4

@@ -26,7 +26,7 @@ jobs:
         run: xvfb-run -a npm run smoke:test
 
       - name: Build & package
-        run: npm run build && npx electron-builder --linux --publish never
+        run: npm run build && npx electron-builder --config electron-builder.config.cjs --linux --publish never
 
       - name: Generate checksums
         run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
