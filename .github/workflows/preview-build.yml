@@ -42,6 +42,17 @@ jobs:
   # ── Windows NSIS installer ──
   build-windows:
     runs-on: windows-latest
+    env:
+      WINDOWS_REQUIRE_CODE_SIGNING: ${{ vars.WINDOWS_REQUIRE_CODE_SIGNING_PREVIEW }}
+      CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME }}
+      WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+      WINDOWS_TRUSTED_SIGNING_ENDPOINT: ${{ vars.WINDOWS_TRUSTED_SIGNING_ENDPOINT }}
+      WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -50,8 +61,66 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - name: Validate Windows signing configuration for signed preview builds
+        if: env.WINDOWS_REQUIRE_CODE_SIGNING == 'true'
+        shell: pwsh
+        run: |
+          $hasPfxSigning = [bool]$env:CSC_LINK -and [bool]$env:CSC_KEY_PASSWORD
+          $hasTrustedSigning =
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME -and
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME -and
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_ENDPOINT -and
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME -and
+            [bool]$env:AZURE_TENANT_ID -and
+            [bool]$env:AZURE_CLIENT_ID -and
+            [bool]$env:AZURE_CLIENT_SECRET
+
+          if ($hasPfxSigning -and $hasTrustedSigning) {
+            throw "Configure exactly one Windows signing method for preview builds."
+          }
+
+          if (-not $hasPfxSigning -and -not $hasTrustedSigning) {
+            throw "Signed preview builds require either WINDOWS_CSC_LINK/WINDOWS_CSC_KEY_PASSWORD or Azure Trusted Signing configuration."
+          }
+
       - name: Build & package
         run: npm run build && npx electron-builder --win --publish never
+
+      - name: Verify Windows Authenticode signatures
+        if: env.WINDOWS_REQUIRE_CODE_SIGNING == 'true'
+        shell: pwsh
+        run: |
+          $files = New-Object System.Collections.Generic.List[System.IO.FileInfo]
+
+          $setupFiles = Get-ChildItem dist -Filter *-setup.exe -File
+          foreach ($file in $setupFiles) {
+            $files.Add($file)
+          }
+
+          if (Test-Path dist\win-unpacked) {
+            $peFiles = Get-ChildItem dist\win-unpacked -Recurse -Include *.exe,*.dll -File
+            foreach ($file in $peFiles) {
+              $files.Add($file)
+            }
+          }
+
+          $uniqueFiles = $files | Sort-Object FullName -Unique
+          if ($uniqueFiles.Count -eq 0) {
+            throw "No Windows PE files were found to verify."
+          }
+
+          $invalidFiles = @()
+          foreach ($file in $uniqueFiles) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($signature.Status -ne 'Valid') {
+              $invalidFiles += "$($file.FullName) [$($signature.Status)]"
+            }
+          }
+
+          if ($invalidFiles.Count -gt 0) {
+            $invalidFiles | ForEach-Object { Write-Host $_ }
+            throw "Unsigned or invalid PE files found in the Windows preview artifact."
+          }
 
       - name: Generate checksums
         shell: bash

@@ -20,6 +20,7 @@
     "build": "electron-vite build",
     "dist": "npm run build && electron-builder --linux --publish never",
     "dist:dir": "npm run build && electron-builder --linux dir --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
