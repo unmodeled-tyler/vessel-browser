@@ -18,9 +18,9 @@
   "scripts": {
     "dev": "ELECTRON_DISABLE_SANDBOX=1 electron-vite dev",
     "build": "electron-vite build",
-    "dist": "npm run build && electron-builder --linux --publish never",
-    "dist:dir": "npm run build && electron-builder --linux dir --publish never",
-    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --linux --publish never",
+    "dist:dir": "npm run build && electron-builder --config electron-builder.config.cjs --linux dir --publish never",
+    "dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",

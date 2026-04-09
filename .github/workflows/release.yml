@@ -137,7 +137,7 @@ jobs:
         run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build & package
-        run: npm run build && npx electron-builder --win --publish never
+        run: npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
 
       - name: Verify Windows Authenticode signatures
         shell: pwsh
