@@ -123,8 +123,19 @@ jobs:
           }
 
       - name: Generate checksums
-        shell: bash
-        run: sha256sum dist/*-setup.exe > dist/SHASUMS256-win.txt
+        shell: pwsh
+        run: |
+          $setupFiles = Get-ChildItem dist -Filter *-setup.exe -File
+          if ($setupFiles.Count -eq 0) {
+            throw "No Windows setup executables were found in dist."
+          }
+
+          $checksums = foreach ($file in ($setupFiles | Sort-Object Name)) {
+            $hash = Get-FileHash -Algorithm SHA256 -Path $file.FullName
+            "{0} *{1}" -f $hash.Hash.ToLowerInvariant(), $file.Name
+          }
+
+          Set-Content -Path dist\SHASUMS256-win.txt -Value $checksums
 
       - uses: actions/upload-artifact@v4
         with:
