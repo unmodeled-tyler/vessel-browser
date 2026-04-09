@@ -1847,6 +1847,25 @@ function resolveElementSelector(index: number): string | null {
   return elementSelectors[index] || null;
 }
 
+function resolveElementIndexBySelector(selector: string): number | null {
+  if (!selector || typeof selector !== "string") return null;
+
+  let el: Element | null = null;
+  try {
+    if (selector.includes(" >>> ")) {
+      el = resolveShadowSelector(selector);
+    } else {
+      el = document.querySelector(selector);
+    }
+  } catch {
+    return null;
+  }
+
+  if (!el) return null;
+  const existing = indexedElements.get(el);
+  return typeof existing === "number" ? existing : null;
+}
+
 /**
  * Interact with an element by index — works even for shadow DOM elements
  * where CSS selectors fail. Returns a result string.
@@ -1947,6 +1966,7 @@ function interactByIndex(
 contextBridge.exposeInMainWorld("__vessel", {
   extractContent: vesselExtractContent,
   getElementSelector: resolveElementSelector,
+  getElementIndexBySelector: resolveElementIndexBySelector,
   interactByIndex,
   resolveShadowSelector,
   notifyHighlightSelection: (text: string) => {
