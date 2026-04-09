@@ -51,3 +51,4 @@ tests/tool-aliases.test.ts
 tests/task-tracker.test.ts
 tests/provider-openai.test.ts
 tests/tool-guardrails.test.ts
+tests/provider-openai-loop.test.ts

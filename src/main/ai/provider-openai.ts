@@ -47,6 +47,22 @@ function shouldRecoverCompactStall(text: string): boolean {
   if (!trimmed) return true;
   if (trimmed.length <= 160 && trimmed.includes("?")) return true;
 
+  const completionSignals = [
+    "i found",
+    "i chose",
+    "i selected",
+    "i added",
+    "here are",
+    "these are",
+    "recommendations",
+    "reasoning",
+    "why i chose",
+    "added them to the cart",
+  ];
+  if (completionSignals.some((pattern) => trimmed.includes(pattern))) {
+    return false;
+  }
+
   return [
     "what are you hoping",
     "what would you like",
@@ -54,6 +70,15 @@ function shouldRecoverCompactStall(text: string): boolean {
     "let me know",
     "are you looking for",
     "just browsing",
+    "i need to",
+    "i will",
+    "i'll",
+    "since i cannot see",
+    "since i can't see",
+    "cannot see the current page",
+    "scroll down to",
+    "load more results",
+    "as placeholders",
   ].some((pattern) => trimmed.includes(pattern));
 }
 
@@ -67,6 +92,16 @@ export function shouldRetryCompactToolLoop(
     hasToolHistory &&
     shouldRecoverCompactStall(text)
   );
+}
+
+export function stableToolSignature(
+  name: string,
+  args: Record<string, any>,
+): string {
+  const sortedEntries = Object.entries(args).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  return JSON.stringify([name, sortedEntries]);
 }
 
 export class OpenAICompatProvider implements AIProvider {
@@ -152,6 +187,7 @@ export class OpenAICompatProvider implements AIProvider {
       const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
       let compactRecoveryCount = 0;
+      let previousToolSignature: string | null = null;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         let textAccum = '';
@@ -280,6 +316,21 @@ export class OpenAICompatProvider implements AIProvider {
             });
             continue;
           }
+          const toolSignature = stableToolSignature(tc.name, args);
+          if (
+            this.agentToolProfile === 'compact' &&
+            previousToolSignature === toolSignature
+          ) {
+            onChunk(`\n<<tool:${tc.name}:↻ duplicate suppressed>>\n`);
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content:
+                `Error: Repeated the same tool call (${tc.name}) with the same arguments twice in a row. ` +
+                `Do not repeat it. Continue with the next logical step for the original task.`,
+            });
+            continue;
+          }
           const argSummary = args.url || args.text || args.direction || '';
           onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
           let result: string;
@@ -303,6 +354,8 @@ export class OpenAICompatProvider implements AIProvider {
           } catch {
             // Not JSON — use as-is
           }
+
+          previousToolSignature = toolSignature;
 
           messages.push({
             role: 'tool',
