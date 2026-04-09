@@ -68,6 +68,7 @@ const COMPACT_FOCUS_INSTRUCTIONS = [
   "Use current_tab only if you are genuinely unsure of the current page after reading the latest tool result.",
   "On retail tasks, prefer this sequence: navigate -> site search or curated section -> inspect/read results -> click a product -> add to cart -> explain.",
   "On product/detail pages, prefer read_page(mode=\"visible_only\") to find indexed purchase controls like Add to Cart, quantity, and checkout actions.",
+  "When read_page or inspect_element gives you an element index, prefer click(index=N) over selector-based clicks.",
   "Keep your reasoning short. Prefer taking the next tool action over writing a long plan.",
 ];
 

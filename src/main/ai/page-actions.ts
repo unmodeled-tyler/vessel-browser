@@ -808,12 +808,14 @@ async function inspectElement(
       text?: string;
     };
     nearby?: Array<{
+      index?: number;
       label: string;
       type: string;
       selector: string;
       href?: string;
     }>;
     purchaseActions?: Array<{
+      index?: number;
       label: string;
       type: string;
       selector: string;
@@ -948,6 +950,9 @@ async function inspectElement(
         const candidateLabel = labelFor(el).slice(0, 100);
         const candidateHref = el instanceof HTMLAnchorElement ? text(el.href) : undefined;
         nearby.push({
+          index: typeof window.__vessel?.getElementIndexBySelector === "function"
+            ? window.__vessel.getElementIndexBySelector(candidateSelector) ?? undefined
+            : undefined,
           label: candidateLabel,
           type: el.tagName.toLowerCase(),
           selector: candidateSelector,
@@ -957,6 +962,9 @@ async function inspectElement(
         if (purchaseRank !== null && !purchaseSeen.has(candidateSelector)) {
           purchaseSeen.add(candidateSelector);
           purchaseActions.push({
+            index: typeof window.__vessel?.getElementIndexBySelector === "function"
+              ? window.__vessel.getElementIndexBySelector(candidateSelector) ?? undefined
+              : undefined,
             label: candidateLabel,
             type: el.tagName.toLowerCase(),
             selector: candidateSelector,
@@ -977,6 +985,9 @@ async function inspectElement(
         if (purchaseRank === null) return;
         purchaseSeen.add(candidateSelector);
         purchaseActions.push({
+          index: typeof window.__vessel?.getElementIndexBySelector === "function"
+            ? window.__vessel.getElementIndexBySelector(candidateSelector) ?? undefined
+            : undefined,
           label: candidateLabel,
           type: el.tagName.toLowerCase(),
           selector: candidateSelector,
@@ -1009,6 +1020,7 @@ async function inspectElement(
         },
         nearby: nearby.slice(0, ${Math.max(1, Math.min(20, limit))}),
         purchaseActions: purchaseActions.slice(0, 8).map((item) => ({
+          index: item.index,
           label: item.label,
           type: item.type,
           selector: item.selector,
@@ -1049,8 +1061,10 @@ async function inspectElement(
     lines.push("Nearby controls:");
     for (const item of result.nearby) {
       const hrefSuffix = item.href ? ` -> ${item.href}` : "";
+      const indexPrefix =
+        typeof item.index === "number" ? `[#${item.index}] ` : "";
       lines.push(
-        `- ${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}`,
+        `- ${indexPrefix}${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}`,
       );
     }
   }
@@ -1060,12 +1074,14 @@ async function inspectElement(
       const hrefSuffix = item.href ? ` -> ${item.href}` : "";
       const sourceSuffix =
         item.source === "nearby" ? " (same region)" : " (elsewhere on page)";
+      const indexPrefix =
+        typeof item.index === "number" ? `[#${item.index}] ` : "";
       lines.push(
-        `- ${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}${sourceSuffix}`,
+        `- ${indexPrefix}${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}${sourceSuffix}`,
       );
     }
     lines.push(
-      'If you need indexed purchase controls, call read_page(mode="visible_only").',
+      "When an index is available, prefer click(index=N) over selector-based clicks because it is more stable.",
     );
   }
 
