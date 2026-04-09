@@ -494,6 +494,33 @@ async function getPostNavSummary(wc: WebContents): Promise<string> {
   return titleLine;
 }
 
+async function getPostSearchSummary(wc: WebContents): Promise<string> {
+  await waitForLoad(wc, 2000);
+
+  try {
+    const content = await Promise.race([
+      extractContent(wc),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+
+    if (content && content.content.length > 0) {
+      const scoped = buildScopedContext(content, "results_only");
+      const truncated =
+        scoped.length > 2600
+          ? `${scoped.slice(0, 2600)}\n[Search results snapshot truncated...]`
+          : scoped;
+      return `\nSearch results snapshot:\n${truncated}`;
+    }
+  } catch {
+    // Fall back to the lighter title/overlay summary below.
+  }
+
+  const fallback = await getPostNavSummary(wc);
+  return fallback
+    ? `${fallback}\nSearch results snapshot unavailable. Use read_page(mode="results_only") if needed.`
+    : `\nSearch results snapshot unavailable. Use read_page(mode="results_only") if needed.`;
+}
+
 async function scrollPage(
   wc: WebContents,
   deltaY: number,
@@ -3795,7 +3822,7 @@ export async function searchPage(
           ? ` (${shortcut.appliedFilters.join(", ")})`
           : "";
       const destination = shortcut.section ? ` ${shortcut.section}` : "";
-      return `Searched "${query}" via ${shortcut.source}${destination} shortcut${applied} → ${afterUrl}`;
+      return `Searched "${query}" via ${shortcut.source}${destination} shortcut${applied} → ${afterUrl}${await getPostSearchSummary(wc)}`;
     }
   }
 
@@ -3828,7 +3855,7 @@ export async function searchPage(
   await waitForPotentialNavigation(wc, beforeUrl, 3000);
   let afterUrl = wc.getURL();
   if (afterUrl !== beforeUrl) {
-    return `Searched "${query}" → ${afterUrl}`;
+    return `Searched "${query}" → ${afterUrl}${await getPostSearchSummary(wc)}`;
   }
 
   if (searchInfo.submitSelector) {
@@ -3837,12 +3864,12 @@ export async function searchPage(
       await waitForPotentialNavigation(wc, beforeUrl, 3000);
       afterUrl = wc.getURL();
       if (afterUrl !== beforeUrl) {
-        return `Searched "${query}" (via search button) → ${afterUrl}`;
+        return `Searched "${query}" (via search button) → ${afterUrl}${await getPostSearchSummary(wc)}`;
       }
     }
   }
 
-  return `Searched "${query}" (same page — results may have loaded dynamically; inspect with read_page(mode="results_only") or read_page(mode="visible_only") before navigating directly elsewhere)`;
+  return `Searched "${query}" (same page — results may have loaded dynamically)${await getPostSearchSummary(wc)}`;
 }
 
 async function pressKey(

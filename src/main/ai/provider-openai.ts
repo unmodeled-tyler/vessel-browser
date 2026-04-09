@@ -11,6 +11,21 @@ import {
   type AgentToolProfile,
 } from './tool-profile';
 
+function shouldDebugAgentLoop(): boolean {
+  const value = process.env.VESSEL_DEBUG_AGENT_LOOP;
+  return value === '1' || value === 'true';
+}
+
+function previewDebugValue(value: string, maxLength = 800): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}…`;
+}
+
+function previewToolDebugContent(content: string): string {
+  return previewDebugValue(content, 500);
+}
+
 function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.ChatCompletionTool[] {
   return tools.map((t) => ({
     type: 'function' as const,
@@ -99,7 +114,8 @@ export function stableToolSignature(
   name: string,
   args: Record<string, any>,
 ): string {
-  const sortedEntries = Object.entries(args).sort(([left], [right]) =>
+  const canonicalArgs = canonicalizeArgsForTool(name, args);
+  const sortedEntries = Object.entries(canonicalArgs).sort(([left], [right]) =>
     left.localeCompare(right),
   );
   return JSON.stringify([name, sortedEntries]);
@@ -110,6 +126,180 @@ export function hasRecentDuplicateToolCall(
   signature: string,
 ): boolean {
   return recentToolSignatures.includes(signature);
+}
+
+function normalizeToolToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[.\s/-]+/g, '_');
+}
+
+function canonicalizeUrlLike(value: string): string {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      url.hostname = url.hostname.replace(/^www\./, '');
+      url.hash = '';
+      if (url.pathname.endsWith('/') && url.pathname !== '/') {
+        url.pathname = url.pathname.replace(/\/+$/, '');
+      }
+      return url.toString();
+    }
+  } catch {
+    // Fall back to a trimmed raw value below.
+  }
+  return value.trim();
+}
+
+export function coerceToolArgsForExecution(
+  name: string,
+  args: Record<string, any>,
+): Record<string, any> {
+  const coerced = { ...args };
+
+  if (name === 'search') {
+    if (typeof coerced.query !== 'string' || !coerced.query.trim()) {
+      if (typeof coerced.text === 'string' && coerced.text.trim()) {
+        coerced.query = coerced.text.trim();
+      } else if (typeof coerced.term === 'string' && coerced.term.trim()) {
+        coerced.query = coerced.term.trim();
+      }
+    }
+  }
+
+  if (name === 'navigate') {
+    if (typeof coerced.url !== 'string' || !coerced.url.trim()) {
+      if (typeof coerced.href === 'string' && coerced.href.trim()) {
+        coerced.url = coerced.href.trim();
+      } else if (typeof coerced.link === 'string' && coerced.link.trim()) {
+        coerced.url = coerced.link.trim();
+      } else if (
+        typeof coerced.text === 'string' &&
+        /^https?:\/\//i.test(coerced.text.trim())
+      ) {
+        coerced.url = coerced.text.trim();
+      }
+    }
+  }
+
+  return coerced;
+}
+
+function canonicalizeArgsForTool(
+  name: string,
+  args: Record<string, any>,
+): Record<string, any> {
+  const canonical = coerceToolArgsForExecution(name, args);
+
+  if (typeof canonical.url === 'string') {
+    canonical.url = canonicalizeUrlLike(canonical.url);
+  }
+
+  if (typeof canonical.query === 'string') {
+    canonical.query = canonical.query.trim().replace(/\s+/g, ' ').toLowerCase();
+    delete canonical.text;
+  }
+
+  if (typeof canonical.text === 'string') {
+    canonical.text = canonical.text.trim().replace(/\s+/g, ' ');
+  }
+
+  return canonical;
+}
+
+export function resolveToolCallName(
+  rawName: string,
+  args: Record<string, any>,
+  availableToolNames: Set<string>,
+): string {
+  const aliased = normalizeToolAlias(rawName);
+  if (availableToolNames.has(aliased)) return aliased;
+
+  const normalized = normalizeToolToken(rawName);
+  if (availableToolNames.has(normalized)) return normalized;
+
+  const hasUrl = typeof args.url === 'string' && args.url.trim().length > 0;
+  if (
+    availableToolNames.has('navigate') &&
+    (hasUrl || /goto|navigate|open|visit|browser|url|link/.test(normalized))
+  ) {
+    return 'navigate';
+  }
+
+  if (
+    availableToolNames.has('search') &&
+    (/search|find|lookup|query/.test(normalized) ||
+      normalized === 'google' ||
+      normalized.startsWith('google_'))
+  ) {
+    return 'search';
+  }
+
+  if (
+    availableToolNames.has('scroll') &&
+    /scroll|page_?down|page_?up/.test(normalized)
+  ) {
+    return 'scroll';
+  }
+
+  if (
+    availableToolNames.has('read_page') &&
+    /read|scan|inspect|analy[sz]e|summari[sz]e/.test(normalized)
+  ) {
+    return 'read_page';
+  }
+
+  return aliased;
+}
+
+function logAgentLoopDebug(payload: Record<string, unknown>): void {
+  if (!shouldDebugAgentLoop()) return;
+  try {
+    console.log(`[Vessel agent-debug] ${JSON.stringify(payload)}`);
+  } catch (err) {
+    console.warn('[Vessel agent-debug] Failed to serialize debug payload:', err);
+  }
+}
+
+export function recoverTextEncodedToolCalls(
+  text: string,
+  availableToolNames: Set<string>,
+): Array<{ id: string; name: string; argsJson: string }> {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const candidates = trimmed.match(
+    /([A-Za-z0-9._ -]+)\s*\[ARGS\]\s*(\{[\s\S]*?\})(?=\s*$|\n{2,}|[A-Za-z0-9._ -]+\s*\[ARGS\])/g,
+  );
+  if (!candidates || candidates.length === 0) return [];
+
+  const recovered: Array<{ id: string; name: string; argsJson: string }> = [];
+  for (const candidate of candidates) {
+    const match = candidate.match(
+      /^\s*([A-Za-z0-9._ -]+)\s*\[ARGS\]\s*(\{[\s\S]*\})\s*$/,
+    );
+    if (!match) continue;
+
+    const rawName = match[1] ?? '';
+    const argsJson = match[2] ?? '{}';
+    let parsedArgs: Record<string, any> = {};
+    try {
+      parsedArgs = JSON.parse(argsJson);
+    } catch {
+      continue;
+    }
+
+    const resolvedName = resolveToolCallName(
+      rawName,
+      parsedArgs,
+      availableToolNames,
+    );
+    recovered.push({
+      id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: resolvedName,
+      argsJson,
+    });
+  }
+
+  return recovered;
 }
 
 export class OpenAICompatProvider implements AIProvider {
@@ -184,6 +374,7 @@ export class OpenAICompatProvider implements AIProvider {
   ): Promise<void> {
     this.abortController = new AbortController();
     const openAITools = toOpenAITools(tools);
+    const availableToolNames = new Set(tools.map((tool) => tool.name));
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -195,6 +386,7 @@ export class OpenAICompatProvider implements AIProvider {
       const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
       let compactRecoveryCount = 0;
+      let compactCorrectionCount = 0;
       const recentCompactToolSignatures: string[] = [];
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
@@ -202,6 +394,15 @@ export class OpenAICompatProvider implements AIProvider {
         const toolCallAccums: Record<number, { id: string; name: string; argsJson: string }> = {};
         let finishReason: string | null = null;
         const hasToolHistory = messages.some((message) => message.role === 'tool');
+        const priorToolMessages = messages.filter(
+          (message): message is OpenAI.Chat.ChatCompletionToolMessageParam =>
+            message.role === 'tool',
+        );
+        const latestToolMessage =
+          priorToolMessages.length > 0
+            ? priorToolMessages[priorToolMessages.length - 1]
+            : null;
+        const debugRoundLabel = hasToolHistory ? 'post_tool' : 'initial';
 
         const stream = await this.client.chat.completions.create(
           {
@@ -240,13 +441,48 @@ export class OpenAICompatProvider implements AIProvider {
           }
         }
 
-        const toolCalls = Object.values(toolCallAccums);
+        let toolCalls = Object.values(toolCallAccums);
 
         // Ensure every tool call has an ID (some providers like Ollama omit them)
         for (const tc of Object.values(toolCallAccums)) {
           if (!tc.id) tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          tc.name = normalizeToolAlias(tc.name);
+          let parsedArgs: Record<string, any> = {};
+          try {
+            parsedArgs = JSON.parse(tc.argsJson || '{}');
+          } catch {
+            parsedArgs = {};
+          }
+          tc.name = resolveToolCallName(tc.name, parsedArgs, availableToolNames);
         }
+
+        if (toolCalls.length === 0) {
+          const recoveredToolCalls = recoverTextEncodedToolCalls(
+            textAccum,
+            availableToolNames,
+          );
+          if (recoveredToolCalls.length > 0) {
+            toolCalls = recoveredToolCalls;
+          }
+        }
+
+        logAgentLoopDebug({
+          model: this.model,
+          profile: this.agentToolProfile,
+          iteration: i + 1,
+          round: debugRoundLabel,
+          priorToolCount: priorToolMessages.length,
+          latestToolResultPreview: latestToolMessage
+            ? previewToolDebugContent(String(latestToolMessage.content || ''))
+            : null,
+          finishReason,
+          streamedText: previewDebugValue(textAccum),
+          recoveredFromText: Object.keys(toolCallAccums).length === 0 && toolCalls.length > 0,
+          toolCalls: toolCalls.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            argsJson: previewDebugValue(tc.argsJson || '{}', 300),
+          })),
+        });
 
         // Sanitize tool call arguments — ensure valid JSON for message history
         // (malformed args from the model would cause a 400 on the next API call)
@@ -325,6 +561,26 @@ export class OpenAICompatProvider implements AIProvider {
             });
             continue;
           }
+          args = coerceToolArgsForExecution(tc.name, args);
+          if (!availableToolNames.has(tc.name)) {
+            onChunk(`\n<<tool:unsupported_tool:⚠ unsupported>>\n`);
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content:
+                `Error: ${tc.name} is not a supported tool. Choose one of the available browser tools instead.`,
+            });
+            compactCorrectionCount += 1;
+            if (compactCorrectionCount >= 2) {
+              messages.push({
+                role: 'system',
+                content:
+                  `You are calling unsupported tools. Stop inventing tool names. ` +
+                  `Use the supported tools you were given and take the next concrete step.`,
+              });
+            }
+            continue;
+          }
           const toolSignature = stableToolSignature(tc.name, args);
           if (
             this.agentToolProfile === 'compact' &&
@@ -341,9 +597,18 @@ export class OpenAICompatProvider implements AIProvider {
                 `Error: Repeated the same tool call (${tc.name}) with the same arguments twice in a row. ` +
                 `Do not repeat it. Continue with the next logical step for the original task.`,
             });
+            compactCorrectionCount += 1;
+            if (compactCorrectionCount >= 2) {
+              messages.push({
+                role: 'system',
+                content:
+                  `You are stuck repeating the same action. Stop repeating navigate/search. ` +
+                  `Use a different supported tool that advances the task, such as click, read_page, or scroll.`,
+              });
+            }
             continue;
           }
-          const argSummary = args.url || args.text || args.direction || '';
+          const argSummary = args.url || args.query || args.text || args.direction || '';
           onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
           let result: string;
           try {
@@ -373,6 +638,7 @@ export class OpenAICompatProvider implements AIProvider {
               recentCompactToolSignatures.shift();
             }
           }
+          compactCorrectionCount = 0;
 
           messages.push({
             role: 'tool',
