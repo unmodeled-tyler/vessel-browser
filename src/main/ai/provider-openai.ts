@@ -147,6 +147,12 @@ export function buildPhaseReminder(
     /(added to cart|added them to the cart|cart confirmation|view cart|checkout)/.test(
       text,
     );
+  const explanationDone =
+    /here is why i chose/.test(text) ||
+    /here are my reasons/.test(text) ||
+    /reason:/.test(text) ||
+    /reasons:/.test(text) ||
+    /why i chose/.test(text);
 
   if (wantsCart && selectedItems && (intendsCart || !cartDone)) {
     return (
@@ -156,7 +162,7 @@ export function buildPhaseReminder(
     );
   }
 
-  if (wantsCart && wantsExplanation && cartDone) {
+  if (wantsCart && wantsExplanation && cartDone && !explanationDone) {
     return (
       `Progress reminder: The cart step appears complete. ` +
       `Do not resume browsing. Finish by explaining why the chosen items were recommended.`
@@ -196,10 +202,17 @@ export function buildLatestStateReminder(toolResultPreview: string): string {
   return '';
 }
 
-function shouldRecoverCompactStall(text: string): boolean {
+function shouldRecoverCompactStall(
+  text: string,
+  userMessage?: string,
+): boolean {
   const trimmed = text.trim().toLowerCase();
   if (!trimmed) return true;
   if (trimmed.length <= 160 && trimmed.includes("?")) return true;
+
+  if (userMessage && buildPhaseReminder(userMessage, text)) {
+    return true;
+  }
 
   const completionSignals = [
     "i found",
@@ -247,11 +260,12 @@ export function shouldRetryCompactToolLoop(
   profile: AgentToolProfile,
   text: string,
   hasToolHistory: boolean,
+  userMessage?: string,
 ): boolean {
   return (
     profile === 'compact' &&
     hasToolHistory &&
-    shouldRecoverCompactStall(text)
+    shouldRecoverCompactStall(text, userMessage)
   );
 }
 
@@ -461,6 +475,11 @@ export function recoverNarratedActionToolCalls(
     const line = rawLine.replace(/^action:\s*/i, '').trim();
     if (!line) continue;
 
+    const quotedValue =
+      line.match(/"([^"]+)"/)?.[1]?.trim() ??
+      line.match(/'([^']+)'/)?.[1]?.trim() ??
+      '';
+
     const navigateMatch = line.match(
       /\b(?:navigate|open|go)\b(?:\s+(?:to|the url))?\s+(https?:\/\/[^\s)]+)\.?/i,
     );
@@ -470,6 +489,30 @@ export function recoverNarratedActionToolCalls(
         id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         name: resolveToolCallName('navigate', { url: navigateMatch[1] }, availableToolNames),
         argsJson,
+      });
+      continue;
+    }
+
+    const isSearchAction =
+      /\bsearch\b/i.test(line) ||
+      (/\btype\b/i.test(line) && /\bsearch box\b/i.test(line));
+    if (isSearchAction && quotedValue && availableToolNames.has('search')) {
+      recovered.push({
+        id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: 'search',
+        argsJson: JSON.stringify({ query: quotedValue }),
+      });
+      continue;
+    }
+
+    if (
+      /\b(?:read|scan)\b.*\bpage\b/i.test(line) &&
+      availableToolNames.has('read_page')
+    ) {
+      recovered.push({
+        id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: 'read_page',
+        argsJson: JSON.stringify({ mode: 'visible_only' }),
       });
       continue;
     }
@@ -716,6 +759,7 @@ export class OpenAICompatProvider implements AIProvider {
               this.agentToolProfile,
               textAccum,
               hasToolHistory,
+              userMessage,
             )
           ) {
             compactRecoveryCount += 1;
