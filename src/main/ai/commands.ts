@@ -40,6 +40,11 @@ export async function handleAIQuery(
       const pageContent = await extractContent(activeWebContents);
       const pageType = detectPageType(pageContent);
       const defaultReadMode = chooseAgentReadMode(pageContent);
+      if (provider.agentToolProfile === "compact") {
+        runtime.ensureTaskTracker(query, pageContent.url || activeWebContents.getURL());
+      } else {
+        runtime.clearTaskTracker();
+      }
       const structuredContext = buildScopedContext(
         pageContent,
         defaultReadMode,
@@ -49,6 +54,7 @@ export async function handleAIQuery(
         .slice(-3)
         .map((item) => `- ${item.name} (${item.id})`)
         .join("\n");
+      const taskTrackerContext = runtime.getTaskTrackerContext();
 
       const activeTabTitle = pageContent.title || "(untitled)";
       const activeTabUrl = pageContent.url || activeWebContents.getURL();
@@ -81,6 +87,9 @@ Supervisor state:
 
 Recent checkpoints:
 ${recentCheckpoints || "- none"}
+
+Task tracker:
+${taskTrackerContext || "- none"}
 
 Instructions:
 - You can see the page the user is viewing. The content above is from the page.
@@ -151,6 +160,13 @@ Instructions:
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           output = await executeAction(name, args as Record<string, any>, actionCtx);
+          if (provider.agentToolProfile === "compact") {
+            runtime.updateTaskTracker(name, output);
+            const trackerCtx = runtime.getTaskTrackerContext();
+            if (trackerCtx) {
+              output = `${output}\n${trackerCtx}`;
+            }
+          }
         } catch (err) {
           isError = true;
           output = err instanceof Error ? err.message : String(err);

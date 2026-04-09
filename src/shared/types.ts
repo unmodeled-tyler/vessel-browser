@@ -340,6 +340,25 @@ export interface FlowState {
   metadata?: Record<string, unknown>;
 }
 
+export type TaskTrackerStepStatus = "pending" | "active" | "done" | "failed";
+
+export interface TaskTrackerStep {
+  label: string;
+  status: TaskTrackerStepStatus;
+  detail?: string;
+}
+
+export interface TaskTrackerState {
+  goal: string;
+  steps: TaskTrackerStep[];
+  currentStepIndex: number;
+  startedAt: string;
+  updatedAt: string;
+  startUrl?: string;
+  lastAction?: string;
+  nextHint?: string;
+}
+
 export interface AgentRuntimeState {
   session: SessionSnapshot | null;
   supervisor: SupervisorState;
@@ -348,6 +367,7 @@ export interface AgentRuntimeState {
   transcript: AgentTranscriptEntry[];
   mcpStatus: McpConnectionStatus;
   flowState: FlowState | null;
+  taskTracker: TaskTrackerState | null;
 }
 
 export interface UIState {

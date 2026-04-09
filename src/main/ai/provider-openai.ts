@@ -27,6 +27,48 @@ function agentTemperatureForProfile(
   return profile === 'compact' ? 0.2 : undefined;
 }
 
+function followUpReminderForProfile(
+  profile: AgentToolProfile,
+  userMessage: string,
+): OpenAI.Chat.ChatCompletionSystemMessageParam | null {
+  if (profile !== 'compact') return null;
+
+  return {
+    role: 'system',
+    content:
+      `Task reminder: Continue working on the user's original request until it is completed: ${userMessage}\n` +
+      `Do not ask the user what they want next unless the request is genuinely ambiguous or blocked. ` +
+      `After navigation or page reads, keep executing the same task.`,
+  };
+}
+
+function shouldRecoverCompactStall(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  if (!trimmed) return true;
+  if (trimmed.length <= 160 && trimmed.includes("?")) return true;
+
+  return [
+    "what are you hoping",
+    "what would you like",
+    "how can i help",
+    "let me know",
+    "are you looking for",
+    "just browsing",
+  ].some((pattern) => trimmed.includes(pattern));
+}
+
+export function shouldRetryCompactToolLoop(
+  profile: AgentToolProfile,
+  text: string,
+  hasToolHistory: boolean,
+): boolean {
+  return (
+    profile === 'compact' &&
+    hasToolHistory &&
+    shouldRecoverCompactStall(text)
+  );
+}
+
 export class OpenAICompatProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile;
 
@@ -109,11 +151,13 @@ export class OpenAICompatProvider implements AIProvider {
     try {
       const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
+      let compactRecoveryCount = 0;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         let textAccum = '';
         const toolCallAccums: Record<number, { id: string; name: string; argsJson: string }> = {};
         let finishReason: string | null = null;
+        const hasToolHistory = messages.some((message) => message.role === 'tool');
 
         const stream = await this.client.chat.completions.create(
           {
@@ -188,7 +232,27 @@ export class OpenAICompatProvider implements AIProvider {
 
         // If no tool calls were requested, we're done
         // (Some providers like Ollama send finish_reason "stop" even with tool calls)
-        if (toolCalls.length === 0) break;
+        if (toolCalls.length === 0) {
+          if (
+            compactRecoveryCount < 2 &&
+            shouldRetryCompactToolLoop(
+              this.agentToolProfile,
+              textAccum,
+              hasToolHistory,
+            )
+          ) {
+            compactRecoveryCount += 1;
+            messages.push({
+              role: 'system',
+              content:
+                `The task is still in progress: ${userMessage}\n` +
+                `Do not stop after a partial step. Choose the next tool now unless the request is fully complete.`,
+            });
+            continue;
+          }
+          break;
+        }
+        compactRecoveryCount = 0;
 
         // Execute each tool and collect results
         for (const tc of toolCalls) {
@@ -245,6 +309,14 @@ export class OpenAICompatProvider implements AIProvider {
             tool_call_id: tc.id,
             content: toolContent,
           });
+        }
+
+        const followUpReminder = followUpReminderForProfile(
+          this.agentToolProfile,
+          userMessage,
+        );
+        if (followUpReminder) {
+          messages.push(followUpReminder);
         }
       }
       if (iterationsUsed >= maxIterations) {

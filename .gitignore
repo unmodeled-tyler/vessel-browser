@@ -48,3 +48,6 @@ docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 docs/cloudflare-r2-windows-distribution.md
 tests/tool-profile.test.ts
 tests/tool-aliases.test.ts
+tests/task-tracker.test.ts
+tests/provider-openai.test.ts
+tests/tool-guardrails.test.ts

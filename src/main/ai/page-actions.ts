@@ -24,6 +24,10 @@ import { assertSafeURL } from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";
 import { makeImageResult } from "./tool-result";
 import { normalizeToolAlias } from "./tool-aliases";
+import {
+  isRedundantNavigateTarget,
+  looksLikeCurrentSiteNameQuery,
+} from "./tool-guardrails";
 import { isToolGated, isFeatureGated } from "../premium/manager";
 import { trackToolCall } from "../telemetry/posthog";
 import * as namedSessionManager from "../sessions/manager";
@@ -3773,6 +3777,10 @@ export async function searchPage(
     return `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`;
   }
 
+  if (looksLikeCurrentSiteNameQuery(query, wc.getURL(), wc.getTitle() || "")) {
+    return `Error: "${query}" looks like the current site's name, not a product query. You are already on ${wc.getURL()}. Open a section like staff picks/new releases or search for actual book titles, authors, or genres instead.`;
+  }
+
   if (typeof args.selector !== "string") {
     const shortcut = buildSearchShortcut(wc.getURL(), query);
     if (shortcut) {
@@ -4180,6 +4188,13 @@ export async function executeAction(
 
         case "navigate": {
           if (!wc || !tabId) return "Error: No active tab";
+          if (
+            typeof args.url === "string" &&
+            !args.postBody &&
+            isRedundantNavigateTarget(wc.getURL(), args.url)
+          ) {
+            return `Already on ${wc.getURL()}. Do not navigate to the same URL again. Use click, inspect_element, read_page, or search for actual book terms instead.`;
+          }
           const navValidation = await validateLinkDestination(args.url);
           if (navValidation.status === "dead") {
             return `Navigation blocked: ${args.url} returned ${navValidation.detail || "dead link"}. Try a different URL or go back and choose another link.`;
