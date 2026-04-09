@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { PageType } from "../ai/context-builder";
+import type { AgentToolProfile } from "../ai/tool-profile";
 import { TOOL_DEFINITIONS, type ToolDefinition } from "./definitions";
 import { isToolGated } from "../premium/manager";
 
@@ -65,11 +66,21 @@ const CONTEXT_HINTS: Partial<Record<PageType, Record<string, string>>> = {
  * Score a tool for the given page context.
  * Lower score = higher position in the reordered list.
  */
-function scoreForContext(toolName: string, pageType: PageType): number {
+function scoreForContext(
+  toolName: string,
+  pageType: PageType,
+  intents: Set<string>,
+): number {
   const def = defByName[toolName];
   if (!def) return 500; // unknown tool, push to end
 
   if (pageType === "SEARCH_READY") {
+    if (intents.has("navigate")) {
+      if (toolName === "navigate") return -30;
+      if (toolName === "search") return 2;
+      if (toolName === "type_text") return 5;
+      if (toolName === "press_key") return 6;
+    }
     if (toolName === "search") return -20;
     if (toolName === "type_text") return 5;
     if (toolName === "press_key") return 6;
@@ -111,11 +122,61 @@ const ALWAYS_FAST_TOOL_NAMES = new Set([
   "inspect_element",
 ]);
 
+const COMPACT_CORE_TOOL_NAMES = new Set([
+  "navigate",
+  "go_back",
+  "click",
+  "type_text",
+  "press_key",
+  "scroll",
+  "dismiss_popup",
+  "clear_overlays",
+  "accept_cookies",
+  "read_page",
+  "wait_for",
+  "inspect_element",
+  "search",
+]);
+
+const COMPACT_CONTEXTUAL_TOOL_NAMES: Partial<Record<PageType, string[]>> = {
+  LOGIN: ["fill_form", "submit_form", "login"],
+  FORM: ["fill_form", "select_option", "submit_form"],
+  SHOPPING: ["select_option", "fill_form", "submit_form"],
+  SEARCH_RESULTS: ["paginate", "scroll_to_element"],
+  PAGINATED_LIST: ["paginate", "scroll_to_element"],
+};
+
+const COMPACT_INTENT_TOOL_NAMES: Record<string, string[]> = {
+  tabs: ["current_tab", "list_tabs", "switch_tab", "create_tab"],
+  bookmarks: [
+    "list_bookmarks",
+    "search_bookmarks",
+    "create_bookmark_folder",
+    "save_bookmark",
+    "organize_bookmark",
+    "archive_bookmark",
+    "open_bookmark",
+  ],
+  sessions: ["login", "save_session", "load_session", "list_sessions", "delete_session"],
+  workflow: ["create_checkpoint", "restore_checkpoint", "flow_start", "flow_advance", "flow_status", "flow_end"],
+  metrics: ["metrics"],
+  highlight: ["highlight", "clear_highlights"],
+  table: ["extract_table"],
+  debug: ["current_tab", "reload", "set_ad_blocking", "suggest", "screenshot"],
+};
+
 function inferIntent(query: string): Set<string> {
   const lowered = query.toLowerCase();
   const intents = new Set<string>();
 
   if (/\b(tab|tabs|window|windows)\b/.test(lowered)) intents.add("tabs");
+  if (
+    /\b(go to|goto|open|visit|navigate to)\b/.test(lowered) ||
+    /\b[a-z0-9-]+\.(com|org|net|io|dev|app|ai|co|edu|gov)\b/.test(lowered) ||
+    /\bhttps?:\/\//.test(lowered)
+  ) {
+    intents.add("navigate");
+  }
   if (/\b(bookmark|bookmarks|save this|folder)\b/.test(lowered)) {
     intents.add("bookmarks");
   }
@@ -146,7 +207,23 @@ function shouldIncludeTool(
   toolName: string,
   pageType: PageType,
   intents: Set<string>,
+  profile: AgentToolProfile,
 ): boolean {
+  if (profile === "compact") {
+    if (COMPACT_CORE_TOOL_NAMES.has(toolName)) return true;
+
+    const contextualTools = COMPACT_CONTEXTUAL_TOOL_NAMES[pageType] ?? [];
+    if (contextualTools.includes(toolName)) return true;
+
+    for (const intent of intents) {
+      if ((COMPACT_INTENT_TOOL_NAMES[intent] ?? []).includes(toolName)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   if (ALWAYS_FAST_TOOL_NAMES.has(toolName)) return true;
 
   switch (toolName) {
@@ -223,17 +300,19 @@ export function pruneToolsForContext(
   tools: Anthropic.Tool[],
   pageType: PageType | null,
   query = "",
+  options: { profile?: AgentToolProfile } = {},
 ): Anthropic.Tool[] {
   const ctx = pageType ?? "GENERAL";
   const hints = CONTEXT_HINTS[ctx] ?? {};
   const intents = inferIntent(query);
+  const profile = options.profile ?? "default";
 
   // Score, sort, annotate — keep premium tools visible but tag their descriptions
   const scored = tools
-    .filter((tool) => shouldIncludeTool(tool.name, ctx, intents))
+    .filter((tool) => shouldIncludeTool(tool.name, ctx, intents, profile))
     .map((tool) => ({
       tool,
-      score: scoreForContext(tool.name, ctx),
+      score: scoreForContext(tool.name, ctx, intents),
     }));
 
   scored.sort((a, b) => a.score - b.score);

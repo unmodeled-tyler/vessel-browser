@@ -1,10 +1,13 @@
 node_modules/
 out/
 dist/
+coverage/
 .venv/
 .idea/
 *.log
+*.tsbuildinfo
 .env
+.vessel-test-data/
 .mcpregistry_*
 scripts/*.cjs
 tmp/
@@ -31,10 +34,7 @@ docs/improvement-roadmap.md
 src/main/telemetry/trace-logger.ts
 src/main/telemetry/trace-logger.local.cjs
 .agents/skills/hf-cli/SKILL.md
-.gitignore
-.gitignore
 .claude/settings.json
-.gitignore
 .security-audit-ignore
 docs/superpowers/specs/2026-03-28-linux-app-store-distribution-design.md
 .vscode/extensions.json
@@ -46,3 +46,10 @@ docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 *.superpowers*
 .claude/settings.local.json
 docs/cloudflare-r2-windows-distribution.md
+tests/tool-profile.test.ts
+tests/tool-aliases.test.ts
+tests/task-tracker.test.ts
+tests/provider-openai.test.ts
+tests/tool-guardrails.test.ts
+tests/provider-openai-loop.test.ts
+tests/agent-prompt.test.ts

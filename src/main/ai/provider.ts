@@ -4,8 +4,11 @@ import type { AIMessage, ProviderConfig } from "../../shared/types";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
 import { PROVIDERS } from "./providers";
+import type { AgentToolProfile } from "./tool-profile";
 
 export interface AIProvider {
+  readonly agentToolProfile: AgentToolProfile;
+
   streamQuery(
     systemPrompt: string,
     userMessage: string,

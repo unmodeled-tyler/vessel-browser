@@ -500,6 +500,8 @@ async function main(): Promise<void> {
           const result = await searchPage(wc, { query });
 
           assert.match(result, /via search button/);
+          assert.match(result, /Search results snapshot:/);
+          assert.match(result, /\*\*Title:\*\* search-visibility-result/);
           assert.equal(
             wc.getURL(),
             `${harness.baseUrl}/search-visibility-result?term=${encodeURIComponent(query)}`,

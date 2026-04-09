@@ -3,8 +3,11 @@ import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
 import { isRichToolResult, type RichToolResult } from "./tool-result";
 import { getEffectiveMaxIterations } from "../premium/manager";
+import type { AgentToolProfile } from "./tool-profile";
 
 export class AnthropicProvider implements AIProvider {
+  readonly agentToolProfile: AgentToolProfile = "default";
+
   private client: Anthropic;
   private model: string;
   private abortController: AbortController | null = null;

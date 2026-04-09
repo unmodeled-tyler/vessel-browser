@@ -23,6 +23,12 @@ import {
 import { assertSafeURL } from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";
 import { makeImageResult } from "./tool-result";
+import { normalizeToolAlias } from "./tool-aliases";
+import {
+  isRedundantNavigateTarget,
+  looksLikeCurrentSiteNameQuery,
+  shouldBlockOffGoalDomainNavigation,
+} from "./tool-guardrails";
 import { isToolGated, isFeatureGated } from "../premium/manager";
 import { trackToolCall } from "../telemetry/posthog";
 import * as namedSessionManager from "../sessions/manager";
@@ -486,6 +492,33 @@ async function getPostNavSummary(wc: WebContents): Promise<string> {
   }
 
   return titleLine;
+}
+
+async function getPostSearchSummary(wc: WebContents): Promise<string> {
+  await waitForLoad(wc, 2000);
+
+  try {
+    const content = await Promise.race([
+      extractContent(wc),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
+
+    if (content && content.content.length > 0) {
+      const scoped = buildScopedContext(content, "results_only");
+      const truncated =
+        scoped.length > 2600
+          ? `${scoped.slice(0, 2600)}\n[Search results snapshot truncated...]`
+          : scoped;
+      return `\nSearch results snapshot:\n${truncated}`;
+    }
+  } catch {
+    // Fall back to the lighter title/overlay summary below.
+  }
+
+  const fallback = await getPostNavSummary(wc);
+  return fallback
+    ? `${fallback}\nSearch results snapshot unavailable. Use read_page(mode="results_only") if needed.`
+    : `\nSearch results snapshot unavailable. Use read_page(mode="results_only") if needed.`;
 }
 
 async function scrollPage(
@@ -3772,6 +3805,10 @@ export async function searchPage(
     return `Error: "${query}" looks like a button label, not a search query. Use the click tool to interact with this element instead.`;
   }
 
+  if (looksLikeCurrentSiteNameQuery(query, wc.getURL(), wc.getTitle() || "")) {
+    return `Error: "${query}" looks like the current site's name, not a product query. You are already on ${wc.getURL()}. Open a section like staff picks/new releases or search for actual book titles, authors, or genres instead.`;
+  }
+
   if (typeof args.selector !== "string") {
     const shortcut = buildSearchShortcut(wc.getURL(), query);
     if (shortcut) {
@@ -3785,7 +3822,7 @@ export async function searchPage(
           ? ` (${shortcut.appliedFilters.join(", ")})`
           : "";
       const destination = shortcut.section ? ` ${shortcut.section}` : "";
-      return `Searched "${query}" via ${shortcut.source}${destination} shortcut${applied} → ${afterUrl}`;
+      return `Searched "${query}" via ${shortcut.source}${destination} shortcut${applied} → ${afterUrl}${await getPostSearchSummary(wc)}`;
     }
   }
 
@@ -3818,7 +3855,7 @@ export async function searchPage(
   await waitForPotentialNavigation(wc, beforeUrl, 3000);
   let afterUrl = wc.getURL();
   if (afterUrl !== beforeUrl) {
-    return `Searched "${query}" → ${afterUrl}`;
+    return `Searched "${query}" → ${afterUrl}${await getPostSearchSummary(wc)}`;
   }
 
   if (searchInfo.submitSelector) {
@@ -3827,12 +3864,12 @@ export async function searchPage(
       await waitForPotentialNavigation(wc, beforeUrl, 3000);
       afterUrl = wc.getURL();
       if (afterUrl !== beforeUrl) {
-        return `Searched "${query}" (via search button) → ${afterUrl}`;
+        return `Searched "${query}" (via search button) → ${afterUrl}${await getPostSearchSummary(wc)}`;
       }
     }
   }
 
-  return `Searched "${query}" (same page — results may have loaded dynamically; inspect with read_page(mode="results_only") or read_page(mode="visible_only") before navigating directly elsewhere)`;
+  return `Searched "${query}" (same page — results may have loaded dynamically)${await getPostSearchSummary(wc)}`;
 }
 
 async function pressKey(
@@ -4037,6 +4074,8 @@ export async function executeAction(
   args: Record<string, any>,
   ctx: ActionContext,
 ): Promise<string> {
+  name = normalizeToolAlias(name);
+
   // Detect concatenated tool names (e.g. "create_checkpointcurrent_tablist_tabs")
   // from models that don't properly support parallel tool calls
   if (!KNOWN_TOOLS.has(name)) {
@@ -4177,6 +4216,23 @@ export async function executeAction(
 
         case "navigate": {
           if (!wc || !tabId) return "Error: No active tab";
+          const taskGoal = ctx.runtime.getState().taskTracker?.goal;
+          if (taskGoal && typeof args.url === "string") {
+            const domainDrift = shouldBlockOffGoalDomainNavigation(
+              taskGoal,
+              args.url,
+            );
+            if (domainDrift) {
+              return `Navigation blocked: ${args.url} drifts away from the requested site ${domainDrift.requestedDomain}. Stay on the requested domain and continue the original task there.`;
+            }
+          }
+          if (
+            typeof args.url === "string" &&
+            !args.postBody &&
+            isRedundantNavigateTarget(wc.getURL(), args.url)
+          ) {
+            return `Already on ${wc.getURL()}. Do not navigate to the same URL again. Use click, inspect_element, read_page, or search for actual book terms instead.`;
+          }
           const navValidation = await validateLinkDestination(args.url);
           if (navValidation.status === "dead") {
             return `Navigation blocked: ${args.url} returned ${navValidation.detail || "dead link"}. Try a different URL or go back and choose another link.`;

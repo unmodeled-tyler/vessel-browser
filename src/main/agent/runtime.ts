@@ -15,12 +15,18 @@ import type {
   FlowStepStatus,
   PendingApproval,
   SessionSnapshot,
+  TaskTrackerState,
 } from "../../shared/types";
 import type { TabManager } from "../tabs/tab-manager";
 import {
   getMcpStatus,
   onMcpStatusChange,
 } from "../health/runtime-health";
+import {
+  createTaskTracker,
+  formatTaskTracker,
+  updateTaskTracker,
+} from "../ai/task-tracker";
 
 const MAX_ACTIONS = 120;
 const MAX_CHECKPOINTS = 20;
@@ -100,6 +106,7 @@ function sanitizePersistence(
     transcript: [],
     mcpStatus: "stopped",
     flowState: null,
+    taskTracker: null,
   };
 }
 
@@ -245,6 +252,40 @@ export class AgentRuntime {
     this.state.transcript = [];
     this.emit();
     return this.getState();
+  }
+
+  ensureTaskTracker(goal: string, startUrl?: string): TaskTrackerState {
+    const trimmedGoal = goal.trim();
+    if (
+      this.state.taskTracker &&
+      this.state.taskTracker.goal.trim() === trimmedGoal
+    ) {
+      return clone(this.state.taskTracker);
+    }
+
+    this.state.taskTracker = createTaskTracker(trimmedGoal, startUrl);
+    this.emit();
+    return clone(this.state.taskTracker);
+  }
+
+  updateTaskTracker(actionName: string, result: string): TaskTrackerState | null {
+    if (!this.state.taskTracker) return null;
+    this.state.taskTracker = updateTaskTracker(
+      this.state.taskTracker,
+      actionName,
+      result,
+    );
+    this.emit();
+    return clone(this.state.taskTracker);
+  }
+
+  clearTaskTracker(): void {
+    this.state.taskTracker = null;
+    this.emit();
+  }
+
+  getTaskTrackerContext(): string {
+    return formatTaskTracker(this.state.taskTracker);
   }
 
   // --- Speedee Flow State ---
