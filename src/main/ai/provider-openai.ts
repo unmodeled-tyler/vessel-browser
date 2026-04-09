@@ -46,16 +46,154 @@ function agentTemperatureForProfile(
 function followUpReminderForProfile(
   profile: AgentToolProfile,
   userMessage: string,
+  assistantText?: string,
+  latestToolResultPreview?: string | null,
 ): OpenAI.Chat.ChatCompletionSystemMessageParam | null {
   if (profile !== 'compact') return null;
+
+  const phaseReminder = buildPhaseReminder(userMessage, assistantText || '');
+  const stateReminder = buildLatestStateReminder(latestToolResultPreview || '');
 
   return {
     role: 'system',
     content:
       `Task reminder: Continue working on the user's original request until it is completed: ${userMessage}\n` +
       `Do not ask the user what they want next unless the request is genuinely ambiguous or blocked. ` +
-      `After navigation or page reads, keep executing the same task.`,
+      `After navigation or page reads, keep executing the same task.` +
+      (stateReminder ? `\n${stateReminder}` : '') +
+      (phaseReminder ? `\n${phaseReminder}` : ''),
   };
+}
+
+function extractSingleGoalDomain(goal: string): string | null {
+  const matches = goal
+    .toLowerCase()
+    .match(/\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.(?:com|org|net|io|dev|app|ai|co|edu|gov))\b/g);
+  if (!matches || matches.length !== 1) return null;
+
+  return matches[0]
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .toLowerCase();
+}
+
+export function buildCompactRecoveryPrompt(
+  userMessage: string,
+  assistantText: string,
+  latestToolResultPreview?: string | null,
+): string {
+  const phaseReminder = buildPhaseReminder(userMessage, assistantText);
+  const stateReminder = buildLatestStateReminder(latestToolResultPreview || '');
+  const goalDomain = extractSingleGoalDomain(userMessage);
+  const latest = (latestToolResultPreview || '').toLowerCase();
+  const assistant = assistantText.toLowerCase();
+  const alreadyOnGoalSite =
+    !!goalDomain &&
+    (latest.includes(goalDomain) ||
+      assistant.includes(`https://${goalDomain}`) ||
+      assistant.includes(`https://www.${goalDomain}`));
+
+  const lines = [
+    `The task is still in progress: ${userMessage}`,
+    `Do not ask the user for permission to continue. Choose the next tool now unless the request is fully complete.`,
+  ];
+
+  if (alreadyOnGoalSite) {
+    lines.push(
+      `You are already on the requested site (${goalDomain}). Do not navigate to the homepage again and do not restart discovery from scratch.`,
+    );
+  }
+
+  if (stateReminder) {
+    lines.push(stateReminder);
+  }
+
+  if (phaseReminder) {
+    lines.push(phaseReminder);
+  }
+
+  return lines.join('\n');
+}
+
+export function buildPhaseReminder(
+  userMessage: string,
+  assistantText: string,
+): string {
+  const goal = userMessage.toLowerCase();
+  const text = assistantText.toLowerCase();
+  if (!goal || !text) return '';
+
+  const wantsCart = /\b(cart|bag|basket|checkout)\b/.test(goal);
+  const wantsExplanation = /\b(explain|reason|why)\b/.test(goal);
+  const hasFiveItemList =
+    /(?:^|\n)\s*1\./.test(assistantText) &&
+    /(?:^|\n)\s*2\./.test(assistantText) &&
+    /(?:^|\n)\s*3\./.test(assistantText) &&
+    /(?:^|\n)\s*4\./.test(assistantText) &&
+    /(?:^|\n)\s*5\./.test(assistantText);
+  const selectedItems =
+    hasFiveItemList ||
+    /i(?:'| a)?ve chosen/.test(text) ||
+    /i have chosen/.test(text) ||
+    /i selected/.test(text) ||
+    /here are the books/i.test(assistantText) ||
+    /here are the items/i.test(assistantText);
+  const intendsCart =
+    /next[, ]+i will add/.test(text) ||
+    /i(?:'| a)?ll start with the first/.test(text) ||
+    /proceed systematically/.test(text) ||
+    /add (these|the chosen|the selected).*(cart|bag|basket)/.test(text);
+  const cartDone =
+    /(added to cart|added them to the cart|cart confirmation|view cart|checkout)/.test(
+      text,
+    );
+
+  if (wantsCart && selectedItems && (intendsCart || !cartDone)) {
+    return (
+      `Progress reminder: You already selected the requested items. ` +
+      `Do not restart browsing or searching unless a specific cart step fails. ` +
+      `Continue adding the selected items to the cart one by one.`
+    );
+  }
+
+  if (wantsCart && wantsExplanation && cartDone) {
+    return (
+      `Progress reminder: The cart step appears complete. ` +
+      `Do not resume browsing. Finish by explaining why the chosen items were recommended.`
+    );
+  }
+
+  return '';
+}
+
+export function buildLatestStateReminder(toolResultPreview: string): string {
+  const text = toolResultPreview.trim();
+  if (!text) return '';
+
+  const stateMatch = text.match(
+    /\[state:\s+url=([^,\]\n]+),\s+title=(?:"([^"]*)"|([^,\]\n]+))/i,
+  );
+  if (stateMatch) {
+    const url = stateMatch[1]?.trim();
+    const title = (stateMatch[2] ?? stateMatch[3] ?? '').trim();
+    if (url) {
+      return `Latest browser state: URL ${url}${title ? `, title "${title}"` : ''}. Trust the latest tool result over the initial page context.`;
+    }
+  }
+
+  const structuredUrl = text.match(/\*\*URL:\*\*\s*([^\n]+)/i)?.[1]?.trim();
+  const structuredTitle = text.match(/\*\*Title:\*\*\s*([^\n]+)/i)?.[1]?.trim();
+  if (structuredUrl) {
+    return `Latest browser state: URL ${structuredUrl}${structuredTitle ? `, title "${structuredTitle}"` : ''}. Trust the latest tool result over the initial page context.`;
+  }
+
+  const navigatedUrl = text.match(/\b(?:navigated to|went back to|went forward to|searched "[^"]+"(?: \(via search button\))? →)\s+([^\s\n]+)/i)?.[1]?.trim();
+  const pageTitle = text.match(/\bPage title:\s*([^\n]+)/i)?.[1]?.trim();
+  if (navigatedUrl) {
+    return `Latest browser state: URL ${navigatedUrl}${pageTitle ? `, title "${pageTitle}"` : ''}. Trust the latest tool result over the initial page context.`;
+  }
+
+  return '';
 }
 
 function shouldRecoverCompactStall(text: string): boolean {
@@ -95,6 +233,13 @@ function shouldRecoverCompactStall(text: string): boolean {
     "scroll down to",
     "load more results",
     "as placeholders",
+    "would you like me to proceed",
+    "action:",
+    "one moment",
+    "i will now navigate",
+    "navigating to ",
+    "this will take me",
+    "i will use the browser",
   ].some((pattern) => trimmed.includes(pattern));
 }
 
@@ -302,6 +447,49 @@ export function recoverTextEncodedToolCalls(
   return recovered;
 }
 
+export function recoverNarratedActionToolCalls(
+  text: string,
+  availableToolNames: Set<string>,
+): Array<{ id: string; name: string; argsJson: string }> {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const recovered: Array<{ id: string; name: string; argsJson: string }> = [];
+  const actionLines = trimmed.match(/^action:\s+.+$/gim) ?? [];
+
+  for (const rawLine of actionLines) {
+    const line = rawLine.replace(/^action:\s*/i, '').trim();
+    if (!line) continue;
+
+    const navigateMatch = line.match(
+      /\b(?:navigate|open|go)\b(?:\s+(?:to|the url))?\s+(https?:\/\/[^\s)]+)\.?/i,
+    );
+    if (navigateMatch?.[1]) {
+      const argsJson = JSON.stringify({ url: navigateMatch[1].replace(/\.$/, '') });
+      recovered.push({
+        id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: resolveToolCallName('navigate', { url: navigateMatch[1] }, availableToolNames),
+        argsJson,
+      });
+      continue;
+    }
+
+    const toolRefMatch = line.match(
+      /\b(?:use|call)\s+([a-z_][a-z0-9_]*)(?:\s+tool)?\b/i,
+    );
+    if (toolRefMatch?.[1]) {
+      const toolName = resolveToolCallName(toolRefMatch[1], {}, availableToolNames);
+      recovered.push({
+        id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: toolName,
+        argsJson: '{}',
+      });
+    }
+  }
+
+  return recovered;
+}
+
 export class OpenAICompatProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile;
 
@@ -462,6 +650,14 @@ export class OpenAICompatProvider implements AIProvider {
           );
           if (recoveredToolCalls.length > 0) {
             toolCalls = recoveredToolCalls;
+          } else {
+            const narratedToolCalls = recoverNarratedActionToolCalls(
+              textAccum,
+              availableToolNames,
+            );
+            if (narratedToolCalls.length > 0) {
+              toolCalls = narratedToolCalls;
+            }
           }
         }
 
@@ -525,15 +721,21 @@ export class OpenAICompatProvider implements AIProvider {
             compactRecoveryCount += 1;
             messages.push({
               role: 'system',
-              content:
-                `The task is still in progress: ${userMessage}\n` +
-                `Do not stop after a partial step. Choose the next tool now unless the request is fully complete.`,
+              content: buildCompactRecoveryPrompt(
+                userMessage,
+                textAccum,
+                latestToolMessage
+                  ? String(latestToolMessage.content || '')
+                  : null,
+              ),
             });
             continue;
           }
           break;
         }
         compactRecoveryCount = 0;
+
+        const iterationToolResultPreviews: string[] = [];
 
         // Execute each tool and collect results
         for (const tc of toolCalls) {
@@ -639,6 +841,7 @@ export class OpenAICompatProvider implements AIProvider {
             }
           }
           compactCorrectionCount = 0;
+          iterationToolResultPreviews.push(toolContent);
 
           messages.push({
             role: 'tool',
@@ -650,6 +853,10 @@ export class OpenAICompatProvider implements AIProvider {
         const followUpReminder = followUpReminderForProfile(
           this.agentToolProfile,
           userMessage,
+          textAccum,
+          iterationToolResultPreviews.length > 0
+            ? iterationToolResultPreviews[iterationToolResultPreviews.length - 1]
+            : null,
         );
         if (followUpReminder) {
           messages.push(followUpReminder);

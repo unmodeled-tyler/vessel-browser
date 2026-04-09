@@ -52,3 +52,4 @@ tests/task-tracker.test.ts
 tests/provider-openai.test.ts
 tests/tool-guardrails.test.ts
 tests/provider-openai-loop.test.ts
+tests/agent-prompt.test.ts
