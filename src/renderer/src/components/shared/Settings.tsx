@@ -23,6 +23,7 @@ const CHAT_PROVIDERS: Array<{ id: ProviderId; name: string; requiresKey: boolean
   { id: "openai", name: "OpenAI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "gpt-4o", models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3-mini"] },
   { id: "openrouter", name: "OpenRouter", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-or-...", defaultModel: "anthropic/claude-sonnet-4", models: ["anthropic/claude-sonnet-4", "openai/gpt-4o", "google/gemini-2.5-pro"] },
   { id: "ollama", name: "Ollama (Local)", requiresKey: false, needsBaseUrl: false, keyPlaceholder: "", defaultModel: "", models: [] },
+  { id: "llama_cpp", name: "llama.cpp (Local)", requiresKey: false, needsBaseUrl: false, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "", defaultModel: "", models: [] },
   { id: "mistral", name: "Mistral AI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "mistral-large-latest", models: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"] },
   { id: "xai", name: "xAI (Grok)", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "xai-...", defaultModel: "grok-3", models: ["grok-3", "grok-3-mini"] },
   { id: "google", name: "Google Gemini", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "AI...", defaultModel: "gemini-2.5-pro", models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"] },
@@ -157,6 +158,7 @@ const Settings: Component = () => {
 
   const [providerModels, setProviderModels] = createSignal<string[]>([]);
   const [modelFetchState, setModelFetchState] = createSignal<"idle" | "loading" | "error">("idle");
+  const [modelFetchWarning, setModelFetchWarning] = createSignal<string | null>(null);
 
   const doFetchModels = () => {
     const meta = chatProviderMeta();
@@ -164,25 +166,32 @@ const Settings: Component = () => {
     if (meta.requiresKey && !chatApiKey().trim()) {
       setProviderModels([]);
       setModelFetchState("idle");
+      setModelFetchWarning(null);
       return;
     }
     setModelFetchState("loading");
+    setModelFetchWarning(null);
     window.vessel.ai.fetchModels({
       id: chatProviderId(),
       apiKey: chatApiKey().trim(),
       model: "",
       baseUrl: chatBaseUrl().trim() || meta.defaultBaseUrl || undefined,
-    }).then(({ ok, models }) => {
+    }).then(({ ok, models, warning }) => {
       if (ok) {
         setProviderModels(models.sort());
-        if (models.length > 0 && !chatModel()) setChatModel(models[0]);
+        if (models.length > 0 && (!chatModel() || !models.includes(chatModel()))) {
+          setChatModel(models[0]);
+        }
+        setModelFetchWarning(warning ?? null);
         setModelFetchState("idle");
       } else {
         setProviderModels([]);
+        setModelFetchWarning(null);
         setModelFetchState("error");
       }
     }).catch(() => {
       setProviderModels([]);
+      setModelFetchWarning(null);
       setModelFetchState("error");
     });
   };
@@ -755,6 +764,13 @@ const Settings: Component = () => {
                   Could not fetch models — check your API key and connection.
                 </p>
               </Show>
+              <Show when={modelFetchWarning()}>
+                {(warning) => (
+                  <p class="settings-hint" style="color:var(--accent-primary)">
+                    {warning()}
+                  </p>
+                )}
+              </Show>
             </div>
 
             <Show when={chatProviderMeta().needsBaseUrl || chatProviderId() === "custom"}>
@@ -769,6 +785,13 @@ const Settings: Component = () => {
                   spellcheck={false}
                 />
               </div>
+            </Show>
+            <Show when={chatProviderId() === "llama_cpp"}>
+              <p class="settings-hint">
+                Vessel auto-detects the active model from your local `llama-server` on port 8080.
+                For agent loops, run `llama-server` with `--ctx-size 16384` minimum and `32768`
+                recommended.
+              </p>
             </Show>
           </Show>
 

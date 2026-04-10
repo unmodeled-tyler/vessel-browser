@@ -1,6 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import type { AIMessage, ProviderConfig } from "../../shared/types";
+import type {
+  AIMessage,
+  ProviderConfig,
+  ProviderModelsResult,
+} from "../../shared/types";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
 import { PROVIDERS } from "./providers";
@@ -71,9 +75,87 @@ export function validateProviderConnection(
   return null;
 }
 
+const LLAMA_CPP_MIN_CTX_TOKENS = 16384;
+const LLAMA_CPP_RECOMMENDED_CTX_TOKENS = 32768;
+
+export function extractLlamaCppCtxSize(payload: unknown): number | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  const visited = new Set<unknown>();
+  const queue: unknown[] = [payload];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object" || visited.has(current)) continue;
+    visited.add(current);
+
+    for (const [key, value] of Object.entries(current as Record<string, unknown>)) {
+      if (
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        /^(n_ctx|ctx_size|context_size)$/i.test(key)
+      ) {
+        return value;
+      }
+
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
+    }
+  }
+
+  return null;
+}
+
+export function buildLlamaCppCtxWarning(ctxSize: number | null): string | undefined {
+  if (ctxSize == null) {
+    return (
+      `Could not detect llama-server context size. ` +
+      `Run llama-server with --ctx-size ${LLAMA_CPP_MIN_CTX_TOKENS} minimum ` +
+      `(${LLAMA_CPP_RECOMMENDED_CTX_TOKENS} recommended for Vessel agent loops).`
+    );
+  }
+
+  if (ctxSize < LLAMA_CPP_MIN_CTX_TOKENS) {
+    return (
+      `Detected llama-server ctx-size ${ctxSize}, which is too small for reliable Vessel agent loops. ` +
+      `Run llama-server with --ctx-size ${LLAMA_CPP_MIN_CTX_TOKENS} minimum ` +
+      `(${LLAMA_CPP_RECOMMENDED_CTX_TOKENS} recommended).`
+    );
+  }
+
+  if (ctxSize < LLAMA_CPP_RECOMMENDED_CTX_TOKENS) {
+    return (
+      `Detected llama-server ctx-size ${ctxSize}. This should work, but ${LLAMA_CPP_RECOMMENDED_CTX_TOKENS} ` +
+      `is recommended for longer Vessel agent runs.`
+    );
+  }
+
+  return undefined;
+}
+
+async function probeLlamaCppCtxWarning(baseURL: string): Promise<string | undefined> {
+  try {
+    const root = new URL(baseURL);
+    root.pathname = "/props";
+    root.search = "";
+    root.hash = "";
+
+    const response = await fetch(root.toString());
+    if (!response.ok) {
+      return buildLlamaCppCtxWarning(null);
+    }
+
+    const payload = await response.json();
+    return buildLlamaCppCtxWarning(extractLlamaCppCtxSize(payload));
+  } catch {
+    return buildLlamaCppCtxWarning(null);
+  }
+}
+
 export async function fetchProviderModels(
   config: ProviderConfig,
-): Promise<string[]> {
+): Promise<ProviderModelsResult> {
   const normalized = sanitizeProviderConfig(config);
   const error = validateProviderConnection(normalized, { requireModel: false });
   if (error) {
@@ -83,7 +165,7 @@ export async function fetchProviderModels(
   if (normalized.id === "anthropic") {
     const client = new Anthropic({ apiKey: normalized.apiKey });
     const page = await client.models.list();
-    return page.data.map((model) => model.id);
+    return { ok: true, models: page.data.map((model) => model.id) };
   }
 
   const meta = PROVIDERS[normalized.id];
@@ -94,7 +176,16 @@ export async function fetchProviderModels(
     baseURL,
   });
   const page = await client.models.list();
-  return page.data.map((model) => model.id);
+  const models = page.data.map((model) => model.id);
+  const warning =
+    normalized.id === "llama_cpp"
+      ? await probeLlamaCppCtxWarning(baseURL)
+      : undefined;
+  return {
+    ok: true,
+    models,
+    ...(warning ? { warning } : {}),
+  };
 }
 
 export function createProvider(config: ProviderConfig): AIProvider {

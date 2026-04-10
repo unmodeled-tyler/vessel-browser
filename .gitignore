@@ -57,3 +57,4 @@ tests/compact-context.test.ts
 tests/compact-tool-result.test.ts
 tests/text-target-resolver.test.ts
 tests/compact-listing.test.ts
+tests/provider.test.ts

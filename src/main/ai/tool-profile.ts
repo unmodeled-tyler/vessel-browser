@@ -31,6 +31,7 @@ export function resolveAgentToolProfile(
   const providerId: ProviderId = config.id;
   const isLocalProvider =
     providerId === "ollama" ||
+    providerId === "llama_cpp" ||
     (providerId === "custom" && isLoopbackBaseUrl(config.baseUrl));
 
   if (!isLocalProvider) return "default";

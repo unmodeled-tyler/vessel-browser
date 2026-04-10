@@ -356,8 +356,9 @@ export function registerIpcHandlers(
       if (!config || typeof config !== "object" || !("id" in config)) {
         return { ok: false, models: [], error: "Invalid provider configuration" };
       }
-      const models = await fetchProviderModels(config as Parameters<typeof fetchProviderModels>[0]);
-      return { ok: true, models };
+      return await fetchProviderModels(
+        config as Parameters<typeof fetchProviderModels>[0],
+      );
     } catch (err: unknown) {
       return { ok: false, models: [], error: err instanceof Error ? err.message : "Unknown error" };
     }

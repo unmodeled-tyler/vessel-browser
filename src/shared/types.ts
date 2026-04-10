@@ -389,6 +389,7 @@ export type ProviderId =
   | "openai"
   | "openrouter"
   | "ollama"
+  | "llama_cpp"
   | "mistral"
   | "xai"
   | "google"
@@ -421,6 +422,7 @@ export interface ProviderModelsResult {
   ok: boolean;
   models: string[];
   error?: string;
+  warning?: string;
 }
 
 export interface DomainPolicy {

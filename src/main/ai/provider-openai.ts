@@ -10,6 +10,10 @@ import {
   resolveAgentToolProfile,
   type AgentToolProfile,
 } from './tool-profile';
+import type { ProviderId } from '../../shared/types';
+
+const LLAMA_CPP_MIN_CTX_TOKENS = 16384;
+const LLAMA_CPP_RECOMMENDED_CTX_TOKENS = 32768;
 
 function shouldDebugAgentLoop(): boolean {
   const value = process.env.VESSEL_DEBUG_AGENT_LOOP;
@@ -791,11 +795,33 @@ export function recoverNarratedActionToolCalls(
   return recovered;
 }
 
+export function formatOpenAICompatErrorMessage(
+  providerId: ProviderId,
+  message: string,
+): string {
+  if (
+    providerId === 'llama_cpp' &&
+    /(available context size|context size exceeded|exceeds the available context size|try increasing it)/i.test(
+      message,
+    )
+  ) {
+    return (
+      `${message} ` +
+      `llama.cpp sets context size at server startup, not per request. ` +
+      `Vessel's agent prompt plus tool schema is about 6.5k tokens before browsing history, so run llama-server with ` +
+      `--ctx-size ${LLAMA_CPP_MIN_CTX_TOKENS} minimum (${LLAMA_CPP_RECOMMENDED_CTX_TOKENS} recommended).`
+    );
+  }
+
+  return message;
+}
+
 export class OpenAICompatProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile;
 
   private client: OpenAI;
   private model: string;
+  private providerId: ProviderId;
   private abortController: AbortController | null = null;
 
   constructor(config: ProviderConfig) {
@@ -807,6 +833,7 @@ export class OpenAICompatProvider implements AIProvider {
       apiKey: config.apiKey || 'ollama',
       baseURL,
     });
+    this.providerId = config.id;
     this.model = config.model || meta?.defaultModel || 'gpt-4o';
     this.agentToolProfile = resolveAgentToolProfile(config);
   }
@@ -844,7 +871,9 @@ export class OpenAICompatProvider implements AIProvider {
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== 'AbortError') {
-        onChunk(`\n\n[Error: ${err.message}]`);
+        onChunk(
+          `\n\n[Error: ${formatOpenAICompatErrorMessage(this.providerId, err.message)}]`,
+        );
       }
     } finally {
       this.abortController = null;
@@ -1173,7 +1202,9 @@ export class OpenAICompatProvider implements AIProvider {
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== 'AbortError') {
-        onChunk(`\n\n[Error: ${err.message}]`);
+        onChunk(
+          `\n\n[Error: ${formatOpenAICompatErrorMessage(this.providerId, err.message)}]`,
+        );
       }
     } finally {
       this.abortController = null;
