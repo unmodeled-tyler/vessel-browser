@@ -44,10 +44,13 @@ import {
   chooseAgentReadMode,
   type ExtractMode,
 } from "./context-builder";
+import type { AgentToolProfile } from "./tool-profile";
+import { formatCompactToolResult } from "./compact-tool-result";
 
 export interface ActionContext {
   tabManager: TabManager;
   runtime: AgentRuntime;
+  toolProfile?: AgentToolProfile;
 }
 
 export interface FillFormFieldInput {
@@ -5494,6 +5497,10 @@ export async function executeAction(
     },
   });
 
+  const formattedResult =
+    ctx.toolProfile === "compact"
+      ? formatCompactToolResult(name, result)
+      : result;
   const flowCtx = ctx.runtime.getFlowContext();
-  return result + (await getPostActionState(ctx, name)) + flowCtx;
+  return formattedResult + (await getPostActionState(ctx, name)) + flowCtx;
 }

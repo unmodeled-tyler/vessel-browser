@@ -214,6 +214,21 @@ function shouldRecoverCompactStall(
     return true;
   }
 
+  const repetitivePlanningSignals = [
+    "next step:",
+    "i will now inspect",
+    "i will now read",
+    "i will now click",
+    "i'll use readpage",
+    'i\'ll use read_page',
+    "i'll start by clicking",
+    "i'll begin with",
+    "if the selection is unclear",
+  ];
+  if (repetitivePlanningSignals.some((pattern) => trimmed.includes(pattern))) {
+    return true;
+  }
+
   const completionSignals = [
     "i found",
     "i chose",
@@ -528,6 +543,41 @@ export function recoverNarratedActionToolCalls(
         argsJson: '{}',
       });
     }
+  }
+
+  const inlineReadMatch = trimmed.match(
+    /\bread_?page\b\s*\(\s*mode\s*=\s*["']?([a-z_]+)["']?\s*\)/i,
+  ) ?? trimmed.match(
+    /\breadpage\b\s*\(\s*mode\s*=\s*["']?([a-z_]+)["']?\s*\)/i,
+  );
+  if (inlineReadMatch && availableToolNames.has('read_page')) {
+    const rawMode = (inlineReadMatch[1] || '').trim().toLowerCase();
+    const normalizedMode =
+      rawMode === 'visibleonly'
+        ? 'visible_only'
+        : rawMode === 'resultsonly'
+          ? 'results_only'
+          : rawMode;
+    if (normalizedMode) {
+      recovered.push({
+        id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: 'read_page',
+        argsJson: JSON.stringify({ mode: normalizedMode }),
+      });
+      return recovered;
+    }
+  }
+
+  const inlineInspectMatch = trimmed.match(
+    /\binspect_?element\b(?:\s+tool)?\b/i,
+  ) ?? trimmed.match(/\binspectelement\b\b/i);
+  if (inlineInspectMatch && availableToolNames.has('inspect_element')) {
+    recovered.push({
+      id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: 'inspect_element',
+      argsJson: '{}',
+    });
+    return recovered;
   }
 
   return recovered;

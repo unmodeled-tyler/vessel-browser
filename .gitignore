@@ -53,3 +53,5 @@ tests/provider-openai.test.ts
 tests/tool-guardrails.test.ts
 tests/provider-openai-loop.test.ts
 tests/agent-prompt.test.ts
+tests/compact-context.test.ts
+tests/compact-tool-result.test.ts
