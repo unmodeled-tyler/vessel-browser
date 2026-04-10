@@ -1876,7 +1876,7 @@ function interactByIndex(
   value?: string,
 ): string {
   const el = indexedElementRefs[index];
-  if (!el || !(el instanceof HTMLElement)) {
+  if (!el || !(el instanceof HTMLElement) || !document.contains(el)) {
     return "Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.";
   }
   if (action === "click") {
@@ -1913,11 +1913,18 @@ function interactByIndex(
       }
       return `${ariaChecked === "true" ? "Selected" : "Clicked"}: ${label}`;
     }
+    const anchor =
+      el instanceof HTMLAnchorElement
+        ? el
+        : el.closest("a[href]");
+    const href =
+      anchor instanceof HTMLAnchorElement ? anchor.href : null;
     return (
       "Clicked: " +
       (el.getAttribute("aria-label") ||
         el.textContent?.trim().slice(0, 60) ||
-        el.tagName.toLowerCase())
+        el.tagName.toLowerCase()) +
+      (href ? "\nhref: " + href : "")
     );
   }
   if (action === "focus") {

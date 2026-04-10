@@ -1285,7 +1285,25 @@ async function clickResolvedSelector(
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
-    const idxOverlay = await detectPostClickOverlay(wc);
+    let idxOverlay = await detectPostClickOverlay(wc);
+    if (!idxOverlay && typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+      await sleep(1200);
+      idxOverlay = await detectPostClickOverlay(wc);
+    }
+    if (!idxOverlay) {
+      const hrefMatch = typeof result === "string"
+        ? result.match(/\nhref: (https?:\/\/\S+)/)
+        : null;
+      if (hrefMatch) {
+        try {
+          assertSafeURL(hrefMatch[1]);
+          await wc.loadURL(hrefMatch[1]);
+          await waitForLoad(wc, 8000);
+          const hrefUrl = wc.getURL();
+          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
+        } catch {}
+      }
+    }
     return idxOverlay ? `${result}\n${idxOverlay}` : result;
   }
 
@@ -1313,9 +1331,11 @@ async function clickResolvedSelector(
       `
       (function() {
         var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
-        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (!el || !document.contains(el)) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
         if (el instanceof HTMLElement) { el.focus(); el.click(); }
-        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
+        var anchor = el instanceof HTMLAnchorElement ? el : el.closest('a[href]');
+        var href = anchor instanceof HTMLAnchorElement ? anchor.href : null;
+        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase()) + (href ? "\\nhref: " + href : "");
       })()
     `,
       {
@@ -1330,7 +1350,25 @@ async function clickResolvedSelector(
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
-    const shadowOverlay = await detectPostClickOverlay(wc);
+    let shadowOverlay = await detectPostClickOverlay(wc);
+    if (!shadowOverlay && typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+      await sleep(1200);
+      shadowOverlay = await detectPostClickOverlay(wc);
+    }
+    if (!shadowOverlay) {
+      const hrefMatch = typeof result === "string"
+        ? result.match(/\nhref: (https?:\/\/\S+)/)
+        : null;
+      if (hrefMatch) {
+        try {
+          assertSafeURL(hrefMatch[1]);
+          await wc.loadURL(hrefMatch[1]);
+          await waitForLoad(wc, 8000);
+          const hrefUrl = wc.getURL();
+          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
+        } catch {}
+      }
+    }
     return shadowOverlay ? `${result}\n${shadowOverlay}` : result;
   }
 
@@ -1388,6 +1426,15 @@ async function clickResolvedSelector(
   // Do not "recover" cart clicks with a second DOM activation. On sites like
   // Powell's, that fallback can submit Add to Cart twice while the drawer is opening.
   if (cartMatch) {
+    await sleep(1200);
+    const delayedOverlayHint = await detectPostClickOverlay(wc);
+    if (delayedOverlayHint) {
+      const dialogActions = await getCartDialogActions(wc);
+      const actionsSuffix = dialogActions
+        ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+        : "";
+      return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}`;
+    }
     return `${clickText} (${clickResult})`;
   }
 
@@ -4450,13 +4497,17 @@ export async function executeAction(
             typeof args.text === "string" && args.text.trim() ? args.text.trim() : "";
           if (typeof args.selector === "string" && args.selector.trim()) {
             selector = await resolveSelector(wc, undefined, args.selector);
-          } else if (typeof args.index === "number") {
-            selector = `__vessel_idx:${args.index}`;
           } else if (textTarget) {
             if (isInvalidTextTargetQuery(textTarget)) {
               return `Error: "${textTarget}" looks like HTML or markup, not a visible page label. Use a book title, button text, or element index instead.`;
             }
             selector = await resolveTargetByText(wc, textTarget, "interactive");
+            if (!selector && typeof args.index === "number") {
+              selector = `__vessel_idx:${args.index}`;
+            }
+          } else if (typeof args.index === "number") {
+            selector = await resolveSelector(wc, args.index);
+            if (!selector) selector = `__vessel_idx:${args.index}`;
           } else {
             selector = await resolveSelector(wc, args.index, args.selector);
           }
