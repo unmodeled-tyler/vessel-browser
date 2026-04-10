@@ -323,6 +323,122 @@ function canonicalizeUrlLike(value: string): string {
   return value.trim();
 }
 
+function toLikelyUrl(value: string): string | null {
+  const trimmed = value.trim().replace(/^["']|["']$/g, '');
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^[a-z0-9-]+\.(com|org|net|io|dev|app|ai|co|edu|gov)(\/\S*)?$/i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return null;
+}
+
+function scalarArgsForTool(
+  name: string,
+  scalar: string,
+): Record<string, any> | null {
+  const trimmed = scalar.trim();
+  if (!trimmed) return null;
+
+  if (name === 'navigate') {
+    const url = toLikelyUrl(trimmed);
+    return url ? { url } : null;
+  }
+
+  if (name === 'search') {
+    return { query: trimmed.replace(/^["']|["']$/g, '') };
+  }
+
+  if (
+    name === 'click' ||
+    name === 'inspect_element' ||
+    name === 'scroll_to_element'
+  ) {
+    return { text: trimmed.replace(/^["']|["']$/g, '') };
+  }
+
+  if (name === 'read_page') {
+    const mode = trimmed.replace(/^["']|["']$/g, '').toLowerCase();
+    if (mode) return { mode };
+  }
+
+  return null;
+}
+
+function tryParseJsonWithCommonRepairs(raw: string): unknown {
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+
+  const candidates = new Set<string>([trimmed]);
+  const objectMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (objectMatch?.[0]) candidates.add(objectMatch[0]);
+  if (!trimmed.startsWith('{') && trimmed.includes(':')) {
+    candidates.add(`{${trimmed}}`);
+  }
+
+  for (const candidate of candidates) {
+    const normalized = candidate
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+    if (!normalized) continue;
+
+    const repaired = normalized
+      .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_-]*)(\s*:)/g, '$1"$2"$3')
+      .replace(/([{,]\s*)'([^']+)'(\s*:)/g, '$1"$2"$3')
+      .replace(/:\s*'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_match, value: string) =>
+        `: ${JSON.stringify(value)}`,
+      )
+      .replace(/,\s*([}\]])/g, '$1');
+
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      // Try next repair candidate.
+    }
+  }
+
+  throw new Error('invalid-json');
+}
+
+export function parseToolArgsWithRepair(
+  name: string,
+  argsJson: string,
+): { args: Record<string, any>; repaired: boolean } | null {
+  const trimmed = (argsJson || '').trim();
+  if (!trimmed) return { args: {}, repaired: false };
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return { args: parsed as Record<string, any>, repaired: false };
+    }
+    if (typeof parsed === 'string') {
+      const scalarArgs = scalarArgsForTool(name, parsed);
+      return scalarArgs ? { args: scalarArgs, repaired: true } : null;
+    }
+    return null;
+  } catch {
+    // Fall through to common repair handling below.
+  }
+
+  try {
+    const repaired = tryParseJsonWithCommonRepairs(trimmed);
+    if (repaired && typeof repaired === 'object' && !Array.isArray(repaired)) {
+      return { args: repaired as Record<string, any>, repaired: true };
+    }
+    if (typeof repaired === 'string') {
+      const scalarArgs = scalarArgsForTool(name, repaired);
+      return scalarArgs ? { args: scalarArgs, repaired: true } : null;
+    }
+  } catch {
+    // Fall through to tool-specific scalar extraction below.
+  }
+
+  const scalarArgs = scalarArgsForTool(name, trimmed);
+  return scalarArgs ? { args: scalarArgs, repaired: true } : null;
+}
+
 export function coerceToolArgsForExecution(
   name: string,
   args: Record<string, any>,
@@ -728,10 +844,12 @@ export class OpenAICompatProvider implements AIProvider {
         for (const tc of Object.values(toolCallAccums)) {
           if (!tc.id) tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           let parsedArgs: Record<string, any> = {};
-          try {
-            parsedArgs = JSON.parse(tc.argsJson || '{}');
-          } catch {
-            parsedArgs = {};
+          const repairedArgs = parseToolArgsWithRepair(tc.name, tc.argsJson || '{}');
+          if (repairedArgs) {
+            parsedArgs = repairedArgs.args;
+            if (repairedArgs.repaired) {
+              tc.argsJson = JSON.stringify(parsedArgs);
+            }
           }
           tc.name = resolveToolCallName(tc.name, parsedArgs, availableToolNames);
         }
@@ -778,11 +896,14 @@ export class OpenAICompatProvider implements AIProvider {
         // Track which ones were malformed so we can send errors instead of executing
         const malformedToolCalls = new Set<string>();
         for (const tc of toolCalls) {
-          try {
-            JSON.parse(tc.argsJson || '{}');
-          } catch {
+          const repairedArgs = parseToolArgsWithRepair(tc.name, tc.argsJson || '{}');
+          if (!repairedArgs) {
             malformedToolCalls.add(tc.id);
             tc.argsJson = '{}';
+            continue;
+          }
+          if (repairedArgs.repaired) {
+            tc.argsJson = JSON.stringify(repairedArgs.args);
           }
         }
 
@@ -845,10 +966,8 @@ export class OpenAICompatProvider implements AIProvider {
           }
 
           let args: Record<string, any> = {};
-          try {
-            args = JSON.parse(tc.argsJson || '{}');
-          } catch {
-            // Shouldn't reach here after sanitization, but handle gracefully
+          const repairedArgs = parseToolArgsWithRepair(tc.name, tc.argsJson || '{}');
+          if (!repairedArgs) {
             onChunk(`\n<<tool:${tc.name}:⚠ invalid args>>\n`);
             messages.push({
               role: 'tool',
@@ -857,6 +976,7 @@ export class OpenAICompatProvider implements AIProvider {
             });
             continue;
           }
+          args = repairedArgs.args;
           args = coerceToolArgsForExecution(tc.name, args);
           if (!availableToolNames.has(tc.name)) {
             onChunk(`\n<<tool:unsupported_tool:⚠ unsupported>>\n`);

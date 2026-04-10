@@ -44,6 +44,10 @@ import {
   chooseAgentReadMode,
   type ExtractMode,
 } from "./context-builder";
+import {
+  resolveTextTargetInDocument,
+  type TextTargetMode,
+} from "./text-target-resolver";
 import type { AgentToolProfile } from "./tool-profile";
 import { formatCompactToolResult } from "./compact-tool-result";
 
@@ -2321,6 +2325,36 @@ async function resolveSelector(
   return null;
 }
 
+async function resolveTargetByText(
+  wc: WebContents,
+  query: string,
+  mode: TextTargetMode,
+): Promise<string | null | typeof PAGE_SCRIPT_TIMEOUT> {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const result = await executePageScript<{
+    selector: string;
+    label: string;
+    kind: string;
+    matchedText: string;
+  } | null>(
+    wc,
+    `(${resolveTextTargetInDocument.toString()})(document, ${JSON.stringify(trimmed)}, ${JSON.stringify(mode)})`,
+    {
+      timeoutMs: 2200,
+      label: `resolve ${mode} target by text`,
+    },
+  );
+
+  if (result === PAGE_SCRIPT_TIMEOUT) return PAGE_SCRIPT_TIMEOUT;
+  if (!result || typeof result.selector !== "string" || !result.selector) {
+    return null;
+  }
+
+  return result.selector;
+}
+
 function normalizeFieldToken(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -4380,20 +4414,37 @@ export async function executeAction(
 
         case "click": {
           if (!wc) return "Error: No active tab";
-          const selector =
-            typeof args.selector === "string" && args.selector.trim()
-              ? await resolveSelector(wc, undefined, args.selector)
-              : typeof args.index === "number"
-                ? `__vessel_idx:${args.index}`
-                : await resolveSelector(wc, args.index, args.selector);
-          if (!selector) return "Error: No element index or selector provided";
+          let selector: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
+          if (typeof args.selector === "string" && args.selector.trim()) {
+            selector = await resolveSelector(wc, undefined, args.selector);
+          } else if (typeof args.index === "number") {
+            selector = `__vessel_idx:${args.index}`;
+          } else if (typeof args.text === "string" && args.text.trim()) {
+            selector = await resolveTargetByText(wc, args.text, "interactive");
+          } else {
+            selector = await resolveSelector(wc, args.index, args.selector);
+          }
+          if (selector === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
+          if (!selector) {
+            return "Error: No element index, selector, or visible text provided";
+          }
           return clickResolvedSelector(wc, selector);
         }
 
         case "inspect_element": {
           if (!wc) return "Error: No active tab";
-          const selector = await resolveSelector(wc, args.index, args.selector);
-          if (!selector) return "Error: No element index or selector provided";
+          let selector: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
+          if (typeof args.text === "string" && args.text.trim()) {
+            selector = await resolveTargetByText(wc, args.text, "context");
+          } else {
+            selector = await resolveSelector(wc, args.index, args.selector);
+          }
+          if (selector === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("inspect_element");
+          }
+          if (!selector) {
+            return "Error: No element index, selector, or visible text provided";
+          }
           return inspectElement(
             wc,
             selector,
@@ -5450,9 +5501,16 @@ export async function executeAction(
 
         case "scroll_to_element": {
           if (!wc) return "Error: No active tab";
-          const sel = await resolveSelector(wc, args.index, args.selector);
-          if (!sel)
-            return "Error: Provide an index or selector for the element to scroll to.";
+          let sel: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
+          if (typeof args.text === "string" && args.text.trim()) {
+            sel = await resolveTargetByText(wc, args.text, "context");
+          } else {
+            sel = await resolveSelector(wc, args.index, args.selector);
+          }
+          if (sel === PAGE_SCRIPT_TIMEOUT) return pageBusyError("scroll_to_element");
+          if (!sel) {
+            return "Error: Provide an index, selector, or visible text for the element to scroll to.";
+          }
           const block =
             args.position === "top"
               ? "start"
