@@ -161,11 +161,50 @@ export function buildPhaseReminder(
     /page contains a list of books|book listings|book cards|visible book|load more results|scroll further|scroll down|inspect the visible|focus on the book listings|targeting the book images|limited to interactive elements|identify the book cards|click one of the visible book/.test(
       text,
     );
+  const missedResultsSignals =
+    /visible_only mode did not return specific book titles|did not yield a book title link|did not yield specific book titles|navigation links rather than book titles|inspect elements did not yield|inspect the page to find a specific book title|inspect the page to locate a book title|book title link from the search results/.test(
+      text,
+    );
+  const falseCartSuccessSignals =
+    /added\s+["“”'a-z0-9 ,:&-]+\s+to the cart|added\s+["“”'a-z0-9 ,:&-]+\s+to cart|added\s+.*\s+by\s+.*\s+to the cart/.test(
+      text,
+    ) &&
+    !/(cart confirmation|view cart|shopping cart|checkout|continue shopping)/.test(
+      text,
+    );
+  const skippedSingleResultSignals =
+    /did not yield a direct match|no direct match|no matches|unavailable on powell|out of stock or unavailable/.test(
+      text,
+    ) &&
+    /proceed to (?:add|search for) the next book|move on to the next book|next book from my list/.test(
+      text,
+    );
 
   if (wantsCart && wantsBookRecommendations && !selectedItems && !cartDone && listingLoopSignals) {
     return (
       `Progress reminder: If book titles or primary results are already visible, do not keep rereading or rescrolling the same listing page. ` +
       `Click one promising book title now. On the detail page, add it to the cart before returning for the next unseen title.`
+    );
+  }
+
+  if (wantsCart && wantsBookRecommendations && !selectedItems && !cartDone && missedResultsSignals) {
+    return (
+      `Progress reminder: On a results page, do not use visible_only or generic inspect_element to hunt book titles. ` +
+      `Call read_page(mode="results_only") once. If Primary Results are shown, click a listed book title directly.`
+    );
+  }
+
+  if (wantsCart && falseCartSuccessSignals && !selectedItems && !explanationDone) {
+    return (
+      `Progress reminder: Do not assume a book was added just because its product page is open or you inspected it. ` +
+      `Only treat the cart step as complete after a successful Add to Cart click followed by cart confirmation, View Cart, Continue Shopping, or the cart page itself.`
+    );
+  }
+
+  if (wantsCart && skippedSingleResultSignals && !selectedItems) {
+    return (
+      `Progress reminder: Do not skip to a new query just because the match is not exact. ` +
+      `If the results page shows even one plausible book result, inspect or click that result before concluding there is no match.`
     );
   }
 

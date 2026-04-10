@@ -116,10 +116,22 @@ function looksLikeListingResult(result: string): boolean {
   return (
     lowered.includes("### primary results") ||
     lowered.includes("### likely search results") ||
-    lowered.includes("search results") ||
-    lowered.includes("best sellers") ||
-    lowered.includes("bestsellers") ||
     lowered.includes("[read_page mode=results_only]")
+  );
+}
+
+function countSurfacedResults(result: string): number {
+  const matches = result.match(/^\s*-\s+\[#\d+\]/gm);
+  return matches?.length ?? 0;
+}
+
+function looksLikeSearchResultsPage(result: string): boolean {
+  const lowered = normalizeResult(result);
+  return (
+    lowered.includes("/searchresults") ||
+    lowered.includes("search results") ||
+    lowered.includes("bestsellers") ||
+    lowered.includes("best sellers")
   );
 }
 
@@ -273,12 +285,17 @@ export function updateTaskTracker(
     isDiscoveryAction &&
     /browse or search/.test(currentLabel)
   ) {
+    const surfacedResults = countSurfacedResults(result);
     nextState = completeStep(nextState, "Found a starting point on the site.");
     return setNextHint(
       nextState,
       looksLikeListingResult(result)
-        ? "Book results are already visible. Click one promising title now. Do not reread or scroll the same listing page unless no book link is available."
-        : "Expose book titles you can click directly, then inspect individual books until you have the full set.",
+        ? surfacedResults === 1
+          ? "One likely result is visible. Inspect or click that result before deciding there is no match. Do not skip to a new search yet."
+          : "Book results are already visible. Click one promising title now. Do not reread or scroll the same listing page unless no book link is available."
+        : looksLikeSearchResultsPage(result)
+          ? 'You are on a results page. Call read_page(mode="results_only") now to surface book titles. Do not use visible_only or generic inspect_element to hunt result links.'
+          : "Expose book titles you can click directly, then inspect individual books until you have the full set.",
     );
   }
 
@@ -324,14 +341,24 @@ export function updateTaskTracker(
     if (looksLikeProductDetailResult(result)) {
       return setNextHint(
         nextState,
-        'You are on a book detail page. Add this book to the cart now. Use read_page(mode="visible_only") once only if you need the Add to Cart index.',
+        'You are on a book detail page. Opening this page did not add the book to the cart. Click Add to Cart now, then wait for cart confirmation before moving on. Use read_page(mode="visible_only") once only if you need the Add to Cart index.',
+      );
+    }
+
+    if (looksLikeSearchResultsPage(result) && !looksLikeListingResult(result)) {
+      return setNextHint(
+        nextState,
+        'This is still a results page. Call read_page(mode="results_only") now and click a surfaced book title. Do not loop on visible_only or generic inspect_element here.',
       );
     }
 
     if (looksLikeListingResult(result)) {
+      const surfacedResults = countSurfacedResults(result);
       return setNextHint(
         nextState,
-        "A book listing is already visible. Click one unseen title now, then add it to the cart from its detail page before returning to the list.",
+        surfacedResults === 1
+          ? "There is one likely result visible. Inspect or click that result before declaring no match or moving to a different query."
+          : "A book listing is already visible. Click one unseen title now, then add it to the cart from its detail page before returning to the list.",
       );
     }
 
