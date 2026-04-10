@@ -125,6 +125,10 @@ export function buildPhaseReminder(
 
   const wantsCart = /\b(cart|bag|basket|checkout)\b/.test(goal);
   const wantsExplanation = /\b(explain|reason|why)\b/.test(goal);
+  const wantsBookRecommendations =
+    /\b(book|books|recommend|recommended|interesting|novel|fiction|nonfiction)\b/.test(
+      goal,
+    );
   const hasFiveItemList =
     /(?:^|\n)\s*1\./.test(assistantText) &&
     /(?:^|\n)\s*2\./.test(assistantText) &&
@@ -153,6 +157,17 @@ export function buildPhaseReminder(
     /reason:/.test(text) ||
     /reasons:/.test(text) ||
     /why i chose/.test(text);
+  const listingLoopSignals =
+    /page contains a list of books|book listings|book cards|visible book|load more results|scroll further|scroll down|inspect the visible|focus on the book listings|targeting the book images|limited to interactive elements|identify the book cards|click one of the visible book/.test(
+      text,
+    );
+
+  if (wantsCart && wantsBookRecommendations && !selectedItems && !cartDone && listingLoopSignals) {
+    return (
+      `Progress reminder: If book titles or primary results are already visible, do not keep rereading or rescrolling the same listing page. ` +
+      `Click one promising book title now. On the detail page, add it to the cart before returning for the next unseen title.`
+    );
+  }
 
   if (wantsCart && selectedItems && (intendsCart || !cartDone)) {
     return (

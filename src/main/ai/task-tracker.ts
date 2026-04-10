@@ -111,6 +111,34 @@ function normalizeResult(result: string): string {
   return result.toLowerCase();
 }
 
+function looksLikeListingResult(result: string): boolean {
+  const lowered = normalizeResult(result);
+  return (
+    lowered.includes("### primary results") ||
+    lowered.includes("### likely search results") ||
+    lowered.includes("search results") ||
+    lowered.includes("best sellers") ||
+    lowered.includes("bestsellers") ||
+    lowered.includes("[read_page mode=results_only]")
+  );
+}
+
+function looksLikeProductDetailResult(result: string): boolean {
+  const lowered = normalizeResult(result);
+  return (
+    lowered.includes("### visible purchase controls") ||
+    /\badd(?: item)? to (?:cart|bag|basket)\b/.test(lowered) ||
+    lowered.includes("buy now") ||
+    /https?:\/\/[^\s)]+\/book\//i.test(result)
+  );
+}
+
+function looksLikeCartConfirmation(result: string): boolean {
+  return /(added to cart|cart confirmation|view cart|continue shopping|shopping cart|checkout)/.test(
+    normalizeResult(result),
+  );
+}
+
 export function createTaskTracker(
   goal: string,
   startUrl?: string,
@@ -124,7 +152,8 @@ export function createTaskTracker(
     currentStepIndex: 0,
     steps: buildInitialSteps(goal),
     lastAction: undefined,
-    nextHint: "Open a relevant section or search path and keep working the same request.",
+    nextHint:
+      "Use the site's search box or a strong curated section immediately. Avoid rereading the homepage unless search or navigation is hidden.",
   };
 }
 
@@ -147,7 +176,7 @@ export function updateTaskTracker(
     nextState = completeStep(nextState, "Reached the requested site.");
     return setNextHint(
       nextState,
-      "Open a curated section or use the site's book search to find promising titles.",
+      "Use the site's search box or a curated section to expose book titles you can click directly. Avoid a full-page read unless the path is unclear.",
     );
   }
 
@@ -166,7 +195,9 @@ export function updateTaskTracker(
     nextState = completeStep(nextState, "Found a starting point on the site.");
     return setNextHint(
       nextState,
-      "Inspect individual books and keep track of the best candidates until you have the full set.",
+      looksLikeListingResult(result)
+        ? "Book results are already visible. Click one promising title now. Do not reread or scroll the same listing page unless no book link is available."
+        : "Expose book titles you can click directly, then inspect individual books until you have the full set.",
     );
   }
 
@@ -174,6 +205,27 @@ export function updateTaskTracker(
     /pick the requested/.test(currentLabel) &&
     isDiscoveryAction
   ) {
+    if (looksLikeCartConfirmation(result)) {
+      return setNextHint(
+        nextState,
+        "This book is already in the cart. Choose Continue Shopping or go back, then open the next unseen title.",
+      );
+    }
+
+    if (looksLikeProductDetailResult(result)) {
+      return setNextHint(
+        nextState,
+        'You are on a book detail page. Add this book to the cart now. Use read_page(mode="visible_only") once only if you need the Add to Cart index.',
+      );
+    }
+
+    if (looksLikeListingResult(result)) {
+      return setNextHint(
+        nextState,
+        "A book listing is already visible. Click one unseen title now, then add it to the cart from its detail page before returning to the list.",
+      );
+    }
+
     return setNextHint(
       nextState,
       "Keep selecting candidate books. After you have the requested set, add each one to the cart.",
@@ -181,10 +233,18 @@ export function updateTaskTracker(
   }
 
   if (
+    /pick the requested/.test(currentLabel) &&
+    actionName === "go_back"
+  ) {
+    return setNextHint(
+      nextState,
+      "You are back on the listing flow. Open the next unseen book title now instead of rereading the whole page.",
+    );
+  }
+
+  if (
     /add the chosen .* to the cart/.test(currentLabel) &&
-    /(added to cart|cart confirmation|shopping cart|view cart|checkout)/.test(
-      loweredResult,
-    )
+    looksLikeCartConfirmation(result)
   ) {
     nextState = completeStep(nextState, "Cart interaction succeeded.");
     return setNextHint(
