@@ -357,6 +357,9 @@ export interface TaskTrackerState {
   startUrl?: string;
   lastAction?: string;
   nextHint?: string;
+  requestedCount?: number | null;
+  cartCount?: number;
+  cartVisible?: boolean;
 }
 
 export interface AgentRuntimeState {

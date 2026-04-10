@@ -139,6 +139,80 @@ function looksLikeCartConfirmation(result: string): boolean {
   );
 }
 
+function looksLikeCartPage(result: string): boolean {
+  const lowered = normalizeResult(result);
+  return (
+    /\*\*url:\*\*\s*https?:\/\/[^\s]+\/cart\b/.test(lowered) ||
+    /\b(?:navigated to|went back to|went forward to)\s+https?:\/\/[^\s]+\/cart\b/.test(
+      lowered,
+    ) ||
+    /\*\*title:\*\*.*\b(cart|checkout)\b/.test(lowered) ||
+    /\b(shopping cart|cart subtotal|cart total)\b/.test(lowered)
+  );
+}
+
+function isAddToCartSuccess(actionName: string, result: string): boolean {
+  const lowered = normalizeResult(result);
+  if (actionName !== "click") return false;
+  if (lowered.startsWith("blocked:")) return false;
+  const clickedAddToCart = /clicked:.*add(?: item)? to (?:cart|bag|basket)/.test(lowered);
+  return clickedAddToCart && looksLikeCartConfirmation(result);
+}
+
+function stepIndexMatching(
+  steps: TaskTrackerStep[],
+  pattern: RegExp,
+): number {
+  return steps.findIndex((step) => pattern.test(step.label.toLowerCase()));
+}
+
+function activateSpecificStep(
+  state: TaskTrackerState,
+  stepIndex: number,
+): TaskTrackerState {
+  if (stepIndex < 0 || stepIndex >= state.steps.length) return state;
+  return {
+    ...state,
+    steps: setActiveStep(state.steps.map((step) => ({ ...step })), stepIndex),
+    currentStepIndex: stepIndex,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function finalizeShoppingTracker(
+  state: TaskTrackerState,
+  detail: string,
+): TaskTrackerState {
+  const steps = state.steps.map((step) => ({ ...step }));
+  const pickIndex = stepIndexMatching(steps, /^pick the requested/);
+  const cartIndex = stepIndexMatching(steps, /^add the chosen .* to the cart$/);
+  const explainIndex = stepIndexMatching(steps, /^explain the recommendations$/);
+
+  if (pickIndex >= 0) {
+    steps[pickIndex] = {
+      ...steps[pickIndex],
+      status: "done",
+      detail,
+    };
+  }
+
+  if (cartIndex >= 0) {
+    steps[cartIndex] = {
+      ...steps[cartIndex],
+      status: "done",
+      detail,
+    };
+  }
+
+  const activeIndex = explainIndex >= 0 ? explainIndex : state.currentStepIndex;
+  return {
+    ...state,
+    steps: setActiveStep(steps, activeIndex),
+    currentStepIndex: activeIndex,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function createTaskTracker(
   goal: string,
   startUrl?: string,
@@ -163,9 +237,16 @@ export function updateTaskTracker(
   result: string,
 ): TaskTrackerState {
   const loweredResult = normalizeResult(result);
+  const requestedCount =
+    state.requestedCount ?? extractRequestedCount(state.goal) ?? null;
+  let cartCount = state.cartCount ?? 0;
+  const cartVisible = state.cartVisible || looksLikeCartPage(result);
   let nextState: TaskTrackerState = {
     ...state,
     lastAction: actionName,
+    requestedCount,
+    cartCount,
+    cartVisible,
     updatedAt: new Date().toISOString(),
   };
 
@@ -205,6 +286,34 @@ export function updateTaskTracker(
     /pick the requested/.test(currentLabel) &&
     isDiscoveryAction
   ) {
+    if (isAddToCartSuccess(actionName, result)) {
+      cartCount += 1;
+      nextState = {
+        ...nextState,
+        cartCount,
+      };
+
+      if (requestedCount && cartCount >= requestedCount) {
+        nextState = finalizeShoppingTracker(
+          nextState,
+          `Added ${cartCount} of ${requestedCount} requested items to the cart.`,
+        );
+        return setNextHint(
+          nextState,
+          cartVisible
+            ? "All requested books are now in the cart and the cart is visible. Explain your reasoning in chat now and stop using tools."
+            : "All requested books are now in the cart. Open the cart so the user can see it, then explain your reasoning in chat and stop using tools.",
+        );
+      }
+
+      return setNextHint(
+        nextState,
+        requestedCount
+          ? `${cartCount} of ${requestedCount} requested books are now in the cart. Choose Continue Shopping or go back, then open the next unseen title.`
+          : "This book is now in the cart. Choose Continue Shopping or go back, then open the next unseen title.",
+      );
+    }
+
     if (looksLikeCartConfirmation(result)) {
       return setNextHint(
         nextState,
@@ -244,19 +353,35 @@ export function updateTaskTracker(
 
   if (
     /add the chosen .* to the cart/.test(currentLabel) &&
-    looksLikeCartConfirmation(result)
+    isAddToCartSuccess(actionName, result)
   ) {
-    nextState = completeStep(nextState, "Cart interaction succeeded.");
+    cartCount += 1;
+    nextState = {
+      ...nextState,
+      cartCount,
+    };
+    const detail = requestedCount
+      ? `Added ${cartCount} of ${requestedCount} requested items to the cart.`
+      : "Cart interaction succeeded.";
+    nextState = completeStep(nextState, detail);
     return setNextHint(
       nextState,
-      "Summarize the chosen books and explain why they were recommended.",
+      requestedCount && cartCount >= requestedCount
+        ? cartVisible
+          ? "All requested books are now in the cart and the cart is visible. Explain your reasoning in chat now and stop using tools."
+          : "All requested books are now in the cart. Open the cart so the user can see it, then explain your reasoning in chat and stop using tools."
+        : requestedCount
+          ? `${cartCount} of ${requestedCount} requested books are now in the cart. Continue adding the remaining selected books.`
+          : "Summarize the chosen books and explain why they were recommended.",
     );
   }
 
   if (/explain the recommendations/.test(currentLabel)) {
     return setNextHint(
       nextState,
-      "Finish by naming the chosen books and giving concise reasons for each.",
+      cartVisible
+        ? "The cart is visible. Explain your reasoning in chat now, mention the chosen books, and stop using tools."
+        : "Finish by naming the chosen books and giving concise reasons for each. If the cart is not visible yet, show it first.",
     );
   }
 
