@@ -35,6 +35,7 @@ function compactReadPageResult(text: string): string {
   const importantSections = [
     "### Access Warnings",
     "### Immediate Blockers",
+    "### Likely Search Results",
     "### Visible Purchase Controls",
     "### Primary Results",
     "### Form Fields",

@@ -4,6 +4,7 @@ import {
   type ExtractMode,
   type PageType,
 } from "./context-builder";
+import { getCompactPrimaryResultLinks } from "./compact-listing";
 
 const MAX_RESULTS = 6;
 const MAX_CONTROLS = 8;
@@ -69,16 +70,11 @@ function isPaginationLike(element: InteractiveElement): boolean {
 
 function getPrimaryResultLinks(page: PageContent): InteractiveElement[] {
   return uniqueElements(
-    page.interactiveElements.filter(
-      (element) =>
-        element.type === "link" &&
-        isVisibleElement(element) &&
-        element.context !== "nav" &&
-        element.context !== "footer" &&
-        !isPaginationLike(element) &&
-        Boolean((element.text || "").trim()),
-    ),
-  ).slice(0, MAX_RESULTS);
+    getCompactPrimaryResultLinks(page, {
+      visibleOnly: true,
+      max: MAX_RESULTS,
+    }).filter((element) => !isPaginationLike(element)),
+  );
 }
 
 function isPurchaseControl(element: InteractiveElement): boolean {
@@ -93,6 +89,17 @@ function getVisibleControls(page: PageContent): InteractiveElement[] {
   return uniqueElements(page.interactiveElements.filter(isVisibleElement)).slice(
     0,
     MAX_CONTROLS,
+  );
+}
+
+function controlKey(element: InteractiveElement): string {
+  return `${element.index ?? ""}|${element.type}|${elementLabel(element)}|${element.href ?? ""}`;
+}
+
+function isLowValueListingControl(element: InteractiveElement): boolean {
+  const label = elementLabel(element).toLowerCase();
+  return /\b(filter|sort|format|price|availability|signed edition|binding|language)\b/.test(
+    label,
   );
 }
 
@@ -159,11 +166,13 @@ export function buildCompactScopedContext(
     .map(formatElement);
   pushSection(lines, "### Visible Purchase Controls", purchaseControls);
 
-  if (pageType === "SEARCH_RESULTS" || mode === "results_only") {
+  const primaryResultElements = getPrimaryResultLinks(page);
+  const primaryResults = primaryResultElements.map(formatElement);
+  if (primaryResults.length > 0) {
     pushSection(
       lines,
       "### Primary Results",
-      getPrimaryResultLinks(page).map(formatElement),
+      primaryResults,
     );
   }
 
@@ -185,10 +194,17 @@ export function buildCompactScopedContext(
     pageType === "SEARCH_READY" ||
     pageType === "GENERAL"
   ) {
+    const primaryResultKeys = new Set(primaryResultElements.map(controlKey));
+    const visibleControls = getVisibleControls(page)
+      .filter((element) => !primaryResultKeys.has(controlKey(element)))
+      .filter((element) =>
+        primaryResultElements.length > 0 ? !isLowValueListingControl(element) : true,
+      )
+      .map(formatElement);
     pushSection(
       lines,
       "### Visible Controls",
-      getVisibleControls(page).map(formatElement),
+      visibleControls,
     );
   }
 
