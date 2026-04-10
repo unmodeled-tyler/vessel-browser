@@ -33,11 +33,12 @@ function compactReadPageResult(text: string): string {
   );
   const readHeader = cleaned.match(/^\[read_page mode=[^\]]+\]/m)?.[0];
   const importantSections = [
+    "### Action Status",
+    "### Visible Purchase Controls",
+    "### Offscreen Purchase Actions",
     "### Access Warnings",
     "### Immediate Blockers",
-    "### Action Status",
     "### Likely Search Results",
-    "### Visible Purchase Controls",
     "### Primary Results",
     "### Form Fields",
     "### Visible Controls",

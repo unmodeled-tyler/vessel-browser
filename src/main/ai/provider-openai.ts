@@ -187,6 +187,14 @@ export function buildPhaseReminder(
     /navigate back to the search results page|search for ".*" directly in the search box|search for .* directly|page structure has shifted|refresh the page|restart search/.test(
       text,
     );
+  const multiClickSelectionSignals =
+    /i(?:'| a)?ll start by clicking on the following books|i will start by clicking on the following books|i will click on the following books|clicked on five different book titles|clicked on \d+ different book titles|clicking through the selected titles|click each of the selected titles/.test(
+      text,
+    );
+  const staleSelectionSignals =
+    /cannot locate the elements to click|page structure is not being reliably captured|specific titles failed|page may have changed|stale-index/.test(
+      text,
+    );
   const intermediateCartDialogSignals =
     /(added to cart|has been added to the cart|cart confirmation)/.test(text) &&
     /(continue shopping|search results page|return to the search results page|back button|go back)/.test(
@@ -198,21 +206,21 @@ export function buildPhaseReminder(
 
   if (wantsCart && wantsBookRecommendations && !selectedItems && !cartDone && listingLoopSignals) {
     return (
-      `Progress reminder: If book titles or primary results are already visible, do not keep rereading or rescrolling the same listing page. ` +
-      `Click one promising book title now. On the detail page, add it to the cart before returning for the next unseen title.`
+      `Progress reminder: If product results or primary results are already visible, do not keep rereading or rescrolling the same listing page. ` +
+      `Open one promising result now. On the detail page, add that item to the cart before returning for the next unseen result.`
     );
   }
 
   if (wantsCart && wantsBookRecommendations && !selectedItems && !cartDone && missedResultsSignals) {
     return (
-      `Progress reminder: On a results page, do not use visible_only or generic inspect_element to hunt book titles. ` +
-      `Call read_page(mode="results_only") once. If Primary Results are shown, click a listed book title directly.`
+      `Progress reminder: On a results page, do not use visible_only or generic inspect_element to hunt product results. ` +
+      `Call read_page(mode="results_only") once. If Primary Results are shown, click a listed result directly.`
     );
   }
 
   if (wantsCart && falseCartSuccessSignals && !selectedItems && !explanationDone) {
     return (
-      `Progress reminder: Do not assume a book was added just because its product page is open or you inspected it. ` +
+      `Progress reminder: Do not assume an item was added just because its product page is open or you inspected it. ` +
       `Only treat the cart step as complete after a successful Add to Cart click followed by cart confirmation, View Cart, Continue Shopping, or the cart page itself.`
     );
   }
@@ -220,21 +228,29 @@ export function buildPhaseReminder(
   if (wantsCart && skippedSingleResultSignals && !selectedItems) {
     return (
       `Progress reminder: Do not skip to a new query just because the match is not exact. ` +
-      `If the results page shows even one plausible book result, inspect or click that result before concluding there is no match.`
+      `If the results page shows even one plausible product result, inspect or click that result before concluding there is no match.`
     );
   }
 
   if (wantsCart && intermediateCartDialogSignals && !explanationDone) {
     return (
-      `Progress reminder: After an Add to Cart success, prefer the cart-confirmation dialog action Continue Shopping while more books remain. ` +
+      `Progress reminder: After an Add to Cart success, prefer the cart-confirmation dialog action Continue Shopping while more items remain. ` +
       `Do not click View Cart or Go to Basket yet, and do not use the browser back button while the dialog is still open.`
     );
   }
 
   if (wantsCart && selectedItems && !cartDone && selectedItemsRestartSignals) {
     return (
-      `Progress reminder: The chosen books are already decided. Do not restart search, refresh the results page, or navigate back to browse again unless a specific saved link fails. ` +
-      `Use the current results page or the chosen book links you already have: open one chosen title, add it to the cart, confirm success, then continue to the next chosen title.`
+      `Progress reminder: The chosen items are already decided. Do not restart search, refresh the results page, or navigate back to browse again unless a specific saved link fails. ` +
+      `Use the current results page or the chosen result links you already have: open one chosen result, add it to the cart, confirm success, then continue to the next chosen result.`
+    );
+  }
+
+  if (wantsCart && wantsBookRecommendations && !cartDone && (multiClickSelectionSignals || staleSelectionSignals)) {
+    return (
+      `Progress reminder: Do not batch-click multiple results from a listing or category page. ` +
+      `Open exactly one visible result, finish that item's Add to Cart flow, confirm success, then use Continue Shopping or go back once to choose the next unseen result. ` +
+      `If a remembered label or index fails, trust the latest page state and refresh it with one read_page call before continuing.`
     );
   }
 
@@ -243,7 +259,7 @@ export function buildPhaseReminder(
       `Progress reminder: You already selected the requested items. ` +
       `Do not restart browsing or searching unless a specific cart step fails. ` +
       `Continue adding the selected items to the cart one by one. ` +
-      `Use the chosen result links you already have, add one selected item to the cart, confirm success, then continue to the next one.`
+      `Use the chosen result links you already have, add one selected item to the cart, confirm success, then continue to the next one. Do not click multiple chosen results in a row from the same listing page.`
     );
   }
 
@@ -307,6 +323,8 @@ function shouldRecoverCompactStall(
     "i'll use readpage",
     'i\'ll use read_page',
     "i'll start by clicking",
+    "i have clicked on five different book titles",
+    "clicked on five different book titles",
     "i'll begin with",
     "if the selection is unclear",
   ];

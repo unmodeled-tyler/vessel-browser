@@ -212,6 +212,23 @@ async function main(): Promise<void> {
     );
 
     await runScenario(
+      "ghost link clicks recover by following the href directly",
+      async () => {
+        await withTab(`${harness.baseUrl}/ghost-anchor-source`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const result = await clickElementBySelector(wc, "#go-ghost-anchor");
+          assert.match(result, /recovered via href fallback/);
+          assert.equal(wc.getURL(), `${harness.baseUrl}/anchor-dest`);
+          assert.equal(tab.canGoBack(), true);
+        });
+      },
+    );
+    completedScenarios.push(
+      "ghost link clicks recover by following the href directly",
+    );
+
+    await runScenario(
       "GET form submissions preserve custom history",
       async () => {
         await withTab(`${harness.baseUrl}/get-form`, async (tab) => {

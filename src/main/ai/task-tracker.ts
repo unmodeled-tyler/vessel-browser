@@ -164,6 +164,18 @@ function looksLikeCartPage(result: string): boolean {
   );
 }
 
+function looksLikeStaleElementError(result: string): boolean {
+  const lowered = normalizeResult(result);
+  return (
+    lowered.includes("error[stale-index]") ||
+    lowered.includes("element not found — the page may have changed") ||
+    lowered.includes("shadow dom element not found") ||
+    lowered.includes("call read_page to refresh") ||
+    lowered.includes("cannot locate the elements to click") ||
+    lowered.includes("page structure is not being reliably captured")
+  );
+}
+
 function extractStructuredUrl(result: string): string | null {
   return (
     result.match(/\*\*url:\*\*\s*([^\n]+)/i)?.[1]?.trim() ??
@@ -285,7 +297,7 @@ export function updateTaskTracker(
       nextState = completeStep(nextState, "Reached the requested site.");
       return setNextHint(
         nextState,
-        "Use the site's search box or a curated section to expose book titles you can click directly. Avoid a full-page read unless the path is unclear.",
+        "Use the site's search box or a curated section to expose product results you can click directly. Avoid a full-page read unless the path is unclear.",
       );
     }
 
@@ -294,14 +306,14 @@ export function updateTaskTracker(
       if (/\/book\//i.test(navigatedUrl)) {
         return setNextHint(
           nextState,
-          "You opened a chosen book detail page. Do not restart search. Click Add to Cart here, then wait for cart confirmation before moving on.",
+          "You opened a chosen product detail page. Do not restart search. Click Add to Cart here, then wait for cart confirmation before moving on.",
         );
       }
 
       if (looksLikeSearchResultsPage(result)) {
         return setNextHint(
           nextState,
-          "You are back on a results page while the chosen books are already decided. Do not restart search or browse new categories. Open one of the chosen book links and continue the add-to-cart flow.",
+          "You are back on a results page while the chosen items are already decided. Do not restart search or browse new categories. Open one of the chosen result links and continue the add-to-cart flow.",
         );
       }
     }
@@ -310,14 +322,14 @@ export function updateTaskTracker(
       if (/\/book\//i.test(navigatedUrl)) {
         return setNextHint(
           nextState,
-          "Stay on this book detail page and add the current chosen book to the cart. Do not go back to search unless this specific cart step fails.",
+          "Stay on this product detail page and add the current chosen item to the cart. Do not go back to search unless this specific cart step fails.",
         );
       }
 
       if (looksLikeSearchResultsPage(result)) {
         return setNextHint(
           nextState,
-          "The chosen books are already decided. Do not restart the search flow here. Open the next chosen title from the current results page and add it to the cart.",
+          "The chosen items are already decided. Do not restart the search flow here. Open the next chosen result from the current page and add it to the cart.",
         );
       }
     }
@@ -342,10 +354,10 @@ export function updateTaskTracker(
       looksLikeListingResult(result)
         ? surfacedResults === 1
           ? "One likely result is visible. Inspect or click that result before deciding there is no match. Do not skip to a new search yet."
-          : "Book results are already visible. Click one promising title now. Do not reread or scroll the same listing page unless no book link is available."
+          : "Product results are already visible. Open exactly one unseen result now, add that item before choosing another, and do not click multiple results in a row from the same listing page."
         : looksLikeSearchResultsPage(result)
-          ? 'You are on a results page. Call read_page(mode="results_only") now to surface book titles. Do not use visible_only or generic inspect_element to hunt result links.'
-          : "Expose book titles you can click directly, then inspect individual books until you have the full set.",
+          ? 'You are on a results page. Call read_page(mode="results_only") now to surface product results. Do not use visible_only or generic inspect_element to hunt result links.'
+          : "Expose product results you can click directly, then inspect individual items until you have the full set.",
     );
   }
 
@@ -368,23 +380,23 @@ export function updateTaskTracker(
         return setNextHint(
           nextState,
           cartVisible
-            ? "All requested books are now in the cart and the cart is visible. Explain your reasoning in chat now and stop using tools."
-            : "All requested books are now in the cart. Open the cart so the user can see it, then explain your reasoning in chat and stop using tools.",
+            ? "All requested items are now in the cart and the cart is visible. Explain your reasoning in chat now and stop using tools."
+            : "All requested items are now in the cart. Open the cart so the user can see it, then explain your reasoning in chat and stop using tools.",
         );
       }
 
       return setNextHint(
         nextState,
         requestedCount
-          ? `${cartCount} of ${requestedCount} requested books are now in the cart. If the cart confirmation dialog is open, click Continue Shopping there. Do not click View Cart or Go to Basket until all requested books are added. Only use go_back if no dialog action is available. Then open the next unseen title.`
-          : "This book is now in the cart. If the cart confirmation dialog is open, click Continue Shopping there. Do not click View Cart or Go to Basket yet. Only use go_back if no dialog action is available. Then open the next unseen title.",
+          ? `${cartCount} of ${requestedCount} requested items are now in the cart. If the cart confirmation dialog is open, click Continue Shopping there. Do not click View Cart or Go to Basket until all requested items are added. Only use go_back if no dialog action is available. Then open the next unseen result.`
+          : "This item is now in the cart. If the cart confirmation dialog is open, click Continue Shopping there. Do not click View Cart or Go to Basket yet. Only use go_back if no dialog action is available. Then open the next unseen result.",
       );
     }
 
     if (looksLikeCartConfirmation(result)) {
       return setNextHint(
         nextState,
-        "This book is already in the cart. If the cart confirmation dialog is still open, click Continue Shopping there. Do not click View Cart or Go to Basket yet. Only use go_back if no dialog action is available. Then open the next unseen title.",
+        "This item is already in the cart. If the cart confirmation dialog is still open, click Continue Shopping there. Do not click View Cart or Go to Basket yet. Only use go_back if no dialog action is available. Then open the next unseen result.",
       );
     }
 
@@ -397,21 +409,21 @@ export function updateTaskTracker(
     ) {
       return setNextHint(
         nextState,
-        "This detail page may already be for a book you just added. Do not click Add to Cart again on the same page. If the cart confirmation dialog is still open, click Continue Shopping there. Otherwise go back once and open the next chosen title. Do not click View Cart or Go to Basket yet.",
+        "This detail page may already be for an item you just added. Do not click Add to Cart again on the same page. If the cart confirmation dialog is still open, click Continue Shopping there. Otherwise go back once and open the next chosen result. Do not click View Cart or Go to Basket yet.",
       );
     }
 
     if (looksLikeProductDetailResult(result)) {
       return setNextHint(
         nextState,
-        'You are on a book detail page. Opening this page did not add the book to the cart. Click Add to Cart now, then wait for cart confirmation before moving on. Use read_page(mode="visible_only") once only if you need the Add to Cart index.',
+        'You are on a product detail page. Opening this page did not add the item to the cart. Click Add to Cart now, then wait for cart confirmation before moving on. Use read_page(mode="visible_only") once only if you need the Add to Cart index.',
       );
     }
 
     if (looksLikeSearchResultsPage(result) && !looksLikeListingResult(result)) {
       return setNextHint(
         nextState,
-        'This is still a results page. Call read_page(mode="results_only") now and click a surfaced book title. Do not loop on visible_only or generic inspect_element here.',
+        'This is still a results page. Call read_page(mode="results_only") now and click a surfaced result. Do not loop on visible_only or generic inspect_element here.',
       );
     }
 
@@ -421,13 +433,20 @@ export function updateTaskTracker(
         nextState,
         surfacedResults === 1
           ? "There is one likely result visible. Inspect or click that result before declaring no match or moving to a different query."
-          : "A book listing is already visible. Click one unseen title now, then add it to the cart from its detail page before returning to the list.",
+          : "A product listing is already visible. Open exactly one unseen result now, add that item to the cart from its detail page, then return for the next result. Do not click multiple remembered results in a row from the listing page.",
+      );
+    }
+
+    if (actionName === "click" && looksLikeStaleElementError(result)) {
+      return setNextHint(
+        nextState,
+        'The last remembered click target is stale. Trust the latest page state, not older labels or indexes. Call read_page once on the current page. If you are on a detail page, add the current item now. If you are still on a listing page, open exactly one visible unseen result. Do not click multiple saved results in sequence.',
       );
     }
 
     return setNextHint(
       nextState,
-      "Keep selecting candidate books. After you have the requested set, add each one to the cart.",
+      "Pick one promising unseen item at a time. As soon as a detail page opens, add that item to the cart before selecting another result.",
     );
   }
 
@@ -437,7 +456,7 @@ export function updateTaskTracker(
   ) {
     return setNextHint(
       nextState,
-      "You are back on the listing flow. Open the next chosen or unseen book title now instead of rereading the whole page or restarting search.",
+      "You are back on the listing flow. Open exactly one next chosen or unseen result now instead of rereading the whole page, restarting search, or clicking multiple results in sequence.",
     );
   }
 

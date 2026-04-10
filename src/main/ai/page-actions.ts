@@ -751,10 +751,11 @@ async function activateElement(
 async function describeElementForClick(
   wc: WebContents,
   selector: string,
-): Promise<{ text: string; href?: string } | { error: string }> {
+): Promise<{ text: string; href?: string; target?: string } | { error: string }> {
   const result = await executePageScript<{
     text?: string;
     href?: string;
+    target?: string;
     error?: string;
   }>(
     wc,
@@ -767,6 +768,7 @@ async function describeElementForClick(
       return {
         text: text || "Element",
         href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
+        target: anchor instanceof HTMLAnchorElement ? (anchor.getAttribute("target") || "") : undefined,
       };
     })()
   `,
@@ -794,6 +796,10 @@ async function describeElementForClick(
     href:
       "href" in result && typeof result.href === "string"
         ? result.href
+        : undefined,
+    target:
+      "target" in result && typeof result.target === "string"
+        ? result.target
         : undefined,
   };
 }
@@ -1396,6 +1402,27 @@ async function clickResolvedSelector(
   const postActivationOverlayHint = await detectPostClickOverlay(wc);
   if (postActivationOverlayHint) {
     return `${clickText} (${clickResult})\n${postActivationOverlayHint}`;
+  }
+
+  const sameTabLinkTarget =
+    typeof elInfo.href === "string" &&
+    elInfo.href.trim().length > 0 &&
+    (!elInfo.target || !/^_blank$/i.test(elInfo.target.trim()));
+  if (sameTabLinkTarget) {
+    const validation = await validateLinkDestination(elInfo.href!);
+    if (validation.status !== "dead") {
+      try {
+        assertSafeURL(elInfo.href!);
+        await wc.loadURL(elInfo.href!);
+        await waitForLoad(wc, 8000);
+        const hrefFallbackUrl = wc.getURL();
+        if (hrefFallbackUrl !== beforeUrl) {
+          return `${clickText} -> ${hrefFallbackUrl} (recovered via href fallback)`;
+        }
+      } catch {
+        // Fall through to the generic click result when href fallback fails.
+      }
+    }
   }
 
   return `${clickText} (${clickResult})`;

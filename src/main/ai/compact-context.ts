@@ -78,7 +78,6 @@ function getPrimaryResultLinks(page: PageContent): InteractiveElement[] {
 }
 
 function isPurchaseControl(element: InteractiveElement): boolean {
-  if (!isVisibleElement(element)) return false;
   const text = `${element.text || ""} ${element.label || ""}`.toLowerCase();
   return /\b(add to cart|add to bag|add to basket|buy now|checkout|view cart)\b/.test(
     text,
@@ -86,7 +85,6 @@ function isPurchaseControl(element: InteractiveElement): boolean {
 }
 
 function isAddToCartControl(element: InteractiveElement): boolean {
-  if (!isVisibleElement(element)) return false;
   const text = `${element.text || ""} ${element.label || ""}`.toLowerCase();
   return /\badd to cart|add to bag|add to basket\b/.test(text);
 }
@@ -124,6 +122,27 @@ function getVisibleControls(page: PageContent): InteractiveElement[] {
     0,
     MAX_CONTROLS,
   );
+}
+
+function getVisiblePurchaseControls(page: PageContent): InteractiveElement[] {
+  return uniqueElements(
+    getVisibleControls(page)
+      .filter(isPurchaseControl)
+      .sort((a, b) => (a.index ?? Number.MAX_SAFE_INTEGER) - (b.index ?? Number.MAX_SAFE_INTEGER)),
+  ).slice(0, 4);
+}
+
+function getOffscreenPurchaseControls(page: PageContent): InteractiveElement[] {
+  const visibleKeys = new Set(getVisiblePurchaseControls(page).map(controlKey));
+
+  return uniqueElements(
+    page.interactiveElements
+      .filter((element) => isPurchaseControl(element))
+      .filter((element) => element.blockedByOverlay !== true)
+      .filter((element) => element.visible !== false)
+      .filter((element) => !visibleKeys.has(controlKey(element)))
+      .sort((a, b) => (a.index ?? Number.MAX_SAFE_INTEGER) - (b.index ?? Number.MAX_SAFE_INTEGER)),
+  ).slice(0, 4);
 }
 
 function controlKey(element: InteractiveElement): string {
@@ -194,18 +213,31 @@ export function buildCompactScopedContext(
     );
   pushSection(lines, "### Immediate Blockers", blockingOverlays);
 
-  const purchaseControls = getVisibleControls(page)
-    .filter(isPurchaseControl)
-    .slice(0, 4)
-    .map(formatElement);
-  const addToCartVisible = getVisibleControls(page).some(isAddToCartControl);
-  if (looksLikeProductDetailPage(page) && addToCartVisible && !hasCartConfirmationState(page)) {
-    pushSection(lines, "### Action Status", [
-      "Product detail page open. This item is not in the cart yet.",
-      "Click Add to Cart and wait for cart confirmation before moving on.",
-    ]);
+  const visiblePurchaseControls = getVisiblePurchaseControls(page);
+  const offscreenPurchaseControls = getOffscreenPurchaseControls(page);
+  const purchaseControls = visiblePurchaseControls.map(formatElement);
+  const addToCartVisible = visiblePurchaseControls.some(isAddToCartControl);
+  const addToCartOffscreen = offscreenPurchaseControls.some(isAddToCartControl);
+  if (looksLikeProductDetailPage(page) && !hasCartConfirmationState(page)) {
+    if (addToCartVisible) {
+      pushSection(lines, "### Action Status", [
+        "Product detail page open. This item is not in the cart yet.",
+        "Click Add to Cart and wait for cart confirmation before moving on.",
+      ]);
+    } else if (addToCartOffscreen) {
+      pushSection(lines, "### Action Status", [
+        "Product detail page open. This item is not in the cart yet.",
+        "Add to Cart is present but outside the current viewport.",
+        "Scroll once or use the offscreen purchase control below, then wait for cart confirmation.",
+      ]);
+    }
   }
   pushSection(lines, "### Visible Purchase Controls", purchaseControls);
+  pushSection(
+    lines,
+    "### Offscreen Purchase Actions",
+    offscreenPurchaseControls.map(formatElement),
+  );
 
   const primaryResultElements = getPrimaryResultLinks(page);
   const primaryResults = primaryResultElements.map(formatElement);
