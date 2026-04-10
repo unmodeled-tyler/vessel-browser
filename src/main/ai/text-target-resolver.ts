@@ -7,6 +7,17 @@ export interface TextTargetMatch {
   matchedText: string;
 }
 
+export function isInvalidTextTargetQuery(rawQuery: string): boolean {
+  const trimmed = String(rawQuery || "").trim();
+  if (!trimmed) return true;
+
+  if (/<\/?[a-z][^>]*>/i.test(trimmed)) return true;
+  if (/^&lt;\/?[a-z][^&]*&gt;$/i.test(trimmed)) return true;
+  if (/^<\/?[a-z][a-z0-9:-]*>$/i.test(trimmed)) return true;
+
+  return false;
+}
+
 export function resolveTextTargetInDocument(
   doc: Document,
   rawQuery: string,
@@ -200,6 +211,8 @@ export function resolveTextTargetInDocument(
     if (!best || score > best.score) return { el, score, matchedText };
     return best;
   }
+
+  if (isInvalidTextTargetQuery(rawQuery)) return null;
 
   const query = normalize(rawQuery);
   if (!query) return null;

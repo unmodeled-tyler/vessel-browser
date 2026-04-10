@@ -45,9 +45,11 @@ import {
   type ExtractMode,
 } from "./context-builder";
 import {
+  isInvalidTextTargetQuery,
   resolveTextTargetInDocument,
   type TextTargetMode,
 } from "./text-target-resolver";
+import { chooseCompactReadMode } from "./compact-listing";
 import type { AgentToolProfile } from "./tool-profile";
 import { formatCompactToolResult } from "./compact-tool-result";
 
@@ -2332,6 +2334,7 @@ async function resolveTargetByText(
 ): Promise<string | null | typeof PAGE_SCRIPT_TIMEOUT> {
   const trimmed = query.trim();
   if (!trimmed) return null;
+  if (isInvalidTextTargetQuery(trimmed)) return null;
 
   const result = await executePageScript<{
     selector: string;
@@ -4415,12 +4418,17 @@ export async function executeAction(
         case "click": {
           if (!wc) return "Error: No active tab";
           let selector: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
+          const textTarget =
+            typeof args.text === "string" && args.text.trim() ? args.text.trim() : "";
           if (typeof args.selector === "string" && args.selector.trim()) {
             selector = await resolveSelector(wc, undefined, args.selector);
           } else if (typeof args.index === "number") {
             selector = `__vessel_idx:${args.index}`;
-          } else if (typeof args.text === "string" && args.text.trim()) {
-            selector = await resolveTargetByText(wc, args.text, "interactive");
+          } else if (textTarget) {
+            if (isInvalidTextTargetQuery(textTarget)) {
+              return `Error: "${textTarget}" looks like HTML or markup, not a visible page label. Use a book title, button text, or element index instead.`;
+            }
+            selector = await resolveTargetByText(wc, textTarget, "interactive");
           } else {
             selector = await resolveSelector(wc, args.index, args.selector);
           }
@@ -4434,8 +4442,13 @@ export async function executeAction(
         case "inspect_element": {
           if (!wc) return "Error: No active tab";
           let selector: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
-          if (typeof args.text === "string" && args.text.trim()) {
-            selector = await resolveTargetByText(wc, args.text, "context");
+          const textTarget =
+            typeof args.text === "string" && args.text.trim() ? args.text.trim() : "";
+          if (textTarget) {
+            if (isInvalidTextTargetQuery(textTarget)) {
+              return `Error: "${textTarget}" looks like HTML or markup, not visible page text. Use a section title, book title, or element index instead.`;
+            }
+            selector = await resolveTargetByText(wc, textTarget, "context");
           } else {
             selector = await resolveSelector(wc, args.index, args.selector);
           }
@@ -4638,7 +4651,13 @@ export async function executeAction(
             const livePrefix = liveSelectionSection
               ? `${liveSelectionSection}\n\n`
               : "";
-            const requestedMode = normalizeReadPageMode(args.mode, content);
+            const baseMode = normalizeReadPageMode(args.mode, content);
+            const requestedMode =
+              ctx.toolProfile === "compact" &&
+              (args.mode == null ||
+                (typeof args.mode === "string" && !args.mode.trim()))
+                ? chooseCompactReadMode(content, baseMode)
+                : baseMode;
 
             if (requestedMode === "debug" || requestedMode === "full") {
               const structured = buildStructuredContext(content);
@@ -5502,8 +5521,13 @@ export async function executeAction(
         case "scroll_to_element": {
           if (!wc) return "Error: No active tab";
           let sel: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
-          if (typeof args.text === "string" && args.text.trim()) {
-            sel = await resolveTargetByText(wc, args.text, "context");
+          const textTarget =
+            typeof args.text === "string" && args.text.trim() ? args.text.trim() : "";
+          if (textTarget) {
+            if (isInvalidTextTargetQuery(textTarget)) {
+              return `Error: "${textTarget}" looks like HTML or markup, not visible page text. Use a section title or element index instead.`;
+            }
+            sel = await resolveTargetByText(wc, textTarget, "context");
           } else {
             sel = await resolveSelector(wc, args.index, args.selector);
           }
