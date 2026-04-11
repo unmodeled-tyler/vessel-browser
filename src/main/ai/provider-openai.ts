@@ -52,16 +52,16 @@ function followUpReminderForProfile(
   userMessage: string,
   assistantText?: string,
   latestToolResultPreview?: string | null,
-): OpenAI.Chat.ChatCompletionSystemMessageParam | null {
+): OpenAI.Chat.ChatCompletionUserMessageParam | null {
   if (profile !== 'compact') return null;
 
   const phaseReminder = buildPhaseReminder(userMessage, assistantText || '');
   const stateReminder = buildLatestStateReminder(latestToolResultPreview || '');
 
   return {
-    role: 'system',
+    role: 'user',
     content:
-      `Task reminder: Continue working on the user's original request until it is completed: ${userMessage}\n` +
+      `[System] Task reminder: Continue working on the user's original request until it is completed: ${userMessage}\n` +
       `Do not ask the user what they want next unless the request is genuinely ambiguous or blocked. ` +
       `After navigation or page reads, keep executing the same task.` +
       (stateReminder ? `\n${stateReminder}` : '') +
@@ -1093,15 +1093,18 @@ export class OpenAICompatProvider implements AIProvider {
             )
           ) {
             compactRecoveryCount += 1;
+            // Use 'user' role, not 'system' — many models (Qwen, Llama, etc.)
+            // require system messages only at position 0 and reject mid-conversation
+            // system messages with Jinja template errors.
             messages.push({
-              role: 'system',
-              content: buildCompactRecoveryPrompt(
+              role: 'user',
+              content: `[System] ${buildCompactRecoveryPrompt(
                 userMessage,
                 textAccum,
                 latestToolMessage
                   ? String(latestToolMessage.content || '')
                   : null,
-              ),
+              )}`,
             });
             continue;
           }
@@ -1148,10 +1151,8 @@ export class OpenAICompatProvider implements AIProvider {
             compactCorrectionCount += 1;
             if (compactCorrectionCount >= 2) {
               messages.push({
-                role: 'system',
-                content:
-                  `You are calling unsupported tools. Stop inventing tool names. ` +
-                  `Use the supported tools you were given and take the next concrete step.`,
+                role: 'user',
+                content: `[System] You are calling unsupported tools. Stop inventing tool names. Use the supported tools you were given and take the next concrete step.`,
               });
             }
             continue;
@@ -1186,10 +1187,8 @@ export class OpenAICompatProvider implements AIProvider {
             compactCorrectionCount += 1;
             if (compactCorrectionCount >= 2) {
               messages.push({
-                role: 'system',
-                content:
-                  `You are stuck repeating the same action. Stop repeating navigate/search. ` +
-                  `Use a different supported tool that advances the task, such as click, read_page, or scroll.`,
+                role: 'user',
+                content: `[System] You are stuck repeating the same action. Stop repeating navigate/search. Use a different supported tool that advances the task, such as click, read_page, or scroll.`,
               });
             }
             continue;
@@ -1236,9 +1235,9 @@ export class OpenAICompatProvider implements AIProvider {
           ) {
             clickReadLoopNudged = true;
             messages.push({
-              role: 'system',
+              role: 'user',
               content:
-                `You are alternating between click and read_page without advancing the task. ` +
+                `[System] You are alternating between click and read_page without advancing the task. ` +
                 `The click result already includes a page snapshot when it navigates — you do not need read_page after every click. ` +
                 `If you need detail on a specific element, use inspect_element instead. ` +
                 `If you have enough context, proceed with the next action directly.`,
