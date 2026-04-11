@@ -1179,19 +1179,19 @@ export class OpenAICompatProvider implements AIProvider {
             continue;
           }
           const toolSignature = stableToolSignature(tc.name, args);
-          // read_page, current_tab, and inspect_element are read-only
-          // operations that reflect current page state. Suppressing them as
-          // "duplicates" is incorrect because the page may have changed since
-          // the last call (e.g., after a scroll, click, or navigation).
-          // go_back and go_forward are NOT idempotent — each call pops the
-          // history stack — so they must never be suppressed as duplicates.
-          const isNonIdempotentOrLookup = [
+          // These tools must never be suppressed as duplicates:
+          // - Read-only lookups: page state may have changed since last call
+          // - go_back/go_forward: each call pops the history stack
+          // - click: needs to be retryable (clicks often don't work the first
+          //   time due to obstructions, overlays, timing). Cart dedup and
+          //   click streak warnings handle the pathological cases separately.
+          const neverSuppressDuplicate = [
             'read_page', 'current_tab', 'inspect_element', 'screenshot',
-            'go_back', 'go_forward',
+            'go_back', 'go_forward', 'click',
           ].includes(tc.name);
           if (
             this.agentToolProfile === 'compact' &&
-            !isNonIdempotentOrLookup &&
+            !neverSuppressDuplicate &&
             hasRecentDuplicateToolCall(
               recentCompactToolSignatures,
               toolSignature,

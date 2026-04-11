@@ -1539,16 +1539,23 @@ async function clickResolvedSelector(
 
   const overlayHint = await detectPostClickOverlay(wc);
   if (overlayHint) {
-    // If this was a cart click, also fetch dialog actions inline
-    const dialogActions = cartMatch ? await getCartDialogActions(wc) : null;
-    const actionsSuffix = dialogActions
-      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
-      : "";
     if (cartMatch) {
       recordProductAddedToCart(beforeUrl, wc.getTitle());
+      const cartSummary = getCartAddedSummary();
+      // Auto-dismiss cart confirmation dialogs — models get stuck trying to
+      // click "Continue Shopping" when the dialog blocks direct interaction.
+      const dismissResult = await tryAutoDismissCartDialog(wc);
+      if (dismissResult) {
+        return `${clickText} (${clickResult})\nItem added to cart. ${dismissResult}${cartSummary}\nGo back to search results to select the next product.`;
+      }
+      // Fallback: show dialog actions for the model to click
+      const dialogActions = await getCartDialogActions(wc);
+      const actionsSuffix = dialogActions
+        ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+        : "";
+      return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}${cartSummary}`;
     }
-    const cartSummary = cartMatch ? getCartAddedSummary() : "";
-    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}${cartSummary}`;
+    return `${clickText} (${clickResult})\n${overlayHint}`;
   }
 
   // Do not "recover" cart clicks with a second DOM activation. On sites like
@@ -1557,12 +1564,16 @@ async function clickResolvedSelector(
     await sleep(1200);
     const delayedOverlayHint = await detectPostClickOverlay(wc);
     if (delayedOverlayHint) {
+      recordProductAddedToCart(beforeUrl, wc.getTitle());
+      const cartSummary = getCartAddedSummary();
+      const dismissResult = await tryAutoDismissCartDialog(wc);
+      if (dismissResult) {
+        return `${clickText} (${clickResult})\nItem added to cart. ${dismissResult}${cartSummary}\nGo back to search results to select the next product.`;
+      }
       const dialogActions = await getCartDialogActions(wc);
       const actionsSuffix = dialogActions
         ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
         : "";
-      recordProductAddedToCart(beforeUrl, wc.getTitle());
-      const cartSummary = getCartAddedSummary();
       return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}${cartSummary}`;
     }
     // Cart click with no overlay — assume success (some sites use toast notifications)
@@ -1614,6 +1625,54 @@ async function clickResolvedSelector(
       : `\nNote: Page did not change after click. The element may need a different interaction method. Consider read_page or inspect_element.`;
 
   return `${clickText} (${clickResult})${nonInteractiveWarning}`;
+}
+
+/**
+ * After a cart confirmation dialog appears, try to automatically click
+ * "Continue Shopping" (or similar) so the model doesn't get stuck trying
+ * to dismiss the dialog via regular clicks (which often don't work through
+ * overlay layers).
+ */
+async function tryAutoDismissCartDialog(wc: WebContents): Promise<string | null> {
+  try {
+    const result = await executePageScript<string>(
+      wc,
+      `
+      (function() {
+        var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+        if (!dialog) return null;
+        var cs = getComputedStyle(dialog);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+        var buttons = dialog.querySelectorAll('button, a[href], [role="button"]');
+        var continueBtn = null;
+        var closeBtn = null;
+        for (var i = 0; i < buttons.length; i++) {
+          var label = (buttons[i].getAttribute('aria-label') || buttons[i].textContent || '').trim().toLowerCase();
+          if (/continue shopping|keep shopping|back to shopping/.test(label)) { continueBtn = buttons[i]; break; }
+          if (/close|dismiss|×/.test(label) && !closeBtn) { closeBtn = buttons[i]; }
+        }
+        var target = continueBtn || closeBtn;
+        if (!target) return null;
+        var actionLabel = (target.getAttribute('aria-label') || target.textContent || '').trim();
+        if (target.tagName === 'A' && target.href) {
+          window.location.href = target.href;
+          return "Navigated via: " + actionLabel;
+        }
+        target.click();
+        return "Dismissed dialog via: " + actionLabel;
+      })()
+      `,
+      { timeoutMs: 1500, label: "auto dismiss cart dialog" },
+    );
+
+    if (result && result !== PAGE_SCRIPT_TIMEOUT && typeof result === "string") {
+      await sleep(500);
+      return result;
+    }
+  } catch {
+    // Fall through — caller will show dialog actions as fallback
+  }
+  return null;
 }
 
 /**
