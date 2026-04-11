@@ -893,6 +893,7 @@ export class OpenAICompatProvider implements AIProvider {
       const stream = await this.client.chat.completions.create(
         {
           model: this.model,
+          max_tokens: 4096,
           stream: true,
           messages,
         },
@@ -900,9 +901,20 @@ export class OpenAICompatProvider implements AIProvider {
       );
 
       for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          onChunk(delta);
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+        const delta = choice.delta;
+
+        // Surface reasoning/thinking tokens (e.g. Qwen 3.5, DeepSeek) so the
+        // user sees the model is actively thinking rather than appearing stalled.
+        // Providers like llama.cpp expose this as `reasoning_content` on the delta.
+        const reasoning = (delta as any)?.reasoning_content;
+        if (typeof reasoning === 'string' && reasoning.length > 0) {
+          onChunk(reasoning);
+        }
+
+        if (delta.content) {
+          onChunk(delta.content);
         }
       }
     } catch (err: unknown) {
@@ -963,6 +975,7 @@ export class OpenAICompatProvider implements AIProvider {
         const stream = await this.client.chat.completions.create(
           {
             model: this.model,
+            max_tokens: 4096,
             stream: true,
             messages,
             tools: openAITools,
@@ -978,6 +991,14 @@ export class OpenAICompatProvider implements AIProvider {
 
           const delta = choice.delta;
           if (choice.finish_reason) finishReason = choice.finish_reason;
+
+          // Surface reasoning/thinking tokens so the user can see the model
+          // is actively thinking. We track the reasoning separately from
+          // textAccum so it doesn't pollute the assistant's "spoken" text.
+          const reasoning = (delta as any)?.reasoning_content;
+          if (typeof reasoning === 'string' && reasoning.length > 0) {
+            onChunk(reasoning);
+          }
 
           if (delta.content) {
             textAccum += delta.content;
