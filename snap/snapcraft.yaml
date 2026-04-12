@@ -50,7 +50,7 @@ parts:
       export PATH="/snap/node/current/bin:$PATH"
       npm ci
       npm run build
-      npx electron-builder --linux dir --publish never
+      npx electron-builder --config electron-builder.config.cjs --linux dir --publish never
       cp -r dist/linux-unpacked/* $CRAFT_PART_INSTALL/
     stage-packages:
       - libnotify4
