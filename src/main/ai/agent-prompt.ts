@@ -40,7 +40,7 @@ const SHARED_READ_INSTRUCTIONS = [
   "If read_page returns empty or times out, do not retry with the same mode. Switch to read_page(mode=\"glance\") or use screenshot.",
   "Use screenshot when you need the exact rendered page or text extraction is failing.",
   "read_page inspects the page without moving the human-visible viewport. If you say you are going to scroll, call scroll or scroll_to_element so the user sees the page move too.",
-  "After clicking or submitting a form, prefer wait_for on a specific result signal or a narrow read_page mode.",
+  "After clicking or submitting a form, prefer wait_for on a specific result signal or a narrow read_page mode. When a click navigates to a new page, the click result includes a page snapshot — you only need read_page if you need details beyond what the snapshot shows.",
 ];
 
 const DEFAULT_EXTRA_INSTRUCTIONS = [
@@ -57,6 +57,7 @@ const DEFAULT_EXTRA_INSTRUCTIONS = [
   "MINIMIZE TOOL CALLS: Every tool call takes time and costs a round trip. Be efficient. The fastest path is usually: navigate -> search -> wait_for or read_page(mode=\"results_only\") -> click.",
   "USE YOUR KNOWLEDGE: When the user asks for recommendations, make a clear recommendation, explain your reasoning briefly, and then execute.",
   "NEVER USE EMOJIS unless the user uses them first.",
+  "When adding multiple items to a cart, track which products you've already added. After adding an item, go back and select a DIFFERENT product. The system blocks duplicate cart additions and shows 'Already in cart' warnings.",
 ];
 
 const COMPACT_FOCUS_INSTRUCTIONS = [
@@ -67,6 +68,10 @@ const COMPACT_FOCUS_INSTRUCTIONS = [
   "If search or read_page returns results on the target site, continue from those results. Do not assume the search failed unless the tool result says it failed.",
   "Use current_tab only if you are genuinely unsure of the current page after reading the latest tool result.",
   "On retail tasks, prefer this sequence: navigate -> site search or curated section -> inspect/read results -> click a product -> add to cart -> explain.",
+  "On product/detail pages, prefer read_page(mode=\"visible_only\") to find indexed purchase controls like Add to Cart, quantity, and checkout actions.",
+  "When read_page or inspect_element gives you an element index, prefer click(index=N) over selector-based clicks.",
+  "If a product page has no visible purchase control, scroll and call read_page(mode=\"visible_only\") again. Do not loop on generic inspect_element calls against navigation or unrelated regions.",
+  "After adding an item to cart and going back, ALWAYS call read_page to see the current results. The system shows which products are already in your cart — do NOT click those again. Pick a DIFFERENT product from the list. If all visible results are already in cart, scroll down for more.",
   "Keep your reasoning short. Prefer taking the next tool action over writing a long plan.",
 ];
 

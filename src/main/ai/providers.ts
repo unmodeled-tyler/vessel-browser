@@ -49,6 +49,17 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     apiKeyPlaceholder: '',
     apiKeyHint: 'No API key needed — runs locally via Ollama',
   },
+  llama_cpp: {
+    id: 'llama_cpp',
+    name: 'llama.cpp (Local)',
+    defaultModel: '',
+    models: [],
+    requiresApiKey: false,
+    defaultBaseUrl: 'http://localhost:8080/v1',
+    apiKeyPlaceholder: '',
+    apiKeyHint:
+      'No API key needed — scans the active llama-server model on localhost:8080',
+  },
   mistral: {
     id: 'mistral',
     name: 'Mistral AI',

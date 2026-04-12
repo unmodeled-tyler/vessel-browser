@@ -576,8 +576,29 @@ async function clickResolvedSelector(
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
-    const overlayHint = await detectPostClickOverlay(wc);
-    if (!overlayHint) return result;
+    let overlayHint = await detectPostClickOverlay(wc);
+    if (
+      !overlayHint &&
+      typeof idxLabel === "string" &&
+      isAddToCartText(idxLabel)
+    ) {
+      await sleep(1200);
+      overlayHint = await detectPostClickOverlay(wc);
+    }
+    if (!overlayHint) {
+      const hrefMatch = typeof result === "string"
+        ? result.match(/\nhref: (https?:\/\/\S+)/)
+        : null;
+      if (hrefMatch) {
+        try {
+          await wc.loadURL(hrefMatch[1]);
+          await waitForLoad(wc, 8000);
+          const hrefUrl = wc.getURL();
+          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
+        } catch {}
+      }
+      return result;
+    }
     const dialogActions =
       typeof idxLabel === "string" && isAddToCartText(idxLabel)
         ? await getCartDialogActions(wc)
@@ -607,9 +628,11 @@ async function clickResolvedSelector(
     const result = await wc.executeJavaScript(`
       (function() {
         var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
-        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (!el || !document.contains(el)) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
         if (el instanceof HTMLElement) { el.focus(); el.click(); }
-        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
+        var anchor = el instanceof HTMLAnchorElement ? el : el.closest('a[href]');
+        var href = anchor instanceof HTMLAnchorElement ? anchor.href : null;
+        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase()) + (href ? "\\nhref: " + href : "");
       })()
     `);
     if (typeof result === "string" && result.startsWith("Error")) return result;
@@ -617,18 +640,39 @@ async function clickResolvedSelector(
       recordCartClick(beforeUrl, shadowLabel);
     }
     await waitForPotentialNavigation(wc, beforeUrl);
-    const afterUrl = wc.getURL();
-    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
-    const overlayHint = await detectPostClickOverlay(wc);
-    if (!overlayHint) return result;
-    const dialogActions =
+    const afterUrl2 = wc.getURL();
+    if (afterUrl2 !== beforeUrl) return `${result} -> ${afterUrl2}`;
+    let overlayHint2 = await detectPostClickOverlay(wc);
+    if (
+      !overlayHint2 &&
+      typeof shadowLabel === "string" &&
+      isAddToCartText(shadowLabel)
+    ) {
+      await sleep(1200);
+      overlayHint2 = await detectPostClickOverlay(wc);
+    }
+    if (!overlayHint2) {
+      const hrefMatch = typeof result === "string"
+        ? result.match(/\nhref: (https?:\/\/\S+)/)
+        : null;
+      if (hrefMatch) {
+        try {
+          await wc.loadURL(hrefMatch[1]);
+          await waitForLoad(wc, 8000);
+          const hrefUrl = wc.getURL();
+          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
+        } catch {}
+      }
+      return result;
+    }
+    const dialogActions2 =
       typeof shadowLabel === "string" && isAddToCartText(shadowLabel)
         ? await getCartDialogActions(wc)
         : null;
-    const actionsSuffix = dialogActions
-      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+    const actionsSuffix2 = dialogActions2
+      ? `\n${dialogActions2}\nClick one of these dialog actions. Do NOT click any other element.`
       : "";
-    return `${result}\n${overlayHint}${actionsSuffix}`;
+    return `${result}\n${overlayHint2}${actionsSuffix2}`;
   }
 
   const beforeUrl = wc.getURL();
@@ -681,6 +725,15 @@ async function clickResolvedSelector(
   // Do not "recover" cart clicks with a second DOM activation. On sites like
   // Powell's, that fallback can submit Add to Basket twice while the drawer is opening.
   if (cartMatch) {
+    await sleep(1200);
+    const delayedOverlayHint = await detectPostClickOverlay(wc);
+    if (delayedOverlayHint) {
+      const dialogActions = await getCartDialogActions(wc);
+      const actionsSuffix = dialogActions
+        ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+        : "";
+      return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}`;
+    }
     return `${clickText} (${clickResult})`;
   }
 

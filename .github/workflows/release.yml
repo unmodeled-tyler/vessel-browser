@@ -75,7 +75,7 @@ jobs:
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build & package
-        run: npm run build && npx electron-builder --linux --publish never
+        run: npm run build && npx electron-builder --config electron-builder.config.cjs --linux --publish never
 
       - name: Generate checksums
         run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
@@ -91,6 +91,17 @@ jobs:
   build-windows:
     needs: version
     runs-on: windows-latest
+    env:
+      WINDOWS_REQUIRE_CODE_SIGNING: "true"
+      CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME }}
+      WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+      WINDOWS_TRUSTED_SIGNING_ENDPOINT: ${{ vars.WINDOWS_TRUSTED_SIGNING_ENDPOINT }}
+      WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -99,17 +110,84 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - name: Validate Windows signing configuration
+        shell: pwsh
+        run: |
+          $hasPfxSigning = [bool]$env:CSC_LINK -and [bool]$env:CSC_KEY_PASSWORD
+          $hasTrustedSigning =
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME -and
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME -and
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_ENDPOINT -and
+            [bool]$env:WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME -and
+            [bool]$env:AZURE_TENANT_ID -and
+            [bool]$env:AZURE_CLIENT_ID -and
+            [bool]$env:AZURE_CLIENT_SECRET
+
+          if ($hasPfxSigning -and $hasTrustedSigning) {
+            throw "Configure exactly one Windows signing method for release builds: either WINDOWS_CSC_LINK/WINDOWS_CSC_KEY_PASSWORD or Azure Trusted Signing credentials and variables."
+          }
+
+          if (-not $hasPfxSigning -and -not $hasTrustedSigning) {
+            throw "Windows release build requires code signing. Configure either WINDOWS_CSC_LINK/WINDOWS_CSC_KEY_PASSWORD or Azure Trusted Signing (AZURE_* plus WINDOWS_TRUSTED_SIGNING_*)."
+          }
+
       - name: Sync package version
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build & package
-        run: npm run build && npx electron-builder --win --publish never
+        run: npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
+
+      - name: Verify Windows Authenticode signatures
+        shell: pwsh
+        run: |
+          $files = New-Object System.Collections.Generic.List[System.IO.FileInfo]
+
+          $setupFiles = Get-ChildItem dist -Filter *-setup.exe -File
+          foreach ($file in $setupFiles) {
+            $files.Add($file)
+          }
+
+          if (Test-Path dist\win-unpacked) {
+            $peFiles = Get-ChildItem dist\win-unpacked -Recurse -Include *.exe,*.dll -File
+            foreach ($file in $peFiles) {
+              $files.Add($file)
+            }
+          }
+
+          $uniqueFiles = $files | Sort-Object FullName -Unique
+          if ($uniqueFiles.Count -eq 0) {
+            throw "No Windows PE files were found to verify."
+          }
+
+          $invalidFiles = @()
+          foreach ($file in $uniqueFiles) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($signature.Status -ne 'Valid') {
+              $invalidFiles += "$($file.FullName) [$($signature.Status)]"
+            }
+          }
+
+          if ($invalidFiles.Count -gt 0) {
+            $invalidFiles | ForEach-Object { Write-Host $_ }
+            throw "Unsigned or invalid PE files found in the Windows release artifact."
+          }
 
       - name: Generate checksums
-        shell: bash
-        run: sha256sum dist/*-setup.exe > dist/SHASUMS256-win.txt
+        shell: pwsh
+        run: |
+          $setupFiles = Get-ChildItem dist -Filter *-setup.exe -File
+          if ($setupFiles.Count -eq 0) {
+            throw "No Windows setup executables were found in dist."
+          }
+
+          $checksums = foreach ($file in ($setupFiles | Sort-Object Name)) {
+            $hash = Get-FileHash -Algorithm SHA256 -Path $file.FullName
+            "{0} *{1}" -f $hash.Hash.ToLowerInvariant(), $file.Name
+          }
+
+          Set-Content -Path dist\SHASUMS256-win.txt -Value $checksums
 
       - uses: actions/upload-artifact@v4
         with:
@@ -223,5 +301,49 @@ jobs:
               done
               echo
               echo "Use the versioned installer URL in Microsoft Partner Center, not the latest alias."
+              echo "Only submit installers produced by the signed Windows release job."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Verify public Windows release URLs
+        if: vars.CLOUDFLARE_R2_PUBLIC_BASE_URL != ''
+        env:
+          R2_PUBLIC_BASE_URL: ${{ vars.CLOUDFLARE_R2_PUBLIC_BASE_URL }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          base_url="${R2_PUBLIC_BASE_URL%/}"
+          shopt -s nullglob
+          setup_files=(dist-windows/*-setup.exe)
+          checksum_files=(dist-windows/SHASUMS256-win.txt)
+
+          if [ "${#setup_files[@]}" -eq 0 ]; then
+            echo "No Windows setup executables found to verify."
+            exit 1
+          fi
+
+          urls=()
+          for file in "${setup_files[@]}" "${checksum_files[@]}"; do
+            if [ -f "$file" ]; then
+              name="$(basename "$file")"
+              urls+=("${base_url}/downloads/windows/${VERSION}/${name}")
+            fi
+          done
+
+          for url in "${urls[@]}"; do
+            status="$(curl -fsS -o /dev/null -w '%{http_code}' "$url")"
+            if [ "$status" != "200" ]; then
+              echo "Public release URL failed verification: $url ($status)"
+              exit 1
+            fi
+          done
+
+          {
+            echo
+            echo "## Verified Public Windows URLs"
+            echo
+            for url in "${urls[@]}"; do
+              echo "- $url"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

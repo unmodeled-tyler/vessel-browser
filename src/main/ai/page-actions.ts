@@ -44,10 +44,20 @@ import {
   chooseAgentReadMode,
   type ExtractMode,
 } from "./context-builder";
+import {
+  isInvalidTextTargetQuery,
+  resolveTextTargetInDocument,
+  type TextTargetMode,
+} from "./text-target-resolver";
+import { chooseCompactReadMode } from "./compact-listing";
+import { buildCompactScopedContext } from "./compact-context";
+import type { AgentToolProfile } from "./tool-profile";
+import { formatCompactToolResult } from "./compact-tool-result";
 
 export interface ActionContext {
   tabManager: TabManager;
   runtime: AgentRuntime;
+  toolProfile?: AgentToolProfile;
 }
 
 export interface FillFormFieldInput {
@@ -521,6 +531,41 @@ async function getPostSearchSummary(wc: WebContents): Promise<string> {
     : `\nSearch results snapshot unavailable. Use read_page(mode="results_only") if needed.`;
 }
 
+/**
+ * After a click that navigates to a new page, extract a lightweight snapshot
+ * of interactive elements so the model can act without calling read_page.
+ * This eliminates the click→read_page→click→read_page loop where the model
+ * is blind after every navigated click.
+ */
+async function getPostClickNavSummary(
+  wc: WebContents,
+  toolProfile: string,
+): Promise<string> {
+  try {
+    const content = await Promise.race([
+      extractContent(wc),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]);
+
+    if (content && content.content.length > 0) {
+      const scoped =
+        toolProfile === "compact"
+          ? buildCompactScopedContext(content, "visible_only")
+          : buildScopedContext(content, "visible_only");
+      const maxLen = toolProfile === "compact" ? 1800 : 3000;
+      const truncated =
+        scoped.length > maxLen
+          ? `${scoped.slice(0, maxLen)}\n[Page snapshot truncated. Use read_page for full details.]`
+          : scoped;
+      return `\nPage snapshot after navigation:\n${truncated}`;
+    }
+  } catch {
+    // Fall through to empty return — getPostActionState still provides URL/title.
+  }
+
+  return "";
+}
+
 async function scrollPage(
   wc: WebContents,
   deltaY: number,
@@ -742,10 +787,15 @@ async function activateElement(
 async function describeElementForClick(
   wc: WebContents,
   selector: string,
-): Promise<{ text: string; href?: string } | { error: string }> {
+): Promise<
+  { text: string; href?: string; target?: string; tag?: string; isInteractive?: boolean } | { error: string }
+> {
   const result = await executePageScript<{
     text?: string;
     href?: string;
+    target?: string;
+    tag?: string;
+    isInteractive?: boolean;
     error?: string;
   }>(
     wc,
@@ -755,9 +805,17 @@ async function describeElementForClick(
       if (!el) return { error: "Element not found" };
       const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
       const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
+      const tag = el.tagName.toLowerCase();
+      const interactiveTags = new Set(["a","button","input","select","textarea","summary","details","option"]);
+      const hasRole = el.getAttribute("role") === "button" || el.getAttribute("role") === "link" || el.getAttribute("role") === "tab";
+      const hasClickListener = el.onclick != null || el.getAttribute("onclick") != null;
+      const isInteractive = interactiveTags.has(tag) || hasRole || hasClickListener || !!anchor;
       return {
         text: text || "Element",
         href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
+        target: anchor instanceof HTMLAnchorElement ? (anchor.getAttribute("target") || "") : undefined,
+        tag,
+        isInteractive,
       };
     })()
   `,
@@ -786,6 +844,18 @@ async function describeElementForClick(
       "href" in result && typeof result.href === "string"
         ? result.href
         : undefined,
+    target:
+      "target" in result && typeof result.target === "string"
+        ? result.target
+        : undefined,
+    tag:
+      "tag" in result && typeof result.tag === "string"
+        ? result.tag
+        : undefined,
+    isInteractive:
+      "isInteractive" in result && typeof result.isInteractive === "boolean"
+        ? result.isInteractive
+        : undefined,
   };
 }
 
@@ -808,10 +878,19 @@ async function inspectElement(
       text?: string;
     };
     nearby?: Array<{
+      index?: number;
       label: string;
       type: string;
       selector: string;
       href?: string;
+    }>;
+    purchaseActions?: Array<{
+      index?: number;
+      label: string;
+      type: string;
+      selector: string;
+      href?: string;
+      source: "nearby" | "page";
     }>;
     error?: string;
   }>(
@@ -894,6 +973,18 @@ async function inspectElement(
         ) || "element";
       }
 
+      function purchasePriority(label, href) {
+        const haystack = ((label || "") + " " + (href || ""))
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!haystack) return null;
+        if (/\badd(?: item)? to (?:cart|bag|basket)\b/.test(haystack)) return 0;
+        if (/\b(?:buy now|preorder|pre-order|reserve now|shop now)\b/.test(haystack)) return 1;
+        if (/\b(?:checkout|view cart|view basket|go to cart|view bag)\b/.test(haystack)) return 2;
+        return null;
+      }
+
       function chooseRegion(target) {
         const preferred = target.closest(
           "[data-testid], article, [role='article'], [role='listitem'], li, tr, form, section, aside, dialog, [role='dialog']"
@@ -919,17 +1010,67 @@ async function inspectElement(
       const region = chooseRegion(target);
       const nearby = [];
       const seen = new Set();
+      const purchaseActions = [];
+      const purchaseSeen = new Set();
       region.querySelectorAll("a[href], button, input:not([type='hidden']), select, textarea").forEach((el) => {
         if (!(el instanceof HTMLElement) || !isVisible(el)) return;
         const candidateSelector = selectorFor(el);
         if (!candidateSelector || seen.has(candidateSelector)) return;
         seen.add(candidateSelector);
+        const candidateLabel = labelFor(el).slice(0, 100);
+        const candidateHref = el instanceof HTMLAnchorElement ? text(el.href) : undefined;
         nearby.push({
-          label: labelFor(el).slice(0, 100),
+          index: typeof window.__vessel?.getElementIndexBySelector === "function"
+            ? window.__vessel.getElementIndexBySelector(candidateSelector) ?? undefined
+            : undefined,
+          label: candidateLabel,
           type: el.tagName.toLowerCase(),
           selector: candidateSelector,
-          href: el instanceof HTMLAnchorElement ? text(el.href) : undefined,
+          href: candidateHref,
         });
+        const purchaseRank = purchasePriority(candidateLabel, candidateHref);
+        if (purchaseRank !== null && !purchaseSeen.has(candidateSelector)) {
+          purchaseSeen.add(candidateSelector);
+          purchaseActions.push({
+            index: typeof window.__vessel?.getElementIndexBySelector === "function"
+              ? window.__vessel.getElementIndexBySelector(candidateSelector) ?? undefined
+              : undefined,
+            label: candidateLabel,
+            type: el.tagName.toLowerCase(),
+            selector: candidateSelector,
+            href: candidateHref,
+            source: "nearby",
+            rank: purchaseRank,
+          });
+        }
+      });
+
+      document.querySelectorAll("button, a[href], input[type='submit'], input[type='button']").forEach((el) => {
+        if (!(el instanceof HTMLElement) || !isVisible(el)) return;
+        const candidateSelector = selectorFor(el);
+        if (!candidateSelector || purchaseSeen.has(candidateSelector)) return;
+        const candidateLabel = labelFor(el).slice(0, 100);
+        const candidateHref = el instanceof HTMLAnchorElement ? text(el.href) : undefined;
+        const purchaseRank = purchasePriority(candidateLabel, candidateHref);
+        if (purchaseRank === null) return;
+        purchaseSeen.add(candidateSelector);
+        purchaseActions.push({
+          index: typeof window.__vessel?.getElementIndexBySelector === "function"
+            ? window.__vessel.getElementIndexBySelector(candidateSelector) ?? undefined
+            : undefined,
+          label: candidateLabel,
+          type: el.tagName.toLowerCase(),
+          selector: candidateSelector,
+          href: candidateHref,
+          source: "page",
+          rank: purchaseRank,
+        });
+      });
+
+      purchaseActions.sort((a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        if (a.source !== b.source) return a.source === "nearby" ? -1 : 1;
+        return a.label.localeCompare(b.label);
       });
 
       return {
@@ -948,6 +1089,14 @@ async function inspectElement(
           text: text(region.textContent)?.slice(0, 400),
         },
         nearby: nearby.slice(0, ${Math.max(1, Math.min(20, limit))}),
+        purchaseActions: purchaseActions.slice(0, 8).map((item) => ({
+          index: item.index,
+          label: item.label,
+          type: item.type,
+          selector: item.selector,
+          href: item.href,
+          source: item.source,
+        })),
       };
     })()
   `,
@@ -982,10 +1131,28 @@ async function inspectElement(
     lines.push("Nearby controls:");
     for (const item of result.nearby) {
       const hrefSuffix = item.href ? ` -> ${item.href}` : "";
+      const indexPrefix =
+        typeof item.index === "number" ? `[#${item.index}] ` : "";
       lines.push(
-        `- ${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}`,
+        `- ${indexPrefix}${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}`,
       );
     }
+  }
+  if (Array.isArray(result.purchaseActions) && result.purchaseActions.length > 0) {
+    lines.push("Likely purchase actions:");
+    for (const item of result.purchaseActions) {
+      const hrefSuffix = item.href ? ` -> ${item.href}` : "";
+      const sourceSuffix =
+        item.source === "nearby" ? " (same region)" : " (elsewhere on page)";
+      const indexPrefix =
+        typeof item.index === "number" ? `[#${item.index}] ` : "";
+      lines.push(
+        `- ${indexPrefix}${item.label} [${item.type}] selector=${item.selector}${hrefSuffix}${sourceSuffix}`,
+      );
+    }
+    lines.push(
+      "When an index is available, prefer click(index=N) over selector-based clicks because it is more stable.",
+    );
   }
 
   return lines.join("\n");
@@ -1110,6 +1277,24 @@ const ADD_TO_CART_PATTERNS = [
  */
 const recentCartClicks = new Map<string, { text: string; ts: number }>();
 const CART_CLICK_COOLDOWN_MS = 15_000;
+const CART_ADDED_TTL_MS = 30 * 60_000;
+
+/**
+ * Tracks product URLs where "Add to Cart" was successfully clicked during this
+ * session. Prevents the model from re-visiting the same product page and adding
+ * the same item again. This is separate from recentCartClicks which only has a
+ * short cooldown per page URL.
+ */
+const cartAddedProducts = new Map<string, { title: string; ts: number }>();
+
+/**
+ * Tracks consecutive clicks on the same page URL without any verification step
+ * (read_page, inspect_element, screenshot). Used to detect when the model is
+ * rapidly clicking elements without checking if anything happened.
+ */
+let clickStreakUrl: string | null = null;
+let clickStreakCount = 0;
+const CLICK_STREAK_THRESHOLD = 3;
 
 function isAddToCartText(text: string): boolean {
   const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
@@ -1136,6 +1321,125 @@ function isDuplicateCartClick(url: string, text: string): boolean {
   return isAddToCartText(text);
 }
 
+/**
+ * Extract a meaningful product name from the page, preferring the main H1
+ * or heading over the generic site title. Falls back to the page title if
+ * no heading is found.
+ */
+async function getProductPageTitle(wc: WebContents): Promise<string> {
+  try {
+    const heading = await executePageScript<string>(
+      wc,
+      `(function() {
+        var h1 = document.querySelector('h1');
+        if (h1 && h1.textContent.trim().length > 3 && h1.textContent.trim().length < 200) {
+          return h1.textContent.trim();
+        }
+        var meta = document.querySelector('meta[property="og:title"]');
+        if (meta && meta.content && meta.content.trim().length > 3) {
+          return meta.content.trim();
+        }
+        return '';
+      })()`,
+      { timeoutMs: 800, label: "get product title" },
+    );
+    if (heading && heading !== PAGE_SCRIPT_TIMEOUT && typeof heading === "string" && heading.length > 0) {
+      return heading;
+    }
+  } catch {
+    // Fall through to page title
+  }
+  return wc.getTitle() || "";
+}
+
+function normalizeCartProductKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${parsed.origin}${pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+function pruneCartAddedProducts(now = Date.now()): void {
+  for (const [key, entry] of cartAddedProducts) {
+    if (now - entry.ts > CART_ADDED_TTL_MS) {
+      cartAddedProducts.delete(key);
+    }
+  }
+}
+
+function cartOrigin(url?: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record that a product was added to cart at the given URL.
+ * The URL is normalized to origin + pathname so different sites do not collide
+ * on the same path, and stale entries expire automatically.
+ */
+function recordProductAddedToCart(url: string, productName: string): void {
+  pruneCartAddedProducts();
+  cartAddedProducts.set(normalizeCartProductKey(url), {
+    title: productName || url,
+    ts: Date.now(),
+  });
+}
+
+/**
+ * Check if the given product URL was already added to cart during this session.
+ */
+function isProductAlreadyInCart(url: string): boolean {
+  pruneCartAddedProducts();
+  return cartAddedProducts.has(normalizeCartProductKey(url));
+}
+
+/**
+ * Build a summary of products already added to cart, filtered to the current
+ * site when a URL is available so unrelated domains do not leak into the prompt.
+ */
+function getCartAddedSummary(url?: string): string {
+  pruneCartAddedProducts();
+  const origin = cartOrigin(url);
+  const items = Array.from(cartAddedProducts.entries())
+    .filter(([key]) => !origin || key.startsWith(`${origin}/`))
+    .map(([_path, info]) => `- ${info.title}`)
+    .join("\n");
+  if (!items) return "";
+  const count = items.split("\n").length;
+  return `\nAlready in cart (${count} items):\n${items}`;
+}
+
+async function buildCartSuccessSuffix(
+  wc: WebContents,
+  productUrl: string,
+  overlayHint?: string | null,
+): Promise<string> {
+  const productTitle = await getProductPageTitle(wc);
+  recordProductAddedToCart(productUrl, productTitle);
+  const cartSummary = getCartAddedSummary(productUrl);
+  const dismissResult = await tryAutoDismissCartDialog(wc);
+  if (dismissResult) {
+    return `\nItem added to cart. ${dismissResult}${cartSummary}\nGo back to search results to select the next product.`;
+  }
+
+  if (!overlayHint) {
+    return cartSummary;
+  }
+
+  const dialogActions = await getCartDialogActions(wc);
+  const actionsSuffix = dialogActions
+    ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
+    : "";
+  return `\n${overlayHint}${actionsSuffix}${cartSummary}`;
+}
+
 async function clickResolvedSelector(
   wc: WebContents,
   selector: string,
@@ -1144,6 +1448,7 @@ async function clickResolvedSelector(
   if (selector.startsWith("__vessel_idx:")) {
     const idx = Number(selector.slice("__vessel_idx:".length));
     const beforeUrl = wc.getURL();
+    let idxCartMatch = false;
     // Pre-check: get element text for cart-click guard
     const idxLabel = await executePageScript<string>(
       wc,
@@ -1152,10 +1457,14 @@ async function clickResolvedSelector(
     );
     if (
       typeof idxLabel === "string" &&
-      isAddToCartText(idxLabel) &&
+      (idxCartMatch = isAddToCartText(idxLabel)) &&
       isDuplicateCartClick(beforeUrl, idxLabel)
     ) {
       return `Blocked: "${idxLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
+    if (idxCartMatch && isProductAlreadyInCart(beforeUrl)) {
+      const summary = getCartAddedSummary(beforeUrl);
+      return `Blocked: This product was already added to the cart.${summary}\nGo back and select a different product.`;
     }
     const result = await executePageScript<string>(
       wc,
@@ -1166,19 +1475,43 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
-    if (typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
+    if (idxCartMatch) {
       recordCartClick(beforeUrl, idxLabel);
     }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
-    const idxOverlay = await detectPostClickOverlay(wc);
-    return idxOverlay ? `${result}\n${idxOverlay}` : result;
+    let idxOverlay = await detectPostClickOverlay(wc);
+    if (!idxOverlay && idxCartMatch) {
+      await sleep(1200);
+      idxOverlay = await detectPostClickOverlay(wc);
+    }
+    if (idxCartMatch) {
+      return `${result}${await buildCartSuccessSuffix(wc, beforeUrl, idxOverlay)}`;
+    }
+    if (!idxOverlay) {
+      const hrefMatch = typeof result === "string"
+        ? result.match(/\nhref: (https?:\/\/\S+)/)
+        : null;
+      if (hrefMatch) {
+        try {
+          assertSafeURL(hrefMatch[1]);
+          await wc.loadURL(hrefMatch[1]);
+          await waitForLoad(wc, 8000);
+          const hrefUrl = wc.getURL();
+          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
+        } catch {}
+      }
+    }
+    return idxOverlay
+      ? `${result}\n${idxOverlay}`
+      : `${result}\nNote: Page did not change after click.`;
   }
 
   // Shadow-piercing selector path
   if (selector.includes(" >>> ")) {
     const beforeUrl = wc.getURL();
+    let shadowCartMatch = false;
     // Pre-check: get element text for cart-click guard
     const shadowLabel = await executePageScript<string>(
       wc,
@@ -1190,19 +1523,25 @@ async function clickResolvedSelector(
     );
     if (
       typeof shadowLabel === "string" &&
-      isAddToCartText(shadowLabel) &&
+      (shadowCartMatch = isAddToCartText(shadowLabel)) &&
       isDuplicateCartClick(beforeUrl, shadowLabel)
     ) {
       return `Blocked: "${shadowLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
+    }
+    if (shadowCartMatch && isProductAlreadyInCart(beforeUrl)) {
+      const summary = getCartAddedSummary(beforeUrl);
+      return `Blocked: This product was already added to the cart.${summary}\nGo back and select a different product.`;
     }
     const result = await executePageScript<string>(
       wc,
       `
       (function() {
         var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
-        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
+        if (!el || !document.contains(el)) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
         if (el instanceof HTMLElement) { el.focus(); el.click(); }
-        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
+        var anchor = el instanceof HTMLAnchorElement ? el : el.closest('a[href]');
+        var href = anchor instanceof HTMLAnchorElement ? anchor.href : null;
+        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase()) + (href ? "\\nhref: " + href : "");
       })()
     `,
       {
@@ -1211,14 +1550,37 @@ async function clickResolvedSelector(
     );
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
-    if (typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
+    if (shadowCartMatch) {
       recordCartClick(beforeUrl, shadowLabel);
     }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
-    const shadowOverlay = await detectPostClickOverlay(wc);
-    return shadowOverlay ? `${result}\n${shadowOverlay}` : result;
+    let shadowOverlay = await detectPostClickOverlay(wc);
+    if (!shadowOverlay && shadowCartMatch) {
+      await sleep(1200);
+      shadowOverlay = await detectPostClickOverlay(wc);
+    }
+    if (shadowCartMatch) {
+      return `${result}${await buildCartSuccessSuffix(wc, beforeUrl, shadowOverlay)}`;
+    }
+    if (!shadowOverlay) {
+      const hrefMatch = typeof result === "string"
+        ? result.match(/\nhref: (https?:\/\/\S+)/)
+        : null;
+      if (hrefMatch) {
+        try {
+          assertSafeURL(hrefMatch[1]);
+          await wc.loadURL(hrefMatch[1]);
+          await waitForLoad(wc, 8000);
+          const hrefUrl = wc.getURL();
+          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
+        } catch {}
+      }
+    }
+    return shadowOverlay
+      ? `${result}\n${shadowOverlay}`
+      : `${result}\nNote: Page did not change after click.`;
   }
 
   const beforeUrl = wc.getURL();
@@ -1246,13 +1608,22 @@ async function clickResolvedSelector(
     }
   }
 
+  // Block add-to-cart on a product page that was already successfully added.
+  if (cartMatch && isProductAlreadyInCart(beforeUrl)) {
+    const summary = getCartAddedSummary(beforeUrl);
+    return `Blocked: This product was already added to the cart.${summary}\nGo back and select a different product.`;
+  }
+
   // Record add-to-cart clicks BEFORE executing so even if overlay detection
   // fails, a second click on the same page will be caught.
   if (cartMatch) {
     recordCartClick(beforeUrl, elInfo.text);
   }
 
-  const clickText = `Clicked: ${elInfo.text}`;
+  const tagLabel = elInfo.tag && elInfo.tag !== "a" && elInfo.tag !== "button"
+    ? ` <${elInfo.tag}>`
+    : "";
+  const clickText = `Clicked: ${elInfo.text}${tagLabel}`;
   const clickResult = await clickElement(wc, selector);
   if (clickResult.startsWith("Error:")) return clickResult;
 
@@ -1264,18 +1635,33 @@ async function clickResolvedSelector(
 
   const overlayHint = await detectPostClickOverlay(wc);
   if (overlayHint) {
-    // If this was a cart click, also fetch dialog actions inline
-    const dialogActions = cartMatch ? await getCartDialogActions(wc) : null;
-    const actionsSuffix = dialogActions
-      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
-      : "";
-    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}`;
+    if (cartMatch) {
+      return `${clickText} (${clickResult})${await buildCartSuccessSuffix(
+        wc,
+        beforeUrl,
+        overlayHint,
+      )}`;
+    }
+    return `${clickText} (${clickResult})\n${overlayHint}`;
   }
 
   // Do not "recover" cart clicks with a second DOM activation. On sites like
   // Powell's, that fallback can submit Add to Cart twice while the drawer is opening.
   if (cartMatch) {
-    return `${clickText} (${clickResult})`;
+    await sleep(1200);
+    const delayedOverlayHint = await detectPostClickOverlay(wc);
+    if (delayedOverlayHint) {
+      return `${clickText} (${clickResult})${await buildCartSuccessSuffix(
+        wc,
+        beforeUrl,
+        delayedOverlayHint,
+      )}`;
+    }
+    // Cart click with no overlay — assume success (some sites use toast notifications)
+    return `${clickText} (${clickResult})${await buildCartSuccessSuffix(
+      wc,
+      beforeUrl,
+    )}`;
   }
 
   const activationResult = await activateElement(wc, selector);
@@ -1292,7 +1678,83 @@ async function clickResolvedSelector(
     return `${clickText} (${clickResult})\n${postActivationOverlayHint}`;
   }
 
-  return `${clickText} (${clickResult})`;
+  const sameTabLinkTarget =
+    typeof elInfo.href === "string" &&
+    elInfo.href.trim().length > 0 &&
+    (!elInfo.target || !/^_blank$/i.test(elInfo.target.trim()));
+  if (sameTabLinkTarget) {
+    const validation = await validateLinkDestination(elInfo.href!);
+    if (validation.status !== "dead") {
+      try {
+        assertSafeURL(elInfo.href!);
+        await wc.loadURL(elInfo.href!);
+        await waitForLoad(wc, 8000);
+        const hrefFallbackUrl = wc.getURL();
+        if (hrefFallbackUrl !== beforeUrl) {
+          return `${clickText} -> ${hrefFallbackUrl} (recovered via href fallback)`;
+        }
+      } catch {
+        // Fall through to the generic click result when href fallback fails.
+      }
+    }
+  }
+
+  // Final fallback: click didn't navigate, no overlay, no href fallback.
+  // Be explicit that nothing happened so the model doesn't hallucinate success.
+  const nonInteractiveWarning =
+    elInfo.isInteractive === false && !elInfo.href
+      ? `\nNote: The clicked element (<${elInfo.tag || "unknown"}>) is not a link or button. Nothing happened. Try clicking the actual link element nearby or use read_page to find the correct interactive element.`
+      : `\nNote: Page did not change after click. The element may need a different interaction method. Consider read_page or inspect_element.`;
+
+  return `${clickText} (${clickResult})${nonInteractiveWarning}`;
+}
+
+/**
+ * After a cart confirmation dialog appears, try to automatically click
+ * "Continue Shopping" (or similar) so the model doesn't get stuck trying
+ * to dismiss the dialog via regular clicks (which often don't work through
+ * overlay layers).
+ */
+async function tryAutoDismissCartDialog(wc: WebContents): Promise<string | null> {
+  try {
+    const result = await executePageScript<string>(
+      wc,
+      `
+      (function() {
+        var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
+        if (!dialog) return null;
+        var cs = getComputedStyle(dialog);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return null;
+        var buttons = dialog.querySelectorAll('button, a[href], [role="button"]');
+        var continueBtn = null;
+        var closeBtn = null;
+        for (var i = 0; i < buttons.length; i++) {
+          var label = (buttons[i].getAttribute('aria-label') || buttons[i].textContent || '').trim().toLowerCase();
+          if (/continue shopping|keep shopping|back to shopping/.test(label)) { continueBtn = buttons[i]; break; }
+          if (/close|dismiss|×/.test(label) && !closeBtn) { closeBtn = buttons[i]; }
+        }
+        var target = continueBtn || closeBtn;
+        if (!target) return null;
+        var actionLabel = (target.getAttribute('aria-label') || target.textContent || '').trim();
+        if (target.tagName === 'A' && target.href) {
+          window.location.href = target.href;
+          return "Navigated via: " + actionLabel;
+        }
+        target.click();
+        return "Dismissed dialog via: " + actionLabel;
+      })()
+      `,
+      { timeoutMs: 1500, label: "auto dismiss cart dialog" },
+    );
+
+    if (result && result !== PAGE_SCRIPT_TIMEOUT && typeof result === "string") {
+      await sleep(500);
+      return result;
+    }
+  } catch {
+    // Fall through — caller will show dialog actions as fallback
+  }
+  return null;
 }
 
 /**
@@ -2219,6 +2681,37 @@ async function resolveSelector(
   if (extractedSelector) return extractedSelector;
 
   return null;
+}
+
+async function resolveTargetByText(
+  wc: WebContents,
+  query: string,
+  mode: TextTargetMode,
+): Promise<string | null | typeof PAGE_SCRIPT_TIMEOUT> {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+  if (isInvalidTextTargetQuery(trimmed)) return null;
+
+  const result = await executePageScript<{
+    selector: string;
+    label: string;
+    kind: string;
+    matchedText: string;
+  } | null>(
+    wc,
+    `(${resolveTextTargetInDocument.toString()})(document, ${JSON.stringify(trimmed)}, ${JSON.stringify(mode)})`,
+    {
+      timeoutMs: 2200,
+      label: `resolve ${mode} target by text`,
+    },
+  );
+
+  if (result === PAGE_SCRIPT_TIMEOUT) return PAGE_SCRIPT_TIMEOUT;
+  if (!result || typeof result.selector !== "string" || !result.selector) {
+    return null;
+  }
+
+  return result.selector;
 }
 
 function normalizeFieldToken(value: unknown): string {
@@ -3994,7 +4487,51 @@ async function getPostActionState(
     if (wc.isLoading()) {
       await waitForLoad(wc);
     }
-    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
+    const currentUrl = wc.getURL();
+    let warnings = "";
+    if (isProductAlreadyInCart(currentUrl)) {
+      warnings += `\nWARNING: This product is already in your cart.${getCartAddedSummary(currentUrl)}\nGo back and select a different product.`;
+    }
+    // Detect domain drift: if a click/navigate took us off the requested site,
+    // warn the model to go back immediately.
+    const taskGoal = ctx.runtime.getState().taskTracker?.goal;
+    if (taskGoal && name === "click") {
+      const drift = shouldBlockOffGoalDomainNavigation(taskGoal, currentUrl);
+      if (drift) {
+        warnings += `\nWARNING: You drifted to ${drift.targetDomain} but the task requires staying on ${drift.requestedDomain}. Call go_back immediately to return to the previous page.`;
+      }
+    }
+
+    // After going back or searching, always show what's already in the cart
+    // so the model doesn't re-click the same products from memory.
+    if (name === "go_back" || name === "search") {
+      const cartSummary = getCartAddedSummary(currentUrl);
+      if (cartSummary) {
+        warnings += `${cartSummary}\nSelect a DIFFERENT product that is not in the cart. Call read_page if needed to see available results.`;
+      }
+    }
+    return `\n[state: url=${currentUrl}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]${warnings}`;
+  }
+
+  // After a click that stays on the same page, check if we landed on an
+  // empty/no-results page — common when clicking filter links by mistake.
+  if (name === "click" && !wc.isLoading()) {
+    try {
+      const emptyPage = await executePageScript<boolean>(
+        wc,
+        `(function() {
+          var body = (document.body.textContent || '').toLowerCase();
+          return /\b(no results|no items found|nothing matched|0 results|zero results|no products|your search.*did not match|no books found)\b/.test(body)
+            && body.length < 8000;
+        })()`,
+        { timeoutMs: 1000, label: "empty page check" },
+      );
+      if (emptyPage && emptyPage !== PAGE_SCRIPT_TIMEOUT) {
+        return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=false]\nWARNING: This page shows no results. You likely clicked a filter or category link instead of a product. Call go_back to return to the search results.`;
+      }
+    } catch {
+      // Ignore — this is a best-effort check
+    }
   }
 
   if (interactActions.includes(name)) {
@@ -4280,20 +4817,51 @@ export async function executeAction(
 
         case "click": {
           if (!wc) return "Error: No active tab";
-          const selector =
-            typeof args.selector === "string" && args.selector.trim()
-              ? await resolveSelector(wc, undefined, args.selector)
-              : typeof args.index === "number"
-                ? `__vessel_idx:${args.index}`
-                : await resolveSelector(wc, args.index, args.selector);
-          if (!selector) return "Error: No element index or selector provided";
+          let selector: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
+          const textTarget =
+            typeof args.text === "string" && args.text.trim() ? args.text.trim() : "";
+          if (typeof args.selector === "string" && args.selector.trim()) {
+            selector = await resolveSelector(wc, undefined, args.selector);
+          } else if (textTarget) {
+            if (isInvalidTextTargetQuery(textTarget)) {
+              return `Error: "${textTarget}" looks like HTML or markup, not a visible page label. Use a book title, button text, or element index instead.`;
+            }
+            selector = await resolveTargetByText(wc, textTarget, "interactive");
+            if (!selector && typeof args.index === "number") {
+              selector = `__vessel_idx:${args.index}`;
+            }
+          } else if (typeof args.index === "number") {
+            selector = await resolveSelector(wc, args.index);
+            if (!selector) selector = `__vessel_idx:${args.index}`;
+          } else {
+            selector = await resolveSelector(wc, args.index, args.selector);
+          }
+          if (selector === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
+          if (!selector) {
+            return "Error: No element index, selector, or visible text provided";
+          }
           return clickResolvedSelector(wc, selector);
         }
 
         case "inspect_element": {
           if (!wc) return "Error: No active tab";
-          const selector = await resolveSelector(wc, args.index, args.selector);
-          if (!selector) return "Error: No element index or selector provided";
+          let selector: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
+          const textTarget =
+            typeof args.text === "string" && args.text.trim() ? args.text.trim() : "";
+          if (textTarget) {
+            if (isInvalidTextTargetQuery(textTarget)) {
+              return `Error: "${textTarget}" looks like HTML or markup, not visible page text. Use a section title, book title, or element index instead.`;
+            }
+            selector = await resolveTargetByText(wc, textTarget, "context");
+          } else {
+            selector = await resolveSelector(wc, args.index, args.selector);
+          }
+          if (selector === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("inspect_element");
+          }
+          if (!selector) {
+            return "Error: No element index, selector, or visible text provided";
+          }
           return inspectElement(
             wc,
             selector,
@@ -4487,7 +5055,13 @@ export async function executeAction(
             const livePrefix = liveSelectionSection
               ? `${liveSelectionSection}\n\n`
               : "";
-            const requestedMode = normalizeReadPageMode(args.mode, content);
+            const baseMode = normalizeReadPageMode(args.mode, content);
+            const requestedMode =
+              ctx.toolProfile === "compact" &&
+              (args.mode == null ||
+                (typeof args.mode === "string" && !args.mode.trim()))
+                ? chooseCompactReadMode(content, baseMode)
+                : baseMode;
 
             if (requestedMode === "debug" || requestedMode === "full") {
               const structured = buildStructuredContext(content);
@@ -4498,7 +5072,10 @@ export async function executeAction(
               return `${livePrefix}[read_page mode=debug]\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
             }
 
-            const scoped = buildScopedContext(content, requestedMode);
+            const scoped =
+              ctx.toolProfile === "compact"
+                ? buildCompactScopedContext(content, requestedMode)
+                : buildScopedContext(content, requestedMode);
             return [
               livePrefix ? livePrefix.trimEnd() : "",
               `[read_page mode=${requestedMode}]`,
@@ -5350,9 +5927,21 @@ export async function executeAction(
 
         case "scroll_to_element": {
           if (!wc) return "Error: No active tab";
-          const sel = await resolveSelector(wc, args.index, args.selector);
-          if (!sel)
-            return "Error: Provide an index or selector for the element to scroll to.";
+          let sel: string | null | typeof PAGE_SCRIPT_TIMEOUT = null;
+          const textTarget =
+            typeof args.text === "string" && args.text.trim() ? args.text.trim() : "";
+          if (textTarget) {
+            if (isInvalidTextTargetQuery(textTarget)) {
+              return `Error: "${textTarget}" looks like HTML or markup, not visible page text. Use a section title or element index instead.`;
+            }
+            sel = await resolveTargetByText(wc, textTarget, "context");
+          } else {
+            sel = await resolveSelector(wc, args.index, args.selector);
+          }
+          if (sel === PAGE_SCRIPT_TIMEOUT) return pageBusyError("scroll_to_element");
+          if (!sel) {
+            return "Error: Provide an index, selector, or visible text for the element to scroll to.";
+          }
           const block =
             args.position === "top"
               ? "start"
@@ -5397,6 +5986,60 @@ export async function executeAction(
     },
   });
 
+  const formattedResult =
+    ctx.toolProfile === "compact"
+      ? formatCompactToolResult(name, result)
+      : result;
   const flowCtx = ctx.runtime.getFlowContext();
-  return result + (await getPostActionState(ctx, name)) + flowCtx;
+
+  // When a click causes navigation, include a lightweight page snapshot so the
+  // model can see interactive elements without calling read_page. This prevents
+  // the click→read_page→click→read_page loop.
+  let clickNavSummary = "";
+  if (
+    name === "click" &&
+    !result.startsWith("Error") &&
+    !result.startsWith("Blocked") &&
+    result.includes(" -> ")
+  ) {
+    const summaryWc = ctx.tabManager.getActiveTab()?.view.webContents;
+    if (summaryWc) {
+      clickNavSummary = await getPostClickNavSummary(
+        summaryWc,
+        ctx.toolProfile,
+      );
+    }
+  }
+
+  // Detect rapid same-page click streaks: the model keeps clicking elements
+  // on the same URL without verifying what happened. After CLICK_STREAK_THRESHOLD
+  // consecutive clicks, append a strong warning.
+  let streakWarning = "";
+  if (name === "click" && !result.startsWith("Error") && !result.startsWith("Blocked")) {
+    const currentUrl = ctx.tabManager.getActiveTab()?.view.webContents.getURL() ?? "";
+    if (currentUrl === clickStreakUrl) {
+      clickStreakCount++;
+    } else {
+      clickStreakUrl = currentUrl;
+      clickStreakCount = 1;
+    }
+    if (clickStreakCount >= CLICK_STREAK_THRESHOLD) {
+      streakWarning =
+        `\nWARNING: You have clicked ${clickStreakCount} elements on this page without verifying the result. ` +
+        `Call read_page or inspect_element to check the current page state before clicking again. ` +
+        `If clicks are having no effect, the elements may not be interactive — try different element indices or read the page to find clickable links.`;
+    }
+  } else if (["read_page", "inspect_element", "screenshot", "wait_for"].includes(name)) {
+    // Verification tools reset the streak
+    clickStreakCount = 0;
+    clickStreakUrl = null;
+  }
+
+  return (
+    formattedResult +
+    (await getPostActionState(ctx, name)) +
+    clickNavSummary +
+    streakWarning +
+    flowCtx
+  );
 }

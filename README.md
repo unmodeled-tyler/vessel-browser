@@ -90,7 +90,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
 - **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands
 - **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision across five tabs: Supervisor, Bookmarks, Checkpoints, Chat, and Automate
-- **Chat Assistant** — built-in conversational AI in the sidebar Chat tab; supports Anthropic, OpenAI, Ollama, Mistral, xAI, Google Gemini, OpenRouter, and any OpenAI-compatible endpoint; reads the current page automatically; has full access to the same browser tools as external agents; multi-turn session history; configure provider, model, and API key in Settings
+- **Chat Assistant** — built-in conversational AI in the sidebar Chat tab; supports Anthropic, OpenAI, Ollama, llama.cpp, Mistral, xAI, Google Gemini, OpenRouter, and any OpenAI-compatible endpoint; reads the current page automatically; has full access to the same browser tools as external agents; multi-turn session history; configure provider, model, and API key in Settings
 - **Automation Kits** (Premium) — parameterized workflow templates in the sidebar Automate tab; fill in a short form and the built-in agent executes the workflow autonomously; bundled kits include Research & Collect (multi-source research with bookmark saving) and Price Scout (cross-retailer price comparison); designed for a future kit marketplace
 - **Dev Tools Panel** (`F12`) — inspect console output, network requests, and MCP/agent activity in a resizable panel at the bottom of the window; export logs by category and date range as JSON
 - **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
@@ -130,7 +130,7 @@ That means the product should optimize for:
 | UI Framework | SolidJS |
 | Language | TypeScript |
 | Build | electron-vite + Vite |
-| AI Control | External agent harnesses (Hermes Agent, OpenClaw, MCP clients) + built-in chat (Anthropic, OpenAI, Ollama, and any OAI-compatible endpoint) |
+| AI Control | External agent harnesses (Hermes Agent, OpenClaw, MCP clients) + built-in chat (Anthropic, OpenAI, Ollama, llama.cpp, and any OAI-compatible endpoint) |
 | Content Extraction | @mozilla/readability |
 
 ## Architecture
@@ -239,12 +239,37 @@ Notes:
 - The default MCP port is `3100`
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
 - Vessel supports a built-in Chat tab with configurable AI provider; open Settings (`Ctrl+,`) and enable Chat Assistant to set a provider and model
+- `llama.cpp (Local)` is a first-class chat provider in Settings and targets `http://localhost:8080/v1` by default; Vessel auto-fetches the active model from `llama-server`
+- For `llama-server`, use `--ctx-size 16384` minimum and `32768` recommended for reliable Vessel agent loops; lower values often fail once prompt, tool schema, and tool history accumulate
 - Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
 - Settings now show MCP runtime status, active endpoint, startup warnings, and allow changing the MCP port with an immediate server restart
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
 - Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - The intended control plane is an external harness driving Vessel through MCP
 - If you set an Obsidian vault path in Settings, harnesses can write markdown notes directly into that vault via Vessel memory MCP tools
+
+### Using llama.cpp as the built-in chat provider
+
+Vessel can talk directly to a local `llama-server` through its OpenAI-compatible API.
+
+Example:
+
+```bash
+llama-server -m /path/to/model.gguf --port 8080 --ctx-size 32768
+```
+
+Then in Vessel:
+
+1. Open Settings (`Ctrl+,`)
+2. Enable Chat Assistant
+3. Choose `llama.cpp (Local)` as the provider
+4. Click refresh if needed; Vessel will auto-detect the active model from `http://localhost:8080/v1`
+
+Notes:
+
+- `--ctx-size 16384` is the minimum practical setting for Vessel agent loops
+- `--ctx-size 32768` is the recommended default for longer browsing sessions
+- Vessel will warn in Settings if it detects a `llama-server` context size below the recommended floor, or if it cannot detect the ctx size from the running server
 
 Initial memory tools:
 

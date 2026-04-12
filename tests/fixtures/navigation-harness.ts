@@ -23,6 +23,7 @@ function renderPage(title: string, body: string): string {
       <a href="/obstructed-anchor-source">Obstructed anchor</a>
       <a href="/blank-anchor-source">Target blank</a>
       <a href="/window-open-source">Window open</a>
+      <a href="/ghost-anchor-source">Ghost anchor</a>
       <a href="/get-form">GET form</a>
       <a href="/post-form">POST form</a>
       <a href="/external-submit">External submit</a>
@@ -213,6 +214,27 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
             >
               Open JS Dest In New Tab
             </button>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/ghost-anchor-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "ghost-anchor-source",
+          `
+            <h1>Ghost Anchor Source</h1>
+            <p>This link prevents both pointer-click and element.click() navigation, so Vessel must recover via the href itself.</p>
+            <a
+              id="go-ghost-anchor"
+              href="/anchor-dest"
+              onclick="event.preventDefault(); event.stopPropagation(); return false;"
+            >
+              Go to Anchor Dest Through Ghost Click
+            </a>
           `,
         ),
       );

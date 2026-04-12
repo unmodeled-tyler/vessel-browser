@@ -4,6 +4,7 @@ import type { AIMessage } from "../../shared/types";
 import { isRichToolResult, type RichToolResult } from "./tool-result";
 import { getEffectiveMaxIterations } from "../premium/manager";
 import type { AgentToolProfile } from "./tool-profile";
+import { isClickReadLoop } from "./provider-openai";
 
 export class AnthropicProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile = "default";
@@ -79,6 +80,8 @@ export class AnthropicProvider implements AIProvider {
     try {
       const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
+      const recentToolNames: string[] = [];
+      let clickReadLoopNudged = false;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         const stream = this.client.messages.stream(
@@ -243,8 +246,29 @@ export class AnthropicProvider implements AIProvider {
               content: result,
             });
           }
+
+          // Track tool names for click→read_page loop detection
+          recentToolNames.push(tb.name);
+          if (recentToolNames.length > 8) recentToolNames.shift();
         }
         messages.push({ role: "user", content: toolResults });
+
+        // Detect click→read_page alternating loop and inject a nudge
+        if (
+          !clickReadLoopNudged &&
+          recentToolNames.length >= 6 &&
+          isClickReadLoop(recentToolNames)
+        ) {
+          clickReadLoopNudged = true;
+          messages.push({
+            role: "user",
+            content:
+              `You are alternating between click and read_page without advancing the task. ` +
+              `The click result already includes a page snapshot when it navigates — you do not need read_page after every click. ` +
+              `If you need detail on a specific element, use inspect_element instead. ` +
+              `If you have enough context, proceed with the next action directly.`,
+          });
+        }
       }
       if (iterationsUsed >= maxIterations) {
         onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);

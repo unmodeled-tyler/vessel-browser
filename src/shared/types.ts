@@ -357,6 +357,9 @@ export interface TaskTrackerState {
   startUrl?: string;
   lastAction?: string;
   nextHint?: string;
+  requestedCount?: number | null;
+  cartCount?: number;
+  cartVisible?: boolean;
 }
 
 export interface AgentRuntimeState {
@@ -386,6 +389,7 @@ export type ProviderId =
   | "openai"
   | "openrouter"
   | "ollama"
+  | "llama_cpp"
   | "mistral"
   | "xai"
   | "google"
@@ -418,6 +422,7 @@ export interface ProviderModelsResult {
   ok: boolean;
   models: string[];
   error?: string;
+  warning?: string;
 }
 
 export interface DomainPolicy {

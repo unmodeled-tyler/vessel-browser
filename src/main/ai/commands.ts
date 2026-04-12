@@ -10,6 +10,7 @@ import {
   detectPageType,
 } from "./context-builder";
 import { buildAgentSystemPrompt } from "./agent-prompt";
+import { buildCompactScopedContext } from "./compact-context";
 import { extractContent } from "../content/extractor";
 import { AGENT_TOOLS } from "./tools";
 import { pruneToolsForContext } from "../tools/pruner";
@@ -46,10 +47,14 @@ export async function handleAIQuery(
       } else {
         runtime.clearTaskTracker();
       }
-      const structuredContext = buildScopedContext(
-        pageContent,
-        defaultReadMode,
-      );
+      const structuredContext =
+        provider.agentToolProfile === "compact"
+          ? buildCompactScopedContext(
+              pageContent,
+              defaultReadMode,
+              pageType,
+            )
+          : buildScopedContext(pageContent, defaultReadMode);
       const runtimeState = runtime.getState();
       const recentCheckpoints = runtimeState.checkpoints
         .slice(-3)
@@ -81,7 +86,11 @@ export async function handleAIQuery(
         taskTrackerContext: taskTrackerContext || "- none",
       });
 
-      const actionCtx: ActionContext = { tabManager, runtime };
+      const actionCtx: ActionContext = {
+        tabManager,
+        runtime,
+        toolProfile: provider.agentToolProfile,
+      };
 
       // Speedee: dynamically reorder tools based on current page context
       const contextualTools = pruneToolsForContext(

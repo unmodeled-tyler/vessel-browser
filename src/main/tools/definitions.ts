@@ -105,13 +105,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "click",
     title: "Click Element",
     description:
-      "Click an element on the page by its index number or CSS selector. Use this to check or uncheck checkboxes and to select radio buttons — do NOT use select_option for those.",
+      "Click an element on the page by its index number, CSS selector, or visible text/section name. If you know the label on the page but not the index yet, pass text instead of guessing a selector.",
     inputSchema: {
       index: z
         .number()
         .optional()
         .describe("Element index from the page content listing"),
       selector: z.string().optional().describe("CSS selector as fallback"),
+      text: z
+        .string()
+        .optional()
+        .describe("Visible label, link text, button text, or section name to match"),
     },
     tier: 0,
   },
@@ -265,10 +269,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "inspect_element",
     title: "Inspect Element",
     description:
-      "Inspect one element and its nearest local UI region such as a product card, result row, form section, or modal. Use this instead of reading the whole page when you only need local context.",
+      "Inspect one element and its nearest local UI region such as a product card, result row, form section, or modal. You can target it by index, selector, or visible text/section name when you know what it says but not where it is.",
     inputSchema: {
       index: z.number().optional().describe("Element index to inspect"),
       selector: z.string().optional().describe("CSS selector to inspect"),
+      text: z
+        .string()
+        .optional()
+        .describe("Visible label or section text to locate before inspecting"),
       limit: z
         .number()
         .optional()
@@ -802,10 +810,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "scroll_to_element",
     title: "Scroll To Element",
     description:
-      "Scroll a specific element into view by index or selector. Useful for navigating to off-screen content.",
+      "Scroll a specific element into view by index, selector, or visible text/section name. Useful for navigating to off-screen content when you know the heading or label you want.",
     inputSchema: {
       index: z.number().optional().describe("Element index to scroll to"),
       selector: z.string().optional().describe("CSS selector to scroll to"),
+      text: z
+        .string()
+        .optional()
+        .describe("Visible label or section text to scroll into view"),
       position: z
         .enum(["center", "top", "bottom"])
         .optional()

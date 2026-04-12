@@ -13,6 +13,7 @@ import type {
   HistoryState,
   PremiumState,
   ProviderConfig,
+  ProviderModelsResult,
   RuntimeHealthState,
   ScheduledJob,
   SessionSnapshot,
@@ -112,7 +113,7 @@ const api = {
     cancel: () => ipcRenderer.invoke(Channels.AI_CANCEL),
     fetchModels: (
       config: ProviderConfig,
-    ): Promise<{ ok: boolean; models: string[]; error?: string }> =>
+    ): Promise<ProviderModelsResult> =>
       ipcRenderer.invoke(Channels.AI_FETCH_MODELS, config),
     getRuntime: (): Promise<AgentRuntimeState> =>
       ipcRenderer.invoke(Channels.AGENT_RUNTIME_GET),

@@ -327,6 +327,96 @@ function isVisibleToUser(el: InteractiveElement): boolean {
   );
 }
 
+function purchaseActionPriority(el: InteractiveElement): number {
+  const haystack = normalizeComparable(
+    [
+      el.text,
+      el.label,
+      el.name,
+      el.placeholder,
+      el.description,
+      el.href,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  if (!haystack) return Number.POSITIVE_INFINITY;
+  if (/\badd(?: item)? to (?:cart|bag|basket)\b/.test(haystack)) return 0;
+  if (/\b(?:buy now|preorder|pre-order|reserve now|shop now)\b/.test(haystack)) {
+    return 1;
+  }
+  if (/\b(?:checkout|view cart|view basket|go to cart|view bag)\b/.test(haystack)) {
+    return 2;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function isPurchaseActionElement(el: InteractiveElement): boolean {
+  if (
+    el.type !== "button" &&
+    el.type !== "link" &&
+    !(el.type === "input" &&
+      (el.inputType === "submit" || el.inputType === "button"))
+  ) {
+    return false;
+  }
+
+  return Number.isFinite(purchaseActionPriority(el));
+}
+
+function getPurchaseActionElements(
+  page: PageContent,
+  options?: { visibleOnly?: boolean },
+): InteractiveElement[] {
+  const visibleOnly = options?.visibleOnly !== false;
+  const seen = new Set<string>();
+
+  return page.interactiveElements
+    .filter((el) => {
+      if (!isPurchaseActionElement(el)) return false;
+      if (visibleOnly && !isVisibleToUser(el)) return false;
+      if (el.blockedByOverlay) return false;
+
+      const key = String(
+        el.index ??
+          el.selector ??
+          `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+      );
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => {
+      const delta = purchaseActionPriority(a) - purchaseActionPriority(b);
+      if (delta !== 0) return delta;
+      return (a.index ?? Number.MAX_SAFE_INTEGER) -
+        (b.index ?? Number.MAX_SAFE_INTEGER);
+    })
+    .slice(0, 8);
+}
+
+function getOffscreenPurchaseActionElements(page: PageContent): InteractiveElement[] {
+  const visibleKeys = new Set(
+    getPurchaseActionElements(page, { visibleOnly: true }).map((el) =>
+      String(
+        el.index ??
+          el.selector ??
+          `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+      ),
+    ),
+  );
+
+  return getPurchaseActionElements(page, { visibleOnly: false }).filter((el) => {
+    const key = String(
+      el.index ??
+        el.selector ??
+        `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+    );
+    return !visibleKeys.has(key) && el.visible !== false;
+  });
+}
+
 function getDialogFocusedElements(page: PageContent): InteractiveElement[] {
   return page.interactiveElements.filter(
     (el) => isVisibleToUser(el) && el.context === "dialog",
@@ -399,6 +489,10 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
     const scoreEl = (el: InteractiveElement) => {
       let s = 0;
       if (el.context === "dialog") s -= 40;
+      const purchasePriority = purchaseActionPriority(el);
+      if (Number.isFinite(purchasePriority)) {
+        s -= 25 - purchasePriority * 5;
+      }
       if (el.visible === false) s += 100;
       if (el.inViewport === false) s += 50;
       if (
@@ -1398,6 +1492,10 @@ export function buildScopedContext(
           .filter((form) => form.fields.length > 0),
       };
       const quantityElements = getQuantityElements(visiblePage);
+      const purchaseActions = getPurchaseActionElements(visiblePage, {
+        visibleOnly: true,
+      });
+      const offscreenPurchaseActions = getOffscreenPurchaseActionElements(page);
       const cartSnapshot = formatCartSnapshot(visiblePage);
       const visibleForms = visiblePage.forms;
       const dialogFocus = formatDialogFocus(page);
@@ -1451,6 +1549,19 @@ export function buildScopedContext(
       if (quantityElements.length > 0) {
         sections.push("### Quantity / Count Controls");
         sections.push(formatQuantityElements(quantityElements));
+        sections.push("");
+      }
+      if (purchaseActions.length > 0) {
+        sections.push("### Primary Purchase Actions");
+        sections.push(formatInteractiveElements(purchaseActions));
+        sections.push("");
+      }
+      if (offscreenPurchaseActions.length > 0) {
+        sections.push("### Offscreen Purchase Actions");
+        sections.push(
+          "These purchase controls are present on the page but currently outside the viewport. You can scroll to reveal them or click them by index.",
+        );
+        sections.push(formatInteractiveElements(offscreenPurchaseActions));
         sections.push("");
       }
       if (visiblePage.interactiveElements.length > 0) {

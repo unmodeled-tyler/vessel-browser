@@ -1847,6 +1847,25 @@ function resolveElementSelector(index: number): string | null {
   return elementSelectors[index] || null;
 }
 
+function resolveElementIndexBySelector(selector: string): number | null {
+  if (!selector || typeof selector !== "string") return null;
+
+  let el: Element | null = null;
+  try {
+    if (selector.includes(" >>> ")) {
+      el = resolveShadowSelector(selector);
+    } else {
+      el = document.querySelector(selector);
+    }
+  } catch {
+    return null;
+  }
+
+  if (!el) return null;
+  const existing = indexedElements.get(el);
+  return typeof existing === "number" ? existing : null;
+}
+
 /**
  * Interact with an element by index — works even for shadow DOM elements
  * where CSS selectors fail. Returns a result string.
@@ -1857,7 +1876,7 @@ function interactByIndex(
   value?: string,
 ): string {
   const el = indexedElementRefs[index];
-  if (!el || !(el instanceof HTMLElement)) {
+  if (!el || !(el instanceof HTMLElement) || !document.contains(el)) {
     return "Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.";
   }
   if (action === "click") {
@@ -1894,11 +1913,18 @@ function interactByIndex(
       }
       return `${ariaChecked === "true" ? "Selected" : "Clicked"}: ${label}`;
     }
+    const anchor =
+      el instanceof HTMLAnchorElement
+        ? el
+        : el.closest("a[href]");
+    const href =
+      anchor instanceof HTMLAnchorElement ? anchor.href : null;
     return (
       "Clicked: " +
       (el.getAttribute("aria-label") ||
         el.textContent?.trim().slice(0, 60) ||
-        el.tagName.toLowerCase())
+        el.tagName.toLowerCase()) +
+      (href ? "\nhref: " + href : "")
     );
   }
   if (action === "focus") {
@@ -1947,6 +1973,7 @@ function interactByIndex(
 contextBridge.exposeInMainWorld("__vessel", {
   extractContent: vesselExtractContent,
   getElementSelector: resolveElementSelector,
+  getElementIndexBySelector: resolveElementIndexBySelector,
   interactByIndex,
   resolveShadowSelector,
   notifyHighlightSelection: (text: string) => {
