@@ -93,6 +93,9 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
+      - name: Build electron app for snap
+        run: npm run build && npx electron-builder --config electron-builder.config.cjs --linux dir --publish never
+
       - name: Build snap
         uses: snapcore/action-build@v1
         id: snapcraft
