@@ -7,6 +7,12 @@ description: |
   autonomous agents with human supervision. Built on Electron and SolidJS,
   it provides MCP (Model Context Protocol) integration for AI agent
   browser automation.
+title: Vessel Browser
+contact: hello@quantaintellect.com
+license: MIT
+source-code: https://github.com/unmodeled-tyler/quanta-vessel-browser
+website: https://github.com/unmodeled-tyler/quanta-vessel-browser
+issues: https://github.com/unmodeled-tyler/quanta-vessel-browser/issues
 grade: stable
 confinement: strict
 icon: snap/gui/vessel-icon.png
@@ -39,19 +45,14 @@ apps:
 parts:
   vessel:
     plugin: dump
-    source: .
+    source: dist/linux-unpacked
     source-type: local
-    build-snaps:
-      - node/22/stable
     override-pull: |
       craftctl default
       craftctl set version="${VESSEL_VERSION:-0.1.0}"
     override-build: |
-      export PATH="/snap/node/current/bin:$PATH"
-      npm ci
-      npm run build
-      npx electron-builder --config electron-builder.config.cjs --linux dir --publish never
-      cp -r dist/linux-unpacked/* $CRAFT_PART_INSTALL/
+      craftctl default
+      chmod +x $CRAFT_PART_INSTALL/vessel
     stage-packages:
       - libnotify4
       - libsecret-1-0
