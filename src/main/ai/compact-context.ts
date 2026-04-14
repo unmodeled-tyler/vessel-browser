@@ -248,11 +248,11 @@ export function buildCompactScopedContext(
   const primaryResultElements = getPrimaryResultLinks(page);
   const primaryResults = primaryResultElements.map(formatElement);
   if (primaryResults.length > 0) {
-    pushSection(
-      lines,
-      "### Primary Results",
-      primaryResults,
-    );
+    lines.push("");
+    lines.push("### Results — click one of these to open a product");
+    lines.push(...primaryResults.map((item) => `- ${item}`));
+    lines.push("");
+    lines.push("IMPORTANT: Use click(index=N) on a result above. Do NOT click filter or sort links.");
   }
 
   if (
@@ -282,7 +282,7 @@ export function buildCompactScopedContext(
       .map(formatElement);
     pushSection(
       lines,
-      "### Visible Controls",
+      "### Page Controls (filters, sorts — avoid when selecting products)",
       visibleControls,
     );
   }

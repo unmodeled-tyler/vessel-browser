@@ -431,7 +431,7 @@ async function clickElement(
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
-        return { error: "Element is not visible" };
+        return { error: "Element is not visible. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it (scroll or scroll_to_element) then call read_page to refresh visible elements before clicking again." };
       }
 
       const points = samplePoints(rect);
@@ -1501,7 +1501,7 @@ async function hoverElement(
         el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
       }
       const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return { error: 'Error[hidden]: Element has no visible area' };
+      if (rect.width <= 0 || rect.height <= 0) return { error: 'Error[hidden]: Element has no visible area. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it then call read_page to refresh visible elements.' };
       el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
       el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
       const label = (el.textContent || el.tagName || 'Element').trim().slice(0, 80);

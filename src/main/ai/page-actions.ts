@@ -369,9 +369,9 @@ function waitForLoad(wc: WebContents, timeout = 5000): Promise<void> {
       return;
     }
 
-    wc.on("did-finish-load", onLoadEvent);
-    wc.on("did-stop-loading", onLoadEvent);
-    wc.on("did-fail-load", onLoadEvent);
+    wc.once("did-finish-load", onLoadEvent);
+    wc.once("did-stop-loading", onLoadEvent);
+    wc.once("did-fail-load", onLoadEvent);
   });
 }
 
@@ -435,8 +435,8 @@ function waitForPotentialNavigation(
     wc.once("did-start-loading", onStart);
     wc.once("did-navigate", onNavigate);
     wc.once("did-navigate-in-page", onNavigateInPage);
-    wc.on("did-stop-loading", onNativeChange);
-    wc.on("page-title-updated", onNativeChange);
+    wc.once("did-stop-loading", onNativeChange);
+    wc.once("page-title-updated", onNativeChange);
   });
 }
 
@@ -684,7 +684,7 @@ async function clickElement(
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
-        return { error: "Error[hidden]: Element has no visible area" };
+        return { error: "Error[hidden]: Element has no visible area. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it (scroll or scroll_to_element) then call read_page to refresh visible elements before clicking again." };
       }
 
       const points = samplePoints(rect);
@@ -1414,6 +1414,18 @@ function getCartAddedSummary(url?: string): string {
   if (!items) return "";
   const count = items.split("\n").length;
   return `\nAlready in cart (${count} items):\n${items}`;
+}
+
+/**
+ * Clear all in-memory cart and click tracking state. Called when the agent
+ * starts a new task (goal changes) so that stale entries from a previous
+ * run do not confuse the model with false "already in cart" warnings.
+ */
+export function clearCartState(): void {
+  cartAddedProducts.clear();
+  recentCartClicks.clear();
+  clickStreakUrl = null;
+  clickStreakCount = 0;
 }
 
 async function buildCartSuccessSuffix(
@@ -4509,7 +4521,23 @@ async function getPostActionState(
       if (cartSummary) {
         warnings += `${cartSummary}\nSelect a DIFFERENT product that is not in the cart. Call read_page if needed to see available results.`;
       }
+      // Compact models often skip read_page after going back and click blindly.
+      // Force them to refresh context before interacting.
+      if (ctx.toolProfile === "compact" && name === "go_back") {
+        warnings += `\nCall read_page(mode="results_only") to see available products before clicking.`;
+      }
     }
+
+    // Detect when a click navigated to a filter/sort URL instead of a product
+    // page — common mistake for small models on listing pages.
+    if (name === "click" && ctx.toolProfile === "compact") {
+      const filterParams = /\b(condition|binding|format|availability|sort|filter|price|category_id|view)\b=[^&]/i;
+      const filterPath = /\/(condition|binding|format|availability|sort|filter|price|category)\/[^/?#]+/i;
+      if (filterParams.test(currentUrl) || filterPath.test(currentUrl)) {
+        warnings += `\nWARNING: The clicked link appears to be a filter or sort control, not a product. If you intended to click a product, call go_back and use click(index=N) on a result from read_page(mode="results_only").`;
+      }
+    }
+
     return `\n[state: url=${currentUrl}, title=${JSON.stringify(wc.getTitle() || "")}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]${warnings}`;
   }
 

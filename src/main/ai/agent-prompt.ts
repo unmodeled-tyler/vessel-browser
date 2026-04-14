@@ -72,6 +72,8 @@ const COMPACT_FOCUS_INSTRUCTIONS = [
   "When read_page or inspect_element gives you an element index, prefer click(index=N) over selector-based clicks.",
   "If a product page has no visible purchase control, scroll and call read_page(mode=\"visible_only\") again. Do not loop on generic inspect_element calls against navigation or unrelated regions.",
   "After adding an item to cart and going back, ALWAYS call read_page to see the current results. The system shows which products are already in your cart — do NOT click those again. Pick a DIFFERENT product from the list. If all visible results are already in cart, scroll down for more.",
+  "On search results pages, always call read_page(mode=\"results_only\") first. Click products by their [#N] index from the Results section. Never click filter or sort links (e.g. Used, New, Format, Price).",
+  "After go_back, always call read_page before clicking. The page may have changed.",
   "Keep your reasoning short. Prefer taking the next tool action over writing a long plan.",
 ];
 

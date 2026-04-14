@@ -182,6 +182,21 @@ export function resolveTextTargetInDocument(
       score += 30;
     }
     if (inViewport(el)) score += 25;
+
+    // Penalize filter/sort/category links so they don't match product queries.
+    // Only penalize links (not buttons) to avoid penalizing "Add to Cart" etc.
+    if (tag === "a") {
+      const href = (htmlEl as HTMLAnchorElement).href || "";
+      const filterParams = /\b(condition|binding|format|availability|sort|filter|price|category_id)\b=[^&]/i;
+      const filterPath = /\/(condition|binding|format|availability|sort|filter|price|category)\/[^/?#]+/i;
+      if (filterParams.test(href) || filterPath.test(href)) {
+        score -= 40;
+      }
+      if (/\b(used|new|paperback|hardcover|hardback|ebook|kindle|refine|clear all|remove filter)\b/.test(label)) {
+        score -= 30;
+      }
+    }
+
     return score;
   }
 

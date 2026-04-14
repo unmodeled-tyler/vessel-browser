@@ -1,7 +1,14 @@
 name: vessel-browser
+title: Vessel Browser
 adopt-info: vessel
 base: core22
 summary: AI-native web browser for Linux
+contact: hello@quantaintellect.com
+license: MIT
+website: https://github.com/unmodeled-tyler/quanta-vessel-browser
+source-code: https://github.com/unmodeled-tyler/quanta-vessel-browser
+issues: https://github.com/unmodeled-tyler/quanta-vessel-browser/issues
+donation: https://github.com/sponsors/unmodeled-tyler
 description: |
   Vessel is an AI-native web browser — a persistent browser runtime for
   autonomous agents with human supervision. Built on Electron and SolidJS,

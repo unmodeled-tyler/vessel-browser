@@ -192,7 +192,7 @@ export function buildPhaseReminder(
       text,
     );
   const staleSelectionSignals =
-    /cannot locate the elements to click|page structure is not being reliably captured|specific titles failed|page may have changed|stale-index/.test(
+    /cannot locate the elements to click|page structure is not being reliably captured|specific titles failed|page may have changed|stale-index|no visible area|not visible/.test(
       text,
     );
   const intermediateCartDialogSignals =

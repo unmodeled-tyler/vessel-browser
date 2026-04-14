@@ -14,7 +14,7 @@ import { buildCompactScopedContext } from "./compact-context";
 import { extractContent } from "../content/extractor";
 import { AGENT_TOOLS } from "./tools";
 import { pruneToolsForContext } from "../tools/pruner";
-import { executeAction, type ActionContext } from "./page-actions";
+import { executeAction, type ActionContext, clearCartState } from "./page-actions";
 import type { TabManager } from "../tabs/tab-manager";
 import type { WebContents } from "electron";
 import type { AgentRuntime } from "../agent/runtime";
@@ -43,9 +43,17 @@ export async function handleAIQuery(
       const pageType = detectPageType(pageContent);
       const defaultReadMode = chooseAgentReadMode(pageContent);
       if (provider.agentToolProfile === "compact") {
+        const prevGoal = runtime.getState().taskTracker?.goal?.trim();
         runtime.ensureTaskTracker(query, pageContent.url || activeWebContents.getURL());
+        // Clear stale cart tracking when the user starts a different task
+        // so the model does not see false "already in cart" warnings from
+        // a previous run.
+        if (prevGoal !== query.trim()) {
+          clearCartState();
+        }
       } else {
         runtime.clearTaskTracker();
+        clearCartState();
       }
       const structuredContext =
         provider.agentToolProfile === "compact"
