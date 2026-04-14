@@ -684,7 +684,7 @@ async function clickElement(
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
-        return { error: "Error[hidden]: Element has no visible area" };
+        return { error: "Error[hidden]: Element has no visible area. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it (scroll or scroll_to_element) then call read_page to refresh visible elements before clicking again." };
       }
 
       const points = samplePoints(rect);

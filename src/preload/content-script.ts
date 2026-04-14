@@ -1880,6 +1880,14 @@ function interactByIndex(
     return "Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.";
   }
   if (action === "click") {
+    // Bring offscreen elements into view so the user can see the interaction
+    el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+    // Guard: zero-dimension elements (collapsed, virtual-scroll, lazy-loaded)
+    // cannot be meaningfully clicked — return an actionable error instead.
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return "Error[hidden]: Element has no visible area. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it, then call read_page to refresh visible elements.";
+    }
     el.focus();
     el.click();
     if (el instanceof HTMLInputElement) {
@@ -1928,6 +1936,7 @@ function interactByIndex(
     );
   }
   if (action === "focus") {
+    el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
     el.focus();
     return (
       "Focused: " +
