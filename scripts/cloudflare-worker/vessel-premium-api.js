@@ -8,9 +8,15 @@
  *   STRIPE_SECRET_KEY    — sk_test_... or sk_live_...
  *   STRIPE_WEBHOOK_SECRET — whsec_...
  *   STRIPE_PRICE_ID      — price_...
+ *   PREMIUM_TOKEN_SECRET — random string used to sign premium auth tokens
+ *   RESEND_API_KEY       — API key for transactional activation emails
+ *   PREMIUM_FROM_EMAIL   — verified sender, e.g. Vessel <premium@example.com>
  */
 
 const STRIPE_API = "https://api.stripe.com/v1";
+const RESEND_API = "https://api.resend.com/emails";
+const ACTIVATION_CHALLENGE_TTL_MS = 15 * 60 * 1000;
+const PREMIUM_AUTH_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 // --- Stripe helpers ---
 
@@ -53,18 +59,224 @@ function subscriptionToStatus(sub) {
   }
 }
 
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function getRequiredSecret(env, key) {
+  const value = String(env[key] || "").trim();
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function stringToBase64Url(value) {
+  return bytesToBase64Url(new TextEncoder().encode(value));
+}
+
+function base64UrlToBytes(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+  const binary = atob(normalized + padding);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function base64UrlToString(value) {
+  return new TextDecoder().decode(base64UrlToBytes(value));
+}
+
+async function importHmacKey(secret) {
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+}
+
+async function signHmac(secret, value) {
+  const key = await importHmacKey(secret);
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(value),
+  );
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+async function createSignedToken(env, purpose, payload) {
+  const secret = getRequiredSecret(env, "PREMIUM_TOKEN_SECRET");
+  const header = stringToBase64Url(
+    JSON.stringify({ alg: "HS256", typ: "JWT", purpose }),
+  );
+  const body = stringToBase64Url(JSON.stringify(payload));
+  const signature = await signHmac(secret, `${header}.${body}`);
+  return `${header}.${body}.${signature}`;
+}
+
+async function verifySignedToken(env, token, expectedPurpose) {
+  if (typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+
+  const [headerPart, payloadPart, signaturePart] = parts;
+  const secret = getRequiredSecret(env, "PREMIUM_TOKEN_SECRET");
+  const expectedSignature = await signHmac(secret, `${headerPart}.${payloadPart}`);
+  if (expectedSignature !== signaturePart) {
+    return null;
+  }
+
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(base64UrlToString(headerPart));
+    payload = JSON.parse(base64UrlToString(payloadPart));
+  } catch {
+    return null;
+  }
+
+  if (header?.purpose !== expectedPurpose) {
+    return null;
+  }
+  if (typeof payload?.exp !== "number" || Date.now() > payload.exp) {
+    return null;
+  }
+  return payload;
+}
+
+function generateVerificationCode() {
+  const random = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
+  return String(random).padStart(6, "0");
+}
+
+async function buildActivationCodeDigest(env, email, code, nonce, exp) {
+  const secret = getRequiredSecret(env, "PREMIUM_TOKEN_SECRET");
+  return signHmac(secret, `premium-code:${email}:${code}:${nonce}:${exp}`);
+}
+
+async function createPremiumAuthToken(env, customerId, email) {
+  const now = Date.now();
+  return createSignedToken(env, "premium-access", {
+    customerId,
+    email,
+    iat: now,
+    exp: now + PREMIUM_AUTH_TTL_MS,
+  });
+}
+
+async function sendActivationCodeEmail(env, email, code) {
+  const apiKey = getRequiredSecret(env, "RESEND_API_KEY");
+  const from = getRequiredSecret(env, "PREMIUM_FROM_EMAIL");
+  const response = await fetch(RESEND_API, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [email],
+      subject: "Your Vessel Premium verification code",
+      text: [
+        "Your Vessel Premium verification code is:",
+        "",
+        code,
+        "",
+        "It expires in 15 minutes.",
+        "If you did not request this code, you can ignore this email.",
+      ].join("\n"),
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Email delivery failed with status ${response.status}`);
+  }
+}
+
+async function buildPremiumStatus(env, customerId, fallbackEmail = "") {
+  if (!customerId) {
+    return {
+      status: "free",
+      customerId: "",
+      verificationToken: "",
+      email: fallbackEmail,
+      expiresAt: "",
+    };
+  }
+
+  const customer = await stripeRequest(env, "GET", `/customers/${customerId}`);
+  if (customer.error) {
+    return {
+      status: "free",
+      customerId: "",
+      verificationToken: "",
+      email: fallbackEmail,
+      expiresAt: "",
+    };
+  }
+
+  const subscription = await getSubscription(env, customer.id);
+  const status = subscriptionToStatus(subscription);
+
+  return {
+    status,
+    customerId: customer.id,
+    verificationToken: await createPremiumAuthToken(
+      env,
+      customer.id,
+      normalizeEmail(customer.email || fallbackEmail),
+    ),
+    email: customer.email || fallbackEmail,
+    expiresAt: subscription?.current_period_end
+      ? new Date(subscription.current_period_end * 1000).toISOString()
+      : "",
+  };
+}
+
 // --- CORS ---
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+function allowedOrigins(env) {
+  return String(env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
 
-function corsResponse(body, status = 200) {
+function buildCorsHeaders(request, env) {
+  const headers = {
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+  const origin = request.headers.get("origin");
+  if (origin && allowedOrigins(env).includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers.Vary = "Origin";
+  }
+  return headers;
+}
+
+function corsResponse(request, env, body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    headers: {
+      "Content-Type": "application/json",
+      ...buildCorsHeaders(request, env),
+    },
   });
 }
 
@@ -122,7 +334,7 @@ async function handleCheckout(request, env) {
   const session = await stripeRequest(env, "POST", "/checkout/sessions", params);
 
   if (session.error) {
-    return corsResponse({ error: session.error.message }, 400);
+    return corsResponse(request, env, { error: session.error.message }, 400);
   }
 
   // GET requests (e.g. clicking a link on the website) get a redirect;
@@ -130,37 +342,135 @@ async function handleCheckout(request, env) {
   if (request.method === "GET") {
     return new Response(null, {
       status: 302,
-      headers: { Location: session.url, ...CORS_HEADERS },
+      headers: {
+        Location: session.url,
+        ...buildCorsHeaders(request, env),
+      },
     });
   }
 
-  return corsResponse({ url: session.url });
+  return corsResponse(request, env, { url: session.url });
 }
 
 async function handlePortal(request, env) {
+  return corsResponse(
+    request,
+    env,
+    {
+      error:
+        "Billing portal access is temporarily disabled until authenticated customer access is implemented.",
+    },
+    403,
+  );
+}
+
+async function handleActivationStart(request, env) {
   let body;
   try {
     body = await request.json();
   } catch {
-    return corsResponse({ error: "Invalid JSON body" }, 400);
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
   }
 
-  const customerId = body.customerId;
-  if (!customerId) {
-    return corsResponse({ error: "customerId is required" }, 400);
+  const email = normalizeEmail(body.email);
+  if (!isValidEmail(email)) {
+    return corsResponse(request, env, { error: "A valid email is required" }, 400);
   }
 
-  const url = new URL(request.url);
-  const session = await stripeRequest(env, "POST", "/billing_portal/sessions", {
-    customer: customerId,
-    return_url: `${url.origin}/portal-return`,
+  if (!env.RESEND_API_KEY || !env.PREMIUM_FROM_EMAIL || !env.PREMIUM_TOKEN_SECRET) {
+    return corsResponse(
+      request,
+      env,
+      {
+        error:
+          "Premium email verification is not configured yet. Set RESEND_API_KEY, PREMIUM_FROM_EMAIL, and PREMIUM_TOKEN_SECRET in the worker environment.",
+      },
+      503,
+    );
+  }
+
+  const now = Date.now();
+  const exp = now + ACTIVATION_CHALLENGE_TTL_MS;
+  const nonce = crypto.randomUUID();
+  const code = generateVerificationCode();
+  const codeDigest = await buildActivationCodeDigest(env, email, code, nonce, exp);
+
+  const customer = await findCustomerByEmail(env, email);
+  if (customer?.email) {
+    await sendActivationCodeEmail(env, email, code);
+  }
+
+  return corsResponse(request, env, {
+    ok: true,
+    challengeToken: await createSignedToken(env, "premium-activation", {
+      email,
+      nonce,
+      codeDigest,
+      iat: now,
+      exp,
+    }),
   });
+}
 
-  if (session.error) {
-    return corsResponse({ error: session.error.message }, 400);
+async function handleActivationVerify(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
   }
 
-  return corsResponse({ url: session.url });
+  const email = normalizeEmail(body.email);
+  const code = String(body.code || "").trim();
+  const challengeToken = String(body.challengeToken || "").trim();
+
+  if (!isValidEmail(email)) {
+    return corsResponse(request, env, { error: "A valid email is required" }, 400);
+  }
+  if (!/^\d{6}$/.test(code)) {
+    return corsResponse(request, env, { error: "Enter the 6-digit code" }, 400);
+  }
+  if (!challengeToken) {
+    return corsResponse(request, env, { error: "challengeToken is required" }, 400);
+  }
+
+  const challenge = await verifySignedToken(env, challengeToken, "premium-activation");
+  if (!challenge || challenge.email !== email) {
+    return corsResponse(
+      request,
+      env,
+      { error: "Code verification expired. Request a new code." },
+      403,
+    );
+  }
+
+  const expectedDigest = await buildActivationCodeDigest(
+    env,
+    email,
+    code,
+    challenge.nonce,
+    challenge.exp,
+  );
+  if (expectedDigest !== challenge.codeDigest) {
+    return corsResponse(request, env, { error: "Invalid verification code" }, 403);
+  }
+
+  const customer = await findCustomerByEmail(env, email);
+  if (!customer?.id) {
+    return corsResponse(
+      request,
+      env,
+      {
+        status: "free",
+        customerId: "",
+        verificationToken: "",
+        email,
+        expiresAt: "",
+      },
+    );
+  }
+
+  return corsResponse(request, env, await buildPremiumStatus(env, customer.id, email));
 }
 
 async function handleVerify(request, env) {
@@ -168,60 +478,56 @@ async function handleVerify(request, env) {
   try {
     body = await request.json();
   } catch {
-    return corsResponse({ error: "Invalid JSON body" }, 400);
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
   }
 
   const identifier = body.identifier;
   if (!identifier) {
-    return corsResponse({ error: "identifier (email or customerId) is required" }, 400);
+    return corsResponse(
+      request,
+      env,
+      { error: "identifier is required" },
+      400,
+    );
   }
 
-  let customer;
   if (identifier.startsWith("cs_")) {
     const session = await stripeRequest(env, "GET", `/checkout/sessions/${identifier}`);
     if (session.error || !session.customer) {
-      return corsResponse({
+      return corsResponse(request, env, {
         status: "free",
         customerId: "",
-        email: session.customer_details?.email || "",
+        verificationToken: "",
+        email: "",
         expiresAt: "",
       });
     }
-    customer =
+
+    const customerId =
       typeof session.customer === "string"
-        ? await stripeRequest(env, "GET", `/customers/${session.customer}`)
-        : session.customer;
-    if (customer.error) {
-      return corsResponse({
-        status: "free",
-        customerId: "",
-        email: session.customer_details?.email || "",
-        expiresAt: "",
-      });
-    }
-  } else if (identifier.startsWith("cus_")) {
-    customer = await stripeRequest(env, "GET", `/customers/${identifier}`);
-    if (customer.error) {
-      return corsResponse({ status: "free", customerId: "", email: "", expiresAt: "" });
-    }
-  } else {
-    customer = await findCustomerByEmail(env, identifier);
-    if (!customer) {
-      return corsResponse({ status: "free", customerId: "", email: identifier, expiresAt: "" });
-    }
+        ? session.customer
+        : session.customer.id;
+    return corsResponse(request, env, await buildPremiumStatus(env, customerId));
   }
 
-  const subscription = await getSubscription(env, customer.id);
-  const status = subscriptionToStatus(subscription);
+  const token = await verifySignedToken(env, identifier, "premium-access");
+  if (!token?.customerId) {
+    return corsResponse(
+      request,
+      env,
+      {
+        error:
+          "Authenticated verification is required. Request a new email code or re-run checkout from this device to restore premium access.",
+      },
+      403,
+    );
+  }
 
-  return corsResponse({
-    status,
-    customerId: customer.id,
-    email: customer.email || "",
-    expiresAt: subscription?.current_period_end
-      ? new Date(subscription.current_period_end * 1000).toISOString()
-      : "",
-  });
+  return corsResponse(
+    request,
+    env,
+    await buildPremiumStatus(env, token.customerId, token.email || ""),
+  );
 }
 
 async function handleWebhook(request, env) {
@@ -274,10 +580,10 @@ function handleSuccess(request) {
       <li>Wait a few seconds for automatic activation</li>
       <li>If Premium is still locked, open <strong>Settings</strong> (Ctrl+,)</li>
       <li>Scroll to the <strong>Premium</strong> section</li>
-      <li>Enter the <strong>email</strong> you just used to subscribe</li>
-      <li>Click <strong>Activate</strong></li>
+      <li>Enter the <strong>subscription email</strong> you used at checkout</li>
+      <li>Request a short verification code and enter it in Vessel</li>
     </ol>
-    <p>That fallback only takes a moment, but most in-app checkouts should now activate on their own.</p>
+    <p>The code fallback is only needed when the original checkout session is no longer available on this device.</p>
   </div>
 </body>
 </html>`,
@@ -316,7 +622,10 @@ export default {
   async fetch(request, env) {
     // Handle CORS preflight
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return new Response(null, {
+        status: 204,
+        headers: buildCorsHeaders(request, env),
+      });
     }
 
     const url = new URL(request.url);
@@ -328,6 +637,12 @@ export default {
       }
       if (path === "/portal" && request.method === "POST") {
         return handlePortal(request, env);
+      }
+      if (path === "/activate/start" && request.method === "POST") {
+        return handleActivationStart(request, env);
+      }
+      if (path === "/activate/verify" && request.method === "POST") {
+        return handleActivationVerify(request, env);
       }
       if (path === "/verify" && request.method === "POST") {
         return handleVerify(request, env);
@@ -351,7 +666,7 @@ export default {
       return new Response("Not found", { status: 404 });
     } catch (err) {
       console.error("[Vessel Premium API]", err);
-      return corsResponse({ error: "Internal server error" }, 500);
+      return corsResponse(request, env, { error: "Internal server error" }, 500);
     }
   },
 };

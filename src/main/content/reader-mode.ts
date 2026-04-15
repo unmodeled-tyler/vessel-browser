@@ -1,15 +1,16 @@
 import type { PageContent } from '../../shared/types';
 
 export function generateReaderHTML(page: PageContent): string {
-  // DOMPurify runs in renderer context; here we do basic escaping
   const escapedTitle = escapeHtml(page.title);
   const escapedByline = escapeHtml(page.byline);
+  const renderedContent = renderReaderContent(page);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
   <title>${escapedTitle}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -80,10 +81,24 @@ export function generateReaderHTML(page: PageContent): string {
   <div class="reader-container">
     <h1>${escapedTitle}</h1>
     ${escapedByline ? `<div class="byline">${escapedByline}</div>` : ''}
-    <div class="reader-content">${page.htmlContent || escapeHtml(page.content)}</div>
+    <div class="reader-content">${renderedContent}</div>
   </div>
 </body>
 </html>`;
+}
+
+function renderReaderContent(page: PageContent): string {
+  const source = (page.content || page.excerpt || "").trim();
+  if (!source) {
+    return "<p>No readable content was available for this page.</p>";
+  }
+
+  return source
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, "<br>")}</p>`)
+    .join("\n");
 }
 
 function escapeHtml(str: string): string {
@@ -91,5 +106,6 @@ function escapeHtml(str: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

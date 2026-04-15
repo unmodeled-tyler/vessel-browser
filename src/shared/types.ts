@@ -398,6 +398,7 @@ export type ProviderId =
 export interface ProviderConfig {
   id: ProviderId;
   apiKey: string;
+  hasApiKey?: boolean;
   model: string;
   baseUrl?: string;
 }
@@ -445,6 +446,7 @@ export type PremiumStatus = "free" | "active" | "trialing" | "past_due" | "cance
 export interface PremiumState {
   status: PremiumStatus;
   customerId: string;
+  verificationToken: string;
   email: string;
   validatedAt: string;
   expiresAt: string;

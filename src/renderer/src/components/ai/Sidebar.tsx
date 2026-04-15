@@ -148,6 +148,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [premiumState, setPremiumState] = createSignal<PremiumState>({
     status: "free",
     customerId: "",
+    verificationToken: "",
     email: "",
     validatedAt: "",
     expiresAt: "",

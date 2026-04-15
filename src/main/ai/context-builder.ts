@@ -27,6 +27,12 @@ function limitItems<T>(items: T[], max: number = MAX_STRUCTURED_ITEMS): T[] {
   return items.slice(0, max);
 }
 
+function shouldRenderFieldValue(el: InteractiveElement): boolean {
+  const value =
+    typeof el.value === "string" && el.value.trim() ? el.value.trim() : "";
+  return Boolean(value) && isQuantityLike(el);
+}
+
 function formatElementMeta(el: InteractiveElement): string[] {
   const meta: string[] = [];
   if (el.context && el.context !== "content") {
@@ -94,7 +100,7 @@ function formatElementMeta(el: InteractiveElement): string[] {
   if (el.description) {
     meta.push(`desc="${el.description.slice(0, 80)}"`);
   }
-  if (el.value !== undefined && el.value !== null && el.value !== "") {
+  if (shouldRenderFieldValue(el)) {
     meta.push(`value="${el.value.slice(0, 60)}"`);
   }
   if (el.selector) {
@@ -110,7 +116,7 @@ function summarizeElementValue(
 ): { label: string; value: string } | null {
   const value =
     typeof el.value === "string" && el.value.trim() ? el.value.trim() : "";
-  if (!value) return null;
+  if (!value || !shouldRenderFieldValue(el)) return null;
 
   if (el.type === "select") {
     return { label: "selected", value: value.slice(0, 60) };

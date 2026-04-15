@@ -11,6 +11,8 @@ import type { VaultEntry } from "../../shared/types";
  * - Credentials are encrypted at rest using AES-256-GCM
  * - The encryption key is protected by Electron's safeStorage API
  *   (macOS Keychain / Windows DPAPI / Linux libsecret)
+ * - If OS-backed secret storage is unavailable, the vault is disabled
+ *   rather than downgrading to a weak on-disk key fallback
  * - Credential values NEVER leave the main process — they are used only
  *   to fill form fields via the content script, never sent to AI providers
  * - Every credential access requires user consent via an Electron dialog
@@ -40,33 +42,29 @@ function getKeyPath(): string {
 
 // --- Encryption key management via safeStorage ---
 
+function assertVaultSecretStorageAvailable(): void {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error(
+      "Agent Credential Vault requires OS-backed secret storage. Enable Keychain, DPAPI, or libsecret support and restart Vessel.",
+    );
+  }
+}
+
 function getOrCreateEncryptionKey(): Buffer {
+  assertVaultSecretStorageAvailable();
   const keyPath = getKeyPath();
 
   if (fs.existsSync(keyPath)) {
     const encryptedKey = fs.readFileSync(keyPath);
-    if (safeStorage.isEncryptionAvailable()) {
-      return safeStorage.decryptString
-        ? Buffer.from(safeStorage.decryptString(encryptedKey), "utf-8")
-        : encryptedKey;
-    }
-    // Fallback: key stored as-is (no OS keychain available)
-    return encryptedKey;
+    return Buffer.from(safeStorage.decryptString(encryptedKey), "utf-8");
   }
 
   // Generate a fresh 256-bit key
   const key = crypto.randomBytes(32);
 
   fs.mkdirSync(path.dirname(keyPath), { recursive: true });
-
-  if (safeStorage.isEncryptionAvailable()) {
-    const encrypted = safeStorage.encryptString(key.toString("utf-8"));
-    fs.writeFileSync(keyPath, encrypted);
-  } else {
-    // Fallback: store key directly (less secure, but functional)
-    fs.writeFileSync(keyPath, key);
-    fs.chmodSync(keyPath, 0o600);
-  }
+  const encrypted = safeStorage.encryptString(key.toString("utf-8"));
+  fs.writeFileSync(keyPath, encrypted, { mode: 0o600 });
 
   return key;
 }
@@ -122,8 +120,9 @@ function loadVault(): VaultEntry[] {
     return cachedEntries;
   } catch (err) {
     console.error("[Vessel Vault] Failed to load vault:", err);
-    cachedEntries = [];
-    return cachedEntries;
+    throw new Error(
+      "Could not unlock the Agent Credential Vault. Check that OS secret storage is available and that the stored vault key can be decrypted.",
+    );
   }
 }
 

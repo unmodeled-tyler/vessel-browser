@@ -3,7 +3,12 @@ import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import * as historyManager from "../history/manager";
 import { generateReaderHTML } from "../content/reader-mode";
-import { loadSettings, setSetting, SETTABLE_KEYS } from "../config/settings";
+import {
+  getRendererSettings,
+  loadSettings,
+  setSetting,
+  SETTABLE_KEYS,
+} from "../config/settings";
 import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
 import {
   getRuntimeHealth,
@@ -11,10 +16,11 @@ import {
 } from "../health/runtime-health";
 import {
   getPremiumState,
-  activateWithEmail,
   getCheckoutUrl,
   getPortalUrl,
   resetPremium,
+  requestActivationCode,
+  verifyActivationCode,
   verifySubscription,
   isPremiumActiveState,
 } from "../premium/manager";
@@ -444,7 +450,7 @@ export function registerIpcHandlers(
   // --- Settings handlers ---
 
   ipcMain.handle(Channels.SETTINGS_GET, () => {
-    return loadSettings();
+    return getRendererSettings();
   });
 
   ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
@@ -464,8 +470,9 @@ export function registerIpcHandlers(
       await stopMcpServer();
       await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
     }
-    sendToRendererViews(Channels.SETTINGS_UPDATE, updatedSettings);
-    return updatedSettings;
+    const rendererSettings = getRendererSettings();
+    sendToRendererViews(Channels.SETTINGS_UPDATE, rendererSettings);
+    return rendererSettings;
   });
 
   // --- Agent runtime handlers ---
@@ -736,21 +743,45 @@ export function registerIpcHandlers(
     return getPremiumState();
   });
 
-  ipcMain.handle(Channels.PREMIUM_ACTIVATE, async (_, email: string) => {
+  ipcMain.handle(Channels.PREMIUM_ACTIVATION_START, async (_, email: string) => {
     assertString(email, "email");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return { ok: false, state: getPremiumState(), error: "Invalid email format" };
+      return { ok: false, error: "Invalid email format" };
     }
     trackPremiumFunnel("activation_attempted");
-    const result = await activateWithEmail(email);
-    if (result.ok) {
-      trackPremiumFunnel("activation_succeeded", { status: result.state.status });
-      sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
-    } else {
-      trackPremiumFunnel("activation_failed", { status: result.state.status });
+    const result = await requestActivationCode(email);
+    if (!result.ok) {
+      trackPremiumFunnel("activation_failed");
     }
     return result;
   });
+
+  ipcMain.handle(
+    Channels.PREMIUM_ACTIVATION_VERIFY,
+    async (_, email: string, code: string, challengeToken: string) => {
+      assertString(email, "email");
+      assertString(code, "code");
+      assertString(challengeToken, "challengeToken");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        return {
+          ok: false,
+          state: getPremiumState(),
+          error: "Invalid email format",
+        };
+      }
+      trackPremiumFunnel("activation_attempted");
+      const result = await verifyActivationCode(email, code, challengeToken);
+      if (result.ok) {
+        trackPremiumFunnel("activation_succeeded", {
+          status: result.state.status,
+        });
+        sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
+      } else {
+        trackPremiumFunnel("activation_failed", { status: result.state.status });
+      }
+      return result;
+    },
+  );
 
   ipcMain.handle(Channels.PREMIUM_CHECKOUT, async (_, email?: string) => {
     trackPremiumFunnel("checkout_clicked");

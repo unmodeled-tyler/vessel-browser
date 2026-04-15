@@ -20,7 +20,10 @@ import {
   formatDeadLinkMessage,
   validateLinkDestination,
 } from "../network/link-validation";
-import { assertSafeURL } from "../network/url-safety";
+import {
+  assertPermittedNavigationURL,
+  assertSafeURL,
+} from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";
 import { makeImageResult } from "./tool-result";
 import { normalizeToolAlias } from "./tool-aliases";
@@ -78,6 +81,14 @@ export interface FillFormFieldResult {
 const DEFAULT_PAGE_SCRIPT_TIMEOUT_MS = 1500;
 const QUIET_NAVIGATION_WINDOW_MS = 1200;
 const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
+
+async function loadPermittedUrl(
+  wc: WebContents,
+  url: string,
+): Promise<void> {
+  assertPermittedNavigationURL(url);
+  await wc.loadURL(url);
+}
 
 function pageBusyError(action: string): string {
   return `Error: Page is still busy; ${action} timed out waiting for page scripts. Retry in a moment.`;
@@ -1507,8 +1518,7 @@ async function clickResolvedSelector(
         : null;
       if (hrefMatch) {
         try {
-          assertSafeURL(hrefMatch[1]);
-          await wc.loadURL(hrefMatch[1]);
+          await loadPermittedUrl(wc, hrefMatch[1]);
           await waitForLoad(wc, 8000);
           const hrefUrl = wc.getURL();
           if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
@@ -1582,8 +1592,7 @@ async function clickResolvedSelector(
         : null;
       if (hrefMatch) {
         try {
-          assertSafeURL(hrefMatch[1]);
-          await wc.loadURL(hrefMatch[1]);
+          await loadPermittedUrl(wc, hrefMatch[1]);
           await waitForLoad(wc, 8000);
           const hrefUrl = wc.getURL();
           if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
@@ -1698,8 +1707,7 @@ async function clickResolvedSelector(
     const validation = await validateLinkDestination(elInfo.href!);
     if (validation.status !== "dead") {
       try {
-        assertSafeURL(elInfo.href!);
-        await wc.loadURL(elInfo.href!);
+        await loadPermittedUrl(wc, elInfo.href!);
         await waitForLoad(wc, 8000);
         const hrefFallbackUrl = wc.getURL();
         if (hrefFallbackUrl !== beforeUrl) {
@@ -3534,8 +3542,7 @@ async function submitForm(
     if (formInfo.params) {
       url.search = formInfo.params;
     }
-    assertSafeURL(url.toString());
-    wc.loadURL(url.toString());
+    await loadPermittedUrl(wc, url.toString());
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     return afterUrl !== beforeUrl
@@ -4318,8 +4325,7 @@ export async function searchPage(
     const shortcut = buildSearchShortcut(wc.getURL(), query);
     if (shortcut) {
       const beforeUrl = wc.getURL();
-      assertSafeURL(shortcut.url);
-      wc.loadURL(shortcut.url);
+      await loadPermittedUrl(wc, shortcut.url);
       await waitForPotentialNavigation(wc, beforeUrl, 4000);
       const afterUrl = wc.getURL();
       const applied =

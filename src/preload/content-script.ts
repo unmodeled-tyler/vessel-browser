@@ -1169,18 +1169,47 @@ function getElementDescription(el: Element): string | undefined {
   );
 }
 
+function shouldExposeFieldValue(
+  el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+): boolean {
+  if (!(el instanceof HTMLInputElement)) {
+    return false;
+  }
+
+  const type = (el.type || "").toLowerCase();
+  if (type !== "number") {
+    return false;
+  }
+
+  const label = getInputLabelWithSource(el).label;
+  const signals = [
+    el.name,
+    el.id,
+    el.getAttribute("placeholder"),
+    el.getAttribute("aria-label"),
+    label,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return /\b(qty|quantity|count|items?)\b/.test(signals);
+}
+
 function getElementValue(
   el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
 ): string | undefined {
-  if (el instanceof HTMLSelectElement) {
-    return getTrimmedText(el.value);
-  }
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    if (el.type === "password") return undefined;
-    if (el.type === "checkbox" || el.type === "radio") {
+    if (
+      el.type === "password" ||
+      el.type === "checkbox" ||
+      el.type === "radio"
+    ) {
       return undefined; // checkbox/radio state exposed via dedicated checked boolean
     }
-    return getTrimmedText(el.value);
+    return shouldExposeFieldValue(el)
+      ? getTrimmedText(el.value)
+      : undefined;
   }
   return undefined;
 }

@@ -9,8 +9,10 @@ import {
 import path from "path";
 import type { HighlightColor, TabRole, TabState } from "../../shared/types";
 import { checkDomainPolicy } from "../network/domain-policy";
+import { assertSafeURL } from "../network/url-safety";
 
 const MAX_CUSTOM_HISTORY = 50;
+const READER_MODE_DATA_URL_PREFIX = "data:text/html;charset=utf-8,";
 
 interface OpenUrlRequest {
   url: string;
@@ -43,6 +45,41 @@ export class Tab {
   private urlForwardStack: string[] = [];
   private lastCommittedUrl = "";
   private navigatingViaHistory = false;
+
+  private isReaderModeDataUrl(url: string): boolean {
+    return (
+      this._state.isReaderMode &&
+      url.startsWith(READER_MODE_DATA_URL_PREFIX)
+    );
+  }
+
+  private getNavigationBlockReason(url: string): string | null {
+    if (!url) {
+      return "Blocked navigation to empty URL";
+    }
+    if (url.startsWith("about:") || this.isReaderModeDataUrl(url)) {
+      return null;
+    }
+    try {
+      assertSafeURL(url);
+    } catch (error) {
+      return error instanceof Error ? error.message : "Blocked unsafe navigation";
+    }
+    return checkDomainPolicy(url);
+  }
+
+  private guardedLoadURL(
+    url: string,
+    options?: Electron.LoadURLOptions,
+  ): string | null {
+    const blockReason = this.getNavigationBlockReason(url);
+    if (blockReason) {
+      console.warn(`[Tab] ${blockReason}`);
+      return blockReason;
+    }
+    void this.view.webContents.loadURL(url, options);
+    return null;
+  }
 
   constructor(
     id: string,
@@ -81,10 +118,12 @@ export class Tab {
       },
     });
 
+    const initialUrl = url || "about:blank";
+
     this._state = {
       id,
       title: "New Tab",
-      url: url || "about:blank",
+      url: initialUrl,
       favicon: "",
       isLoading: false,
       canGoBack: false,
@@ -112,8 +151,12 @@ export class Tab {
 
     this.setupListeners();
     if (url) {
-      this.lastCommittedUrl = url;
-      this.view.webContents.loadURL(url);
+      const error = this.guardedLoadURL(url);
+      if (error) {
+        this._state.url = "about:blank";
+      } else {
+        this.lastCommittedUrl = url;
+      }
     }
   }
 
@@ -121,12 +164,36 @@ export class Tab {
     const wc = this.view.webContents;
 
     wc.setWindowOpenHandler(({ url, disposition }) => {
+      const error = this.getNavigationBlockReason(url);
+      if (error) {
+        console.warn(`[Tab] ${error}`);
+        return { action: "deny" };
+      }
       this.onOpenUrl?.({
         url,
         background: disposition === "background-tab",
         adBlockingEnabled: this._state.adBlockingEnabled,
       });
       return { action: "deny" };
+    });
+
+    const blockNavigation = (
+      event: Electron.Event,
+      url: string,
+      context: string,
+    ) => {
+      const error = this.getNavigationBlockReason(url);
+      if (!error) return;
+      event.preventDefault();
+      console.warn(`[Tab] ${context}: ${error}`);
+    };
+
+    wc.on("will-navigate", (event, url) => {
+      blockNavigation(event, url, "Blocked top-level navigation");
+    });
+
+    wc.on("will-redirect", (event, url) => {
+      blockNavigation(event, url, "Blocked redirect");
     });
 
     const syncNavigationState = () => {
@@ -340,20 +407,12 @@ export class Tab {
         url = `https://duckduckgo.com/?q=${encodeURIComponent(url)}`;
       }
     }
-    // Block non-http(s) schemes (javascript:, file:, data:, etc.)
-    if (!/^https?:\/\//i.test(url) && !url.startsWith("about:")) {
-      return `Blocked navigation to disallowed URL scheme: ${url.slice(0, 80)}`;
-    }
-    // Enforce domain policy
-    const policyError = checkDomainPolicy(url);
-    if (policyError) return policyError;
-
     if (postBody) {
       const params = new URLSearchParams();
       for (const [key, value] of Object.entries(postBody)) {
         params.set(key, value);
       }
-      this.view.webContents.loadURL(url, {
+      return this.guardedLoadURL(url, {
         method: "POST",
         extraHeaders: "Content-Type: application/x-www-form-urlencoded\r\n",
         postData: [
@@ -363,29 +422,41 @@ export class Tab {
           },
         ],
       });
-    } else {
-      this.view.webContents.loadURL(url);
     }
-    return null;
+    return this.guardedLoadURL(url);
   }
 
   goBack(): boolean {
     const previousUrl = this.urlHistory.pop();
     if (!previousUrl) return false;
+    const currentUrl = this.lastCommittedUrl;
     this.navigatingViaHistory = true;
-    this.urlForwardStack.push(this.lastCommittedUrl);
+    this.urlForwardStack.push(currentUrl);
+    const error = this.guardedLoadURL(previousUrl);
+    if (error) {
+      this.navigatingViaHistory = false;
+      this.urlForwardStack.pop();
+      this.urlHistory.push(previousUrl);
+      return false;
+    }
     this.lastCommittedUrl = previousUrl;
-    this.view.webContents.loadURL(previousUrl);
     return true;
   }
 
   goForward(): boolean {
     const nextUrl = this.urlForwardStack.pop();
     if (!nextUrl) return false;
+    const currentUrl = this.lastCommittedUrl;
     this.navigatingViaHistory = true;
-    this.urlHistory.push(this.lastCommittedUrl);
+    this.urlHistory.push(currentUrl);
+    const error = this.guardedLoadURL(nextUrl);
+    if (error) {
+      this.navigatingViaHistory = false;
+      this.urlHistory.pop();
+      this.urlForwardStack.push(nextUrl);
+      return false;
+    }
     this.lastCommittedUrl = nextUrl;
-    this.view.webContents.loadURL(nextUrl);
     return true;
   }
 

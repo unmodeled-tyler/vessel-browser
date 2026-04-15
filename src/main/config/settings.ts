@@ -1,7 +1,11 @@
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import path from "path";
 import fs from "fs";
-import type { RuntimeHealthIssue, VesselSettings } from "../../shared/types";
+import type {
+  ProviderConfig,
+  RuntimeHealthIssue,
+  VesselSettings,
+} from "../../shared/types";
 
 const defaults: VesselSettings = {
   defaultUrl: "https://start.duckduckgo.com",
@@ -21,6 +25,7 @@ const defaults: VesselSettings = {
   premium: {
     status: "free",
     customerId: "",
+    verificationToken: "",
     email: "",
     validatedAt: "",
     expiresAt: "",
@@ -28,6 +33,7 @@ const defaults: VesselSettings = {
 };
 
 const SAVE_DEBOUNCE_MS = 150;
+const CHAT_PROVIDER_SECRET_FILENAME = "vessel-chat-provider-secret";
 
 /** Allowlist of setting keys accepted via IPC. */
 export const SETTABLE_KEYS: ReadonlySet<string> = new Set(Object.keys(defaults));
@@ -46,6 +52,115 @@ function getUserDataPath(): string {
 
 export function getSettingsPath(): string {
   return path.join(getUserDataPath(), "vessel-settings.json");
+}
+
+function getChatProviderSecretPath(): string {
+  return path.join(getUserDataPath(), CHAT_PROVIDER_SECRET_FILENAME);
+}
+
+type StoredProviderSecret = {
+  providerId: ProviderConfig["id"];
+  apiKey: string;
+};
+
+function canUseSafeStorage(): boolean {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
+
+function readStoredProviderSecret(): StoredProviderSecret | null {
+  try {
+    const raw = fs.readFileSync(getChatProviderSecretPath());
+    const decoded =
+      canUseSafeStorage() && safeStorage.decryptString
+        ? safeStorage.decryptString(raw)
+        : raw.toString("utf-8");
+    const parsed = JSON.parse(decoded) as StoredProviderSecret;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.providerId === "string" &&
+      typeof parsed.apiKey === "string"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Ignore missing or unreadable secrets.
+  }
+  return null;
+}
+
+function writeStoredProviderSecret(secret: StoredProviderSecret): void {
+  const filePath = getChatProviderSecretPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const payload = JSON.stringify(secret);
+  if (canUseSafeStorage()) {
+    const encrypted = safeStorage.encryptString(payload);
+    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
+    return;
+  }
+  fs.writeFileSync(filePath, payload, { mode: 0o600 });
+}
+
+function clearStoredProviderSecret(): void {
+  try {
+    fs.unlinkSync(getChatProviderSecretPath());
+  } catch {
+    // Secret file may not exist.
+  }
+}
+
+function mergeChatProviderSecret(
+  provider: ProviderConfig | null | undefined,
+): ProviderConfig | null {
+  if (!provider) return null;
+
+  const stored = readStoredProviderSecret();
+  const legacyApiKey = provider.apiKey?.trim() || "";
+  const apiKey =
+    stored?.providerId === provider.id
+      ? stored.apiKey
+      : legacyApiKey;
+
+  if (legacyApiKey && stored?.providerId !== provider.id) {
+    writeStoredProviderSecret({ providerId: provider.id, apiKey: legacyApiKey });
+  }
+
+  return {
+    ...provider,
+    apiKey,
+    hasApiKey: Boolean(apiKey),
+  };
+}
+
+function buildPersistedSettings(source: VesselSettings): VesselSettings {
+  return {
+    ...source,
+    chatProvider: source.chatProvider
+      ? {
+          ...source.chatProvider,
+          apiKey: "",
+          hasApiKey: source.chatProvider.hasApiKey || Boolean(source.chatProvider.apiKey),
+        }
+      : null,
+  };
+}
+
+export function getRendererSettings(): VesselSettings {
+  const current = loadSettings();
+  return {
+    ...current,
+    chatProvider: current.chatProvider
+      ? {
+          ...current.chatProvider,
+          apiKey: "",
+          hasApiKey: Boolean(current.chatProvider.apiKey),
+        }
+      : null,
+  };
 }
 
 export function getSettingsLoadIssues(): RuntimeHealthIssue[] {
@@ -83,6 +198,7 @@ export function loadSettings(): VesselSettings {
     settings = {
       ...defaults,
       ...parsed,
+      chatProvider: mergeChatProviderSecret(parsed.chatProvider ?? null),
       mcpPort: sanitizePort(parsed.mcpPort ?? defaults.mcpPort),
       agentTranscriptMode:
         parsed.agentTranscriptMode === "off" ||
@@ -118,7 +234,10 @@ function persistNow(): Promise<void> {
   return fs.promises
     .mkdir(path.dirname(getSettingsPath()), { recursive: true })
     .then(() =>
-      fs.promises.writeFile(getSettingsPath(), JSON.stringify(settings, null, 2)),
+      fs.promises.writeFile(
+        getSettingsPath(),
+        JSON.stringify(buildPersistedSettings(settings!), null, 2),
+      ),
     )
     .catch((err) => console.error("[Vessel] Failed to save settings:", err));
 }
@@ -141,6 +260,37 @@ export function setSetting<K extends keyof VesselSettings>(
   loadSettings();
   if (key === "mcpPort") {
     settings!.mcpPort = sanitizePort(value);
+  } else if (key === "chatProvider") {
+    const nextProvider = value as VesselSettings["chatProvider"];
+    if (!nextProvider) {
+      clearStoredProviderSecret();
+      settings!.chatProvider = null;
+    } else {
+      const existingSecret = readStoredProviderSecret();
+      const incomingApiKey = nextProvider.apiKey.trim();
+      const preserveExisting =
+        !incomingApiKey &&
+        nextProvider.hasApiKey === true &&
+        existingSecret?.providerId === nextProvider.id;
+      const resolvedApiKey = preserveExisting
+        ? existingSecret?.apiKey || ""
+        : incomingApiKey;
+
+      if (resolvedApiKey) {
+        writeStoredProviderSecret({
+          providerId: nextProvider.id,
+          apiKey: resolvedApiKey,
+        });
+      } else {
+        clearStoredProviderSecret();
+      }
+
+      settings!.chatProvider = {
+        ...nextProvider,
+        apiKey: resolvedApiKey,
+        hasApiKey: Boolean(resolvedApiKey),
+      };
+    }
   } else {
     settings![key] = value;
   }

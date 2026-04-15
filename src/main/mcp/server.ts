@@ -58,7 +58,10 @@ import {
 } from "../memory/obsidian";
 import { setMcpHealth } from "../health/runtime-health";
 import { registerDevTools } from "../devtools/tools";
-import { assertSafeURL } from "../network/url-safety";
+import {
+  assertPermittedNavigationURL,
+  assertSafeURL,
+} from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";
 import * as vaultManager from "../vault/manager";
 import { requestConsent } from "../vault/consent";
@@ -169,6 +172,14 @@ export interface McpServerStartResult {
 
 function asTextResponse(text: string) {
   return { content: [{ type: "text" as const, text }] };
+}
+
+async function loadPermittedUrl(
+  wc: Electron.WebContents,
+  url: string,
+): Promise<void> {
+  assertPermittedNavigationURL(url);
+  await wc.loadURL(url);
 }
 
 function asPromptResponse(text: string) {
@@ -591,7 +602,7 @@ async function clickResolvedSelector(
         : null;
       if (hrefMatch) {
         try {
-          await wc.loadURL(hrefMatch[1]);
+          await loadPermittedUrl(wc, hrefMatch[1]);
           await waitForLoad(wc, 8000);
           const hrefUrl = wc.getURL();
           if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
@@ -657,7 +668,7 @@ async function clickResolvedSelector(
         : null;
       if (hrefMatch) {
         try {
-          await wc.loadURL(hrefMatch[1]);
+          await loadPermittedUrl(wc, hrefMatch[1]);
           await waitForLoad(wc, 8000);
           const hrefUrl = wc.getURL();
           if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
@@ -1708,8 +1719,7 @@ async function submitForm(
     if (formInfo.params) {
       url.search = formInfo.params;
     }
-    assertSafeURL(url.toString());
-    wc.loadURL(url.toString());
+    await loadPermittedUrl(wc, url.toString());
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
     return afterUrl !== beforeUrl

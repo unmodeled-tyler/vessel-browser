@@ -264,6 +264,76 @@ test("visible_only surfaces cart quantity values clearly", () => {
   assert.match(context, /\[Quantity\] number input current="2"/);
 });
 
+test("visible_only omits arbitrary form field contents from context", () => {
+  const context = buildScopedContext(
+    buildPage({
+      title: "Checkout",
+      url: "https://example.com/checkout",
+      interactiveElements: [
+        {
+          type: "input",
+          label: "Full name",
+          inputType: "text",
+          value: "Ada Lovelace",
+          name: "name",
+          index: 4,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "input",
+          label: "Email",
+          inputType: "email",
+          value: "ada@example.com",
+          name: "email",
+          index: 5,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+      forms: [
+        {
+          id: "checkout-form",
+          action: "/checkout",
+          method: "post",
+          fields: [
+            {
+              type: "input",
+              label: "Full name",
+              inputType: "text",
+              value: "Ada Lovelace",
+              name: "name",
+              index: 4,
+              visible: true,
+              inViewport: true,
+              fullyInViewport: true,
+            },
+            {
+              type: "input",
+              label: "Email",
+              inputType: "email",
+              value: "ada@example.com",
+              name: "email",
+              index: 5,
+              visible: true,
+              inViewport: true,
+              fullyInViewport: true,
+            },
+          ],
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.doesNotMatch(context, /Ada Lovelace/);
+  assert.doesNotMatch(context, /ada@example\.com/);
+  assert.doesNotMatch(context, /current="/);
+  assert.doesNotMatch(context, /value="/);
+});
+
 test("visible_only focuses cart confirmation dialog actions over background add-to-cart buttons", () => {
   const context = buildScopedContext(
     buildPage({

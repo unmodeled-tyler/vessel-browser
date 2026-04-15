@@ -324,8 +324,19 @@ const api = {
   premium: {
     getState: (): Promise<PremiumState> =>
       ipcRenderer.invoke(Channels.PREMIUM_GET_STATE),
-    activate: (email: string): Promise<{ ok: boolean; state: PremiumState; error?: string }> =>
-      ipcRenderer.invoke(Channels.PREMIUM_ACTIVATE, email),
+    requestCode: (email: string): Promise<{ ok: boolean; email?: string; challengeToken?: string; error?: string }> =>
+      ipcRenderer.invoke(Channels.PREMIUM_ACTIVATION_START, email),
+    verifyCode: (
+      email: string,
+      code: string,
+      challengeToken: string,
+    ): Promise<{ ok: boolean; state: PremiumState; error?: string }> =>
+      ipcRenderer.invoke(
+        Channels.PREMIUM_ACTIVATION_VERIFY,
+        email,
+        code,
+        challengeToken,
+      ),
     checkout: (email?: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(Channels.PREMIUM_CHECKOUT, email),
     portal: (): Promise<{ ok: boolean; error?: string }> =>

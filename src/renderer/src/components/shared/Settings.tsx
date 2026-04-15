@@ -119,11 +119,15 @@ const Settings: Component = () => {
   const [premiumState, setPremiumState] = createSignal<PremiumState>({
     status: "free",
     customerId: "",
+    verificationToken: "",
     email: "",
     validatedAt: "",
     expiresAt: "",
   });
   const [premiumEmail, setPremiumEmail] = createSignal("");
+  const [premiumCode, setPremiumCode] = createSignal("");
+  const [premiumChallengeToken, setPremiumChallengeToken] = createSignal("");
+  const [premiumCodeSent, setPremiumCodeSent] = createSignal(false);
   const [premiumLoading, setPremiumLoading] = createSignal(false);
   const [premiumMessage, setPremiumMessage] = createSignal<{
     kind: "success" | "error";
@@ -147,10 +151,17 @@ const Settings: Component = () => {
     void window.vessel.premium.checkout(premiumEmail().trim() || undefined);
   };
 
+  const resetPremiumActivationFlow = () => {
+    setPremiumCode("");
+    setPremiumChallengeToken("");
+    setPremiumCodeSent(false);
+  };
+
   // Chat provider settings
   const [chatEnabled, setChatEnabled] = createSignal(false);
   const [chatProviderId, setChatProviderId] = createSignal<ProviderId>("anthropic");
   const [chatApiKey, setChatApiKey] = createSignal("");
+  const [chatHasStoredApiKey, setChatHasStoredApiKey] = createSignal(false);
   const [chatModel, setChatModel] = createSignal("");
   const [chatBaseUrl, setChatBaseUrl] = createSignal("");
 
@@ -230,9 +241,13 @@ const Settings: Component = () => {
     setChatEnabled(cp !== null);
     if (cp) {
       setChatProviderId(cp.id);
-      setChatApiKey(cp.apiKey);
+      setChatApiKey("");
+      setChatHasStoredApiKey(cp.hasApiKey === true);
       setChatModel(cp.model);
       setChatBaseUrl(cp.baseUrl ?? "");
+    } else {
+      setChatApiKey("");
+      setChatHasStoredApiKey(false);
     }
     setTelemetryEnabled(settings.telemetryEnabled !== false);
     // Load premium state
@@ -256,6 +271,7 @@ const Settings: Component = () => {
         setPremiumEmail(nextState.email);
       }
       if (nextState.status === "active" || nextState.status === "trialing") {
+        resetPremiumActivationFlow();
         setPremiumMessage({
           kind: "success",
           text:
@@ -330,6 +346,7 @@ const Settings: Component = () => {
         ? {
             id: chatProviderId(),
             apiKey: chatApiKey().trim(),
+            hasApiKey: chatHasStoredApiKey() && !chatApiKey().trim(),
             model: chatModel().trim() || chatProviderMeta().defaultModel,
             baseUrl: chatBaseUrl().trim() || undefined,
           }
@@ -679,6 +696,7 @@ const Settings: Component = () => {
                   setChatModel("");
                   setChatBaseUrl("");
                   setChatApiKey("");
+                  setChatHasStoredApiKey(false);
                   setProviderModels([]);
                   setModelFetchState("idle");
                 }}
@@ -702,10 +720,24 @@ const Settings: Component = () => {
                   class="settings-input"
                   type="password"
                   value={chatApiKey()}
-                  onInput={(e) => setChatApiKey(e.currentTarget.value)}
-                  placeholder={chatProviderMeta().keyPlaceholder || "Bearer token or API key"}
+                  onInput={(e) => {
+                    setChatApiKey(e.currentTarget.value);
+                    if (e.currentTarget.value.trim()) {
+                      setChatHasStoredApiKey(true);
+                    }
+                  }}
+                  placeholder={
+                    chatHasStoredApiKey() && !chatApiKey().trim()
+                      ? "Stored securely. Enter a new key to replace it."
+                      : chatProviderMeta().keyPlaceholder || "Bearer token or API key"
+                  }
                   spellcheck={false}
                 />
+                <Show when={chatHasStoredApiKey() && !chatApiKey().trim()}>
+                  <p class="settings-hint">
+                    An API key is already stored securely for this provider. Leave this blank to keep it, or enter a new key to replace it.
+                  </p>
+                </Show>
                 <Show when={chatProviderId() === "custom"}>
                   <p class="settings-hint">
                     If your endpoint requires authentication, enter the API key or bearer token here.
@@ -726,13 +758,15 @@ const Settings: Component = () => {
                       style="flex:1"
                       value={chatModel()}
                       onInput={(e) => setChatModel(e.currentTarget.value)}
-                      placeholder={
-                        modelFetchState() === "loading"
-                          ? "Fetching models…"
-                          : chatProviderMeta().requiresKey && !chatApiKey().trim()
+                        placeholder={
+                          modelFetchState() === "loading"
+                            ? "Fetching models…"
+                          : chatProviderMeta().requiresKey &&
+                              !chatApiKey().trim() &&
+                              !chatHasStoredApiKey()
                             ? "Enter API key to load models"
                             : chatProviderMeta().defaultModel || "model name"
-                      }
+                        }
                       spellcheck={false}
                     />
                   }
@@ -816,7 +850,14 @@ const Settings: Component = () => {
                       type="email"
                       placeholder="Enter your subscription email"
                       value={premiumEmail()}
-                      onInput={(e) => setPremiumEmail(e.currentTarget.value)}
+                      onInput={(e) => {
+                        const nextEmail = e.currentTarget.value;
+                        if (nextEmail.trim().toLowerCase() !== premiumEmail().trim().toLowerCase()) {
+                          resetPremiumActivationFlow();
+                          setPremiumMessage(null);
+                        }
+                        setPremiumEmail(nextEmail);
+                      }}
                       spellcheck={false}
                     />
                     <button
@@ -826,37 +867,107 @@ const Settings: Component = () => {
                         setPremiumLoading(true);
                         setPremiumMessage(null);
                         try {
-                          const result = await window.vessel.premium.activate(
+                          const result = await window.vessel.premium.requestCode(
                             premiumEmail().trim(),
                           );
-                          setPremiumState(result.state);
                           if (result.ok) {
+                            setPremiumChallengeToken(result.challengeToken ?? "");
+                            setPremiumCodeSent(true);
                             setPremiumMessage({
                               kind: "success",
-                              text: "Premium activated!",
+                              text:
+                                "If a matching premium subscription exists, we sent a 6-digit code to that email.",
                             });
                           } else {
+                            resetPremiumActivationFlow();
                             setPremiumMessage({
                               kind: "error",
-                              text: result.error || "Activation failed",
+                              text: result.error || "Could not send code",
                             });
                           }
                         } catch (err) {
+                          resetPremiumActivationFlow();
                           setPremiumMessage({
                             kind: "error",
                             text:
                               err instanceof Error
                                 ? err.message
-                                : "Activation failed",
+                                : "Could not send code",
                           });
                         } finally {
                           setPremiumLoading(false);
                         }
                       }}
                     >
-                      {premiumLoading() ? "Checking..." : "Activate"}
+                      {premiumLoading()
+                        ? "Sending..."
+                        : premiumCodeSent()
+                          ? "Resend Code"
+                          : "Send Code"}
                     </button>
                   </div>
+                  <Show when={premiumCodeSent()}>
+                    <div class="premium-activate-row">
+                      <input
+                        class="settings-input premium-email-input"
+                        inputmode="numeric"
+                        maxLength={6}
+                        placeholder="Enter 6-digit code"
+                        value={premiumCode()}
+                        onInput={(e) => {
+                          const nextCode = e.currentTarget.value.replace(/\D+/g, "").slice(0, 6);
+                          setPremiumCode(nextCode);
+                          setPremiumMessage(null);
+                        }}
+                        spellcheck={false}
+                      />
+                      <button
+                        class="premium-btn premium-btn-activate"
+                        disabled={
+                          premiumLoading() ||
+                          !premiumEmail().trim() ||
+                          premiumCode().trim().length !== 6 ||
+                          !premiumChallengeToken()
+                        }
+                        onClick={async () => {
+                          setPremiumLoading(true);
+                          setPremiumMessage(null);
+                          try {
+                            const result = await window.vessel.premium.verifyCode(
+                              premiumEmail().trim(),
+                              premiumCode().trim(),
+                              premiumChallengeToken(),
+                            );
+                            setPremiumState(result.state);
+                            if (result.ok) {
+                              resetPremiumActivationFlow();
+                              setPremiumMessage({
+                                kind: "success",
+                                text: "Premium activated!",
+                              });
+                            } else {
+                              setPremiumMessage({
+                                kind: "error",
+                                text: result.error || "Verification failed",
+                              });
+                            }
+                          } catch (err) {
+                            setPremiumMessage({
+                              kind: "error",
+                              text:
+                                err instanceof Error
+                                  ? err.message
+                                  : "Verification failed",
+                            });
+                          } finally {
+                            setPremiumLoading(false);
+                          }
+                        }}
+                      >
+                        {premiumLoading() ? "Verifying..." : "Verify Code"}
+                      </button>
+                    </div>
+                  </Show>
                   <button
                     class="premium-btn premium-btn-upgrade"
                     onClick={() => {
@@ -885,6 +996,7 @@ const Settings: Component = () => {
                         const state = await window.vessel.premium.reset();
                         setPremiumState(state);
                         setPremiumEmail("");
+                        resetPremiumActivationFlow();
                         setPremiumMessage(null);
                       }}
                     >
@@ -923,6 +1035,7 @@ const Settings: Component = () => {
                       const state = await window.vessel.premium.reset();
                       setPremiumState(state);
                       setPremiumEmail("");
+                      resetPremiumActivationFlow();
                       setPremiumMessage(null);
                     }}
                   >

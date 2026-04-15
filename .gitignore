@@ -58,3 +58,5 @@ tests/compact-tool-result.test.ts
 tests/text-target-resolver.test.ts
 tests/compact-listing.test.ts
 tests/provider.test.ts
+scripts/cloudflare-worker/vessel-premium-api.js
+.vscode/settings.json

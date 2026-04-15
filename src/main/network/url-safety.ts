@@ -3,6 +3,8 @@
  * Ensures only http/https URLs can be loaded in tab WebContentsViews.
  */
 
+import { checkDomainPolicy } from "./domain-policy";
+
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
 
 /**
@@ -28,5 +30,17 @@ export function assertSafeURL(url: string): void {
     throw new Error(
       `Blocked navigation to disallowed URL scheme: ${url.slice(0, 80)}`,
     );
+  }
+}
+
+/**
+ * Guards synthetic/fallback navigations performed outside Tab.navigate().
+ * Enforces both scheme validation and the configured domain policy.
+ */
+export function assertPermittedNavigationURL(url: string): void {
+  assertSafeURL(url);
+  const policyError = checkDomainPolicy(url);
+  if (policyError) {
+    throw new Error(policyError);
   }
 }

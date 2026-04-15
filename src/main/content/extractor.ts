@@ -549,6 +549,20 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       return meta;
     }
 
+    function shouldExposeFieldValue(el) {
+      if (!(el instanceof HTMLInputElement)) return false;
+      var elType = (el.type || "").toLowerCase();
+      if (elType !== "number") return false;
+      var signals = [
+        el.name,
+        el.id,
+        el.getAttribute("placeholder"),
+        el.getAttribute("aria-label"),
+        labelFor(el),
+      ].filter(Boolean).join(" ").toLowerCase();
+      return /\b(qty|quantity|count|items?)\b/.test(signals);
+    }
+
     function serializeInteractive(el, kind) {
       var base = {
         type: kind,
@@ -583,7 +597,6 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         return {
           ...base,
           label: labelFor(el)?.slice(0, 100),
-          value: text(el.value),
           options: Array.from(el.options || []).map(function(option) { return { label: text(option.textContent || option.value) || option.value, value: option.value }; }).filter(function(o) { return o.label || o.value; }).slice(0, 25),
           required: el.hasAttribute("required") || undefined,
           ...fieldMeta(el),
@@ -595,7 +608,6 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
           ...base,
           label: labelFor(el)?.slice(0, 100),
           placeholder: text(el.getAttribute("placeholder")),
-          value: text(el.value),
           required: el.hasAttribute("required") || undefined,
           ...fieldMeta(el),
         };
@@ -607,7 +619,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
         label: labelFor(el)?.slice(0, 100),
         inputType: text(el.getAttribute("type")),
         placeholder: text(el.getAttribute("placeholder")),
-        value: (elType === "password" || elType === "checkbox" || elType === "radio") ? undefined : text(el.value),
+        value: shouldExposeFieldValue(el) ? text(el.value) : undefined,
         required: el.hasAttribute("required") || undefined,
         ...fieldMeta(el),
       };
@@ -864,7 +876,7 @@ const SAFE_EXTRACTION_SCRIPT = String.raw`
           label: labelFor(el)?.slice(0, 100),
           inputType: text(el.getAttribute && el.getAttribute("type")),
           placeholder: text(el.getAttribute && el.getAttribute("placeholder")),
-          value: tag === "select" ? text(el.value) : (elType === "password" || elType === "checkbox" || elType === "radio") ? undefined : text(el.value),
+          value: shouldExposeFieldValue(el) ? text(el.value) : undefined,
           options: tag === "select"
             ? Array.from(el.options || []).map(function(option) { return { label: text(option.textContent || option.value) || option.value, value: option.value }; }).filter(function(o) { return o.label || o.value; }).slice(0, 25)
             : undefined,

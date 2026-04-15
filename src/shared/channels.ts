@@ -96,7 +96,8 @@ export const Channels = {
 
   // Premium
   PREMIUM_GET_STATE: "premium:get-state",
-  PREMIUM_ACTIVATE: "premium:activate",
+  PREMIUM_ACTIVATION_START: "premium:activation-start",
+  PREMIUM_ACTIVATION_VERIFY: "premium:activation-verify",
   PREMIUM_CHECKOUT: "premium:checkout",
   PREMIUM_PORTAL: "premium:portal",
   PREMIUM_RESET: "premium:reset",
