@@ -91,6 +91,7 @@ jobs:
   build-windows:
     needs: version
     runs-on: windows-latest
+    if: vars.WINDOWS_SKIP_SIGNED_BUILD != 'true'
     env:
       WINDOWS_REQUIRE_CODE_SIGNING: "true"
       CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
@@ -196,9 +197,52 @@ jobs:
             dist/*-setup.exe
             dist/SHASUMS256-win.txt
 
+  # ── Windows MSIX for Microsoft Store ──
+  build-windows-store:
+    needs: version
+    runs-on: windows-latest
+    env:
+      BUILD_STORE_MSIX: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Sync package version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Build & package MSIX
+        run: npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $msixFiles = Get-ChildItem dist -Filter *.msix -File
+          if ($msixFiles.Count -eq 0) {
+            throw "No MSIX packages were found in dist."
+          }
+          $checksums = foreach ($file in ($msixFiles | Sort-Object Name)) {
+            $hash = Get-FileHash -Algorithm SHA256 -Path $file.FullName
+            "{0} *{1}" -f $hash.Hash.ToLowerInvariant(), $file.Name
+          }
+          Set-Content -Path dist\SHASUMS256-win-store.txt -Value $checksums
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-store
+          path: |
+            dist/*.msix
+            dist/SHASUMS256-win-store.txt
+
   # ── Publish (runs after both platforms succeed) ──
   publish:
-    needs: [version, build-linux, build-windows]
+    needs: [version, build-linux, build-windows, build-windows-store]
     if: ${{ always() && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
@@ -227,11 +271,21 @@ jobs:
           name: release-windows
           path: dist-windows
 
+      - name: Download Windows Store MSIX
+        if: needs.build-windows-store.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows-store
+          path: dist-windows-store
+
       - name: Merge checksums
         run: |
           cat dist-linux/SHASUMS256-linux.txt > SHASUMS256.txt
           if [ -d dist-windows ] && [ -f dist-windows/SHASUMS256-win.txt ]; then
             cat dist-windows/SHASUMS256-win.txt >> SHASUMS256.txt
+          fi
+          if [ -d dist-windows-store ] && [ -f dist-windows-store/SHASUMS256-win-store.txt ]; then
+            cat dist-windows-store/SHASUMS256-win-store.txt >> SHASUMS256.txt
           fi
 
       - name: Sync package.json version
@@ -292,27 +346,73 @@ jobs:
           if [ -n "${R2_PUBLIC_BASE_URL:-}" ]; then
             base_url="${R2_PUBLIC_BASE_URL%/}"
             {
-              echo "## Cloudflare R2 Uploads"
+              echo "## Cloudflare R2 Uploads (NSIS)"
               echo
-              echo "Store-safe versioned URLs:"
+              echo "Versioned URLs:"
               for file in "${windows_files[@]}"; do
                 name="$(basename "$file")"
                 echo "- ${base_url}/${version_prefix}/${name}"
               done
               echo
-              echo "Mutable latest URLs:"
+              echo "Latest URLs:"
               for file in "${windows_files[@]}"; do
                 name="$(basename "$file")"
                 echo "- ${base_url}/${latest_prefix}/${name}"
               done
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish Windows Store MSIX to Cloudflare R2
+        if: needs.build-windows-store.result == 'success'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: true
+          R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+          R2_PUBLIC_BASE_URL: ${{ vars.CLOUDFLARE_R2_PUBLIC_BASE_URL }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${R2_ACCOUNT_ID:-}" ] || [ -z "${R2_BUCKET:-}" ]; then
+            echo "Cloudflare R2 is not configured. Skipping Store MSIX upload."
+            exit 0
+          fi
+
+          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          store_prefix="downloads/windows-store/${VERSION}"
+
+          shopt -s nullglob
+          msix_files=(dist-windows-store/*.msix dist-windows-store/SHASUMS256-win-store.txt)
+          if [ "${#msix_files[@]}" -eq 0 ]; then
+            echo "No Store MSIX artifacts found to upload."
+            exit 0
+          fi
+
+          for file in "${msix_files[@]}"; do
+            name="$(basename "$file")"
+            aws s3 cp "$file" "s3://${R2_BUCKET}/${store_prefix}/${name}" --endpoint-url "$endpoint"
+          done
+
+          if [ -n "${R2_PUBLIC_BASE_URL:-}" ]; then
+            base_url="${R2_PUBLIC_BASE_URL%/}"
+            {
+              echo "## Microsoft Store MSIX Upload"
               echo
-              echo "Use the versioned installer URL in Microsoft Partner Center, not the latest alias."
-              echo "Only submit installers produced by the signed Windows release job."
+              echo "Download the MSIX from Partner Center or these URLs:"
+              for file in "${msix_files[@]}"; do
+                name="$(basename "$file")"
+                echo "- ${base_url}/${store_prefix}/${name}"
+              done
+              echo
+              echo "Submit the MSIX to Microsoft Partner Center for Store signing and distribution."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Verify public Windows release URLs
-        if: vars.CLOUDFLARE_R2_PUBLIC_BASE_URL != ''
+        if: needs.build-windows.result == 'success' && vars.CLOUDFLARE_R2_PUBLIC_BASE_URL != ''
         env:
           R2_PUBLIC_BASE_URL: ${{ vars.CLOUDFLARE_R2_PUBLIC_BASE_URL }}
           VERSION: ${{ needs.version.outputs.version }}
