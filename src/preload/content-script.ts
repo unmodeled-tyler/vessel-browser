@@ -1853,10 +1853,10 @@ function vesselExtractContent(): PageContent {
     elementIndex = 0;
     activeOverlays = [];
     Object.keys(elementSelectors).forEach(
-      (key) => delete elementSelectors[key as any],
+      (key) => delete elementSelectors[Number(key)],
     );
     Object.keys(indexedElementRefs).forEach(
-      (key) => delete indexedElementRefs[key as any],
+      (key) => delete indexedElementRefs[Number(key)],
     );
     // WeakMap entries are GC'd automatically; no explicit clearing needed
 

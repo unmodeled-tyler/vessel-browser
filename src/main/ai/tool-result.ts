@@ -24,7 +24,8 @@ export function isRichToolResult(value: unknown): value is RichToolResult {
   return (
     typeof value === "object" &&
     value !== null &&
-    (value as any).__richResult === true
+    "__richResult" in value &&
+    (value as { __richResult: unknown }).__richResult === true
   );
 }
 

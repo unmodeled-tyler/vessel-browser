@@ -17,18 +17,18 @@ import type {
   ProviderConfig,
   RuntimeHealthState,
 } from "../../../shared/types";
+import { PROVIDERS } from "../../../shared/providers";
 
-const CHAT_PROVIDERS: Array<{ id: ProviderId; name: string; requiresKey: boolean; needsBaseUrl: boolean; defaultBaseUrl?: string; keyPlaceholder: string; defaultModel: string; models: string[] }> = [
-  { id: "anthropic", name: "Anthropic", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-ant-...", defaultModel: "claude-sonnet-4-20250514", models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-20250506"] },
-  { id: "openai", name: "OpenAI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "gpt-4o", models: ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o3-mini"] },
-  { id: "openrouter", name: "OpenRouter", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-or-...", defaultModel: "anthropic/claude-sonnet-4", models: ["anthropic/claude-sonnet-4", "openai/gpt-4o", "google/gemini-2.5-pro"] },
-  { id: "ollama", name: "Ollama (Local)", requiresKey: false, needsBaseUrl: false, keyPlaceholder: "", defaultModel: "", models: [] },
-  { id: "llama_cpp", name: "llama.cpp (Local)", requiresKey: false, needsBaseUrl: true, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "", defaultModel: "", models: [] },
-  { id: "mistral", name: "Mistral AI", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "sk-...", defaultModel: "mistral-large-latest", models: ["mistral-large-latest", "mistral-small-latest", "codestral-latest"] },
-  { id: "xai", name: "xAI (Grok)", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "xai-...", defaultModel: "grok-3", models: ["grok-3", "grok-3-mini"] },
-  { id: "google", name: "Google Gemini", requiresKey: true, needsBaseUrl: false, keyPlaceholder: "AI...", defaultModel: "gemini-2.5-pro", models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"] },
-  { id: "custom", name: "Custom (OAI-Compatible)", requiresKey: false, needsBaseUrl: true, defaultBaseUrl: "http://localhost:8080/v1", keyPlaceholder: "Bearer token or API key", defaultModel: "", models: [] },
-];
+const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
+  id: p.id,
+  name: p.name,
+  requiresKey: p.requiresApiKey,
+  needsBaseUrl: p.id === "llama_cpp" || p.id === "custom",
+  defaultBaseUrl: p.defaultBaseUrl,
+  keyPlaceholder: p.apiKeyPlaceholder,
+  defaultModel: p.defaultModel,
+  models: p.models,
+}));
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
