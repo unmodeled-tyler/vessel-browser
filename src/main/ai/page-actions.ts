@@ -3251,6 +3251,9 @@ export {
   isAddToCartText,
   isDuplicateCartClick,
   recordCartClick,
+  clickElementBySelector,
+  submitFormBySelector,
+  searchPage,
 };
 
 async function clickElementBySelector(
