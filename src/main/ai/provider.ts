@@ -7,8 +7,9 @@ import type {
 } from "../../shared/types";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
-import { PROVIDERS } from "./providers";
+import { PROVIDERS } from "../../shared/providers";
 import type { AgentToolProfile } from "./tool-profile";
+import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from "./content-limits";
 
 export interface AIProvider {
   readonly agentToolProfile: AgentToolProfile;
@@ -74,9 +75,6 @@ export function validateProviderConnection(
 
   return null;
 }
-
-const LLAMA_CPP_MIN_CTX_TOKENS = 16384;
-const LLAMA_CPP_RECOMMENDED_CTX_TOKENS = 32768;
 
 export function extractLlamaCppCtxSize(payload: unknown): number | null {
   if (!payload || typeof payload !== "object") return null;
