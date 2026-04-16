@@ -35,17 +35,12 @@ const win = buildStoreMsix
   ? {
       target: [
         {
-          target: "msix",
+          target: "appx",
           arch: ["x64"],
         },
       ],
       icon: "resources/vessel-icon.png",
       artifactName: "${productName}-${version}-${arch}.${ext}",
-      msix: {
-        identityName: "QuantaIntellect.Vessel",
-        publisher: "CN=QuantaIntellect",
-        publisherDisplayName: "Quanta Intellect",
-      },
     }
   : (() => {
       const config = {
@@ -111,5 +106,11 @@ module.exports = {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     perMachine: false,
+  },
+  appx: {
+    applicationId: "QuantaIntellect.Vessel",
+    identityName: "QuantaIntellect.Vessel",
+    publisher: "CN=QuantaIntellect",
+    publisherDisplayName: "Quanta Intellect",
   },
 };
