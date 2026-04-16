@@ -11,6 +11,7 @@ import {
   type AgentToolProfile,
 } from './tool-profile';
 import type { ProviderId } from '../../shared/types';
+import { isClickReadLoop, hasRecentDuplicateToolCall } from './tool-guardrails';
 
 const LLAMA_CPP_MIN_CTX_TOKENS = 16384;
 const LLAMA_CPP_RECOMMENDED_CTX_TOKENS = 32768;
@@ -407,31 +408,6 @@ export function stableToolSignature(
     left.localeCompare(right),
   );
   return JSON.stringify([name, sortedEntries]);
-}
-
-export function hasRecentDuplicateToolCall(
-  recentToolSignatures: string[],
-  signature: string,
-): boolean {
-  return recentToolSignatures.includes(signature);
-}
-
-/**
- * Detect an alternating click→read_page pattern in the recent tool call
- * history. Returns true when the last 6+ calls are dominated by a repeating
- * click/read_page cycle with no other tool breaking the pattern.
- */
-export function isClickReadLoop(names: string[]): boolean {
-  if (names.length < 6) return false;
-  const tail = names.slice(-6);
-  let clickReadPairs = 0;
-  for (let i = 0; i < tail.length - 1; i++) {
-    if (tail[i] === 'click' && tail[i + 1] === 'read_page') {
-      clickReadPairs++;
-    }
-  }
-  // 2+ alternating pairs in the last 6 calls = likely looping
-  return clickReadPairs >= 2;
 }
 
 function normalizeToolToken(value: string): string {
@@ -908,7 +884,7 @@ export class OpenAICompatProvider implements AIProvider {
         // Surface reasoning/thinking tokens (e.g. Qwen 3.5, DeepSeek) so the
         // user sees the model is actively thinking rather than appearing stalled.
         // Providers like llama.cpp expose this as `reasoning_content` on the delta.
-        const reasoning = (delta as any)?.reasoning_content;
+        const reasoning = (delta as { reasoning_content?: string })?.reasoning_content;
         if (typeof reasoning === 'string' && reasoning.length > 0) {
           onChunk(reasoning);
         }
@@ -995,7 +971,7 @@ export class OpenAICompatProvider implements AIProvider {
           // Surface reasoning/thinking tokens so the user can see the model
           // is actively thinking. We track the reasoning separately from
           // textAccum so it doesn't pollute the assistant's "spoken" text.
-          const reasoning = (delta as any)?.reasoning_content;
+          const reasoning = (delta as { reasoning_content?: string })?.reasoning_content;
           if (typeof reasoning === 'string' && reasoning.length > 0) {
             onChunk(reasoning);
           }

@@ -3,9 +3,9 @@ import test from "node:test";
 
 import {
   buildCommonSearchUrlShortcut,
-  buildHuggingFaceSearchShortcut,
   buildSearchShortcut,
 } from "../src/main/ai/page-actions";
+import { buildHuggingFaceSearchShortcut } from "../src/main/ai/search-huggingface";
 
 test("common search shortcut rewrites existing query params and clears pagination", () => {
   const shortcut = buildCommonSearchUrlShortcut(

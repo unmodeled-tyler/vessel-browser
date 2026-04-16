@@ -8,6 +8,7 @@ import type {
   PersistedCookie,
 } from "../../shared/types";
 import type { TabManager } from "../tabs/tab-manager";
+import { waitForLoad } from "../utils/webcontents-utils";
 
 const SESSION_VERSION = 1;
 
@@ -114,27 +115,6 @@ function readSessionFile(filePath: string): NamedSessionData | null {
   } catch {
     return null;
   }
-}
-
-function waitForLoad(
-  wc: Electron.WebContents,
-  timeout = 5000,
-): Promise<void> {
-  return new Promise((resolve) => {
-    if (!wc.isLoading()) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(resolve, timeout);
-    wc.once("did-stop-loading", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    wc.once("did-fail-load", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
 }
 
 function getSerializableCookies(): Promise<PersistedCookie[]> {

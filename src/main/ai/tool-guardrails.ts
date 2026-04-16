@@ -125,3 +125,22 @@ export function shouldBlockOffGoalDomainNavigation(
     targetDomain: targetHost,
   };
 }
+
+export function hasRecentDuplicateToolCall(
+  recentToolSignatures: string[],
+  signature: string,
+): boolean {
+  return recentToolSignatures.includes(signature);
+}
+
+export function isClickReadLoop(names: string[]): boolean {
+  if (names.length < 6) return false;
+  const tail = names.slice(-6);
+  let clickReadPairs = 0;
+  for (let i = 0; i < tail.length - 1; i++) {
+    if (tail[i] === 'click' && tail[i + 1] === 'read_page') {
+      clickReadPairs++;
+    }
+  }
+  return clickReadPairs >= 2;
+}
