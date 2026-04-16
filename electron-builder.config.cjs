@@ -29,27 +29,48 @@ const hasTrustedSigningConfig = Boolean(
     process.env.WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME,
 );
 
-const win = {
-  target: ["nsis", "msix"],
-  icon: "resources/vessel-icon.png",
-  artifactName: "${productName}-${version}-${arch}-setup.${ext}",
-};
-
-if (requireWindowsCodeSigning) {
-  win.forceCodeSigning = true;
-}
-
-if (hasTrustedSigningConfig) {
-  win.azureSignOptions = {
-    publisherName: trustedSigningPublisherName,
-    endpoint: process.env.WINDOWS_TRUSTED_SIGNING_ENDPOINT,
-    codeSigningAccountName: process.env.WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME,
-    certificateProfileName:
-      process.env.WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME,
-  };
-}
-
 const buildStoreMsix = process.env.BUILD_STORE_MSIX === "true";
+
+const win = buildStoreMsix
+  ? {
+      target: [
+        {
+          target: "msix",
+          arch: ["x64"],
+        },
+      ],
+      icon: "resources/vessel-icon.png",
+      artifactName: "${productName}-${version}-${arch}.${ext}",
+      msix: {
+        identityName: "QuantaIntellect.Vessel",
+        publisher: "CN=QuantaIntellect",
+        publisherDisplayName: "Quanta Intellect",
+      },
+    }
+  : (() => {
+      const config = {
+        target: ["nsis"],
+        icon: "resources/vessel-icon.png",
+        artifactName: "${productName}-${version}-${arch}-setup.${ext}",
+      };
+
+      if (requireWindowsCodeSigning) {
+        config.forceCodeSigning = true;
+      }
+
+      if (hasTrustedSigningConfig) {
+        config.azureSignOptions = {
+          publisherName: trustedSigningPublisherName,
+          endpoint: process.env.WINDOWS_TRUSTED_SIGNING_ENDPOINT,
+          codeSigningAccountName:
+            process.env.WINDOWS_TRUSTED_SIGNING_ACCOUNT_NAME,
+          certificateProfileName:
+            process.env.WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME,
+        };
+      }
+
+      return config;
+    })();
 
 module.exports = {
   appId: "com.quantaintellect.vessel",
@@ -85,26 +106,10 @@ module.exports = {
   dmg: {
     artifactName: "${productName}-${version}-${arch}.${ext}",
   },
-  win: buildStoreMsix
-    ? {
-        target: [
-          {
-            target: "msix",
-            arch: ["x64"],
-          },
-        ],
-        icon: "resources/vessel-icon.png",
-        artifactName: "${productName}-${version}-${arch}.${ext}",
-      }
-    : win,
+  win,
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     perMachine: false,
-  },
-  msix: {
-    identityName: "QuantaIntellect.Vessel",
-    publisher: "CN=QuantaIntellect",
-    publisherDisplayName: "Quanta Intellect",
   },
 };
