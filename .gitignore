@@ -60,3 +60,4 @@ tests/compact-listing.test.ts
 tests/provider.test.ts
 scripts/cloudflare-worker/vessel-premium-api.js
 .vscode/settings.json
+cloudflare/premium-worker.js
