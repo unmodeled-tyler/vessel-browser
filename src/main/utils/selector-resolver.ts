@@ -1,6 +1,7 @@
 import type { WebContents } from "electron";
 import { extractContent } from "../content/extractor";
 import { findSelectorByIndex } from "../mcp/indexed-selector";
+import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 
 async function resolveSelector(
   wc: WebContents,
@@ -37,57 +38,7 @@ async function resolveSelector(
   const fallbackSelector = await wc.executeJavaScript(
     `
       (function() {
-        function escapeSelectorValue(value) {
-          if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-            return CSS.escape(value);
-          }
-          return String(value).replace(/["\\]/g, "\\$&");
-        }
-
-        function uniqueSelector(candidate) {
-          if (!candidate) return null;
-          try {
-            return document.querySelectorAll(candidate).length === 1 ? candidate : null;
-          } catch {
-            return null;
-          }
-        }
-
-        function uniqueAttributeSelector(el, attribute) {
-          var value = el.getAttribute(attribute);
-          if (!value) return null;
-          value = value.trim();
-          if (!value) return null;
-          var candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
-          return uniqueSelector(candidate);
-        }
-
-        function selectorFor(el) {
-          if (!el) return null;
-          if (el.id) return "#" + escapeSelectorValue(el.id);
-          var attributes = ["data-testid", "name", "form", "aria-label"];
-          for (var i = 0; i < attributes.length; i += 1) {
-            var attributeCandidate = uniqueAttributeSelector(el, attributes[i]);
-            if (attributeCandidate) return attributeCandidate;
-          }
-          var parts = [];
-          var current = el;
-          while (current) {
-            if (current.id) {
-              parts.unshift("#" + escapeSelectorValue(current.id));
-              break;
-            }
-            var tag = current.tagName.toLowerCase();
-            var parent = current.parentElement;
-            if (!parent) { parts.unshift(tag); break; }
-            var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName; });
-            var index = siblings.indexOf(current) + 1;
-            parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
-            current = parent;
-          }
-          var selector = parts.join(" > ");
-          return uniqueSelector(selector) || selector;
-        }
+        ${selectorHelpersJS(["data-testid", "name", "form", "aria-label"])}
 
         var seen = new Set();
         var ordered = [];

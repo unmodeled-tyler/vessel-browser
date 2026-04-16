@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { AIProvider } from './provider';
 import type { AIMessage, ProviderConfig } from '../../shared/types';
-import { PROVIDERS } from './providers';
+import { PROVIDERS } from "../../shared/providers";
 import { isRichToolResult, type TextBlock } from './tool-result';
 import { getEffectiveMaxIterations } from '../premium/manager';
 import { normalizeToolAlias } from './tool-aliases';
@@ -12,9 +12,7 @@ import {
 } from './tool-profile';
 import type { ProviderId } from '../../shared/types';
 import { isClickReadLoop, hasRecentDuplicateToolCall } from './tool-guardrails';
-
-const LLAMA_CPP_MIN_CTX_TOKENS = 16384;
-const LLAMA_CPP_RECOMMENDED_CTX_TOKENS = 32768;
+import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from './content-limits';
 
 function shouldDebugAgentLoop(): boolean {
   const value = process.env.VESSEL_DEBUG_AGENT_LOOP;

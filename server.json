@@ -3,7 +3,7 @@
   "name": "io.github.unmodeled-tyler/vessel-browser",
   "title": "Vessel Browser",
   "description": "AI-native browser runtime for autonomous agents with human-in-the-loop supervision",
-  "version": "0.1.10",
+  "version": "0.1.0",
   "websiteUrl": "https://github.com/unmodeled-tyler/vessel-browser",
   "repository": {
     "url": "https://github.com/unmodeled-tyler/vessel-browser",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@quanta-intellect/vessel-browser",
-      "version": "0.1.10",
+"version": "0.1.0",
       "transport": {
         "type": "streamable-http",
         "url": "http://127.0.0.1:3100/mcp"

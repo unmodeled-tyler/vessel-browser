@@ -1,6 +1,16 @@
 import type { WebContents } from "electron";
 import type { HighlightColor } from "../../shared/types";
 
+const SKIP_TAGS_JS = "var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};";
+const CONTENT_ROOTS_JS = `
+var contentRoots = ['main', 'article', '[role="main"]', '#mw-content-text', '.mw-parser-output', '#content', '.post-content', '.entry-content', '.article-body'];
+var contentRoot = null;
+for (var cr = 0; cr < contentRoots.length; cr++) {
+  contentRoot = document.querySelector(contentRoots[cr]);
+  if (contentRoot) break;
+}`;
+const NAV_ANCESTORS_JS = "var NAV_ANCESTORS = 'nav, aside, footer, header, [role=\"navigation\"], [role=\"complementary\"], .sidebar, .navbox, .infobox, figcaption, .thumbcaption, .mw-jump-link';";
+
 interface ColorValues {
   solid: string;
   glow: string;
@@ -254,17 +264,9 @@ export async function highlightOnPage(
         document.querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]').forEach(function(b) {
           if (b.textContent === ${JSON.stringify(label || "")}) b.remove();
         });
-        var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
-        // Collect matching text nodes first, then wrap — avoids TreeWalker
-        // seeing newly created nodes from surroundContents and re-matching.
-        // Prioritize main content area over nav/sidebar/captions.
-        var contentRoots = ['main', 'article', '[role="main"]', '#mw-content-text', '.mw-parser-output', '#content', '.post-content', '.entry-content', '.article-body'];
-        var contentRoot = null;
-        for (var cr = 0; cr < contentRoots.length; cr++) {
-          contentRoot = document.querySelector(contentRoots[cr]);
-          if (contentRoot) break;
-        }
-        var NAV_ANCESTORS = 'nav, aside, footer, header, [role="navigation"], [role="complementary"], .sidebar, .navbox, .infobox, figcaption, .thumbcaption, .mw-jump-link';
+        ${SKIP_TAGS_JS}
+        ${CONTENT_ROOTS_JS}
+        ${NAV_ANCESTORS_JS}
 
         function collectMatches(root, limit) {
           var matches = [];
@@ -400,14 +402,9 @@ export async function highlightBatchOnPage(
         document.head.appendChild(s);
       }
       var entries = ${JSON.stringify(serialized)};
-      var SKIP_TAGS = {SCRIPT:1,STYLE:1,NOSCRIPT:1,TEMPLATE:1,IFRAME:1,SVG:1};
-      var contentRoots = ['main', 'article', '[role="main"]', '#mw-content-text', '.mw-parser-output', '#content', '.post-content', '.entry-content', '.article-body'];
-      var NAV_ANCESTORS = 'nav, aside, footer, header, [role="navigation"], [role="complementary"], .sidebar, .navbox, .infobox, figcaption, .thumbcaption, .mw-jump-link';
-      var contentRoot = null;
-      for (var cr = 0; cr < contentRoots.length; cr++) {
-        contentRoot = document.querySelector(contentRoots[cr]);
-        if (contentRoot) break;
-      }
+      ${SKIP_TAGS_JS}
+      ${CONTENT_ROOTS_JS}
+      ${NAV_ANCESTORS_JS}
 
       function collectMatches(root, searchText, foldedSearchText, limit) {
         var matches = [];

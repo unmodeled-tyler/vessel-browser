@@ -5,11 +5,8 @@ import { app, BrowserWindow } from "electron";
 
 function findIconBase64(): string {
   const candidates = [
-    path.join(app.getAppPath(), "resources", "vessel-icon-400x400.png"),
-    path.join(process.resourcesPath, "vessel-icon-400x400.png"),
-    path.join(__dirname, "../../resources/vessel-icon-400x400.png"),
-    path.join(app.getAppPath(), "resources", "vessel-icon.png"),
     path.join(process.resourcesPath, "vessel-icon.png"),
+    path.join(app.getAppPath(), "resources", "vessel-icon.png"),
     path.join(__dirname, "../../resources/vessel-icon.png"),
   ];
   for (const p of candidates) {
