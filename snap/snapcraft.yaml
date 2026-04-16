@@ -14,12 +14,6 @@ description: |
   autonomous agents with human supervision. Built on Electron and SolidJS,
   it provides MCP (Model Context Protocol) integration for AI agent
   browser automation.
-title: Vessel Browser
-contact: hello@quantaintellect.com
-license: MIT
-source-code: https://github.com/unmodeled-tyler/quanta-vessel-browser
-website: https://github.com/unmodeled-tyler/quanta-vessel-browser
-issues: https://github.com/unmodeled-tyler/quanta-vessel-browser/issues
 grade: stable
 confinement: strict
 icon: snap/gui/vessel-icon.png
