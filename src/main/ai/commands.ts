@@ -129,8 +129,7 @@ export async function handleAIQuery(
         let output = "";
         let isError = false;
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          output = await executeAction(name, args as Record<string, any>, actionCtx);
+          output = await executeAction(name, args, actionCtx);
           if (provider.agentToolProfile === "compact") {
             runtime.updateTaskTracker(name, output);
             const trackerCtx = runtime.getTaskTrackerContext();

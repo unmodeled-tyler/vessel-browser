@@ -4,7 +4,7 @@ import type { AIMessage } from "../../shared/types";
 import { isRichToolResult, type RichToolResult } from "./tool-result";
 import { getEffectiveMaxIterations } from "../premium/manager";
 import type { AgentToolProfile } from "./tool-profile";
-import { isClickReadLoop } from "./provider-openai";
+import { isClickReadLoop } from "./tool-guardrails";
 
 export class AnthropicProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile = "default";

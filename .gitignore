@@ -61,3 +61,5 @@ tests/provider.test.ts
 scripts/cloudflare-worker/vessel-premium-api.js
 .vscode/settings.json
 cloudflare/premium-worker.js
+tests/search-shortcuts.test.ts
+tests/search-shortcuts.test.ts

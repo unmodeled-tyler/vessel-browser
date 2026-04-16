@@ -219,7 +219,9 @@ async function fireJob(
     return;
   }
 
-  console.log(`[scheduler] Firing scheduled job: ${job.kitName} (${job.id})`);
+  if (process.env.VESSEL_DEBUG_SCHEDULER === '1' || process.env.VESSEL_DEBUG_SCHEDULER === 'true') {
+    console.log(`[scheduler] Firing scheduled job: ${job.kitName} (${job.id})`);
+  }
   try {
     const provider = createProvider(settings.chatProvider);
     const activeTab = tabManager.getActiveTab();

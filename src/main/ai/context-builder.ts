@@ -10,14 +10,15 @@ import type {
 import * as highlightsManager from "../highlights/manager";
 import { buildOverlayInventory } from "../content/overlay-inventory";
 
-const MAX_CONTENT_LENGTH = 60000; // ~15k tokens rough estimate
+import { MAX_CONTEXT_CONTENT_LENGTH } from "./content-limits";
+
 const MAX_STRUCTURED_ITEMS = 100; // Limit structured elements to keep context manageable
 const LARGE_PAGE_HINT_THRESHOLD = 12000;
 
 function truncateContent(content: string): string {
-  if (content.length <= MAX_CONTENT_LENGTH) return content;
+  if (content.length <= MAX_CONTEXT_CONTENT_LENGTH) return content;
   return (
-    content.slice(0, MAX_CONTENT_LENGTH) +
+    content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
     "\n\n[Content truncated for length...]"
   );
 }
@@ -1468,8 +1469,8 @@ export function buildScopedContext(
         sections.push("");
       }
       const truncated =
-        page.content.length > 60000
-          ? page.content.slice(0, 60000) + "\n[Content truncated...]"
+        page.content.length > MAX_CONTEXT_CONTENT_LENGTH
+          ? page.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + "\n[Content truncated...]"
           : page.content;
       sections.push(truncated);
       return sections.join("\n");

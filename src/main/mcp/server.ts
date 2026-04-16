@@ -38,7 +38,12 @@ import {
   optionalNumberLikeSchema,
   stringArrayLikeSchema,
 } from "../tools/input-coercion";
-import { findSelectorByIndex } from "./indexed-selector";
+import {
+  sleep,
+  waitForLoad,
+  waitForPotentialNavigation,
+} from "../utils/webcontents-utils";
+import { resolveSelector } from "../utils/selector-resolver";
 import type { TabManager } from "../tabs/tab-manager";
 import * as bookmarkManager from "../bookmarks/manager";
 import * as highlightsManager from "../highlights/manager";
@@ -57,6 +62,7 @@ import {
   writeMemoryNote,
 } from "../memory/obsidian";
 import { setMcpHealth } from "../health/runtime-health";
+import { MAX_MCP_NAV_CONTENT_LENGTH } from "../ai/content-limits";
 import { registerDevTools } from "../devtools/tools";
 import {
   assertPermittedNavigationURL,
@@ -313,45 +319,7 @@ function composeDuplicateBookmarkResponse(args: {
   return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with on_duplicate="update" to refresh the existing bookmark or on_duplicate="duplicate" to keep both entries.`;
 }
 
-function waitForPotentialNavigation(
-  wc: Electron.WebContents,
-  beforeUrl: string,
-  timeout = 4000,
-): Promise<void> {
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      wc.removeListener("did-start-loading", onStart);
-      wc.removeListener("did-navigate", onNavigate);
-      wc.removeListener("did-navigate-in-page", onNavigateInPage);
-      resolve();
-    };
-    const onStart = () => {
-      wc.removeListener("did-navigate", onNavigate);
-      wc.once("did-navigate", () => {
-        void waitForLoad(wc, timeout).then(finish);
-      });
-      void waitForLoad(wc, timeout).then(finish);
-    };
-    const onNavigate = () => {
-      void waitForLoad(wc, timeout).then(finish);
-    };
-    const onNavigateInPage = () => finish();
-    const timer = setTimeout(finish, timeout);
 
-    if (wc.getURL() !== beforeUrl || wc.isLoading()) {
-      void waitForLoad(wc, timeout).then(finish);
-      return;
-    }
-
-    wc.once("did-start-loading", onStart);
-    wc.once("did-navigate", onNavigate);
-    wc.once("did-navigate-in-page", onNavigateInPage);
-  });
-}
 
 async function scrollPage(
   wc: Electron.WebContents,
@@ -385,9 +353,7 @@ async function scrollPage(
   };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+
 
 async function clickElement(
   wc: Electron.WebContents,
@@ -2162,8 +2128,8 @@ function registerTools(
     if (mode === "full") {
       const structured = buildStructuredContext(pageContent);
       const truncated =
-        pageContent.content.length > 30000
-          ? pageContent.content.slice(0, 30000) + "\n[Content truncated...]"
+        pageContent.content.length > MAX_MCP_NAV_CONTENT_LENGTH
+          ? pageContent.content.slice(0, MAX_MCP_NAV_CONTENT_LENGTH) + "\n[Content truncated...]"
           : pageContent.content;
       return `${adBlockLine}${livePrefix}\n\n${structured}\n\n## PAGE CONTENT\n\n${truncated}`;
     }
@@ -5724,20 +5690,6 @@ function registerTools(
   );
 }
 
-function waitForLoad(wc: Electron.WebContents, timeout = 10000): Promise<void> {
-  return new Promise((resolve) => {
-    if (!wc.isLoading()) {
-      resolve();
-      return;
-    }
-    const timer = setTimeout(resolve, timeout);
-    wc.once("did-stop-loading", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-  });
-}
-
 function waitForLoadWithStatus(
   wc: Electron.WebContents,
   timeout = 10000,
@@ -5762,123 +5714,6 @@ function waitForLoadWithStatus(
       finish();
     });
   });
-}
-
-async function resolveSelector(
-  wc: Electron.WebContents,
-  index?: number,
-  selector?: string,
-): Promise<string | null> {
-  if (selector) return selector;
-  if (index == null) return null;
-
-  const authoritativeSelector = await wc.executeJavaScript(
-    `
-      (function() {
-        return window.__vessel?.getElementSelector
-          ? window.__vessel.getElementSelector(${index})
-          : null;
-      })()
-    `,
-  );
-  if (typeof authoritativeSelector === "string" && authoritativeSelector) {
-    // Shadow-piercing selector (contains " >>> ") — resolve via __vessel
-    if (authoritativeSelector.includes(" >>> ")) {
-      const resolves = await wc.executeJavaScript(
-        `!!window.__vessel?.resolveShadowSelector?.(${JSON.stringify(authoritativeSelector)})`,
-      );
-      if (resolves) return authoritativeSelector;
-      return `__vessel_idx:${index}`;
-    }
-    // Verify the selector actually resolves — if not, the element may be in shadow DOM
-    const resolves = await wc.executeJavaScript(
-      `!!document.querySelector(${JSON.stringify(authoritativeSelector)})`,
-    );
-    if (resolves) return authoritativeSelector;
-    // Shadow DOM element — return index-based marker for direct interaction
-    return `__vessel_idx:${index}`;
-  }
-
-  const page = await extractContent(wc);
-  const extractedSelector = findSelectorByIndex(page, index);
-  if (extractedSelector) return extractedSelector;
-
-  return wc.executeJavaScript(
-    `
-      (function() {
-        // Final fallback: replicate the legacy extraction order.
-        function escapeSelectorValue(value) {
-          if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-            return CSS.escape(value);
-          }
-          return String(value).replace(/["\\]/g, "\\$&");
-        }
-
-        function uniqueSelector(candidate) {
-          if (!candidate) return null;
-          try {
-            return document.querySelectorAll(candidate).length === 1 ? candidate : null;
-          } catch {
-            return null;
-          }
-        }
-
-        function uniqueAttributeSelector(el, attribute) {
-          var value = el.getAttribute(attribute);
-          if (!value) return null;
-          value = value.trim();
-          if (!value) return null;
-          var candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + escapeSelectorValue(value) + "\\"]";
-          return uniqueSelector(candidate);
-        }
-
-        function selectorFor(el) {
-          if (!el) return null;
-          if (el.id) return "#" + escapeSelectorValue(el.id);
-          var attributes = ["data-testid", "name", "form", "aria-label"];
-          for (var i = 0; i < attributes.length; i += 1) {
-            var attributeCandidate = uniqueAttributeSelector(el, attributes[i]);
-            if (attributeCandidate) return attributeCandidate;
-          }
-          var parts = [];
-          var current = el;
-          while (current) {
-            if (current.id) {
-              parts.unshift("#" + escapeSelectorValue(current.id));
-              break;
-            }
-            var tag = current.tagName.toLowerCase();
-            var parent = current.parentElement;
-            if (!parent) { parts.unshift(tag); break; }
-            var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName; });
-            var index = siblings.indexOf(current) + 1;
-            parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
-            current = parent;
-          }
-          var selector = parts.join(" > ");
-          return uniqueSelector(selector) || selector;
-        }
-
-        var seen = new Set();
-        var ordered = [];
-        document.querySelectorAll("nav a[href], [role='navigation'] a[href]").forEach(function(el) {
-          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
-        });
-        document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']").forEach(function(el) {
-          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
-        });
-        document.querySelectorAll("a[href]").forEach(function(el) {
-          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
-        });
-        document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea").forEach(function(el) {
-          if (!seen.has(el)) { seen.add(el); ordered.push(el); }
-        });
-
-        var target = ordered[${index} - 1];
-        return target ? selectorFor(target) : null;
-      })()
-    `,
-  );
 }
 
 function createMcpServer(
@@ -6024,7 +5859,9 @@ export function startMcpServer(
         status: "ready",
         message: `MCP server listening on ${endpoint}.`,
       });
-      console.log(`[Vessel MCP] Server listening on ${endpoint} (auth enabled)`);
+      if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
+        console.log(`[Vessel MCP] Server listening on ${endpoint} (auth enabled)`);
+      }
       if (mcpAuthToken) {
         writeMcpAuthFile(endpoint, mcpAuthToken);
       }
@@ -6063,7 +5900,9 @@ export function stopMcpServer(): Promise<void> {
         status: "stopped",
         message: "MCP server is stopped.",
       });
-      console.log("[Vessel MCP] Server stopped");
+      if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
+        console.log("[Vessel MCP] Server stopped");
+      }
       resolve();
     });
   });
