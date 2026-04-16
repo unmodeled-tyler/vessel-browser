@@ -11,6 +11,7 @@ import * as highlightsManager from "../highlights/manager";
 import { buildOverlayInventory } from "../content/overlay-inventory";
 
 import { MAX_CONTEXT_CONTENT_LENGTH } from "./content-limits";
+import { normalizeComparable, normalizeUrlForMatch, getUrlPathSegments } from "./url-normalization";
 
 const MAX_STRUCTURED_ITEMS = 100; // Limit structured elements to keep context manageable
 const LARGE_PAGE_HINT_THRESHOLD = 12000;
@@ -1024,36 +1025,6 @@ export function chooseAgentReadMode(page: PageContent): ExtractMode {
     case "GENERAL":
     default:
       return "visible_only";
-  }
-}
-
-function normalizeComparable(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-function normalizeUrlForMatch(value?: string): string | null {
-  if (!value) return null;
-
-  try {
-    const url = new URL(value);
-    const pathname = url.pathname.replace(/\/+$/, "") || "/";
-    return `${url.origin}${pathname}`.toLowerCase();
-  } catch {
-    return value.trim().replace(/\/+$/, "").toLowerCase() || null;
-  }
-}
-
-function getUrlPathSegments(value?: string): string[] {
-  if (!value) return [];
-
-  try {
-    return new URL(value).pathname.split("/").filter(Boolean);
-  } catch {
-    return value.split("?")[0].split("#")[0].split("/").filter(Boolean);
   }
 }
 

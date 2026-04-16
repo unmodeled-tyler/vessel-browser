@@ -3,6 +3,7 @@ import type { PageContent } from "../../shared/types";
 import { detectPageIssues } from "./page-access-issues";
 import { extractStructuredDataFromJsonLd } from "./structured-data";
 import { trackExtractionFailed } from "../telemetry/posthog";
+import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -82,57 +83,7 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
       return trimmed || undefined;
     }
 
-    function escapeSelectorValue(value) {
-      if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-        return CSS.escape(value);
-      }
-      return String(value).replace(/["\\]/g, "\\$&");
-    }
-
-    function uniqueSelector(candidate) {
-      if (!candidate) return null;
-      try {
-        return document.querySelectorAll(candidate).length === 1 ? candidate : null;
-      } catch {
-        return null;
-      }
-    }
-
-    function uniqueAttributeSelector(el, attribute) {
-      const value = text(el.getAttribute && el.getAttribute(attribute));
-      if (!value) return null;
-      const candidate = el.tagName.toLowerCase() + "[" + attribute + "=\"" + escapeSelectorValue(value) + "\"]";
-      return uniqueSelector(candidate);
-    }
-
-    function selectorFor(el) {
-      if (!el) return "";
-      if (el.id) return "#" + escapeSelectorValue(el.id);
-      for (const attribute of ["data-testid", "name", "form", "aria-label"]) {
-        const candidate = uniqueAttributeSelector(el, attribute);
-        if (candidate) return candidate;
-      }
-      const parts = [];
-      let current = el;
-      while (current) {
-        if (current.id) {
-          parts.unshift("#" + escapeSelectorValue(current.id));
-          break;
-        }
-        const tag = current.tagName.toLowerCase();
-        const parent = current.parentElement;
-        if (!parent) {
-          parts.unshift(tag);
-          break;
-        }
-        const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
-        const index = siblings.indexOf(current) + 1;
-        parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
-        current = parent;
-      }
-      const selector = parts.join(" > ");
-      return uniqueSelector(selector) || selector;
-    }
+    ${selectorHelpersJS(["data-testid", "name", "form", "aria-label"])}
 
     function visible(el) {
       if (!(el instanceof HTMLElement)) return true;

@@ -16,8 +16,8 @@ import type {
   ProviderId,
   ProviderConfig,
   RuntimeHealthState,
-} from "../../../shared/types";
-import { PROVIDERS } from "../../../shared/providers";
+} from "../../../../shared/types";
+import { PROVIDERS } from "../../../../shared/providers";
 
 const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
   id: p.id,

@@ -1,0 +1,71 @@
+const DEFAULT_SELECTOR_ATTRIBUTES = [
+  "data-testid",
+  "data-test",
+  "name",
+  "form",
+  "aria-label",
+  "title",
+  "placeholder",
+];
+
+export function selectorHelpersJS(
+  attributes: string[] = DEFAULT_SELECTOR_ATTRIBUTES,
+): string {
+  const attrsExpr = JSON.stringify(attributes);
+  const q = '"';
+  const bs = '\\';
+  const escQ = bs + q;
+
+  return [
+    'function __escapeSelectorValue(value) {',
+    '  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {',
+    '    return CSS.escape(value);',
+    '  }',
+    `  return String(value).replace(/[${q}${bs}${bs}]/g, ${q}${bs}${bs}$&${q});`,
+    '}',
+    '',
+    'function __uniqueSelector(candidate) {',
+    '  if (!candidate) return null;',
+    '  try {',
+    '    return document.querySelectorAll(candidate).length === 1 ? candidate : null;',
+    '  } catch {',
+    '    return null;',
+    '  }',
+    '}',
+    '',
+    'function __uniqueAttributeSelector(el, attribute) {',
+    '  var value = (el.getAttribute && el.getAttribute(attribute)) || "";',
+    '  value = String(value).trim();',
+    '  if (!value) return null;',
+    `  var candidate = el.tagName.toLowerCase() + ${q}[${q} + attribute + ${q}=${escQ}${q} + __escapeSelectorValue(value) + ${escQ}]${q};`,
+    '  return __uniqueSelector(candidate);',
+    '}',
+    '',
+    'function selectorFor(el) {',
+    '  if (!el) return null;',
+    '  if (el.id) return "#" + __escapeSelectorValue(el.id);',
+    `  var attributes = ${attrsExpr};`,
+    '  for (var i = 0; i < attributes.length; i++) {',
+    '    var candidate = __uniqueAttributeSelector(el, attributes[i]);',
+    '    if (candidate) return candidate;',
+    '  }',
+    '  var parts = [];',
+    '  var current = el;',
+    '  while (current) {',
+    '    if (current.id) {',
+    '      parts.unshift("#" + __escapeSelectorValue(current.id));',
+    '      break;',
+    '    }',
+    '    var tag = current.tagName.toLowerCase();',
+    '    var parent = current.parentElement;',
+    '    if (!parent) { parts.unshift(tag); break; }',
+    '    var siblings = Array.from(parent.children).filter(function(c) { return c.tagName === current.tagName; });',
+    '    var index = siblings.indexOf(current) + 1;',
+    '    parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);',
+    '    current = parent;',
+    '  }',
+    '  var selector = parts.join(" > ");',
+    '  return __uniqueSelector(selector) || selector;',
+    '}',
+  ].join('\n');
+}

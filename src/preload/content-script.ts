@@ -631,24 +631,6 @@ function getOverlayActionPriority(action: OverlayAction): number {
   }
 }
 
-function looksCorrectChoice(label: string): boolean | undefined {
-  return looksLikeCorrectOption(label);
-  const lower = label.toLowerCase();
-  const positive = [
-    /correct/,
-    /right choice/,
-    /this is correct/,
-    /pick this/,
-    /select this/,
-    /right answer/,
-    /best choice/,
-  ];
-  const negative = [/wrong/, /incorrect/, /not this/, /decoy/, /trap/];
-  if (positive.some((pattern) => pattern.test(lower))) return true;
-  if (negative.some((pattern) => pattern.test(lower))) return false;
-  return undefined;
-}
-
 function collectOverlayRadioOptions(root: HTMLElement): OverlayRadioOption[] {
   const seen = new Set<string>();
   const options: OverlayRadioOption[] = [];

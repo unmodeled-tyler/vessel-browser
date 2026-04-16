@@ -59,13 +59,6 @@ export interface HeadingStructure {
   text: string;
 }
 
-export interface SemanticSection {
-  type: string;
-  role?: string;
-  label?: string;
-  elements: InteractiveElement[];
-}
-
 export type StructuredDataPrimitive = string | number | boolean | null;
 
 export interface StructuredDataObject {
@@ -632,7 +625,3 @@ export interface VaultAuditEntry {
   approved: boolean;
 }
 
-export interface VaultState {
-  entries: VaultEntry[];
-  auditLog: VaultAuditEntry[];
-}
