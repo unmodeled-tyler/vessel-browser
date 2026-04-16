@@ -30,7 +30,7 @@ const hasTrustedSigningConfig = Boolean(
 );
 
 const win = {
-  target: ["nsis"],
+  target: ["nsis", "msix"],
   icon: "resources/vessel-icon.png",
   artifactName: "${productName}-${version}-${arch}-setup.${ext}",
 };
@@ -48,6 +48,8 @@ if (hasTrustedSigningConfig) {
       process.env.WINDOWS_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME,
   };
 }
+
+const buildStoreMsix = process.env.BUILD_STORE_MSIX === "true";
 
 module.exports = {
   appId: "com.quantaintellect.vessel",
@@ -83,10 +85,26 @@ module.exports = {
   dmg: {
     artifactName: "${productName}-${version}-${arch}.${ext}",
   },
-  win,
+  win: buildStoreMsix
+    ? {
+        target: [
+          {
+            target: "msix",
+            arch: ["x64"],
+          },
+        ],
+        icon: "resources/vessel-icon.png",
+        artifactName: "${productName}-${version}-${arch}.${ext}",
+      }
+    : win,
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
     perMachine: false,
+  },
+  msix: {
+    identityName: "QuantaIntellect.Vessel",
+    publisher: "CN=QuantaIntellect",
+    publisherDisplayName: "Quanta Intellect",
   },
 };
