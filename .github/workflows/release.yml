@@ -217,17 +217,17 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Build & package MSIX
+      - name: Build & package AppX for Store
         run: npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
 
       - name: Generate checksums
         shell: pwsh
         run: |
-          $msixFiles = Get-ChildItem dist -Filter *.msix -File
-          if ($msixFiles.Count -eq 0) {
-            throw "No MSIX packages were found in dist."
+          $appxFiles = Get-ChildItem dist -Filter *.appx -File
+          if ($appxFiles.Count -eq 0) {
+            throw "No AppX packages were found in dist."
           }
-          $checksums = foreach ($file in ($msixFiles | Sort-Object Name)) {
+          $checksums = foreach ($file in ($appxFiles | Sort-Object Name)) {
             $hash = Get-FileHash -Algorithm SHA256 -Path $file.FullName
             "{0} *{1}" -f $hash.Hash.ToLowerInvariant(), $file.Name
           }
@@ -237,7 +237,7 @@ jobs:
         with:
           name: release-windows-store
           path: |
-            dist/*.msix
+            dist/*.appx
             dist/SHASUMS256-win-store.txt
 
   # ── Publish (runs after both platforms succeed) ──
@@ -362,7 +362,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Publish Windows Store MSIX to Cloudflare R2
+      - name: Publish Windows Store package to Cloudflare R2
         if: needs.build-windows-store.result == 'success'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
@@ -377,7 +377,7 @@ jobs:
           set -euo pipefail
 
           if [ -z "${R2_ACCOUNT_ID:-}" ] || [ -z "${R2_BUCKET:-}" ]; then
-            echo "Cloudflare R2 is not configured. Skipping Store MSIX upload."
+            echo "Cloudflare R2 is not configured. Skipping Store package upload."
             exit 0
           fi
 
@@ -385,13 +385,13 @@ jobs:
           store_prefix="downloads/windows-store/${VERSION}"
 
           shopt -s nullglob
-          msix_files=(dist-windows-store/*.msix dist-windows-store/SHASUMS256-win-store.txt)
-          if [ "${#msix_files[@]}" -eq 0 ]; then
-            echo "No Store MSIX artifacts found to upload."
+          store_files=(dist-windows-store/*.appx dist-windows-store/SHASUMS256-win-store.txt)
+          if [ "${#store_files[@]}" -eq 0 ]; then
+            echo "No Store AppX artifacts found to upload."
             exit 0
           fi
 
-          for file in "${msix_files[@]}"; do
+          for file in "${store_files[@]}"; do
             name="$(basename "$file")"
             aws s3 cp "$file" "s3://${R2_BUCKET}/${store_prefix}/${name}" --endpoint-url "$endpoint"
           done
@@ -399,15 +399,15 @@ jobs:
           if [ -n "${R2_PUBLIC_BASE_URL:-}" ]; then
             base_url="${R2_PUBLIC_BASE_URL%/}"
             {
-              echo "## Microsoft Store MSIX Upload"
+              echo "## Microsoft Store AppX Upload"
               echo
-              echo "Download the MSIX from Partner Center or these URLs:"
-              for file in "${msix_files[@]}"; do
+              echo "Download the AppX from Partner Center or these URLs:"
+              for file in "${store_files[@]}"; do
                 name="$(basename "$file")"
                 echo "- ${base_url}/${store_prefix}/${name}"
               done
               echo
-              echo "Submit the MSIX to Microsoft Partner Center for Store signing and distribution."
+              echo "Submit the AppX to Microsoft Partner Center for Store signing and distribution."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
