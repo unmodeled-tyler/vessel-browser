@@ -134,4 +134,8 @@ export const Channels = {
   AUTOFILL_UPDATE: "autofill:update",
   AUTOFILL_DELETE: "autofill:delete",
   AUTOFILL_FILL: "autofill:fill",
+
+  // Page snapshots / What Changed
+  PAGE_CHANGED: "page:changed",
+  PAGE_DIFF_GET: "page:diff-get",
 } as const;

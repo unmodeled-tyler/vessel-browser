@@ -21,6 +21,7 @@ import type {
   VesselSettings,
 } from "../shared/types";
 import type { AutofillProfile, AutofillResult } from "../shared/autofill-types";
+import type { PageDiff } from "../shared/page-diff-types";
 import type { DevToolsPanelState } from "../main/devtools/types";
 
 const api = {
@@ -420,6 +421,16 @@ const api = {
       ipcRenderer.invoke(Channels.AUTOFILL_DELETE, id),
     fill: (profileId: string): Promise<AutofillResult> =>
       ipcRenderer.invoke(Channels.AUTOFILL_FILL, profileId),
+  },
+  pageDiff: {
+    onChanged: (cb: (diff: PageDiff) => void): (() => void) => {
+      const handler = (_: unknown, diff: PageDiff) => cb(diff);
+      ipcRenderer.on(Channels.PAGE_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.PAGE_CHANGED, handler);
+    },
+    get: (): Promise<PageDiff | null> =>
+      ipcRenderer.invoke(Channels.PAGE_DIFF_GET),
   },
 };
 

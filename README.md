@@ -101,6 +101,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Structured Page Visibility Context** — extraction can report in-viewport elements, obscured controls, active overlays, and dormant consent/modal UI
 - **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
 - **Form Autofill Profiles** — save reusable personal or work profiles in Settings and fill common contact, address, and organization fields on the current page; Vessel matches fields using labels, names, placeholders, and autocomplete hints
+- **Page Diff / "What Changed?"** — Vessel remembers the last snapshot of a page and surfaces a `Changed` badge in the address bar when the title, headings, or main content differ on a later visit; expand it to see a compact summary of what changed since the last snapshot
 - **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
 - **Domain Policy** — allowlist or blocklist domains globally in Settings; agents cannot navigate to blocked domains
 - **Agent Credential Vault** (Premium) — encrypted credential storage for agent-driven logins; credentials are filled directly into login forms via a "blind fill" pattern and are never sent to AI providers; user consent dialog before every use; TOTP 2FA support; domain-scoped access; append-only audit log
@@ -245,6 +246,7 @@ Notes:
 - Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
 - Settings now show MCP runtime status, active endpoint, startup warnings, and allow changing the MCP port with an immediate server restart
 - Settings also include reusable Form Autofill profiles for one-click filling of common contact and address forms on the active page
+- The address bar can also show a `Changed` badge when Vessel detects that a previously visited page has meaningfully changed since the last saved snapshot
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
 - Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - The intended control plane is an external harness driving Vessel through MCP
@@ -490,7 +492,7 @@ src/
 │   ├── ai/               # Agent tools, query flow, and AI provider implementations
 │   ├── tabs/             # Tab + TabManager (WebContentsView)
 │   ├── agent/            # Agent runtime, checkpoints, supervision, flow tracking
-│   ├── content/          # Readability extraction, reader mode, screenshot
+│   ├── content/          # Readability extraction, reader mode, screenshot, page snapshots/diff
 │   ├── config/           # Settings persistence
 │   ├── autofill/         # Autofill profile persistence and form-field matching
 │   ├── ipc/              # IPC handler registry

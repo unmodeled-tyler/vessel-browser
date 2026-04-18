@@ -27,8 +27,9 @@ function renderPage(title: string, body: string): string {
       <a href="/get-form">GET form</a>
       <a href="/post-form">POST form</a>
       <a href="/external-submit">External submit</a>
-      <a href="/same-page-action">Same-page action</a>
-      <a href="/trusted-enter-source">Trusted Enter</a>
+	      <a href="/same-page-action">Same-page action</a>
+	      <a href="/page-diff">Page diff</a>
+	      <a href="/trusted-enter-source">Trusted Enter</a>
       <a href="/search-visibility">Search visibility</a>
       <a href="/search-no-shortcut">Search no shortcut</a>
       <a href="/language-popup">Language popup</a>
@@ -352,7 +353,7 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
       return;
     }
 
-    if (method === "GET" && url.pathname === "/same-page-action") {
+	    if (method === "GET" && url.pathname === "/same-page-action") {
       sendHtml(
         res,
         renderPage(
@@ -373,10 +374,30 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
           `,
         ),
       );
-      return;
-    }
+	      return;
+	    }
 
-    if (method === "GET" && url.pathname === "/named-form") {
+	    if (method === "GET" && url.pathname === "/page-diff") {
+	      const version = url.searchParams.get("version") === "2" ? "2" : "1";
+	      const title =
+	        version === "2" ? "page-diff-updated" : "page-diff-original";
+	      const body =
+	        version === "2"
+	          ? `
+	            <h1>Release Notes</h1>
+	            <h2>New Features</h2>
+	            <p id="content">Added page diff summaries for returning visits with address-bar visibility.</p>
+	          `
+	          : `
+	            <h1>Release Notes</h1>
+	            <h2>Overview</h2>
+	            <p id="content">Initial release notes for the navigation harness baseline.</p>
+	          `;
+	      sendHtml(res, renderPage(title, body));
+	      return;
+	    }
+
+	    if (method === "GET" && url.pathname === "/named-form") {
       sendHtml(
         res,
         renderPage(

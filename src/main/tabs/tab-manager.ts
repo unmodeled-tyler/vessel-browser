@@ -22,6 +22,7 @@ export class TabManager {
   private highlightCaptureCallback:
     | ((result: HighlightCaptureResult) => void)
     | null = null;
+  private pageLoadCallback: ((url: string, wc: WebContents) => void) | null = null;
 
   constructor(
     window: BaseWindow,
@@ -29,6 +30,10 @@ export class TabManager {
   ) {
     this.window = window;
     this.onStateChange = onStateChange;
+  }
+
+  onPageLoad(cb: (url: string, wc: WebContents) => void): void {
+    this.pageLoadCallback = cb;
   }
 
   createTab(
@@ -46,6 +51,7 @@ export class TabManager {
       onPageLoad: (pageUrl, wc) => {
         this.reapplyHighlights(pageUrl, wc);
         historyManager.addEntry(pageUrl, wc.getTitle());
+        this.pageLoadCallback?.(pageUrl, wc);
       },
       onHighlightSelection: (wc) => this.captureHighlightFromPage(wc),
       onHighlightRemove: (url, text) => this.removeHighlightByText(url, text),
