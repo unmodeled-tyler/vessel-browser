@@ -16,7 +16,10 @@ import {
   submitFormBySelector,
   waitForLoad,
 } from "../src/main/ai/page-actions";
+import { capturePageSnapshot } from "../src/main/ipc/handlers";
+import * as pageSnapshots from "../src/main/content/page-snapshots";
 import { Tab } from "../src/main/tabs/tab";
+import { Channels } from "../src/shared/channels";
 import { createNavigationHarnessServer } from "./fixtures/navigation-harness";
 
 async function withTab(
@@ -477,6 +480,78 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "same-page actions settle without a long fake navigation wait",
+    );
+
+    await runScenario(
+      "page snapshots emit diffs for changed content on the same normalized URL",
+      async () => {
+        const pageUrlBase = `${harness.baseUrl}/page-diff`;
+        await withTab(`${pageUrlBase}?version=1`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+          assert.equal(events.length, 0);
+
+          await wc.loadURL(`${pageUrlBase}?version=2`);
+          await waitForLoad(wc, 8000);
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+
+          assert.equal(events.length, 1);
+          assert.equal(events[0]?.channel, Channels.PAGE_CHANGED);
+
+          const diff = events[0]?.diff as {
+            url: string;
+            hasChanges: boolean;
+            changes: Array<{ section: string; kind: string; summary: string }>;
+          };
+          assert.equal(diff.url, pageSnapshots.normalizeUrl(pageUrlBase));
+          assert.equal(diff.hasChanges, true);
+          assert.ok(
+            diff.changes.some(
+              (change) =>
+                change.section === "title" &&
+                change.kind === "changed" &&
+                /page-diff-original/.test(change.summary) &&
+                /page-diff-updated/.test(change.summary),
+            ),
+            `expected title change, got: ${JSON.stringify(diff.changes)}`,
+          );
+          assert.ok(
+            diff.changes.some(
+              (change) =>
+                change.section === "headings" &&
+                change.kind === "added" &&
+                /New: ## New Features/.test(change.summary),
+            ),
+            `expected heading change, got: ${JSON.stringify(diff.changes)}`,
+          );
+          assert.ok(
+            diff.changes.some(
+              (change) =>
+                change.section === "content" &&
+                change.kind === "changed",
+            ),
+            `expected content change, got: ${JSON.stringify(diff.changes)}`,
+          );
+
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diffAgain) => {
+            events.push({ channel, diff: diffAgain });
+          });
+          assert.equal(
+            events.length,
+            1,
+            `expected no extra diff event after recapturing unchanged content, got: ${JSON.stringify(events)}`,
+          );
+        });
+      },
+    );
+    completedScenarios.push(
+      "page snapshots emit diffs for changed content on the same normalized URL",
     );
 
     await runScenario(

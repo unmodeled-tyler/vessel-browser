@@ -268,6 +268,17 @@ export function createMainWindow(
 
   const tabManager = new TabManager(mainWindow, onTabStateChange);
 
+  const sendToRendererViews = (channel: string, ...args: unknown[]) => {
+    chromeView.webContents.send(channel, ...args);
+    sidebarView.webContents.send(channel, ...args);
+  };
+
+  tabManager.onPageLoad((url, wc) => {
+    void import("./ipc/handlers").then(({ capturePageSnapshot }) => {
+      void capturePageSnapshot(url, wc, sendToRendererViews);
+    });
+  });
+
   const state: WindowState = {
     mainWindow,
     chromeView,

@@ -67,8 +67,12 @@ import * as autofillManager from "../autofill/manager";
 import { matchFields } from "../autofill/matcher";
 import { fillFormFields } from "../ai/page-actions";
 import type { AutofillProfile } from "../../shared/autofill-types";
+import * as pageSnapshots from "../content/page-snapshots";
+import { diffSnapshots } from "../content/page-diff";
+import type { PageDiff } from "../../shared/page-diff-types";
 
 let activeChatProvider: AIProvider | null = null;
+const latestPageDiffs = new Map<string, PageDiff>();
 
 // --- IPC input validation helpers ---
 
@@ -1015,4 +1019,45 @@ export function registerIpcHandlers(
       })),
     };
   });
+
+  // --- Page Snapshots / What Changed ---
+
+  ipcMain.handle(Channels.PAGE_DIFF_GET, async () => {
+    const activeTab = windowState.tabManager.getActiveTab();
+    const wc = activeTab?.view.webContents;
+    if (!wc) return null;
+    const url = wc.getURL();
+    if (!pageSnapshots.shouldTrackSnapshotUrl(url)) return null;
+    const key = pageSnapshots.normalizeUrl(url);
+    return latestPageDiffs.get(key) ?? null;
+  });
+}
+
+export async function capturePageSnapshot(url: string, wc: Electron.WebContents, sendToRendererViews: (ch: string, ...args: unknown[]) => void): Promise<void> {
+  try {
+    if (!pageSnapshots.shouldTrackSnapshotUrl(url)) return;
+    const key = pageSnapshots.normalizeUrl(url);
+    const oldSnap = pageSnapshots.getSnapshot(key);
+    const content = await extractContent(wc);
+    const textContent = content.content || "";
+    const title = content.title || "";
+    const headings = content.headings || [];
+    const currentHeadings = headings.map((h) => `${"#".repeat(h.level)} ${h.text}`).join("\n");
+
+    if (oldSnap) {
+      const diff = diffSnapshots(oldSnap, textContent, title, currentHeadings);
+      if (diff.hasChanges) {
+        latestPageDiffs.set(key, diff);
+        sendToRendererViews(Channels.PAGE_CHANGED, diff);
+      } else {
+        latestPageDiffs.delete(key);
+      }
+    } else {
+      latestPageDiffs.delete(key);
+    }
+
+    pageSnapshots.saveSnapshot(url, title, textContent, headings);
+  } catch {
+    // snapshot capture is best-effort
+  }
 }
