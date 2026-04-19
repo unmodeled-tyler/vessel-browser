@@ -16,10 +16,16 @@ import {
   submitFormBySelector,
   waitForLoad,
 } from "../src/main/ai/page-actions";
-import { capturePageSnapshot } from "../src/main/content/page-diff-monitor";
+import {
+  capturePageSnapshot,
+  schedulePageSnapshotCapture,
+} from "../src/main/content/page-diff-monitor";
 import { Tab } from "../src/main/tabs/tab";
 import { Channels } from "../src/shared/channels";
-import { normalizePageUrl } from "../src/shared/page-url";
+import {
+  buildPageSnapshotKey,
+  normalizePageUrl,
+} from "../src/shared/page-url";
 import { createNavigationHarnessServer } from "./fixtures/navigation-harness";
 
 async function withTab(
@@ -587,6 +593,42 @@ async function main(): Promise<void> {
     );
 
     await runScenario(
+      "page snapshots keep distinct baselines for query-driven search pages",
+      async () => {
+        const searchBase = `${harness.baseUrl}/search-diff`;
+        await withTab(`${searchBase}?q=alpha`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          assert.notEqual(
+            buildPageSnapshotKey(`${searchBase}?q=alpha`),
+            buildPageSnapshotKey(`${searchBase}?q=beta`),
+          );
+
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+          assert.equal(events.length, 0);
+
+          await wc.loadURL(`${searchBase}?q=beta`);
+          await waitForLoad(wc, 8000);
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+
+          assert.equal(
+            events.length,
+            0,
+            `expected no diff between distinct query baselines, got: ${JSON.stringify(events)}`,
+          );
+        });
+      },
+    );
+    completedScenarios.push(
+      "page snapshots keep distinct baselines for query-driven search pages",
+    );
+
+    await runScenario(
       "page diff observer catches same-page DOM mutations",
       async () => {
         await withTab(`${harness.baseUrl}/same-page-action`, async (tab) => {
@@ -595,7 +637,7 @@ async function main(): Promise<void> {
 
           const onDirty = (event: Electron.IpcMainEvent) => {
             if (event.sender !== wc) return;
-            void capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            schedulePageSnapshotCapture(wc, (channel, diff) => {
               events.push({ channel, diff });
             });
           };

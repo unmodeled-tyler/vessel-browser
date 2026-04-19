@@ -12,7 +12,7 @@ import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import type { PageDiff } from "../../../../shared/page-diff-types";
-import { normalizePageUrl } from "../../../../shared/page-url";
+import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
 import {
   getAgentPresence,
   getLatestAgentStatusMessage,
@@ -68,7 +68,7 @@ const AddressBar: Component = () => {
     const unsubscribe = window.vessel.pageDiff.onChanged((diff) => {
       const tab = activeTab();
       if (!tab) return;
-      if (normalizePageUrl(tab.url) !== diff.url) return;
+      if (!matchesPageSnapshotUrl(tab.url, diff.url)) return;
       showIncomingDiff(diff);
     });
     onCleanup(() => {
@@ -99,7 +99,7 @@ const AddressBar: Component = () => {
     let cancelled = false;
     void window.vessel.pageDiff.get().then((diff) => {
       if (cancelled) return;
-      if (!diff || normalizePageUrl(tab.url) !== diff.url) {
+      if (!diff || !matchesPageSnapshotUrl(tab.url, diff.url)) {
         setPageDiff(null);
         setDiffExpanded(false);
         return;

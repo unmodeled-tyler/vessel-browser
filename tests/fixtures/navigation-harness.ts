@@ -397,6 +397,22 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
 	      return;
 	    }
 
+	    if (method === "GET" && url.pathname === "/search-diff") {
+	      const q = (url.searchParams.get("q") || "alpha").trim().toLowerCase();
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "search-diff",
+	          `
+	            <h1>Search Results</h1>
+	            <h2>Query: ${q}</h2>
+	            <p id="content">Showing result summaries for the search term "${q}".</p>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
 	    if (method === "GET" && url.pathname === "/named-form") {
       sendHtml(
         res,

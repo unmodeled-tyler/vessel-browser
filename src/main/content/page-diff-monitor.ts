@@ -8,6 +8,10 @@ import type { SendToRendererViews } from "../ipc/common";
 
 const latestPageDiffs = new Map<string, PageDiff>();
 const pendingPageSnapshotTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const pendingPageSnapshotDueAt = new Map<number, number>();
+const lastMutationSnapshotAt = new Map<number, number>();
+
+const MIN_MUTATION_CAPTURE_INTERVAL_MS = 5000;
 
 export function getLatestPageDiff(rawUrl: string): PageDiff | null {
   if (!pageSnapshots.shouldTrackSnapshotUrl(rawUrl)) return null;
@@ -57,14 +61,25 @@ export function schedulePageSnapshotCapture(
   if (wc.isDestroyed()) return;
 
   const wcId = wc.id;
+  const now = Date.now();
+  const lastCaptureAt = lastMutationSnapshotAt.get(wcId) || 0;
+  const earliestAllowedAt = lastCaptureAt + MIN_MUTATION_CAPTURE_INTERVAL_MS;
+  const nextDueAt = Math.max(now + delayMs, earliestAllowedAt);
   const existing = pendingPageSnapshotTimers.get(wcId);
+  const existingDueAt = pendingPageSnapshotDueAt.get(wcId);
+  if (existing && existingDueAt != null && existingDueAt <= nextDueAt) {
+    return;
+  }
   if (existing) clearTimeout(existing);
 
   const timer = setTimeout(() => {
     pendingPageSnapshotTimers.delete(wcId);
+    pendingPageSnapshotDueAt.delete(wcId);
     if (wc.isDestroyed()) return;
+    lastMutationSnapshotAt.set(wcId, Date.now());
     void capturePageSnapshot(wc.getURL(), wc, sendToRendererViews);
-  }, delayMs);
+  }, Math.max(0, nextDueAt - now));
 
   pendingPageSnapshotTimers.set(wcId, timer);
+  pendingPageSnapshotDueAt.set(wcId, nextDueAt);
 }
