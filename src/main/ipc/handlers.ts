@@ -293,6 +293,11 @@ export function registerIpcHandlers(
     tabManager.reloadTab(id);
   });
 
+  ipcMain.handle(Channels.TAB_STATE_GET, () => ({
+    tabs: tabManager.getAllStates(),
+    activeId: tabManager.getActiveTabId() || "",
+  }));
+
   // --- AI handlers ---
 
   ipcMain.handle(Channels.AI_QUERY, async (_, query: string, history?: AIMessage[]) => {
@@ -426,6 +431,17 @@ export function registerIpcHandlers(
     setSetting("sidebarWidth", windowState.uiState.sidebarWidth);
     layoutViews(windowState);
   });
+
+  ipcMain.on(
+    Channels.RENDERER_VIEW_READY,
+    (_event, view: "chrome" | "sidebar" | "devtools") => {
+      if (view !== "sidebar") return;
+      if (!windowState.uiState.sidebarOpen) {
+        windowState.uiState.sidebarOpen = true;
+        layoutViews(windowState);
+      }
+    },
+  );
 
   ipcMain.handle(Channels.FOCUS_MODE_TOGGLE, () => {
     windowState.uiState.focusMode = !windowState.uiState.focusMode;

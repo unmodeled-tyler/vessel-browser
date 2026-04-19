@@ -343,13 +343,14 @@ export function layoutViews(state: WindowState): void {
     devtoolsPanelView.setBounds({ x: 0, y: height, width: 0, height: 0 });
   }
 
-  // Chrome, sidebar, and devtools panel always on top of tab content
-  mainWindow.contentView.removeChildView(chromeView);
-  mainWindow.contentView.addChildView(chromeView);
+  // Re-stack views: sidebar and devtools above tab content, chrome on top
+  // of everything so it always captures clicks even where the sidebar overlaps.
   mainWindow.contentView.removeChildView(sidebarView);
   mainWindow.contentView.addChildView(sidebarView);
   mainWindow.contentView.removeChildView(devtoolsPanelView);
   mainWindow.contentView.addChildView(devtoolsPanelView);
+  mainWindow.contentView.removeChildView(chromeView);
+  mainWindow.contentView.addChildView(chromeView);
 
   // Active tab content: below chrome, left of sidebar, above devtools panel
   const activeTab = tabManager.getActiveTab();

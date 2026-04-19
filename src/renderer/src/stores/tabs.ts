@@ -5,16 +5,31 @@ const [tabs, setTabs] = createSignal<TabState[]>([]);
 const [activeTabId, setActiveTabId] = createSignal('');
 
 let initialized = false;
+let initPromise: Promise<void> | null = null;
 
 function init() {
+  if (initPromise) return initPromise;
   if (initialized) return;
   initialized = true;
-  window.vessel.tabs.onStateUpdate(
-    (newTabs: TabState[], newActiveId: string) => {
-      setTabs(newTabs);
-      setActiveTabId(newActiveId);
-    },
-  );
+  initPromise = (async () => {
+    try {
+      window.vessel.tabs.onStateUpdate(
+        (newTabs: TabState[], newActiveId: string) => {
+          setTabs(newTabs);
+          setActiveTabId(newActiveId);
+        },
+      );
+      const initialState = await window.vessel.tabs.getState();
+      setTabs(initialState.tabs);
+      setActiveTabId(initialState.activeId);
+    } catch (error) {
+      initialized = false;
+      console.error("Failed to initialize tabs store", error);
+    } finally {
+      initPromise = null;
+    }
+  })();
+  return initPromise;
 }
 
 export function useTabs() {

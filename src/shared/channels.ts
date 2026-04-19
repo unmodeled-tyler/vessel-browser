@@ -7,7 +7,9 @@ export const Channels = {
   TAB_BACK: "tab:back",
   TAB_FORWARD: "tab:forward",
   TAB_RELOAD: "tab:reload",
+  TAB_STATE_GET: "tab:state-get",
   TAB_STATE_UPDATE: "tab:state-update",
+  RENDERER_VIEW_READY: "renderer:view-ready",
 
   // AI
   AI_QUERY: "ai:query",

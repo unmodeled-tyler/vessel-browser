@@ -3,7 +3,6 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import { Readability } from "@mozilla/readability";
-import { Channels } from "../shared/channels";
 import {
   generateStableSelector,
   escapeSelectorValue,
@@ -216,12 +215,12 @@ function emitPageDiffDirty(): void {
   const nextSignature = getPageDiffSignature();
   if (!nextSignature || nextSignature === lastPageDiffSignature) return;
   lastPageDiffSignature = nextSignature;
-  ipcRenderer.send(Channels.PAGE_DIFF_DIRTY);
+  ipcRenderer.send("page:diff-dirty");
 }
 
 function notifyPageDiffActivity(): void {
   if (pageDiffActivityThrottleTimer) return;
-  ipcRenderer.send(Channels.PAGE_DIFF_ACTIVITY);
+  ipcRenderer.send("page:diff-activity");
   pageDiffActivityThrottleTimer = setTimeout(() => {
     pageDiffActivityThrottleTimer = null;
   }, PAGE_DIFF_ACTIVITY_THROTTLE_MS);

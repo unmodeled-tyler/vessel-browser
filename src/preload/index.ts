@@ -34,6 +34,8 @@ const api = {
     back: (id: string) => ipcRenderer.invoke(Channels.TAB_BACK, id),
     forward: (id: string) => ipcRenderer.invoke(Channels.TAB_FORWARD, id),
     reload: (id: string) => ipcRenderer.invoke(Channels.TAB_RELOAD, id),
+    getState: (): Promise<{ tabs: TabState[]; activeId: string }> =>
+      ipcRenderer.invoke(Channels.TAB_STATE_GET),
     onStateUpdate: (
       cb: (tabs: TabState[], activeId: string) => void,
     ): (() => void) => {
@@ -205,6 +207,8 @@ const api = {
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE, width),
     commitSidebarResize: () =>
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE_COMMIT),
+    rendererReady: (view: "chrome" | "sidebar" | "devtools") =>
+      ipcRenderer.send(Channels.RENDERER_VIEW_READY, view),
     onSidebarContextMenu: (
       cb: (position: { x: number; y: number }) => void,
     ): (() => void) => {
