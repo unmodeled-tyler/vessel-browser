@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import process from "node:process";
 
-import { app, BaseWindow } from "electron";
+import { app, BaseWindow, ipcMain } from "electron";
 
 import { buildScopedContext } from "../src/main/ai/context-builder";
 import { extractContent } from "../src/main/content/extractor";
@@ -16,10 +16,16 @@ import {
   submitFormBySelector,
   waitForLoad,
 } from "../src/main/ai/page-actions";
-import { capturePageSnapshot } from "../src/main/content/page-diff-monitor";
+import {
+  capturePageSnapshot,
+  schedulePageSnapshotCapture,
+} from "../src/main/content/page-diff-monitor";
 import { Tab } from "../src/main/tabs/tab";
 import { Channels } from "../src/shared/channels";
-import { normalizePageUrl } from "../src/shared/page-url";
+import {
+  buildPageSnapshotKey,
+  normalizePageUrl,
+} from "../src/shared/page-url";
 import { createNavigationHarnessServer } from "./fixtures/navigation-harness";
 
 async function withTab(
@@ -66,6 +72,18 @@ async function runScenario(
   process.stdout.write(`- ${name}... `);
   await scenario();
   process.stdout.write("ok\n");
+}
+
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 5000,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out after ${timeoutMs}ms waiting for condition`);
 }
 
 async function main(): Promise<void> {
@@ -507,36 +525,56 @@ async function main(): Promise<void> {
           const diff = events[0]?.diff as {
             url: string;
             hasChanges: boolean;
-            changes: Array<{ section: string; kind: string; summary: string }>;
+            changes: Array<{
+              section: string;
+              kind: string;
+              summary: string;
+              before?: string;
+              after?: string;
+              addedItems?: string[];
+              removedItems?: string[];
+            }>;
           };
           assert.equal(diff.url, normalizePageUrl(pageUrlBase));
           assert.equal(diff.hasChanges, true);
+          const titleChange = diff.changes.find(
+            (change) => change.section === "title",
+          );
           assert.ok(
-            diff.changes.some(
-              (change) =>
-                change.section === "title" &&
-                change.kind === "changed" &&
-                /page-diff-original/.test(change.summary) &&
-                /page-diff-updated/.test(change.summary),
-            ),
+            titleChange,
             `expected title change, got: ${JSON.stringify(diff.changes)}`,
           );
-          assert.ok(
-            diff.changes.some(
-              (change) =>
-                change.section === "headings" &&
-                change.kind === "added" &&
-                /New: ## New Features/.test(change.summary),
-            ),
-            `expected heading change, got: ${JSON.stringify(diff.changes)}`,
+          assert.equal(titleChange?.kind, "changed");
+          assert.equal(titleChange?.before, "page-diff-original");
+          assert.equal(titleChange?.after, "page-diff-updated");
+
+          const headingChange = diff.changes.find(
+            (change) => change.section === "headings",
           );
           assert.ok(
-            diff.changes.some(
-              (change) =>
-                change.section === "content" &&
-                change.kind === "changed",
-            ),
+            headingChange,
+            `expected heading change, got: ${JSON.stringify(diff.changes)}`,
+          );
+          assert.equal(headingChange?.kind, "changed");
+          assert.deepEqual(headingChange?.addedItems, ["## New Features"]);
+          assert.deepEqual(headingChange?.removedItems, ["## Overview"]);
+
+          const contentChange = diff.changes.find(
+            (change) => change.section === "content",
+          );
+          assert.ok(
+            contentChange,
             `expected content change, got: ${JSON.stringify(diff.changes)}`,
+          );
+          assert.equal(contentChange?.kind, "changed");
+          assert.match(contentChange?.summary || "", /updated section/);
+          assert.match(
+            contentChange?.before || "",
+            /Initial release notes for the navigation harness baseline\./,
+          );
+          assert.match(
+            contentChange?.after || "",
+            /Added page diff summaries for returning visits with address-bar visibility\./,
           );
 
           await capturePageSnapshot(wc.getURL(), wc, (channel, diffAgain) => {
@@ -552,6 +590,282 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "page snapshots emit diffs for changed content on the same normalized URL",
+    );
+
+    await runScenario(
+      "page snapshots keep distinct baselines for query-driven search pages",
+      async () => {
+        const searchBase = `${harness.baseUrl}/search-diff`;
+        await withTab(`${searchBase}?q=alpha`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          assert.notEqual(
+            buildPageSnapshotKey(`${searchBase}?q=alpha`),
+            buildPageSnapshotKey(`${searchBase}?q=beta`),
+          );
+
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+          assert.equal(events.length, 0);
+
+          await wc.loadURL(`${searchBase}?q=beta`);
+          await waitForLoad(wc, 8000);
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+
+          assert.equal(
+            events.length,
+            0,
+            `expected no diff between distinct query baselines, got: ${JSON.stringify(events)}`,
+          );
+        });
+      },
+    );
+    completedScenarios.push(
+      "page snapshots keep distinct baselines for query-driven search pages",
+    );
+
+    await runScenario(
+      "page snapshots preserve SPA hash routes but ignore plain anchors",
+      async () => {
+        const hashBase = `${harness.baseUrl}/hash-diff`;
+        assert.notEqual(
+          buildPageSnapshotKey(`${hashBase}#/alpha`),
+          buildPageSnapshotKey(`${hashBase}#/beta`),
+        );
+        assert.notEqual(
+          buildPageSnapshotKey(`${hashBase}#!/feed`),
+          buildPageSnapshotKey(`${hashBase}#!/settings`),
+        );
+        assert.equal(
+          buildPageSnapshotKey(`${hashBase}#faq`),
+          buildPageSnapshotKey(`${hashBase}#pricing`),
+        );
+
+        await withTab(`${hashBase}#/alpha`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          await waitForCondition(() => wc.getTitle() === "hash-diff-alpha", 5000);
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+          assert.equal(events.length, 0);
+
+          await wc.loadURL(`${hashBase}#/beta`);
+          await waitForCondition(() => wc.getTitle() === "hash-diff-beta", 5000);
+          await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+            events.push({ channel, diff });
+          });
+
+          assert.equal(
+            events.length,
+            0,
+            `expected no diff between distinct SPA hash-route baselines, got: ${JSON.stringify(events)}`,
+          );
+        });
+      },
+    );
+    completedScenarios.push(
+      "page snapshots preserve SPA hash routes but ignore plain anchors",
+    );
+
+    await runScenario(
+      "page diff scheduling waits for the final state of a noisy mutation burst",
+      async () => {
+        await withTab(`${harness.baseUrl}/noisy-same-page`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown; at: number }> = [];
+
+          const onDirty = (event: Electron.IpcMainEvent) => {
+            if (event.sender !== wc) return;
+            schedulePageSnapshotCapture(wc, (channel, diff) => {
+              events.push({ channel, diff, at: Date.now() });
+            });
+          };
+
+          ipcMain.on(Channels.PAGE_DIFF_DIRTY, onDirty);
+          try {
+            await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+              events.push({ channel, diff, at: Date.now() });
+            });
+            assert.equal(events.length, 0);
+
+            const startedAt = Date.now();
+            const result = await clickElementBySelector(wc, "#start-noisy-updates");
+            assert.match(result, /Clicked: Start noisy updates/);
+
+            await waitForCondition(
+              () => wc.getTitle() === "noisy-same-page-3",
+              9000,
+            );
+            const settledAt = Date.now();
+
+            await waitForCondition(() => events.length > 0, 12000);
+            assert.equal(
+              events.length,
+              1,
+              `expected exactly one settled diff event, got: ${JSON.stringify(events)}`,
+            );
+            assert.equal(events[0]?.channel, Channels.PAGE_CHANGED);
+            assert.ok(
+              (events[0]?.at || 0) >= settledAt,
+              `expected diff after final settled state; started=${startedAt}, settled=${settledAt}, event=${events[0]?.at}`,
+            );
+
+            const diff = events[0]?.diff as {
+              hasChanges: boolean;
+              changes: Array<{
+                section: string;
+                before?: string;
+                after?: string;
+              }>;
+            };
+            assert.equal(diff.hasChanges, true);
+
+            const titleChange = diff.changes.find(
+              (change) => change.section === "title",
+            );
+            assert.equal(titleChange?.after, "noisy-same-page-3");
+
+            const contentChange = diff.changes.find(
+              (change) => change.section === "content",
+            );
+            assert.ok(contentChange, `expected content diff, got: ${JSON.stringify(diff)}`);
+            assert.match(contentChange?.after || "", /phase 3/);
+          } finally {
+            ipcMain.removeListener(Channels.PAGE_DIFF_DIRTY, onDirty);
+          }
+        });
+      },
+    );
+    completedScenarios.push(
+      "page diff scheduling waits for the final state of a noisy mutation burst",
+    );
+
+    await runScenario(
+      "page diff tracks recent burst history for repeated settled updates",
+      async () => {
+        await withTab(`${harness.baseUrl}/burst-history-page`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          const onDirty = (event: Electron.IpcMainEvent) => {
+            if (event.sender !== wc) return;
+            schedulePageSnapshotCapture(wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+          };
+
+          ipcMain.on(Channels.PAGE_DIFF_DIRTY, onDirty);
+          try {
+            await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+            assert.equal(events.length, 0);
+
+            const first = await clickElementBySelector(wc, "#advance-burst");
+            assert.match(first, /Clicked: Advance burst/);
+            await waitForCondition(() => events.length === 1, 8000);
+
+            const second = await clickElementBySelector(wc, "#advance-burst");
+            assert.match(second, /Clicked: Advance burst/);
+            await waitForCondition(() => events.length === 2, 8000);
+
+            const latest = events[1]?.diff as {
+              burstCount?: number;
+              firstDetectedAt?: string;
+              lastDetectedAt?: string;
+              recentBursts?: Array<{ detectedAt: string; summary: string }>;
+              changes: Array<{ section: string; after?: string }>;
+            };
+
+            assert.equal(latest.burstCount, 2);
+            assert.ok(latest.firstDetectedAt, "expected firstDetectedAt");
+            assert.ok(latest.lastDetectedAt, "expected lastDetectedAt");
+            assert.equal(latest.recentBursts?.length, 2);
+            assert.match(
+              latest.recentBursts?.[0]?.summary || "",
+              /title: "burst-history-page" → "burst-history-page-1"/,
+            );
+            assert.match(
+              latest.recentBursts?.[1]?.summary || "",
+              /title: "burst-history-page-1" → "burst-history-page-2"/,
+            );
+
+            const titleChange = latest.changes.find(
+              (change) => change.section === "title",
+            );
+            assert.equal(titleChange?.after, "burst-history-page-2");
+          } finally {
+            ipcMain.removeListener(Channels.PAGE_DIFF_DIRTY, onDirty);
+          }
+        });
+      },
+    );
+    completedScenarios.push(
+      "page diff tracks recent burst history for repeated settled updates",
+    );
+
+    await runScenario(
+      "page diff observer catches same-page DOM mutations",
+      async () => {
+        await withTab(`${harness.baseUrl}/same-page-action`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown }> = [];
+
+          const onDirty = (event: Electron.IpcMainEvent) => {
+            if (event.sender !== wc) return;
+            schedulePageSnapshotCapture(wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+          };
+
+          ipcMain.on(Channels.PAGE_DIFF_DIRTY, onDirty);
+          try {
+            await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+              events.push({ channel, diff });
+            });
+            assert.equal(events.length, 0);
+
+            const result = await clickElementBySelector(wc, "#update-same-page");
+            assert.match(result, /Clicked: Update without navigating/);
+
+            await waitForCondition(() => events.length > 0, 5000);
+            assert.equal(events[0]?.channel, Channels.PAGE_CHANGED);
+
+            const diff = events[0]?.diff as {
+              hasChanges: boolean;
+              changes: Array<{
+                section: string;
+                before?: string;
+                after?: string;
+              }>;
+            };
+            assert.equal(diff.hasChanges, true);
+
+            const titleChange = diff.changes.find(
+              (change) => change.section === "title",
+            );
+            assert.equal(titleChange?.after, "same-page-action-updated");
+
+            const contentChange = diff.changes.find(
+              (change) => change.section === "content",
+            );
+            assert.ok(contentChange, `expected content diff, got: ${JSON.stringify(diff)}`);
+            assert.match(contentChange?.before || "", /idle/);
+            assert.match(contentChange?.after || "", /updated/);
+          } finally {
+            ipcMain.removeListener(Channels.PAGE_DIFF_DIRTY, onDirty);
+          }
+        });
+      },
+    );
+    completedScenarios.push(
+      "page diff observer catches same-page DOM mutations",
     );
 
     await runScenario(

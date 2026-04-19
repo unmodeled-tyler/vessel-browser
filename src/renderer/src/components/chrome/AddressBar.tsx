@@ -12,7 +12,7 @@ import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import type { PageDiff } from "../../../../shared/page-diff-types";
-import { normalizePageUrl } from "../../../../shared/page-url";
+import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
 import {
   getAgentPresence,
   getLatestAgentStatusMessage,
@@ -64,11 +64,24 @@ const AddressBar: Component = () => {
     return new Date(isoDate).toLocaleDateString();
   };
 
+  const formatElapsed = (startIso: string, endIso: string): string => {
+    const elapsedMs = Math.max(
+      0,
+      new Date(endIso).getTime() - new Date(startIso).getTime(),
+    );
+    const secs = Math.round(elapsedMs / 1000);
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.round(mins / 60);
+    return `${hours}h`;
+  };
+
   createEffect(() => {
     const unsubscribe = window.vessel.pageDiff.onChanged((diff) => {
       const tab = activeTab();
       if (!tab) return;
-      if (normalizePageUrl(tab.url) !== diff.url) return;
+      if (!matchesPageSnapshotUrl(tab.url, diff.url)) return;
       showIncomingDiff(diff);
     });
     onCleanup(() => {
@@ -99,7 +112,7 @@ const AddressBar: Component = () => {
     let cancelled = false;
     void window.vessel.pageDiff.get().then((diff) => {
       if (cancelled) return;
-      if (!diff || normalizePageUrl(tab.url) !== diff.url) {
+      if (!diff || !matchesPageSnapshotUrl(tab.url, diff.url)) {
         setPageDiff(null);
         setDiffExpanded(false);
         return;
@@ -124,6 +137,13 @@ const AddressBar: Component = () => {
       inputRef?.blur();
     }
   };
+
+  const formatSectionLabel = (section: PageDiff["changes"][number]["section"]) =>
+    section === "title"
+      ? "Title"
+      : section === "headings"
+        ? "Headings"
+        : "Content";
 
   return (
     <div class="address-bar">
@@ -235,14 +255,88 @@ const AddressBar: Component = () => {
       <Show when={pageDiff() && diffExpanded()}>
         <div class="page-diff-popup">
           <div class="page-diff-popup-header">
-            What changed since {formatRelativeTime(pageDiff()!.oldSnapshot.capturedAt)}
+            <div class="page-diff-popup-header-copy">
+              <span>
+                What changed since {formatRelativeTime(pageDiff()!.oldSnapshot.capturedAt)}
+              </span>
+              <Show
+                when={
+                  (pageDiff()!.burstCount || 0) > 1 &&
+                  pageDiff()!.firstDetectedAt &&
+                  pageDiff()!.lastDetectedAt
+                }
+              >
+                <span class="page-diff-burst-meta">
+                  Updated {pageDiff()!.burstCount} times over{" "}
+                  {formatElapsed(
+                    pageDiff()!.firstDetectedAt!,
+                    pageDiff()!.lastDetectedAt!,
+                  )}
+                </span>
+              </Show>
+            </div>
             <button class="page-diff-popup-close" onClick={() => setDiffExpanded(false)}>&times;</button>
           </div>
+          <Show when={pageDiff()!.recentBursts?.length && (pageDiff()!.recentBursts?.length || 0) > 1}>
+            <div class="page-diff-burst-history">
+              <div class="page-diff-burst-history-label">Changed recently</div>
+              <For each={pageDiff()!.recentBursts}>
+                {(burst) => (
+                  <div class="page-diff-burst-row">
+                    <span class="page-diff-burst-time">
+                      {formatRelativeTime(burst.detectedAt)}
+                    </span>
+                    <span class="page-diff-burst-summary">{burst.summary}</span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
           <For each={pageDiff()!.changes}>
             {(change) => (
               <div class={`page-diff-item page-diff-${change.kind}`}>
-                <span class="page-diff-section">{change.section}</span>
-                <span class="page-diff-summary">{change.summary}</span>
+                <div class="page-diff-item-header">
+                  <span class="page-diff-section">
+                    {formatSectionLabel(change.section)}
+                  </span>
+                  <span class="page-diff-summary">{change.summary}</span>
+                </div>
+                <Show when={change.before || change.after}>
+                  <div class="page-diff-snippets">
+                    <Show when={change.before}>
+                      <div class="page-diff-snippet">
+                        <span class="page-diff-snippet-label">Before</span>
+                        <span class="page-diff-snippet-text">{change.before}</span>
+                      </div>
+                    </Show>
+                    <Show when={change.after}>
+                      <div class="page-diff-snippet">
+                        <span class="page-diff-snippet-label">After</span>
+                        <span class="page-diff-snippet-text">{change.after}</span>
+                      </div>
+                    </Show>
+                  </div>
+                </Show>
+                <Show when={change.addedItems?.length}>
+                  <div class="page-diff-list-group">
+                    <span class="page-diff-list-label">Added</span>
+                    <ul class="page-diff-list">
+                      <For each={change.addedItems}>
+                        {(item) => <li>{item}</li>}
+                      </For>
+                    </ul>
+                  </div>
+                </Show>
+                <Show when={change.removedItems?.length}>
+                  <div class="page-diff-list-group">
+                    <span class="page-diff-list-label">Removed</span>
+                    <ul class="page-diff-list">
+                      <For each={change.removedItems}>
+                        {(item) => <li>{item}</li>}
+                      </For>
+                    </ul>
+                  </div>
+                </Show>
               </div>
             )}
           </For>

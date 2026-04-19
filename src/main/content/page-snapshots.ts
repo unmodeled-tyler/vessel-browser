@@ -1,6 +1,9 @@
 import { app } from "electron";
 import path from "path";
-import { isTrackablePageUrl, normalizePageUrl } from "../../shared/page-url";
+import {
+  buildPageSnapshotKey,
+  isTrackablePageUrl,
+} from "../../shared/page-url";
 import {
   createDebouncedJsonPersistence,
   loadJsonFile,
@@ -74,7 +77,7 @@ const persistence = createDebouncedJsonPersistence({
 });
 
 export function normalizeUrl(rawUrl: string): string {
-  return normalizePageUrl(rawUrl);
+  return buildPageSnapshotKey(rawUrl);
 }
 
 export function shouldTrackSnapshotUrl(rawUrl: string): boolean {

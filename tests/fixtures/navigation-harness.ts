@@ -397,6 +397,117 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
 	      return;
 	    }
 
+	    if (method === "GET" && url.pathname === "/search-diff") {
+	      const q = (url.searchParams.get("q") || "alpha").trim().toLowerCase();
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "search-diff",
+	          `
+	            <h1>Search Results</h1>
+	            <h2>Query: ${q}</h2>
+	            <p id="content">Showing result summaries for the search term "${q}".</p>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
+	    if (method === "GET" && url.pathname === "/hash-diff") {
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "hash-diff",
+	          `
+	            <h1>Hash Route Demo</h1>
+	            <h2 id="hash-route">Route: alpha</h2>
+	            <p id="content">Showing client-side content for route "alpha".</p>
+	            <script>
+	              function currentRoute() {
+	                const hash = window.location.hash || "#/alpha";
+	                if (hash.startsWith("#!/")) return hash.slice(3) || "alpha";
+	                if (hash.startsWith("#/")) return hash.slice(2) || "alpha";
+	                return "anchor";
+	              }
+
+	              function applyHashRoute() {
+	                const route = currentRoute().toLowerCase();
+	                document.title = "hash-diff-" + route;
+	                document.getElementById("hash-route").textContent = "Route: " + route;
+	                document.getElementById("content").textContent =
+	                  'Showing client-side content for route "' + route + '".';
+	              }
+
+	              window.addEventListener("hashchange", applyHashRoute);
+	              applyHashRoute();
+	            </script>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
+	    if (method === "GET" && url.pathname === "/noisy-same-page") {
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "noisy-same-page",
+	          `
+	            <h1>Noisy Same Page</h1>
+	            <p id="status">idle</p>
+	            <button
+	              id="start-noisy-updates"
+	              type="button"
+	              onclick="
+	                let step = 0;
+	                const updates = ['phase 1', 'phase 2', 'phase 3'];
+	                const titleBase = 'noisy-same-page';
+	                const run = () => {
+	                  document.getElementById('status').textContent = updates[step];
+	                  document.title = titleBase + '-' + (step + 1);
+	                  step += 1;
+	                  if (step < updates.length) {
+	                    setTimeout(run, 1600);
+	                  }
+	                };
+	                run();
+	              "
+	            >
+	              Start noisy updates
+	            </button>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
+	    if (method === "GET" && url.pathname === "/burst-history-page") {
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "burst-history-page",
+	          `
+	            <h1>Burst History Page</h1>
+	            <p id="status">idle</p>
+	            <button
+	              id="advance-burst"
+	              type="button"
+	              onclick="
+	                const status = document.getElementById('status');
+	                const current = Number(status.getAttribute('data-step') || '0') + 1;
+	                status.setAttribute('data-step', String(current));
+	                status.textContent = 'phase ' + current;
+	                document.title = 'burst-history-page-' + current;
+	              "
+	            >
+	              Advance burst
+	            </button>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
 	    if (method === "GET" && url.pathname === "/named-form") {
       sendHtml(
         res,

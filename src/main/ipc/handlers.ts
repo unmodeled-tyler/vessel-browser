@@ -842,5 +842,5 @@ export function registerIpcHandlers(
   registerScheduleHandlers(windowState, runtime, sendToRendererViews);
 
   registerAutofillHandlers(windowState);
-  registerPageDiffHandlers(windowState);
+  registerPageDiffHandlers(windowState, sendToRendererViews);
 }

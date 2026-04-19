@@ -136,6 +136,8 @@ export const Channels = {
   AUTOFILL_FILL: "autofill:fill",
 
   // Page snapshots / What Changed
+  PAGE_DIFF_ACTIVITY: "page:diff-activity",
   PAGE_CHANGED: "page:changed",
   PAGE_DIFF_GET: "page:diff-get",
+  PAGE_DIFF_DIRTY: "page:diff-dirty",
 } as const;

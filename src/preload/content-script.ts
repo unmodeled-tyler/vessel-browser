@@ -3,6 +3,7 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import { Readability } from "@mozilla/readability";
+import { Channels } from "../shared/channels";
 import {
   generateStableSelector,
   escapeSelectorValue,
@@ -158,6 +159,126 @@ let indexedElements = new WeakMap<Element, number>();
 // Direct element references for shadow DOM support — CSS selectors can't cross shadow boundaries
 const indexedElementRefs: Record<number, Element> = {};
 let activeOverlays: OverlayCandidate[] = [];
+let pageDiffMutationTimer: ReturnType<typeof setTimeout> | null = null;
+let pageDiffActivityThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+let lastPageDiffSignature = "";
+
+const PAGE_DIFF_ACTIVITY_THROTTLE_MS = 350;
+const PAGE_DIFF_MUTATION_DEBOUNCE_MS = 1200;
+
+function normalizeSignatureText(value: string | null | undefined): string {
+  return (value || "").replace(/\s+/g, " ").trim();
+}
+
+function getPageDiffSignature(): string {
+  const title = normalizeSignatureText(document.title);
+  const headings = Array.from(document.querySelectorAll("h1, h2, h3"))
+    .slice(0, 8)
+    .map((el) => normalizeSignatureText(el.textContent))
+    .filter(Boolean)
+    .join(" | ");
+  const mainRoot =
+    document.querySelector("main, article, [role='main']") || document.body;
+  const visibleText = normalizeSignatureText(
+    mainRoot instanceof HTMLElement
+      ? mainRoot.innerText
+      : document.body?.innerText || "",
+  ).slice(0, 1200);
+  return [window.location.href, title, headings, visibleText].join("\n");
+}
+
+function asElement(node: Node | null): Element | null {
+  if (node instanceof Element) return node;
+  return node?.parentElement || null;
+}
+
+function isVesselOwnedNode(node: Node | null): boolean {
+  const el = asElement(node);
+  return !!el?.closest?.("[data-vessel-highlight], .__vessel-highlight-label");
+}
+
+function shouldIgnorePageDiffMutation(mutation: MutationRecord): boolean {
+  if (mutation.type === "attributes") {
+    return isVesselOwnedNode(mutation.target);
+  }
+  if (mutation.type === "characterData") {
+    return isVesselOwnedNode(mutation.target);
+  }
+  if (mutation.type === "childList") {
+    const added = Array.from(mutation.addedNodes);
+    const removed = Array.from(mutation.removedNodes);
+    return [...added, ...removed].every((node) => isVesselOwnedNode(node));
+  }
+  return false;
+}
+
+function emitPageDiffDirty(): void {
+  const nextSignature = getPageDiffSignature();
+  if (!nextSignature || nextSignature === lastPageDiffSignature) return;
+  lastPageDiffSignature = nextSignature;
+  ipcRenderer.send(Channels.PAGE_DIFF_DIRTY);
+}
+
+function notifyPageDiffActivity(): void {
+  if (pageDiffActivityThrottleTimer) return;
+  ipcRenderer.send(Channels.PAGE_DIFF_ACTIVITY);
+  pageDiffActivityThrottleTimer = setTimeout(() => {
+    pageDiffActivityThrottleTimer = null;
+  }, PAGE_DIFF_ACTIVITY_THROTTLE_MS);
+}
+
+function startPageDiffObserver(): void {
+  if (typeof MutationObserver === "undefined") return;
+  if (!document.documentElement) return;
+
+  lastPageDiffSignature = getPageDiffSignature();
+
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.every((mutation) => shouldIgnorePageDiffMutation(mutation))) {
+      return;
+    }
+
+    notifyPageDiffActivity();
+    if (pageDiffMutationTimer) {
+      clearTimeout(pageDiffMutationTimer);
+    }
+    pageDiffMutationTimer = setTimeout(() => {
+      pageDiffMutationTimer = null;
+      emitPageDiffDirty();
+    }, PAGE_DIFF_MUTATION_DEBOUNCE_MS);
+  });
+
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: [
+      "class",
+      "style",
+      "hidden",
+      "aria-hidden",
+      "aria-expanded",
+      "aria-selected",
+      "aria-checked",
+      "aria-label",
+      "title",
+      "open",
+    ],
+  });
+
+  window.addEventListener("beforeunload", () => {
+    observer.disconnect();
+    if (pageDiffActivityThrottleTimer) {
+      clearTimeout(pageDiffActivityThrottleTimer);
+      pageDiffActivityThrottleTimer = null;
+    }
+    if (pageDiffMutationTimer) {
+      clearTimeout(pageDiffMutationTimer);
+      pageDiffMutationTimer = null;
+    }
+  });
+}
 
 /**
  * querySelectorAll that pierces open Shadow DOM roots.
@@ -2002,3 +2123,15 @@ contextBridge.exposeInMainWorld("__vessel", {
     }
   },
 });
+
+if (document.readyState === "loading") {
+  window.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      startPageDiffObserver();
+    },
+    { once: true },
+  );
+} else {
+  startPageDiffObserver();
+}
