@@ -1,30 +1,19 @@
-import {
-  onMount,
-  onCleanup,
-  Show,
-  Suspense,
-  createSignal,
-  lazy,
-  type Component,
-} from "solid-js";
+import { onMount, onCleanup, Show, createSignal, type Component } from "solid-js";
 import TitleBar from "./components/chrome/TitleBar";
 import TabBar from "./components/chrome/TabBar";
 import AddressBar from "./components/chrome/AddressBar";
 import BookmarkNotifications from "./components/chrome/BookmarkNotifications";
 import HighlightNotifications from "./components/chrome/HighlightNotifications";
+import AgentTranscriptDock from "./components/chrome/AgentTranscriptDock";
+import CommandBar from "./components/ai/CommandBar";
+import Sidebar from "./components/ai/Sidebar";
+import DevToolsPanel from "./components/devtools/DevToolsPanel";
+import Settings from "./components/shared/Settings";
+import KeyboardHelp from "./components/shared/KeyboardHelp";
 import { useUI } from "./stores/ui";
 import { useTabs } from "./stores/tabs";
 import { setupKeybindings } from "./lib/keybindings";
 import { useAnimatedPresence } from "./lib/useAnimatedPresence";
-
-const AgentTranscriptDock = lazy(
-  () => import("./components/chrome/AgentTranscriptDock"),
-);
-const CommandBar = lazy(() => import("./components/ai/CommandBar"));
-const Sidebar = lazy(() => import("./components/ai/Sidebar"));
-const DevToolsPanel = lazy(() => import("./components/devtools/DevToolsPanel"));
-const Settings = lazy(() => import("./components/shared/Settings"));
-const KeyboardHelp = lazy(() => import("./components/shared/KeyboardHelp"));
 
 const App: Component = () => {
   const view =
@@ -108,28 +97,18 @@ const App: Component = () => {
   });
 
   if (view === "sidebar") {
-    return (
-      <Suspense fallback={null}>
-        <Sidebar forceOpen />
-      </Suspense>
-    );
+    return <Sidebar forceOpen />;
   }
 
   if (view === "devtools") {
-    return (
-      <Suspense fallback={null}>
-        <DevToolsPanel />
-      </Suspense>
-    );
+    return <DevToolsPanel />;
   }
 
   return (
     <div class="app" classList={{ "focus-mode": focusMode() }}>
       <BookmarkNotifications />
       <HighlightNotifications toast={highlightToast()} onDismiss={() => setHighlightToast(null)} />
-      <Suspense fallback={null}>
-        <AgentTranscriptDock />
-      </Suspense>
+      <AgentTranscriptDock />
       <div class="chrome">
         <TitleBar />
         <TabBar />
@@ -138,11 +117,9 @@ const App: Component = () => {
           <div class="loading-bar" classList={{ closing: loadingPresence.closing() }} />
         </Show>
       </div>
-      <Suspense fallback={null}>
-        <CommandBar />
-        <Settings />
-        <KeyboardHelp open={keyboardHelpOpen()} onClose={() => setKeyboardHelpOpen(false)} />
-      </Suspense>
+      <CommandBar />
+      <Settings />
+      <KeyboardHelp open={keyboardHelpOpen()} onClose={() => setKeyboardHelpOpen(false)} />
     </div>
   );
 };
