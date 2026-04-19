@@ -447,6 +447,40 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
 	      return;
 	    }
 
+	    if (method === "GET" && url.pathname === "/noisy-same-page") {
+	      sendHtml(
+	        res,
+	        renderPage(
+	          "noisy-same-page",
+	          `
+	            <h1>Noisy Same Page</h1>
+	            <p id="status">idle</p>
+	            <button
+	              id="start-noisy-updates"
+	              type="button"
+	              onclick="
+	                let step = 0;
+	                const updates = ['phase 1', 'phase 2', 'phase 3'];
+	                const titleBase = 'noisy-same-page';
+	                const run = () => {
+	                  document.getElementById('status').textContent = updates[step];
+	                  document.title = titleBase + '-' + (step + 1);
+	                  step += 1;
+	                  if (step < updates.length) {
+	                    setTimeout(run, 1600);
+	                  }
+	                };
+	                run();
+	              "
+	            >
+	              Start noisy updates
+	            </button>
+	          `,
+	        ),
+	      );
+	      return;
+	    }
+
 	    if (method === "GET" && url.pathname === "/named-form") {
       sendHtml(
         res,

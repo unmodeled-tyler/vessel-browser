@@ -61,3 +61,5 @@ docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 tests/navigation-regression.ts
 tests/navigation-regression.ts
 tests/navigation-regression.ts
+tests/navigation-regression.ts
+tests/fixtures/navigation-harness.ts

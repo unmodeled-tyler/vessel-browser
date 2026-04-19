@@ -160,8 +160,10 @@ let indexedElements = new WeakMap<Element, number>();
 const indexedElementRefs: Record<number, Element> = {};
 let activeOverlays: OverlayCandidate[] = [];
 let pageDiffMutationTimer: ReturnType<typeof setTimeout> | null = null;
+let pageDiffActivityThrottleTimer: ReturnType<typeof setTimeout> | null = null;
 let lastPageDiffSignature = "";
 
+const PAGE_DIFF_ACTIVITY_THROTTLE_MS = 350;
 const PAGE_DIFF_MUTATION_DEBOUNCE_MS = 1200;
 
 function normalizeSignatureText(value: string | null | undefined): string {
@@ -217,6 +219,14 @@ function emitPageDiffDirty(): void {
   ipcRenderer.send(Channels.PAGE_DIFF_DIRTY);
 }
 
+function notifyPageDiffActivity(): void {
+  if (pageDiffActivityThrottleTimer) return;
+  ipcRenderer.send(Channels.PAGE_DIFF_ACTIVITY);
+  pageDiffActivityThrottleTimer = setTimeout(() => {
+    pageDiffActivityThrottleTimer = null;
+  }, PAGE_DIFF_ACTIVITY_THROTTLE_MS);
+}
+
 function startPageDiffObserver(): void {
   if (typeof MutationObserver === "undefined") return;
   if (!document.documentElement) return;
@@ -228,6 +238,7 @@ function startPageDiffObserver(): void {
       return;
     }
 
+    notifyPageDiffActivity();
     if (pageDiffMutationTimer) {
       clearTimeout(pageDiffMutationTimer);
     }
@@ -258,6 +269,10 @@ function startPageDiffObserver(): void {
 
   window.addEventListener("beforeunload", () => {
     observer.disconnect();
+    if (pageDiffActivityThrottleTimer) {
+      clearTimeout(pageDiffActivityThrottleTimer);
+      pageDiffActivityThrottleTimer = null;
+    }
     if (pageDiffMutationTimer) {
       clearTimeout(pageDiffMutationTimer);
       pageDiffMutationTimer = null;

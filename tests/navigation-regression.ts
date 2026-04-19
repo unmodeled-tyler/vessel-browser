@@ -674,6 +674,79 @@ async function main(): Promise<void> {
     );
 
     await runScenario(
+      "page diff scheduling waits for the final state of a noisy mutation burst",
+      async () => {
+        await withTab(`${harness.baseUrl}/noisy-same-page`, async (tab) => {
+          const wc = tab.view.webContents;
+          const events: Array<{ channel: string; diff: unknown; at: number }> = [];
+
+          const onDirty = (event: Electron.IpcMainEvent) => {
+            if (event.sender !== wc) return;
+            schedulePageSnapshotCapture(wc, (channel, diff) => {
+              events.push({ channel, diff, at: Date.now() });
+            });
+          };
+
+          ipcMain.on(Channels.PAGE_DIFF_DIRTY, onDirty);
+          try {
+            await capturePageSnapshot(wc.getURL(), wc, (channel, diff) => {
+              events.push({ channel, diff, at: Date.now() });
+            });
+            assert.equal(events.length, 0);
+
+            const startedAt = Date.now();
+            const result = await clickElementBySelector(wc, "#start-noisy-updates");
+            assert.match(result, /Clicked: Start noisy updates/);
+
+            await waitForCondition(
+              () => wc.getTitle() === "noisy-same-page-3",
+              9000,
+            );
+            const settledAt = Date.now();
+
+            await waitForCondition(() => events.length > 0, 12000);
+            assert.equal(
+              events.length,
+              1,
+              `expected exactly one settled diff event, got: ${JSON.stringify(events)}`,
+            );
+            assert.equal(events[0]?.channel, Channels.PAGE_CHANGED);
+            assert.ok(
+              (events[0]?.at || 0) >= settledAt,
+              `expected diff after final settled state; started=${startedAt}, settled=${settledAt}, event=${events[0]?.at}`,
+            );
+
+            const diff = events[0]?.diff as {
+              hasChanges: boolean;
+              changes: Array<{
+                section: string;
+                before?: string;
+                after?: string;
+              }>;
+            };
+            assert.equal(diff.hasChanges, true);
+
+            const titleChange = diff.changes.find(
+              (change) => change.section === "title",
+            );
+            assert.equal(titleChange?.after, "noisy-same-page-3");
+
+            const contentChange = diff.changes.find(
+              (change) => change.section === "content",
+            );
+            assert.ok(contentChange, `expected content diff, got: ${JSON.stringify(diff)}`);
+            assert.match(contentChange?.after || "", /phase 3/);
+          } finally {
+            ipcMain.removeListener(Channels.PAGE_DIFF_DIRTY, onDirty);
+          }
+        });
+      },
+    );
+    completedScenarios.push(
+      "page diff scheduling waits for the final state of a noisy mutation burst",
+    );
+
+    await runScenario(
       "page diff observer catches same-page DOM mutations",
       async () => {
         await withTab(`${harness.baseUrl}/same-page-action`, async (tab) => {
