@@ -709,6 +709,8 @@ export function registerIpcHandlers(
       }
     }
     findWiredWcId = wc.id;
+    if (wc.isDestroyed()) return;
+
     const listener = (_event: Electron.Event, result: Electron.Result) => {
       if (!chromeView.webContents.isDestroyed()) {
         chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
@@ -716,8 +718,10 @@ export function registerIpcHandlers(
     };
     findResultListener = listener;
     wc.on("found-in-page", listener);
+    // Capture wcId to avoid accessing destroyed wc.id in the handler
+    const capturedWcId = wc.id;
     wc.once("destroyed", () => {
-      if (findWiredWcId === wc.id) {
+      if (findWiredWcId === capturedWcId) {
         findWiredWcId = null;
         findResultListener = null;
       }

@@ -17,6 +17,12 @@ const lastMutationSnapshotAt = new Map<number, number>();
 const lastMutationActivityAt = new Map<number, number>();
 const destroyListenerAttached = new WeakSet<WebContents>();
 
+/**
+ * Attaches a one-time cleanup handler to a WebContents that clears all pending
+ * snapshot timers when the webContents is destroyed. Uses a WeakSet to avoid
+ * duplicate attachments and ensure cleanup handlers don't prevent GC of the
+ * webContents object.
+ */
 function attachDestroyCleanup(wc: WebContents): void {
   if (destroyListenerAttached.has(wc)) return;
   destroyListenerAttached.add(wc);
