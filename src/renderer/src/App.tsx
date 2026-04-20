@@ -64,6 +64,8 @@ const App: Component = () => {
   };
 
   onMount(() => {
+    window.vessel.ui.rendererReady(view as "chrome" | "sidebar" | "devtools");
+
     if (view !== "chrome") return;
 
     const cleanupKeys = setupKeybindings({

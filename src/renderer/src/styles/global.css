@@ -95,6 +95,7 @@ button:active:not(:disabled) {
 
 .chrome {
     position: relative;
+    -webkit-app-region: no-drag;
 }
 
 .loading-bar {

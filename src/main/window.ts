@@ -322,9 +322,9 @@ export function layoutViews(state: WindowState): void {
   if (uiState.sidebarOpen) {
     sidebarView.setBounds({
       x: width - sidebarWidth - resizeHandleOverlap,
-      y: 0,
+      y: chromeHeight,
       width: sidebarWidth + resizeHandleOverlap,
-      height,
+      height: height - chromeHeight,
     });
   } else {
     sidebarView.setBounds({ x: width, y: 0, width: 0, height: 0 });
@@ -343,7 +343,7 @@ export function layoutViews(state: WindowState): void {
     devtoolsPanelView.setBounds({ x: 0, y: height, width: 0, height: 0 });
   }
 
-  // Chrome, sidebar, and devtools panel always on top of tab content
+  // Re-stack views so chrome, sidebar, and devtools are always on top of tab content.
   mainWindow.contentView.removeChildView(chromeView);
   mainWindow.contentView.addChildView(chromeView);
   mainWindow.contentView.removeChildView(sidebarView);

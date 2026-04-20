@@ -482,6 +482,10 @@ const HIGHLIGHT_SELECTOR =
   "'.__vessel-highlight, .__vessel-highlight-text'";
 
 export async function getHighlightCount(wc: WebContents): Promise<number> {
+  if (wc.isDestroyed()) return 0;
+  if (wc.isLoading()) return 0;
+  const currentUrl = wc.getURL();
+  if (!currentUrl || currentUrl === "about:blank") return 0;
   return wc.executeJavaScript(
     `document.querySelectorAll(${HIGHLIGHT_SELECTOR}).length`,
   );

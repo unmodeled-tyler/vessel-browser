@@ -175,6 +175,7 @@ async function bootstrap(): Promise<void> {
     windowState.mainWindow.show();
     closeSplash(splash, 0);
   };
+  let didInitializeChromeRenderer = false;
 
   // Safety valve: never leave both the splash and the main window hidden.
   const splashTimeout = setTimeout(() => {
@@ -216,12 +217,10 @@ async function bootstrap(): Promise<void> {
   startBackgroundRevalidation();
   startTelemetry();
 
-  // Load renderer views
-  loadRenderers(chromeView, sidebarView, devtoolsPanelView);
+  const initializeChromeRenderer = () => {
+    if (didInitializeChromeRenderer) return;
+    didInitializeChromeRenderer = true;
 
-  // Register did-finish-load BEFORE any awaits so we never miss the event
-  // if the renderer finishes loading while something else is still starting.
-  chromeView.webContents.once("did-finish-load", () => {
     const savedSession = runtime.getState().session;
     if (settings.autoRestoreSession && savedSession?.tabs.length) {
       runtime.restoreSession(savedSession);
@@ -236,6 +235,15 @@ async function bootstrap(): Promise<void> {
     revealMainWindow();
 
     void maybeShowStartupHealthDialog(windowState);
+  };
+
+  // Register load/fail listeners before triggering renderer navigation so
+  // local file loads cannot finish before startup is listening.
+  chromeView.webContents.once("dom-ready", () => {
+    initializeChromeRenderer();
+  });
+  chromeView.webContents.once("did-finish-load", () => {
+    initializeChromeRenderer();
   });
 
   chromeView.webContents.once(
@@ -252,6 +260,9 @@ async function bootstrap(): Promise<void> {
       revealMainWindow();
     },
   );
+
+  // Load renderer views only after startup listeners are in place.
+  loadRenderers(chromeView, sidebarView, devtoolsPanelView);
 
   // Start MCP server in parallel — it doesn't need to be ready before the
   // renderer shows, and awaiting it was blocking did-finish-load registration.
