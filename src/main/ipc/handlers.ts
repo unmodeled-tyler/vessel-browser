@@ -433,9 +433,17 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.SIDEBAR_RESIZE_START, () => {
     sidebarResizeActive = true;
     clearSidebarResizeRecoveryTimer();
-    // Expand sidebar view to full window width so pointer capture works across the drag range
+    // Position sidebar below chrome bar (like normal layout) but expand width for pointer capture
     const [width, height] = windowState.mainWindow.getContentSize();
-    windowState.sidebarView.setBounds({ x: 0, y: 0, width, height });
+    const chromeHeight = windowState.uiState.focusMode ? 0 : 110; // CHROME_HEIGHT
+    const sidebarWidth = windowState.uiState.sidebarWidth;
+    const resizeHandleOverlap = 6;
+    windowState.sidebarView.setBounds({
+      x: width - sidebarWidth - resizeHandleOverlap,
+      y: chromeHeight,
+      width: sidebarWidth + resizeHandleOverlap,
+      height: height - chromeHeight,
+    });
     scheduleSidebarResizeRecovery();
   });
 
@@ -444,7 +452,8 @@ export function registerIpcHandlers(
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
     resizeSidebarViews(windowState);
-    scheduleSidebarResizeRecovery();
+    // Note: recovery timer is NOT rescheduled here - only on RESIZE_START
+    // This prevents lag during rapid resize movements
     return clamped;
   });
 

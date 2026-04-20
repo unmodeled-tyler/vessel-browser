@@ -525,6 +525,19 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     const startWidth = sidebarWidth();
     let finished = false;
 
+    // Use a mutable state object shared between handlers
+    const state = { currentX: startX, rafId: null as number | null };
+
+    const flushResizeUpdate = () => {
+      state.rafId = null;
+      if (finished) return;
+      // Calculate width based on total delta from start (not incremental)
+      const totalDelta = startX - state.currentX;
+      const targetWidth = startWidth + totalDelta;
+      const newWidth = Math.max(240, Math.min(800, Math.round(targetWidth)));
+      resizeSidebar(newWidth);
+    };
+
     const clearPointerTracking = () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
@@ -535,16 +548,29 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
       if (target.hasPointerCapture?.(e.pointerId)) {
         target.releasePointerCapture(e.pointerId);
       }
+      if (state.rafId !== null) {
+        cancelAnimationFrame(state.rafId);
+        state.rafId = null;
+      }
     };
 
     const onPointerMove = (ev: PointerEvent) => {
-      const delta = startX - ev.screenX;
-      resizeSidebar(startWidth + delta);
+      // Update current position - RAF will calculate the actual width
+      state.currentX = ev.screenX;
+      if (state.rafId === null) {
+        state.rafId = requestAnimationFrame(flushResizeUpdate);
+      }
     };
 
     const finishResize = () => {
       if (finished) return;
       finished = true;
+      // Flush any pending resize before committing
+      if (state.rafId !== null) {
+        cancelAnimationFrame(state.rafId);
+        state.rafId = null;
+      }
+      flushResizeUpdate();
       setIsDragging(false);
       clearPointerTracking();
       document.body.style.cursor = "";
