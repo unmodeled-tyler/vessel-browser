@@ -492,6 +492,28 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .enum(["ask", "update", "duplicate"])
         .optional()
         .describe("How to handle duplicate URLs in the same folder"),
+      intent: z
+        .string()
+        .optional()
+        .describe(
+          "Human-readable description of what this bookmark is for (e.g. 'expense reporting')",
+        ),
+      expectedContent: z
+        .string()
+        .optional()
+        .describe(
+          "Brief description of the content the agent should expect to find here",
+        ),
+      keyFields: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Important form field names for this page (e.g. ['receipt_id', 'date', 'amount'])",
+        ),
+      agentHints: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe("Arbitrary key-value hints for the agent"),
     },
     tier: 1,
   },
@@ -533,6 +555,22 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         .boolean()
         .optional()
         .describe('If true, organize into the default "Archive" folder'),
+      intent: z
+        .string()
+        .optional()
+        .describe("Human-readable description of what this bookmark is for"),
+      expectedContent: z
+        .string()
+        .optional()
+        .describe("Brief description of content the agent should expect"),
+      keyFields: z
+        .array(z.string())
+        .optional()
+        .describe("Important form field names for this page"),
+      agentHints: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe("Arbitrary key-value hints for the agent"),
     },
     tier: 2,
   },

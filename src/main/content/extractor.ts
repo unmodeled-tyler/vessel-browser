@@ -4,6 +4,7 @@ import { detectPageIssues } from "./page-access-issues";
 import { extractStructuredDataFromJsonLd } from "./structured-data";
 import { trackExtractionFailed } from "../telemetry/posthog";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
+import { inferPageSchema } from "../../shared/page-schema";
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -1052,10 +1053,18 @@ function mergePageContent(
     metaTags: mergedBase.metaTags,
   });
 
+  const pageSchema = inferPageSchema({
+    ...mergedBase,
+    structuredData: normalizedStructuredData,
+    title: mergedBase.title || webContents.getTitle() || "",
+    url: mergedBase.url || webContents.getURL() || "",
+  });
+
   return {
     ...mergedBase,
     structuredData: normalizedStructuredData,
     pageIssues,
+    pageSchema,
     title: mergedBase.title || webContents.getTitle() || "",
     url: mergedBase.url || webContents.getURL() || "",
   };
@@ -1176,5 +1185,6 @@ function normalizePageContent(value: unknown): PageContent {
       ? page.structuredData
       : [],
     pageIssues: Array.isArray(page.pageIssues) ? page.pageIssues : [],
+    pageSchema: page.pageSchema,
   };
 }

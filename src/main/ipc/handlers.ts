@@ -567,9 +567,26 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     Channels.BOOKMARK_SAVE,
-    (_, url: string, title: string, folderId?: string, note?: string) => {
+    (
+      _,
+      url: string,
+      title: string,
+      folderId?: string,
+      note?: string,
+      intent?: string,
+      expectedContent?: string,
+      keyFields?: string[],
+      agentHints?: Record<string, string>,
+    ) => {
       trackBookmarkAction("save");
-      return bookmarkManager.saveBookmark(url, title, folderId, note);
+      return bookmarkManager.saveBookmarkWithPolicy(url, title, folderId, note, {
+        extra: {
+          intent: intent?.trim() || undefined,
+          expectedContent: expectedContent?.trim() || undefined,
+          keyFields,
+          agentHints,
+        },
+      });
     },
   );
 

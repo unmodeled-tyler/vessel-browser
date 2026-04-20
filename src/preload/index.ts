@@ -253,8 +253,22 @@ const api = {
       title: string,
       folderId?: string,
       note?: string,
+      intent?: string,
+      expectedContent?: string,
+      keyFields?: string[],
+      agentHints?: Record<string, string>,
     ): Promise<Bookmark> =>
-      ipcRenderer.invoke(Channels.BOOKMARK_SAVE, url, title, folderId, note),
+      ipcRenderer.invoke(
+        Channels.BOOKMARK_SAVE,
+        url,
+        title,
+        folderId,
+        note,
+        intent,
+        expectedContent,
+        keyFields,
+        agentHints,
+      ),
     removeBookmark: (id: string): Promise<boolean> =>
       ipcRenderer.invoke(Channels.BOOKMARK_REMOVE, id),
     createFolder: (name: string): Promise<BookmarkFolder> =>

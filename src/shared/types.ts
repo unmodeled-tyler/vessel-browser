@@ -175,6 +175,7 @@ export interface PageContent {
   metaTags?: Record<string, string>;
   structuredData?: StructuredDataEntity[];
   pageIssues?: PageIssue[];
+  pageSchema?: import("./page-schema").PageSchema;
 }
 
 export interface AIMessage {
@@ -495,6 +496,16 @@ export interface Bookmark {
   note?: string;
   folderId: string; // "unsorted" for default
   savedAt: string; // ISO timestamp
+  /** Human-readable description of what this bookmark is for (e.g. "expense reporting") */
+  intent?: string;
+  /** Brief description of content the agent should expect to find here */
+  expectedContent?: string;
+  /** Important field names for form pages (e.g. ["receipt_id", "date", "amount"]) */
+  keyFields?: string[];
+  /** Inferred page schema for this bookmark */
+  pageSchema?: import("./page-schema").PageSchema;
+  /** Arbitrary key-value hints for the agent */
+  agentHints?: Record<string, string>;
 }
 
 export interface BookmarkFolder {

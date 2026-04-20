@@ -37,7 +37,21 @@ export function useBookmarks() {
       title: string,
       folderId?: string,
       note?: string,
-    ) => window.vessel.bookmarks.saveBookmark(url, title, folderId, note),
+      intent?: string,
+      expectedContent?: string,
+      keyFields?: string[],
+      agentHints?: Record<string, string>,
+    ) =>
+      window.vessel.bookmarks.saveBookmark(
+        url,
+        title,
+        folderId,
+        note,
+        intent,
+        expectedContent,
+        keyFields,
+        agentHints,
+      ),
     removeBookmark: (id: string) => window.vessel.bookmarks.removeBookmark(id),
     createFolder: (name: string) => window.vessel.bookmarks.createFolder(name),
     createFolderWithSummary: (name: string, summary?: string) =>
