@@ -67,6 +67,12 @@ import {
 } from "./common";
 import { registerAutofillHandlers } from "./autofill";
 import { registerPageDiffHandlers } from "./page-diff";
+import {
+  listNamedSessions,
+  saveNamedSession,
+  loadNamedSession,
+  deleteNamedSession,
+} from "../sessions/manager";
 import { registerVaultHandlers } from "./vault";
 import { registerWindowControlHandlers } from "./window-controls";
 
@@ -291,6 +297,15 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.TAB_RELOAD, (_, id: string) => {
     tabManager.reloadTab(id);
+  });
+
+  ipcMain.handle(Channels.TAB_TOGGLE_AD_BLOCK, (_, id: string) => {
+    assertString(id, "id");
+    const tab = tabManager.getTab(id);
+    if (!tab) return null;
+    const newState = !tab.state.adBlockingEnabled;
+    tab.setAdBlockingEnabled(newState);
+    return newState;
   });
 
   ipcMain.handle(Channels.TAB_STATE_GET, () => ({
@@ -672,20 +687,23 @@ export function registerIpcHandlers(
   // --- Find in page ---
 
   let findWiredWcId: number | null = null;
+  let findResultListener:
+    | ((event: Electron.Event, result: Electron.Result) => void)
+    | null = null;
 
   function wireFindEvents(wc: Electron.WebContents): void {
     if (findWiredWcId === wc.id) return;
-    // Clean up previous listener
-    if (findWiredWcId !== null) {
+    if (findWiredWcId !== null && findResultListener) {
       const prev = tabManager.findTabByWebContentsId(findWiredWcId);
-      if (prev) prev.view.webContents.removeAllListeners("found-in-page");
+      prev?.view.webContents.removeListener("found-in-page", findResultListener);
     }
     findWiredWcId = wc.id;
-    wc.on("found-in-page", (_event, result) => {
+    findResultListener = (_event, result) => {
       if (!chromeView.webContents.isDestroyed()) {
         chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
       }
-    });
+    };
+    wc.on("found-in-page", findResultListener);
   }
 
   ipcMain.handle(Channels.FIND_IN_PAGE_START, (_, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
@@ -705,6 +723,7 @@ export function registerIpcHandlers(
     if (!tab) return null;
     const wc = tab.view.webContents;
     if (wc.isDestroyed()) return null;
+    wireFindEvents(wc);
     return wc.findInPage("", { forward: forward ?? true, findNext: true });
   });
 
@@ -832,6 +851,27 @@ export function registerIpcHandlers(
       tabManager.createTab(result.url);
     }
     return result;
+  });
+
+  // --- Named sessions ---
+
+  ipcMain.handle(Channels.SESSION_LIST, () => {
+    return listNamedSessions();
+  });
+
+  ipcMain.handle(Channels.SESSION_SAVE, async (_, name: string) => {
+    assertString(name, "name");
+    return await saveNamedSession(tabManager, name);
+  });
+
+  ipcMain.handle(Channels.SESSION_LOAD, async (_, name: string) => {
+    assertString(name, "name");
+    return await loadNamedSession(tabManager, name);
+  });
+
+  ipcMain.handle(Channels.SESSION_DELETE, (_, name: string) => {
+    assertString(name, "name");
+    return deleteNamedSession(name);
   });
 
   registerVaultHandlers();

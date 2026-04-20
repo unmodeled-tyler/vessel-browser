@@ -157,7 +157,7 @@ export async function getPortalUrl(): Promise<{ ok: boolean; url?: string; error
   return {
     ok: false,
     error:
-      "Billing portal access is temporarily disabled while we harden the premium API. Use the Stripe billing link from your subscription email for now.",
+      "Billing portal access is temporarily disabled until authenticated customer access is implemented.",
   };
 }
 

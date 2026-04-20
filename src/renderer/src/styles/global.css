@@ -146,6 +146,89 @@ button:active:not(:disabled) {
 }
 
 /* ═══════════════════════════════════════
+   Find bar (Ctrl+F)
+   ═══════════════════════════════════════ */
+
+.find-bar {
+    position: absolute;
+    top: calc(32px + var(--tab-height) + var(--address-bar-height) + 4px);
+    right: 14px;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-visible);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(
+        180deg,
+        rgba(50, 50, 54, 0.97),
+        rgba(34, 34, 38, 0.97)
+    );
+    box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.2),
+        0 16px 40px rgba(0, 0, 0, 0.16);
+    backdrop-filter: blur(16px);
+    animation: toast-enter var(--duration-enter) var(--ease-out-expo) both;
+}
+
+.find-bar-input {
+    width: 200px;
+    height: 28px;
+    padding: 0 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: var(--font-mono);
+    outline: none;
+    transition: border-color var(--duration-fast) var(--ease-in-out);
+}
+
+.find-bar-input:focus {
+    border-color: var(--accent-primary);
+}
+
+.find-bar-count {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    min-width: 60px;
+    text-align: center;
+}
+
+.find-bar-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.find-bar-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.find-bar-close {
+    font-size: 16px;
+    color: var(--text-muted);
+}
+
+.find-bar-close:hover {
+    color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════
    Scroll fade indicators
    ═══════════════════════════════════════ */
 

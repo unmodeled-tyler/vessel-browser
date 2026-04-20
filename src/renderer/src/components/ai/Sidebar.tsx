@@ -13,6 +13,7 @@ import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import { useTabs } from "../../stores/tabs";
+import { useHistory } from "../../stores/history";
 import { useBookmarks } from "../../stores/bookmarks";
 import { buildAndRememberBookmarkContext } from "../../lib/bookmark-context";
 import { renderMarkdown } from "../../lib/markdown";
@@ -131,6 +132,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     openSettings,
   } = useUI();
   const { activeTab, createTab } = useTabs();
+  const history = useHistory();
   const {
     bookmarksState,
     saveBookmark,
@@ -140,7 +142,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     renameFolder,
   } = useBookmarks();
   const [sidebarTab, setSidebarTab] = createSignal<
-    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation"
+    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation" | "history"
   >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
@@ -743,6 +745,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           >
             Automate
           </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "history" }}
+            role="tab"
+            aria-selected={sidebarTab() === "history"}
+            onClick={() => setSidebarTab("history")}
+          >
+            History
+          </button>
         </div>
 
         <div
@@ -1317,6 +1328,42 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
           <Show when={sidebarTab() === "automation"}>
             <AutomationTab onRun={() => setSidebarTab("supervisor")} />
+          </Show>
+
+          <Show when={sidebarTab() === "history"}>
+            <div class="history-panel">
+              <div class="history-panel-header">
+                <span class="history-panel-title">Browsing History</span>
+                <button
+                  class="history-clear-btn"
+                  onClick={async () => {
+                    await history.search("").then(() => {});
+                    await history.clear();
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+              <div class="history-list">
+                <For each={history.historyState().entries}>
+                  {(entry) => (
+                    <button
+                      class="history-entry"
+                      onClick={() => createTab(entry.url)}
+                    >
+                      <span class="history-entry-title">{entry.title || entry.url}</span>
+                      <span class="history-entry-url">{entry.url}</span>
+                      <span class="history-entry-time">
+                        {new Date(entry.visitedAt).toLocaleString()}
+                      </span>
+                    </button>
+                  )}
+                </For>
+                <Show when={history.historyState().entries.length === 0}>
+                  <p class="history-empty">No browsing history yet.</p>
+                </Show>
+              </div>
+            </div>
           </Show>
 
           <Show when={sidebarTab() === "chat"}>

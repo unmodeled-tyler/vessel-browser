@@ -47,3 +47,25 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
   --font-reader: Charter, Georgia, serif;
 }
+
+[data-theme="light"] {
+  --bg-primary: #f8f7f5;
+  --bg-secondary: #efeeec;
+  --bg-tertiary: #e5e4e2;
+  --bg-elevated: #dbd9d7;
+
+  --text-primary: #1c1c1e;
+  --text-secondary: #555558;
+  --text-muted: #8e8e93;
+
+  --accent-primary: #8a6d2f;
+  --accent-secondary: #5a7a42;
+  --accent-warm: #8a5e3a;
+
+  --border-subtle: #d4d3d1;
+  --border-visible: #c0bfbd;
+
+  --loading-bar: #8a6d2f;
+  --error: #b04040;
+  --success: #408040;
+}

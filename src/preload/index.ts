@@ -34,6 +34,8 @@ const api = {
     back: (id: string) => ipcRenderer.invoke(Channels.TAB_BACK, id),
     forward: (id: string) => ipcRenderer.invoke(Channels.TAB_FORWARD, id),
     reload: (id: string) => ipcRenderer.invoke(Channels.TAB_RELOAD, id),
+    toggleAdBlock: (id: string): Promise<boolean | null> =>
+      ipcRenderer.invoke(Channels.TAB_TOGGLE_AD_BLOCK, id),
     getState: (): Promise<{ tabs: TabState[]; activeId: string }> =>
       ipcRenderer.invoke(Channels.TAB_STATE_GET),
     onStateUpdate: (
@@ -368,6 +370,16 @@ const api = {
         ipcRenderer.removeListener(Channels.PREMIUM_UPDATE, handler);
     },
   },
+  sessions: {
+    list: (): Promise<Array<{ name: string; createdAt: string; updatedAt: string; cookieCount: number; originCount: number; domains: string[] }>> =>
+      ipcRenderer.invoke(Channels.SESSION_LIST),
+    save: (name: string): Promise<{ name: string; createdAt: string; updatedAt: string; cookieCount: number; originCount: number; domains: string[] }> =>
+      ipcRenderer.invoke(Channels.SESSION_SAVE, name),
+    load: (name: string): Promise<{ name: string; createdAt: string; updatedAt: string; cookieCount: number; originCount: number; domains: string[] }> =>
+      ipcRenderer.invoke(Channels.SESSION_LOAD, name),
+    delete: (name: string): Promise<boolean> =>
+      ipcRenderer.invoke(Channels.SESSION_DELETE, name),
+  },
   vault: {
     list: (): Promise<Array<{ id: string; label: string; domainPattern: string; username: string; notes?: string; createdAt: string; lastUsedAt?: string; useCount: number }>> =>
       ipcRenderer.invoke(Channels.VAULT_LIST),
@@ -425,6 +437,32 @@ const api = {
       ipcRenderer.invoke(Channels.AUTOFILL_DELETE, id),
     fill: (profileId: string): Promise<AutofillResult> =>
       ipcRenderer.invoke(Channels.AUTOFILL_FILL, profileId),
+  },
+  downloads: {
+    onStarted: (
+      cb: (info: { filename: string; savePath: string; totalBytes: number; receivedBytes: number; state: string }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, info: { filename: string; savePath: string; totalBytes: number; receivedBytes: number; state: string }) => cb(info);
+      ipcRenderer.on(Channels.DOWNLOAD_STARTED, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.DOWNLOAD_STARTED, handler);
+    },
+    onProgress: (
+      cb: (info: { filename: string; savePath: string; totalBytes: number; receivedBytes: number; state: string }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, info: { filename: string; savePath: string; totalBytes: number; receivedBytes: number; state: string }) => cb(info);
+      ipcRenderer.on(Channels.DOWNLOAD_PROGRESS, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.DOWNLOAD_PROGRESS, handler);
+    },
+    onDone: (
+      cb: (info: { filename: string; savePath: string; totalBytes: number; receivedBytes: number; state: string }) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, info: { filename: string; savePath: string; totalBytes: number; receivedBytes: number; state: string }) => cb(info);
+      ipcRenderer.on(Channels.DOWNLOAD_DONE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.DOWNLOAD_DONE, handler);
+    },
   },
   pageDiff: {
     onChanged: (cb: (diff: PageDiff) => void): (() => void) => {

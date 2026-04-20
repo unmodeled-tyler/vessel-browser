@@ -43,6 +43,7 @@ const Settings: Component = () => {
     createSignal<AgentTranscriptDisplayMode>("summary");
   const [health, setHealth] = createSignal<RuntimeHealthState | null>(null);
   const [defaultUrl, setDefaultUrl] = createSignal("https://start.duckduckgo.com");
+  const [downloadPath, setDownloadPath] = createSignal("");
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
     text: string;
@@ -50,6 +51,25 @@ const Settings: Component = () => {
 
   // Telemetry
   const [telemetryEnabled, setTelemetryEnabled] = createSignal(true);
+
+  // Theme
+  const [theme, setTheme] = createSignal<"dark" | "light">("dark");
+
+  // Domain policy
+  const [domainMode, setDomainMode] = createSignal<"none" | "allowlist" | "blocklist">("none");
+  const [domainList, setDomainList] = createSignal("");
+
+  // Named sessions
+  type SessionSummary = { name: string; createdAt: string; updatedAt: string; cookieCount: number; originCount: number; domains: string[] };
+  const [sessionList, setSessionList] = createSignal<SessionSummary[]>([]);
+  const [sessionSaveName, setSessionSaveName] = createSignal("");
+
+  const loadSessionList = async () => {
+    try {
+      const sessions = await window.vessel.sessions.list();
+      setSessionList(sessions);
+    } catch { /* sessions not available */ }
+  };
 
   // Agent Credential Vault
   type VaultListEntry = { id: string; label: string; domainPattern: string; username: string; notes?: string; createdAt: string; lastUsedAt?: string; useCount: number };
@@ -306,7 +326,9 @@ const Settings: Component = () => {
   const loadState = async () => {
     const settings = await window.vessel.settings.get();
     const runtimeHealth = await window.vessel.settings.getHealth();
+    setTheme(settings.theme ?? "dark");
     setDefaultUrl(settings.defaultUrl ?? "https://start.duckduckgo.com");
+    setDownloadPath(settings.downloadPath ?? "");
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
@@ -327,6 +349,18 @@ const Settings: Component = () => {
       setChatHasStoredApiKey(false);
     }
     setTelemetryEnabled(settings.telemetryEnabled !== false);
+    // Load domain policy
+    const dp = settings.domainPolicy ?? { allowedDomains: [], blockedDomains: [] };
+    if (dp.allowedDomains.length > 0) {
+      setDomainMode("allowlist");
+      setDomainList(dp.allowedDomains.join("\n"));
+    } else if (dp.blockedDomains.length > 0) {
+      setDomainMode("blocklist");
+      setDomainList(dp.blockedDomains.join("\n"));
+    } else {
+      setDomainMode("none");
+      setDomainList("");
+    }
     // Load premium state
     try {
       const ps = await window.vessel.premium.getState();
@@ -335,6 +369,8 @@ const Settings: Component = () => {
     } catch { /* premium API not available */ }
     // Load vault entries
     await loadVaultEntries();
+    // Load named sessions
+    await loadSessionList();
   };
 
   onMount(() => {
@@ -393,6 +429,8 @@ const Settings: Component = () => {
         return;
       }
 
+      await window.vessel.settings.set("theme", theme());
+      await window.vessel.settings.set("downloadPath", downloadPath().trim());
       await window.vessel.settings.set(
         "defaultUrl",
         defaultUrl().trim() || "https://start.duckduckgo.com",
@@ -420,6 +458,14 @@ const Settings: Component = () => {
         agentTranscriptMode(),
       );
       await window.vessel.settings.set("telemetryEnabled", telemetryEnabled());
+      // Save domain policy
+      const domains = domainList().split("\n").map(d => d.trim()).filter(d => d.length > 0);
+      const domainPolicy = domainMode() === "allowlist"
+        ? { allowedDomains: domains, blockedDomains: [] }
+        : domainMode() === "blocklist"
+          ? { allowedDomains: [], blockedDomains: domains }
+          : { allowedDomains: [], blockedDomains: [] };
+      await window.vessel.settings.set("domainPolicy", domainPolicy);
       const chatConfig: ProviderConfig | null = chatEnabled()
         ? {
             id: chatProviderId(),
@@ -557,6 +603,24 @@ const Settings: Component = () => {
             <p class="settings-hint">
               The page that opens when you create a new tab or launch Vessel
               without restoring a previous session.
+            </p>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="download-path">
+              Download Location
+            </label>
+            <input
+              id="download-path"
+              class="settings-input"
+              value={downloadPath()}
+              onInput={(e) => setDownloadPath(e.currentTarget.value)}
+              placeholder="Default: ~/Downloads"
+              spellcheck={false}
+            />
+            <p class="settings-hint">
+              Directory for saved files. Leave blank to use the system default
+              Downloads folder.
             </p>
           </div>
 
@@ -738,6 +802,89 @@ const Settings: Component = () => {
               Off by default. When enabled, bookmark folders and saved pages are
               cleared each time Vessel starts.
             </p>
+          </div>
+
+          <div class="settings-section-divider" />
+
+          {/* --- Named Sessions --- */}
+          <div class="settings-field">
+            <label class="settings-label">Saved Sessions</label>
+            <p class="settings-hint" style="margin-bottom: 10px">
+              Save the current browser state (tabs, cookies, storage) as a named
+              session. Restore it later from this panel.
+            </p>
+            <div class="premium-activate-row" style="margin-bottom: 8px">
+              <input
+                class="settings-input premium-email-input"
+                placeholder="Session name"
+                value={sessionSaveName()}
+                onInput={(e) => setSessionSaveName(e.currentTarget.value)}
+                spellcheck={false}
+              />
+              <button
+                class="premium-btn premium-btn-activate"
+                disabled={!sessionSaveName().trim()}
+                onClick={async () => {
+                  try {
+                    await window.vessel.sessions.save(sessionSaveName().trim());
+                    setSessionSaveName("");
+                    await loadSessionList();
+                    setStatus({ kind: "success", text: "Session saved." });
+                    setTimeout(() => setStatus(null), 3000);
+                  } catch (err) {
+                    setStatus({ kind: "error", text: String(err) });
+                  }
+                }}
+              >
+                Save Current
+              </button>
+            </div>
+            <Show when={sessionList().length > 0}>
+              <div class="vault-entries">
+                <For each={sessionList()}>
+                  {(s) => (
+                    <div class="vault-entry">
+                      <div class="vault-entry-info">
+                        <span class="vault-entry-label">{s.name}</span>
+                        <span class="vault-entry-detail">
+                          {new Date(s.updatedAt).toLocaleDateString()}
+                          {" "}&middot; {s.cookieCount} cookies
+                          {" "}&middot; {s.domains.length} domains
+                        </span>
+                      </div>
+                      <div style="display: flex; gap: 6px; align-items: center;">
+                        <button
+                          class="premium-btn premium-btn-activate"
+                          style="padding: 2px 10px; font-size: 12px;"
+                          onClick={async () => {
+                            try {
+                              await window.vessel.sessions.load(s.name);
+                              setStatus({ kind: "success", text: `Session "${s.name}" restored.` });
+                              setTimeout(() => setStatus(null), 3000);
+                            } catch (err) {
+                              setStatus({ kind: "error", text: String(err) });
+                            }
+                          }}
+                          title="Restore this session (replaces current tabs and cookies)"
+                        >
+                          Load
+                        </button>
+                        <button
+                          class="vault-entry-remove"
+                          onClick={async () => {
+                            await window.vessel.sessions.delete(s.name);
+                            await loadSessionList();
+                          }}
+                          title="Delete session"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
 
           <div class="settings-section-divider" />
@@ -1101,8 +1248,15 @@ const Settings: Component = () => {
                 <div class="premium-actions-row">
                   <button
                     class="premium-btn premium-btn-manage"
-                    onClick={() => {
-                      void window.vessel.premium.portal();
+                    onClick={async () => {
+                      const result = await window.vessel.premium.portal();
+                      if (!result.ok) {
+                        setPremiumMessage({
+                          kind: "error",
+                          text: result.error || "Could not open billing portal.",
+                        });
+                        setTimeout(() => setPremiumMessage(null), 5000);
+                      }
                     }}
                   >
                     Manage Subscription
@@ -1120,6 +1274,19 @@ const Settings: Component = () => {
                     Sign Out
                   </button>
                 </div>
+                <Show when={premiumMessage()}>
+                  {(msg) => (
+                    <p
+                      class="settings-status"
+                      classList={{
+                        success: msg().kind === "success",
+                        error: msg().kind === "error",
+                      }}
+                    >
+                      {msg().text}
+                    </p>
+                  )}
+                </Show>
               </div>
             </Show>
           </div>
@@ -1377,6 +1544,63 @@ const Settings: Component = () => {
             </p>
           </div>
 
+          <div class="settings-section-divider" />
+
+          <div class="settings-field">
+            <label class="settings-label" for="theme-select">
+              Theme
+            </label>
+            <select
+              id="theme-select"
+              class="settings-input settings-select"
+              value={theme()}
+              onChange={(e) => setTheme(e.currentTarget.value as "dark" | "light")}
+            >
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+            <p class="settings-hint">
+              Choose the application color scheme. Takes effect after saving.
+            </p>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="domain-policy-mode">
+              Domain Restrictions
+            </label>
+            <select
+              id="domain-policy-mode"
+              class="settings-input settings-select"
+              value={domainMode()}
+              onChange={(e) => setDomainMode(e.currentTarget.value as "none" | "allowlist" | "blocklist")}
+            >
+              <option value="none">No restrictions</option>
+              <option value="allowlist">Allowlist (only listed domains)</option>
+              <option value="blocklist">Blocklist (block listed domains)</option>
+            </select>
+            <Show when={domainMode() !== "none"}>
+              <textarea
+                class="settings-input settings-textarea"
+                rows={4}
+                value={domainList()}
+                onInput={(e) => setDomainList(e.currentTarget.value)}
+                placeholder={domainMode() === "allowlist" ? "example.com\napi.example.com" : "ads.example.com\ntracker.io"}
+                spellcheck={false}
+              />
+              <p class="settings-hint">
+                {domainMode() === "allowlist"
+                  ? "One domain per line. Subdomains of listed domains are also allowed."
+                  : "One domain per line. Subdomains of listed domains are also blocked."}
+              </p>
+            </Show>
+            <Show when={domainMode() === "none"}>
+              <p class="settings-hint">
+                Restrict which domains can be navigated to. Use allowlist mode for
+                kiosk or supervised browsing, blocklist to block specific sites.
+              </p>
+            </Show>
+          </div>
+
           <div class="settings-actions">
             <button class="settings-save" onClick={handleSave}>
               Save
@@ -1521,6 +1745,14 @@ const Settings: Component = () => {
         }
         .settings-select {
           appearance: none;
+        }
+        .settings-textarea {
+          height: auto;
+          min-height: 70px;
+          padding: 8px 12px;
+          resize: vertical;
+          line-height: 1.5;
+          margin-top: 8px;
         }
         .settings-input:focus {
           border-color: var(--accent-primary);

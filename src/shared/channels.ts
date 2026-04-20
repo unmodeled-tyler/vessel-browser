@@ -79,6 +79,9 @@ export const Channels = {
   DEVTOOLS_PANEL_STATE: "devtools-panel:state",
   DEVTOOLS_PANEL_RESIZE: "devtools-panel:resize",
 
+  // Ad blocking
+  TAB_TOGGLE_AD_BLOCK: "tab:toggle-ad-block",
+
   // Find in page
   FIND_IN_PAGE_START: "find:start",
   FIND_IN_PAGE_NEXT: "find:next",
@@ -105,6 +108,12 @@ export const Channels = {
   PREMIUM_RESET: "premium:reset",
   PREMIUM_TRACK_CONTEXT: "premium:track-context",
   PREMIUM_UPDATE: "premium:update",
+
+  // Named sessions
+  SESSION_LIST: "session:list",
+  SESSION_SAVE: "session:save",
+  SESSION_LOAD: "session:load",
+  SESSION_DELETE: "session:delete",
 
   // Agent Credential Vault
   VAULT_LIST: "vault:list",

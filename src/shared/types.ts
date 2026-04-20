@@ -447,7 +447,7 @@ export interface PremiumState {
 
 export interface VesselSettings {
   defaultUrl: string;
-  theme: "dark";
+  theme: "dark" | "light";
   sidebarWidth: number;
   mcpPort: number;
   autoRestoreSession: boolean;

@@ -1,9 +1,12 @@
-import { onMount, onCleanup, Show, createSignal, type Component } from "solid-js";
+import { onMount, onCleanup, Show, createSignal, createEffect, type Component } from "solid-js";
 import TitleBar from "./components/chrome/TitleBar";
 import TabBar from "./components/chrome/TabBar";
 import AddressBar from "./components/chrome/AddressBar";
 import BookmarkNotifications from "./components/chrome/BookmarkNotifications";
 import HighlightNotifications from "./components/chrome/HighlightNotifications";
+import DownloadToast from "./components/chrome/DownloadToast";
+import FindBar from "./components/chrome/FindBar";
+import FlowProgress from "./components/chrome/FlowProgress";
 import AgentTranscriptDock from "./components/chrome/AgentTranscriptDock";
 import CommandBar from "./components/ai/CommandBar";
 import Sidebar from "./components/ai/Sidebar";
@@ -63,7 +66,15 @@ const App: Component = () => {
     }
   };
 
+  // Apply theme from settings
+  const applyTheme = async () => {
+    const s = await window.vessel.settings.get();
+    document.documentElement.setAttribute("data-theme", s.theme ?? "dark");
+  };
+
   onMount(() => {
+    void applyTheme();
+
     window.vessel.ui.rendererReady(view as "chrome" | "sidebar" | "devtools");
 
     if (view !== "chrome") return;
@@ -90,9 +101,15 @@ const App: Component = () => {
       showHighlightResult,
     );
 
+    // Re-apply theme when settings change
+    const cleanupSettings = window.vessel.settings.onUpdate(() => {
+      void applyTheme();
+    });
+
     onCleanup(() => {
       cleanupKeys();
       cleanupCapture();
+      cleanupSettings();
     });
   });
 
@@ -108,6 +125,9 @@ const App: Component = () => {
     <div class="app" classList={{ "focus-mode": focusMode() }}>
       <BookmarkNotifications />
       <HighlightNotifications toast={highlightToast()} onDismiss={() => setHighlightToast(null)} />
+      <DownloadToast />
+      <FindBar />
+      <FlowProgress />
       <AgentTranscriptDock />
       <div class="chrome">
         <TitleBar />

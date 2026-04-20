@@ -77,6 +77,7 @@ export async function capturePageSnapshot(
         sendToRendererViews(Channels.PAGE_CHANGED, enrichedDiff);
       } else {
         latestPageDiffs.delete(key);
+        recentPageDiffBursts.delete(key);
       }
     } else {
       latestPageDiffs.delete(key);

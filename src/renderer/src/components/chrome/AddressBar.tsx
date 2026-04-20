@@ -346,6 +346,30 @@ const AddressBar: Component = () => {
       <div class="toolbar-actions">
         <button
           class="nav-btn"
+          classList={{ active: !!activeTab()?.adBlockingEnabled, "nav-btn-muted": !activeTab()?.adBlockingEnabled }}
+          onClick={async () => {
+            const id = activeTabId();
+            if (!id) return;
+            await window.vessel.tabs.toggleAdBlock(id);
+          }}
+          data-tooltip={activeTab()?.adBlockingEnabled ? "Ad Block: On" : "Ad Block: Off"}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14">
+            <circle
+              cx="7"
+              cy="7"
+              r="5.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.2"
+            />
+            <Show when={!activeTab()?.adBlockingEnabled}>
+              <line x1="3" y1="3" x2="11" y2="11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+            </Show>
+          </svg>
+        </button>
+        <button
+          class="nav-btn"
           classList={{ active: !!activeTab()?.isReaderMode }}
           onClick={() => window.vessel.content.toggleReader()}
           data-tooltip="Reader Mode"

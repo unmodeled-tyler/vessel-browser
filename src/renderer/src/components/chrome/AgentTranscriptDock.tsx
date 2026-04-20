@@ -42,8 +42,31 @@ const AgentTranscriptDock: Component = () => {
     await window.vessel.settings.set("agentTranscriptMode", "off");
   };
 
+  const isSummary = createMemo(() => mode() === "summary");
+  const latestEntry = createMemo(() => {
+    const entries = visibleEntries();
+    return entries.length > 0 ? entries[0] : null;
+  });
+
   return (
-    <Show when={mode() === "full" && visibleEntries().length > 0}>
+    <Show when={mode() !== "off" && visibleEntries().length > 0}>
+      <Show when={isSummary()}>
+        <div class="agent-summary-hud">
+          <Show when={latestEntry()}>
+            {(entry) => (
+              <>
+                <Show when={hasStreamingEntry()}>
+                  <span class="agent-summary-live-dot" aria-hidden="true" />
+                </Show>
+                <span class="agent-summary-text">
+                  {entry().title || entry().kind}: {entry().text.length > 80 ? entry().text.slice(0, 77) + "..." : entry().text}
+                </span>
+              </>
+            )}
+          </Show>
+        </div>
+      </Show>
+      <Show when={!isSummary()}>
       <aside
         class="agent-transcript-dock"
         classList={{ collapsed: collapsed() }}
@@ -99,6 +122,7 @@ const AgentTranscriptDock: Component = () => {
           </div>
         </Show>
       </aside>
+      </Show>
     </Show>
   );
 };
