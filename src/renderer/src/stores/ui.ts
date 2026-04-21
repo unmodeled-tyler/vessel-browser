@@ -26,6 +26,10 @@ const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
 let lastIpcTime = 0;
 const IPC_THROTTLE_MS = 8; // ~120fps max for IPC (layout is already 60fps via RAF)
 
+function clampSidebarWidth(width: number): number {
+  return Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, Math.round(width)));
+}
+
 export function useUI() {
   return {
     sidebarOpen,
@@ -41,10 +45,7 @@ export function useUI() {
     },
     resizeSidebar: (width: number) => {
       // Clamp + update CSS immediately via Solid signal
-      const clamped = Math.max(
-        MIN_SIDEBAR,
-        Math.min(MAX_SIDEBAR, Math.round(width)),
-      );
+      const clamped = clampSidebarWidth(width);
       setSidebarWidth(clamped);
 
       // Throttle IPC to main process (layout updates independently at 60fps)
@@ -55,6 +56,9 @@ export function useUI() {
       }
     },
     commitResize: async () => {
+      const finalWidth = clampSidebarWidth(sidebarWidth());
+      lastIpcTime = performance.now();
+      await window.vessel.ui.resizeSidebar(finalWidth);
       await window.vessel.ui.commitSidebarResize();
     },
     toggleFocusMode: async () => {

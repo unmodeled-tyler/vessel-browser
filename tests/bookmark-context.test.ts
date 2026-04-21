@@ -9,6 +9,7 @@ import {
   collectBookmarkConversationCues,
   getBookmarkMemory,
 } from "../src/renderer/src/lib/bookmark-context";
+import { normalizeBookmarkMetadata } from "../src/main/bookmarks/metadata";
 
 class MemoryStorage {
   private readonly map = new Map<string, string>();
@@ -98,4 +99,43 @@ test("buildAndRememberBookmarkContext persists a lightweight site memory", () =>
   assert.ok(remembered);
   assert.match(remembered!.summary, /Newegg/);
   assert.match(draft, /Remembered site context:/);
+});
+
+test("normalizeBookmarkMetadata trims values and drops invalid entries", () => {
+  const metadata = normalizeBookmarkMetadata({
+    intent: "  expense reporting  ",
+    expectedContent: "  monthly receipts  ",
+    keyFields: [" receipt_id ", "", 42, "amount"],
+    agentHints: {
+      team: "  finance  ",
+      empty: "   ",
+      bad: 123,
+      "  ": "ignored",
+    },
+  });
+
+  assert.deepEqual(metadata, {
+    intent: "expense reporting",
+    expectedContent: "monthly receipts",
+    keyFields: ["receipt_id", "amount"],
+    agentHints: {
+      team: "finance",
+    },
+  });
+});
+
+test("normalizeBookmarkMetadata returns undefined fields when nothing usable is provided", () => {
+  const metadata = normalizeBookmarkMetadata({
+    intent: "   ",
+    expectedContent: null,
+    keyFields: ["   ", 7],
+    agentHints: [],
+  });
+
+  assert.deepEqual(metadata, {
+    intent: undefined,
+    expectedContent: undefined,
+    keyFields: undefined,
+    agentHints: undefined,
+  });
 });

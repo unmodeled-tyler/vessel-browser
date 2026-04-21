@@ -64,3 +64,5 @@ tests/navigation-regression.ts
 tests/navigation-regression.ts
 tests/fixtures/navigation-harness.ts
 tests/fixtures/navigation-harness.ts
+tests/structured-data.test.ts
+tests/bookmark-context.test.ts

@@ -2,6 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { extractStructuredDataFromJsonLd } from "../src/main/content/structured-data";
+import { inferPageSchema } from "../src/shared/page-schema";
+import type { PageContent } from "../src/shared/types";
+
+function makePageContent(overrides: Partial<PageContent> = {}): PageContent {
+  return {
+    title: "Example product",
+    content: "",
+    htmlContent: "",
+    byline: "",
+    excerpt: "",
+    url: "https://example.com/product/widget",
+    headings: [],
+    navigation: [],
+    interactiveElements: [],
+    forms: [],
+    viewport: {
+      width: 1440,
+      height: 900,
+      scrollX: 0,
+      scrollY: 0,
+    },
+    overlays: [],
+    dormantOverlays: [],
+    landmarks: [],
+    jsonLd: [],
+    microdata: [],
+    rdfa: [],
+    metaTags: {},
+    structuredData: [],
+    pageIssues: [],
+    ...overrides,
+  };
+}
 
 test("extractStructuredDataFromJsonLd falls back to generic page metadata", () => {
   const entities = extractStructuredDataFromJsonLd(
@@ -36,4 +69,34 @@ test("extractStructuredDataFromJsonLd falls back to generic page metadata", () =
     "Example article title",
     "How it works",
   ]);
+});
+
+test("inferPageSchema maps aggregate rating and offer price for products", () => {
+  const schema = inferPageSchema(
+    makePageContent({
+      structuredData: [
+        {
+          source: "json-ld",
+          types: ["Product"],
+          name: "Widget",
+          attributes: {
+            name: "Widget",
+            offers: {
+              price: "19.99",
+              priceCurrency: "USD",
+            },
+            aggregateRating: {
+              ratingValue: 4.8,
+              reviewCount: 127,
+            },
+          },
+        },
+      ],
+    }),
+  );
+
+  assert.equal(schema.pageType, "product");
+  assert.equal(schema.primaryEntity?.priceField, "19.99");
+  assert.equal(schema.primaryEntity?.ratingField, "4.8");
+  assert.equal(schema.primaryEntity?.reviewsField, "127");
 });
