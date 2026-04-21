@@ -78,7 +78,8 @@ import { registerWindowControlHandlers } from "./window-controls";
 
 let activeChatProvider: AIProvider | null = null;
 
-const VALID_APPROVAL_MODES = new Set(["auto", "confirm-dangerous", "manual"]);
+const VALID_APPROVAL_MODES = ["auto", "confirm-dangerous", "manual"] as const;
+type ValidApprovalMode = typeof VALID_APPROVAL_MODES[number];
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -95,10 +96,9 @@ export function registerIpcHandlers(
       : "https://vesselpremium.quantaintellect.com";
 
   const clearSidebarResizeRecoveryTimer = () => {
-    if (sidebarResizeRecoveryTimer) {
-      clearTimeout(sidebarResizeRecoveryTimer);
-      sidebarResizeRecoveryTimer = null;
-    }
+    if (!sidebarResizeRecoveryTimer) return;
+    clearTimeout(sidebarResizeRecoveryTimer);
+    sidebarResizeRecoveryTimer = null;
   };
 
   const restoreSidebarLayoutAfterResize = () => {
@@ -433,9 +433,17 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.SIDEBAR_RESIZE_START, () => {
     sidebarResizeActive = true;
     clearSidebarResizeRecoveryTimer();
-    // Expand sidebar view to full window width so pointer capture works across the drag range
+    // Position sidebar below chrome bar (like normal layout) but expand width for pointer capture
     const [width, height] = windowState.mainWindow.getContentSize();
-    windowState.sidebarView.setBounds({ x: 0, y: 0, width, height });
+    const chromeHeight = windowState.uiState.focusMode ? 0 : 110; // CHROME_HEIGHT
+    const sidebarWidth = windowState.uiState.sidebarWidth;
+    const resizeHandleOverlap = 6;
+    windowState.sidebarView.setBounds({
+      x: width - sidebarWidth - resizeHandleOverlap,
+      y: chromeHeight,
+      width: sidebarWidth + resizeHandleOverlap,
+      height: height - chromeHeight,
+    });
     scheduleSidebarResizeRecovery();
   });
 
@@ -444,7 +452,8 @@ export function registerIpcHandlers(
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
     resizeSidebarViews(windowState);
-    scheduleSidebarResizeRecovery();
+    // Note: recovery timer is NOT rescheduled here - only on RESIZE_START
+    // This prevents lag during rapid resize movements
     return clamped;
   });
 
@@ -518,7 +527,7 @@ export function registerIpcHandlers(
     Channels.AGENT_SET_APPROVAL_MODE,
     (_, mode: ApprovalMode): AgentRuntimeState => {
       assertString(mode, "mode");
-      if (!VALID_APPROVAL_MODES.has(mode)) {
+      if (!VALID_APPROVAL_MODES.includes(mode as ValidApprovalMode)) {
         throw new Error(`Invalid approval mode: ${mode}`);
       }
       trackApprovalModeChanged(mode);
@@ -567,9 +576,26 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     Channels.BOOKMARK_SAVE,
-    (_, url: string, title: string, folderId?: string, note?: string) => {
+    (
+      _,
+      url: string,
+      title: string,
+      folderId?: string,
+      note?: string,
+      intent?: string,
+      expectedContent?: string,
+      keyFields?: string[],
+      agentHints?: Record<string, string>,
+    ) => {
       trackBookmarkAction("save");
-      return bookmarkManager.saveBookmark(url, title, folderId, note);
+      return bookmarkManager.saveBookmarkWithPolicy(url, title, folderId, note, {
+        extra: {
+          intent: intent?.trim() || undefined,
+          expectedContent: expectedContent?.trim() || undefined,
+          keyFields,
+          agentHints,
+        },
+      });
     },
   );
 
@@ -709,6 +735,8 @@ export function registerIpcHandlers(
       }
     }
     findWiredWcId = wc.id;
+    if (wc.isDestroyed()) return;
+
     const listener = (_event: Electron.Event, result: Electron.Result) => {
       if (!chromeView.webContents.isDestroyed()) {
         chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
@@ -716,8 +744,10 @@ export function registerIpcHandlers(
     };
     findResultListener = listener;
     wc.on("found-in-page", listener);
+    // Capture wcId to avoid accessing destroyed wc.id in the handler
+    const capturedWcId = wc.id;
     wc.once("destroyed", () => {
-      if (findWiredWcId === wc.id) {
+      if (findWiredWcId === capturedWcId) {
         findWiredWcId = null;
         findResultListener = null;
       }
@@ -845,20 +875,23 @@ export function registerIpcHandlers(
     return state;
   });
 
+  const PREMIUM_TRACKABLE_STEPS = [
+    "chat_banner_viewed",
+    "chat_banner_clicked",
+    "settings_banner_viewed",
+    "settings_banner_clicked",
+    "welcome_banner_clicked",
+    "premium_gate_seen",
+    "premium_gate_clicked",
+    "iteration_limit_seen",
+    "iteration_limit_clicked",
+  ] as const;
+  type PremiumTrackableStep = typeof PREMIUM_TRACKABLE_STEPS[number];
+
   ipcMain.handle(Channels.PREMIUM_TRACK_CONTEXT, (_, step: string) => {
     assertString(step, "step");
-    if (
-      step === "chat_banner_viewed" ||
-      step === "chat_banner_clicked" ||
-      step === "settings_banner_viewed" ||
-      step === "settings_banner_clicked" ||
-      step === "welcome_banner_clicked" ||
-      step === "premium_gate_seen" ||
-      step === "premium_gate_clicked" ||
-      step === "iteration_limit_seen" ||
-      step === "iteration_limit_clicked"
-    ) {
-      trackPremiumFunnel(step);
+    if (PREMIUM_TRACKABLE_STEPS.includes(step as PremiumTrackableStep)) {
+      trackPremiumFunnel(step as PremiumTrackableStep);
     }
   });
 

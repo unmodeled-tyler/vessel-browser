@@ -379,11 +379,12 @@ export function resizeSidebarViews(state: WindowState): void {
   const resizeHandleOverlap = 6;
   const contentWidth = width - sidebarWidth;
 
+  // Position sidebar below chrome bar (same as layoutViews)
   sidebarView.setBounds({
     x: width - sidebarWidth - resizeHandleOverlap,
-    y: 0,
+    y: chromeHeight,
     width: sidebarWidth + resizeHandleOverlap,
-    height,
+    height: height - chromeHeight,
   });
 
   if (uiState.devtoolsPanelOpen) {

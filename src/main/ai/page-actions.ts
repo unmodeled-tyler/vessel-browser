@@ -4650,7 +4650,29 @@ export async function executeAction(
             source.title,
             target.folderId,
             note,
-            { onDuplicate },
+            {
+              onDuplicate,
+              extra: {
+                intent:
+                  typeof args.intent === "string" && args.intent.trim()
+                    ? args.intent.trim()
+                    : undefined,
+                expectedContent:
+                  typeof args.expectedContent === "string" &&
+                  args.expectedContent.trim()
+                    ? args.expectedContent.trim()
+                    : undefined,
+                keyFields: Array.isArray(args.keyFields)
+                  ? (args.keyFields.filter(
+                      (f): f is string => typeof f === "string",
+                    ))
+                  : undefined,
+                agentHints:
+                  args.agentHints && typeof args.agentHints === "object"
+                    ? args.agentHints
+                    : undefined,
+              },
+            },
           );
           if (result.status === "conflict" && result.existing) {
             return composeFolderAwareResponse(
@@ -4710,6 +4732,24 @@ export async function executeAction(
                   ? args.title.trim()
                   : undefined,
               note,
+              intent:
+                typeof args.intent === "string" && args.intent.trim()
+                  ? args.intent.trim()
+                  : undefined,
+              expectedContent:
+                typeof args.expectedContent === "string" &&
+                args.expectedContent.trim()
+                  ? args.expectedContent.trim()
+                  : undefined,
+              keyFields: Array.isArray(args.keyFields)
+                ? (args.keyFields.filter(
+                    (f): f is string => typeof f === "string",
+                  ))
+                : undefined,
+              agentHints:
+                args.agentHints && typeof args.agentHints === "object"
+                  ? args.agentHints
+                  : undefined,
             });
             if (!updated) {
               return `Bookmark ${existing.id} not found`;
@@ -4722,12 +4762,37 @@ export async function executeAction(
 
           if ("error" in source) return `Error: ${source.error}`;
 
-          const bookmark = bookmarkManager.saveBookmark(
+          const result = bookmarkManager.saveBookmarkWithPolicy(
             source.url,
             source.title,
             target.folderId,
             note,
+            {
+              onDuplicate: "update",
+              extra: {
+                intent:
+                  typeof args.intent === "string" && args.intent.trim()
+                    ? args.intent.trim()
+                    : undefined,
+                expectedContent:
+                  typeof args.expectedContent === "string" &&
+                  args.expectedContent.trim()
+                    ? args.expectedContent.trim()
+                    : undefined,
+                keyFields: Array.isArray(args.keyFields)
+                  ? (args.keyFields.filter(
+                      (f): f is string => typeof f === "string",
+                    ))
+                  : undefined,
+                agentHints:
+                  args.agentHints && typeof args.agentHints === "object"
+                    ? args.agentHints
+                    : undefined,
+              },
+            },
           );
+          const bookmark = result.bookmark;
+          if (!bookmark) return "Error: Bookmark save failed";
           return composeFolderAwareResponse(
             `Saved and organized "${bookmark.title}" (${bookmark.url}) into "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
             target.createdFolder,

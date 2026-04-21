@@ -348,10 +348,8 @@ export function startBackgroundRevalidation(): void {
 }
 
 export function stopBackgroundRevalidation(): void {
-  if (revalidationTimer) {
-    clearInterval(revalidationTimer);
-    revalidationTimer = null;
-  }
+  clearInterval(revalidationTimer);
+  revalidationTimer = null;
 }
 
 export function isPremiumActiveState(state: PremiumState): boolean {

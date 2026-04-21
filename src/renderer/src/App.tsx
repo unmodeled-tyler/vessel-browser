@@ -74,17 +74,20 @@ const App: Component = () => {
     }
   };
 
-  const applyTheme = async () => {
-    const s = await window.vessel.settings.get();
-    const theme = s.theme ?? "dark";
+  const applyTheme = (theme: string) => {
     document.documentElement.setAttribute("data-theme", theme);
     try {
       localStorage.setItem("vessel:theme", theme);
     } catch {}
   };
 
+  const loadAndApplyTheme = async () => {
+    const s = await window.vessel.settings.get();
+    applyTheme(s.theme ?? "dark");
+  };
+
   onMount(() => {
-    void applyTheme();
+    void loadAndApplyTheme();
 
     window.vessel.ui.rendererReady(view as "chrome" | "sidebar" | "devtools");
 
@@ -113,8 +116,8 @@ const App: Component = () => {
     );
 
     // Re-apply theme when settings change
-    const cleanupSettings = window.vessel.settings.onUpdate(() => {
-      void applyTheme();
+    const cleanupSettings = window.vessel.settings.onUpdate((settings) => {
+      applyTheme(settings.theme ?? "dark");
     });
 
     onCleanup(() => {

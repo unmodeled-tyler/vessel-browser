@@ -22,32 +22,9 @@ const [commandBarOpen, setCommandBarOpen] = createSignal(false);
 const [settingsOpen, setSettingsOpen] = createSignal(false);
 const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
 
-let pendingWidth: number | null = null;
-let resizeInFlight: Promise<void> | null = null;
-
-async function flushResize(): Promise<void> {
-  if (resizeInFlight) {
-    await resizeInFlight;
-    if (pendingWidth !== null) {
-      return flushResize();
-    }
-    return;
-  }
-
-  resizeInFlight = (async () => {
-    while (pendingWidth !== null) {
-      const nextWidth = pendingWidth;
-      pendingWidth = null;
-      await window.vessel.ui.resizeSidebar(nextWidth);
-    }
-  })();
-
-  try {
-    await resizeInFlight;
-  } finally {
-    resizeInFlight = null;
-  }
-}
+// Track last IPC time to throttle IPC calls (not layout updates)
+let lastIpcTime = 0;
+const IPC_THROTTLE_MS = 8; // ~120fps max for IPC (layout is already 60fps via RAF)
 
 export function useUI() {
   return {
@@ -63,18 +40,21 @@ export function useUI() {
       setSidebarWidth(result.width);
     },
     resizeSidebar: (width: number) => {
-      // Clamp + update CSS immediately.
+      // Clamp + update CSS immediately via Solid signal
       const clamped = Math.max(
         MIN_SIDEBAR,
         Math.min(MAX_SIDEBAR, Math.round(width)),
       );
       setSidebarWidth(clamped);
-      pendingWidth = clamped;
-      void flushResize();
+
+      // Throttle IPC to main process (layout updates independently at 60fps)
+      const now = performance.now();
+      if (now - lastIpcTime >= IPC_THROTTLE_MS) {
+        lastIpcTime = now;
+        void window.vessel.ui.resizeSidebar(clamped);
+      }
     },
     commitResize: async () => {
-      pendingWidth = sidebarWidth();
-      await flushResize();
       await window.vessel.ui.commitSidebarResize();
     },
     toggleFocusMode: async () => {

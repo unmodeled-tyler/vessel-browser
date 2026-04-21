@@ -8,32 +8,35 @@ let initialized = false;
 let initPromise: Promise<void> | null = null;
 let unsubscribeStateUpdate: (() => void) | null = null;
 
-function init() {
+async function doInit(): Promise<void> {
+  try {
+    if (unsubscribeStateUpdate) {
+      unsubscribeStateUpdate();
+      unsubscribeStateUpdate = null;
+    }
+    unsubscribeStateUpdate = window.vessel.tabs.onStateUpdate(
+      (newTabs: TabState[], newActiveId: string) => {
+        setTabs(newTabs);
+        setActiveTabId(newActiveId);
+      },
+    );
+    const initialState = await window.vessel.tabs.getState();
+    setTabs(initialState.tabs);
+    setActiveTabId(initialState.activeId);
+  } catch (error) {
+    initialized = false;
+    console.error("Failed to initialize tabs store", error);
+    throw error;
+  }
+}
+
+function init(): Promise<void> | undefined {
   if (initPromise) return initPromise;
   if (initialized) return;
   initialized = true;
-  initPromise = (async () => {
-    try {
-      if (unsubscribeStateUpdate) {
-        unsubscribeStateUpdate();
-        unsubscribeStateUpdate = null;
-      }
-      unsubscribeStateUpdate = window.vessel.tabs.onStateUpdate(
-        (newTabs: TabState[], newActiveId: string) => {
-          setTabs(newTabs);
-          setActiveTabId(newActiveId);
-        },
-      );
-      const initialState = await window.vessel.tabs.getState();
-      setTabs(initialState.tabs);
-      setActiveTabId(initialState.activeId);
-    } catch (error) {
-      initialized = false;
-      console.error("Failed to initialize tabs store", error);
-    } finally {
-      initPromise = null;
-    }
-  })();
+  initPromise = doInit().finally(() => {
+    initPromise = null;
+  });
   return initPromise;
 }
 

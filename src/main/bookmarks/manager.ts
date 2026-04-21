@@ -29,6 +29,8 @@ export type DuplicateBookmarkPolicy = "ask" | "update" | "duplicate";
 
 export interface SaveBookmarkOptions {
   onDuplicate?: DuplicateBookmarkPolicy;
+  /** Extra fields to set on the bookmark (intent, expectedContent, keyFields, agentHints, pageSchema) */
+  extra?: Partial<Bookmark>;
 }
 
 export interface SaveBookmarkResult {
@@ -203,6 +205,8 @@ export function searchBookmarks(query: string): Array<{
         note: bookmark.note,
         folder: folder?.name,
         folderSummary: folder?.summary,
+        intent: bookmark.intent,
+        expectedContent: bookmark.expectedContent,
       });
       return {
         bookmark,
@@ -314,6 +318,9 @@ export function saveBookmarkWithPolicy(
       if (note !== undefined) {
         bookmark.note = note.trim() || undefined;
       }
+      if (options?.extra) {
+        Object.assign(bookmark, options.extra);
+      }
       bookmark.savedAt = new Date().toISOString();
       save();
       emit();
@@ -331,6 +338,7 @@ export function saveBookmarkWithPolicy(
     note: note?.trim() || undefined,
     folderId: targetId,
     savedAt: new Date().toISOString(),
+    ...options?.extra,
   };
   state!.bookmarks.push(bookmark);
   save();
@@ -359,6 +367,11 @@ export function updateBookmark(
     title?: string;
     note?: string;
     folderId?: string;
+    intent?: string;
+    expectedContent?: string;
+    keyFields?: string[];
+    pageSchema?: import("../../shared/page-schema").PageSchema;
+    agentHints?: Record<string, string>;
   },
 ): Bookmark | null {
   load();
@@ -381,6 +394,26 @@ export function updateBookmark(
         ? (state!.folders.find((item) => item.id === updates.folderId)?.id ??
           UNSORTED_ID)
         : UNSORTED_ID;
+  }
+
+  if (typeof updates.intent === "string") {
+    bookmark.intent = updates.intent.trim() || undefined;
+  }
+
+  if (typeof updates.expectedContent === "string") {
+    bookmark.expectedContent = updates.expectedContent.trim() || undefined;
+  }
+
+  if (updates.keyFields !== undefined) {
+    bookmark.keyFields = updates.keyFields;
+  }
+
+  if (updates.pageSchema !== undefined) {
+    bookmark.pageSchema = updates.pageSchema;
+  }
+
+  if (updates.agentHints !== undefined) {
+    bookmark.agentHints = updates.agentHints;
   }
 
   save();

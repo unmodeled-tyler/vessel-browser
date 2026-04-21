@@ -4,6 +4,7 @@ import { detectPageIssues } from "./page-access-issues";
 import { extractStructuredDataFromJsonLd } from "./structured-data";
 import { trackExtractionFailed } from "../telemetry/posthog";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
+import { inferPageSchema } from "../../shared/page-schema";
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -721,157 +722,6 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
   })()
 `;
 
-const SAFE_EXTRACTION_SCRIPT = String.raw`
-  (function() {
-    function getCleanBodyText() {
-      var removed = [];
-      document
-        .querySelectorAll('.__vessel-highlight-label[data-vessel-highlight]')
-        .forEach(function(label) {
-          var parent = label.parentNode;
-          if (!parent) return;
-          removed.push({ label: label, parent: parent, nextSibling: label.nextSibling });
-          parent.removeChild(label);
-        });
-      try {
-        return document.body?.innerText || document.documentElement?.innerText || "";
-      } finally {
-        for (var i = removed.length - 1; i >= 0; i--) {
-          var entry = removed[i];
-          entry.parent.insertBefore(entry.label, entry.nextSibling);
-        }
-      }
-    }
-
-    function text(value) {
-      const trimmed = value == null ? "" : String(value).trim();
-      return trimmed || undefined;
-    }
-
-    function labelFor(el) {
-      const aria = text(el.getAttribute && el.getAttribute("aria-label"));
-      if (aria) return aria;
-      const placeholder = text(el.getAttribute && el.getAttribute("placeholder"));
-      if (placeholder) return placeholder;
-      if (el.id) {
-        const directLabel = document.querySelector('label[for="' + String(el.id).replace(/["\\]/g, "\\$&") + '"]');
-        const labelText = text(directLabel && directLabel.textContent);
-        if (labelText) return labelText;
-      }
-      return text(el.textContent);
-    }
-
-    let indexCounter = 0;
-    function nextIndex() {
-      indexCounter += 1;
-      return indexCounter;
-    }
-
-    const headings = Array.from(document.querySelectorAll("h1, h2, h3, h4, h5, h6"))
-      .map((el) => {
-        const headingText = text(el.textContent);
-        if (!headingText) return null;
-        return { level: Number.parseInt(el.tagName[1], 10), text: headingText };
-      })
-      .filter(Boolean);
-
-    const navigation = Array.from(document.querySelectorAll("nav a[href], [role='navigation'] a[href], header nav a[href]"))
-      .map((el) => {
-        const href = text(el.href || el.getAttribute("href"));
-        const linkText = text(el.textContent);
-        if (!href || href.startsWith("#") || !linkText) return null;
-        return {
-          type: "link",
-          text: linkText.slice(0, 100),
-          href: href.slice(0, 500),
-          context: "nav",
-          index: nextIndex(),
-          visible: true,
-          disabled: false,
-        };
-      })
-      .filter(Boolean);
-
-    const interactiveElements = [];
-    Array.from(document.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button']"))
-      .forEach((el) => {
-        interactiveElements.push({
-          type: "button",
-          text: text(el.textContent || el.value || el.getAttribute("aria-label") || "Button")?.slice(0, 100),
-          index: nextIndex(),
-          visible: true,
-          disabled: !!(el.hasAttribute && (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true")),
-        });
-      });
-
-    Array.from(document.querySelectorAll("a[href]")).forEach((el) => {
-      const href = text(el.href || el.getAttribute("href"));
-      const linkText = text(el.textContent);
-      if (!href || href.startsWith("#") || !linkText) return;
-      interactiveElements.push({
-        type: "link",
-        text: linkText.slice(0, 100),
-        href: href.slice(0, 500),
-        index: nextIndex(),
-        visible: true,
-        disabled: false,
-      });
-    });
-
-    Array.from(document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea"))
-      .forEach((el) => {
-        const tag = el.tagName.toLowerCase();
-        var elType = (el.type || "").toLowerCase();
-        interactiveElements.push({
-          type: tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
-          label: labelFor(el)?.slice(0, 100),
-          inputType: text(el.getAttribute && el.getAttribute("type")),
-          placeholder: text(el.getAttribute && el.getAttribute("placeholder")),
-          value: shouldExposeFieldValue(el) ? text(el.value) : undefined,
-          options: tag === "select"
-            ? Array.from(el.options || []).map(function(option) { return { label: text(option.textContent || option.value) || option.value, value: option.value }; }).filter(function(o) { return o.label || o.value; }).slice(0, 25)
-            : undefined,
-          required: !!(el.hasAttribute && el.hasAttribute("required")) || undefined,
-          index: nextIndex(),
-          visible: true,
-          disabled: !!(el.hasAttribute && (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true")),
-          name: el.name || undefined,
-          autocomplete: text(el.getAttribute && el.getAttribute("autocomplete")),
-          checked: (elType === "checkbox" || elType === "radio") ? !!el.checked : undefined,
-        });
-      });
-
-    const forms = Array.from(document.querySelectorAll("form")).map((form) => ({
-      id: text(form.id),
-      action: text(form.getAttribute("action")),
-      method: text(form.getAttribute("method")),
-      fields: [],
-    }));
-
-    return {
-      title: document.title || "",
-      content: getCleanBodyText(),
-      htmlContent: "",
-      byline: "",
-      excerpt: "",
-      url: window.location.href || "",
-      headings,
-      navigation,
-      interactiveElements,
-      forms,
-      viewport: {
-        width: window.innerWidth || document.documentElement?.clientWidth || 0,
-        height: window.innerHeight || document.documentElement?.clientHeight || 0,
-        scrollX: 0,
-        scrollY: 0,
-      },
-      overlays: [],
-      dormantOverlays: [],
-      landmarks: [],
-    };
-  })()
-`;
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -921,7 +771,7 @@ async function executeScript(
   } catch {
     return null;
   } finally {
-    if (typeof timer !== "undefined" && timer) {
+    if (timer) {
       clearTimeout(timer);
     }
   }
@@ -1052,10 +902,18 @@ function mergePageContent(
     metaTags: mergedBase.metaTags,
   });
 
+  const pageSchema = inferPageSchema({
+    ...mergedBase,
+    structuredData: normalizedStructuredData,
+    title: mergedBase.title || webContents.getTitle() || "",
+    url: mergedBase.url || webContents.getURL() || "",
+  });
+
   return {
     ...mergedBase,
     structuredData: normalizedStructuredData,
     pageIssues,
+    pageSchema,
     title: mergedBase.title || webContents.getTitle() || "",
     url: mergedBase.url || webContents.getURL() || "",
   };
@@ -1090,14 +948,13 @@ async function extractContentInner(
 ): Promise<PageContent> {
   await waitForDomReady(webContents);
 
-  const [preloadResult, directResult, safeResult] = await Promise.all([
+  const [preloadResult, directResult] = await Promise.all([
     executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT),
     executeScript(webContents, DIRECT_EXTRACTION_SCRIPT),
-    executeScript(webContents, SAFE_EXTRACTION_SCRIPT),
   ]);
 
   return mergePageContent(
-    [preloadResult, directResult, safeResult],
+    [preloadResult, directResult],
     webContents,
   );
 }
@@ -1176,5 +1033,6 @@ function normalizePageContent(value: unknown): PageContent {
       ? page.structuredData
       : [],
     pageIssues: Array.isArray(page.pageIssues) ? page.pageIssues : [],
+    pageSchema: page.pageSchema,
   };
 }

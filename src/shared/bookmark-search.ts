@@ -3,7 +3,9 @@ export type BookmarkSearchField =
   | "url"
   | "note"
   | "folder"
-  | "folderSummary";
+  | "folderSummary"
+  | "intent"
+  | "expectedContent";
 
 const WORD_NORMALIZATIONS: Array<[RegExp, string]> = [
   [/\bminutes?\b/g, "min"],
@@ -20,6 +22,8 @@ const FIELD_WEIGHTS: Record<BookmarkSearchField, number> = {
   folder: 3,
   folderSummary: 2,
   url: 1,
+  intent: 4,
+  expectedContent: 3,
 };
 
 export function normalizeBookmarkSearchText(value: string): string {
@@ -55,6 +59,8 @@ export function getBookmarkSearchMatch(args: {
   note?: string;
   folder?: string;
   folderSummary?: string;
+  intent?: string;
+  expectedContent?: string;
 }): { matchedFields: BookmarkSearchField[]; score: number } {
   const normalizedQuery = normalizeBookmarkSearchText(args.query);
   const tokens = bookmarkSearchTokens(args.query);
@@ -67,6 +73,8 @@ export function getBookmarkSearchMatch(args: {
     note: args.note,
     folder: args.folder,
     folderSummary: args.folderSummary,
+    intent: args.intent,
+    expectedContent: args.expectedContent,
   };
 
   for (const field of Object.keys(values) as BookmarkSearchField[]) {
