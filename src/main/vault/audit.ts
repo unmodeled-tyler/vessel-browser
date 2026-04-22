@@ -2,6 +2,7 @@ import { app } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type { VaultAuditEntry } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 
 /**
  * Append-only audit log for credential access.
@@ -10,6 +11,7 @@ import type { VaultAuditEntry } from "../../shared/types";
 
 const AUDIT_FILENAME = "vessel-vault-audit.jsonl";
 const MAX_ENTRIES = 1000;
+const logger = createLogger("VaultAudit");
 
 function getAuditPath(): string {
   return path.join(app.getPath("userData"), AUDIT_FILENAME);
@@ -21,7 +23,7 @@ export function appendAuditEntry(entry: VaultAuditEntry): void {
     fs.mkdirSync(path.dirname(auditPath), { recursive: true });
     fs.appendFileSync(auditPath, JSON.stringify(entry) + "\n");
   } catch (err) {
-    console.error("[Vessel Vault] Failed to write audit log:", err);
+    logger.error("Failed to write audit log:", err);
   }
 }
 
@@ -41,7 +43,7 @@ export function readAuditLog(limit = 100): VaultAuditEntry[] {
       .map((line) => JSON.parse(line) as VaultAuditEntry)
       .reverse();
   } catch (err) {
-    console.error("[Vessel Vault] Failed to read audit log:", err);
+    logger.error("Failed to read audit log:", err);
     return [];
   }
 }
@@ -53,6 +55,6 @@ export function clearAuditLog(): void {
       fs.unlinkSync(auditPath);
     }
   } catch (err) {
-    console.error("[Vessel Vault] Failed to clear audit log:", err);
+    logger.error("Failed to clear audit log:", err);
   }
 }

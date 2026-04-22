@@ -16,8 +16,11 @@ import {
   onAIStreamIdle,
   tryBeginAIStream,
 } from "../ai/stream-lock";
+import { createLogger } from "../../shared/logger";
 import type { WindowState } from "../window";
 import type { AgentRuntime } from "../agent/runtime";
+
+const logger = createLogger("Scheduler");
 
 let jobs: ScheduledJob[] = [];
 let pollInterval: ReturnType<typeof setInterval> | null = null;
@@ -49,7 +52,7 @@ function saveJobs(): void {
   try {
     fs.writeFileSync(getJobsPath(), JSON.stringify(jobs, null, 2), "utf-8");
   } catch (err) {
-    console.warn("[scheduler] Failed to save jobs:", err);
+    logger.warn("Failed to save jobs:", err);
   }
 }
 
@@ -211,7 +214,7 @@ async function fireJob(
 
   startActivity();
   if (!settings.chatProvider) {
-    console.warn(`[scheduler] Job "${job.kitName}" skipped — no chat provider configured`);
+    logger.warn(`Job "${job.kitName}" skipped — no chat provider configured`);
     appendActivity(
       "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
     );
@@ -220,7 +223,7 @@ async function fireJob(
   }
 
   if (process.env.VESSEL_DEBUG_SCHEDULER === '1' || process.env.VESSEL_DEBUG_SCHEDULER === 'true') {
-    console.log(`[scheduler] Firing scheduled job: ${job.kitName} (${job.id})`);
+    logger.info(`Firing scheduled job: ${job.kitName} (${job.id})`);
   }
   try {
     const provider = createProvider(settings.chatProvider);
@@ -286,7 +289,7 @@ function tick(windowState: WindowState, runtime: AgentRuntime): void {
 
     void fireJob(job, windowState, runtime)
       .catch((err) => {
-        console.warn("[scheduler] Unexpected error firing job:", err);
+        logger.warn("Unexpected error firing job:", err);
       })
       .finally(fireNext);
   };

@@ -1,11 +1,14 @@
 import { loadSettings, setSetting } from "../config/settings";
 import type { PremiumState, PremiumStatus } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 import {
   errorResult,
   getErrorMessage,
   okResult,
   type Result,
 } from "../../shared/result";
+
+const logger = createLogger("Premium");
 
 /**
  * Vessel Premium subscription manager.
@@ -187,7 +190,7 @@ export async function verifySubscription(
 
     if (!res.ok) {
       // Can't reach API — keep current state (offline grace handles expiry)
-      console.warn("[Vessel Premium] Verification API returned", res.status);
+      logger.warn("Verification API returned a non-OK status:", res.status);
       return current;
     }
 
@@ -205,7 +208,7 @@ export async function verifySubscription(
     setSetting("premium", updated);
     return updated;
   } catch (err) {
-    console.warn("[Vessel Premium] Verification failed:", err);
+    logger.warn("Verification failed:", err);
     return current;
   }
 }

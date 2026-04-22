@@ -1,5 +1,8 @@
 import { createSignal } from "solid-js";
 import type { AgentRuntimeState, ApprovalMode } from "../../../shared/types";
+import { createLogger } from "../../../shared/logger";
+
+const logger = createLogger("RuntimeStore");
 
 const DEFAULT_RUNTIME_STATE: AgentRuntimeState = {
   session: null,
@@ -36,7 +39,7 @@ async function init() {
       });
     } catch (error) {
       initialized = false;
-      console.error("Failed to initialize runtime store", error);
+      logger.error("Failed to initialize runtime store:", error);
     } finally {
       initPromise = null;
     }

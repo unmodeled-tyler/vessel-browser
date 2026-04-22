@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 import { randomUUID } from "node:crypto";
+import { createLogger } from "../../shared/logger";
 import type {
   ActionSource,
   AgentActionEntry,
@@ -33,6 +34,7 @@ const MAX_CHECKPOINTS = 20;
 const MAX_TRANSCRIPT_ENTRIES = 40;
 const MAX_TRANSCRIPT_TEXT_LENGTH = 8000;
 const PERSIST_DEBOUNCE_MS = 500;
+const logger = createLogger("Runtime");
 
 interface RuntimePersistenceShape {
   session: SessionSnapshot | null;
@@ -525,9 +527,7 @@ export class AgentRuntime {
           "utf-8",
         ),
       )
-      .catch((err) =>
-        console.error("[Vessel] Failed to persist runtime state:", err),
-      );
+      .catch((err) => logger.error("Failed to persist runtime state:", err));
   }
 
   private schedulePersist(): void {

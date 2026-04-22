@@ -1,6 +1,9 @@
 import { safeStorage } from "electron";
 import fs from "fs";
 import path from "path";
+import { createLogger } from "../../shared/logger";
+
+const logger = createLogger("JsonPersistence");
 
 interface LoadJsonFileOptions<T> {
   filePath: string;
@@ -96,9 +99,7 @@ export function createDebouncedJsonPersistence<T>({
             : { mode: 0o600 },
         ),
       )
-      .catch((err) =>
-        console.error(`[Vessel] Failed to save ${logLabel}:`, err),
-      );
+      .catch((err) => logger.error(`Failed to save ${logLabel}:`, err));
   };
 
   const schedule = (): void => {

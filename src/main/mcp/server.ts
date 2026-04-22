@@ -4509,7 +4509,7 @@ export function startMcpServer(
         message: `MCP server listening on ${endpoint}.`,
       });
       if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
-        console.log(`[Vessel MCP] Server listening on ${endpoint} (auth enabled)`);
+        logger.info(`Server listening on ${endpoint} (auth enabled)`);
       }
       if (mcpAuthToken) {
         writeMcpAuthFile(endpoint, mcpAuthToken);
@@ -4550,7 +4550,7 @@ export function stopMcpServer(): Promise<void> {
         message: "MCP server is stopped.",
       });
       if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
-        console.log("[Vessel MCP] Server stopped");
+        logger.info("Server stopped");
       }
       resolve();
     });

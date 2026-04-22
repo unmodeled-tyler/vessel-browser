@@ -13,6 +13,9 @@ import {
 import type { ProviderId } from '../../shared/types';
 import { isClickReadLoop, hasRecentDuplicateToolCall } from './tool-guardrails';
 import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from './content-limits';
+import { createLogger } from '../../shared/logger';
+
+const logger = createLogger("OpenAIProvider");
 
 function shouldDebugAgentLoop(): boolean {
   const value = process.env.VESSEL_DEBUG_AGENT_LOOP;
@@ -649,9 +652,9 @@ export function resolveToolCallName(
 function logAgentLoopDebug(payload: Record<string, unknown>): void {
   if (!shouldDebugAgentLoop()) return;
   try {
-    console.log(`[Vessel agent-debug] ${JSON.stringify(payload)}`);
+    logger.info(`[agent-debug] ${JSON.stringify(payload)}`);
   } catch (err) {
-    console.warn('[Vessel agent-debug] Failed to serialize debug payload:', err);
+    logger.warn("Failed to serialize debug payload:", err);
   }
 }
 

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
+import { createLogger } from "../../shared/logger";
 
 interface ToolCallEntry {
   ts: string;
@@ -23,6 +24,8 @@ interface TraceEntry {
   status: "ok" | "error";
   error?: string;
 }
+
+const logger = createLogger("TraceLogger");
 
 function getTracesDir(): string {
   return path.join(app.getPath("userData"), "agent-traces");
@@ -57,7 +60,7 @@ async function appendTrace(entry: TraceEntry): Promise<void> {
     }
     await fs.promises.appendFile(file, JSON.stringify(entry) + "\n", "utf-8");
   } catch (err) {
-    console.warn("[trace-logger] Failed to write trace:", err);
+    logger.warn("Failed to write trace:", err);
   }
 }
 

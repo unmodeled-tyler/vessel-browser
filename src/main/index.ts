@@ -33,6 +33,9 @@ import { createSplashWindow, closeSplash } from "./splash";
 import { getHighlightCount } from "./highlights/inject";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
 import * as highlightsManager from "./highlights/manager";
+import { createLogger } from "../shared/logger";
+
+const logger = createLogger("Bootstrap");
 import * as autofillManager from "./autofill/manager";
 import * as pageSnapshots from "./content/page-snapshots";
 
@@ -179,7 +182,7 @@ async function bootstrap(): Promise<void> {
 
   // Safety valve: never leave both the splash and the main window hidden.
   const splashTimeout = setTimeout(() => {
-    console.warn("[bootstrap] Renderer did not finish loading before splash timeout");
+    logger.warn("Renderer did not finish loading before splash timeout");
     revealMainWindow();
   }, 8000);
 
@@ -250,8 +253,8 @@ async function bootstrap(): Promise<void> {
     "did-fail-load",
     (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (!isMainFrame) return;
-      console.error(
-        "[bootstrap] Chrome renderer failed to load:",
+      logger.error(
+        "Chrome renderer failed to load:",
         errorCode,
         errorDescription,
         validatedURL,
@@ -267,7 +270,7 @@ async function bootstrap(): Promise<void> {
   // Start MCP server in parallel — it doesn't need to be ready before the
   // renderer shows, and awaiting it was blocking did-finish-load registration.
   startMcpServer(tabManager, runtime, settings.mcpPort).catch((err: unknown) => {
-    console.error("[bootstrap] MCP server failed to start:", err);
+    logger.error("MCP server failed to start:", err);
   });
 }
 
@@ -275,20 +278,20 @@ async function bootstrap(): Promise<void> {
 
 /** Prevent silent crashes — log and exit gracefully. */
 process.on("uncaughtException", (error: Error) => {
-  console.error("[Vessel] Uncaught exception:", error.message, error.stack);
+  logger.error("Uncaught exception:", error.message, error.stack);
   app.quit();
 });
 
 /** Handle rejected Promises that bubble up without a .catch() */
 process.on("unhandledRejection", (reason: unknown) => {
-  console.error(
-    "[Vessel] Unhandled rejection:",
+  logger.error(
+    "Unhandled rejection:",
     reason instanceof Error ? reason.message : reason,
   );
 });
 
 app.whenReady().then(bootstrap).catch((error) => {
-  console.error("[Vessel] Failed to bootstrap application:", error);
+  logger.error("Failed to bootstrap application:", error);
   app.quit();
 });
 

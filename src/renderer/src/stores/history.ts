@@ -1,5 +1,8 @@
 import { createSignal } from "solid-js";
 import type { HistoryState, HistoryEntry } from "../../../shared/types";
+import { createLogger } from "../../../shared/logger";
+
+const logger = createLogger("HistoryStore");
 
 const INITIAL: HistoryState = { entries: [] };
 
@@ -19,7 +22,7 @@ async function init() {
       window.vessel.history.onUpdate((s) => setHistoryState(s));
     } catch (error) {
       initialized = false;
-      console.error("Failed to initialize history store", error);
+      logger.error("Failed to initialize history store:", error);
     } finally {
       initPromise = null;
     }
