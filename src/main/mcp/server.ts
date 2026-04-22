@@ -8,7 +8,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import type { PageContent } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
-import { errorResult } from "../../shared/result";
+import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import {
@@ -201,6 +201,14 @@ function asTextResponse(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
+function asErrorTextResponse(message: string) {
+  return asTextResponse(`Error: ${message}`);
+}
+
+function asNoActiveTabResponse() {
+  return asErrorTextResponse("No active tab");
+}
+
 
 function asPromptResponse(text: string) {
   return {
@@ -349,9 +357,7 @@ async function withAction(
     const flowCtx = runtime.getFlowContext();
     return asTextResponse(result + stateInfo + flowCtx);
   } catch (error) {
-    return asTextResponse(
-      `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    return asErrorTextResponse(getErrorMessage(error));
   }
 }
 
@@ -620,7 +626,7 @@ function registerTools(
     },
     async () => {
       const activeTab = getActiveTabSummary(tabManager);
-      if (!activeTab) return asTextResponse("Error: No active tab");
+      if (!activeTab) return asNoActiveTabResponse();
       return asTextResponse(JSON.stringify(activeTab, null, 2));
     },
   );
@@ -752,7 +758,7 @@ function registerTools(
     },
     async ({ mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
@@ -790,7 +796,7 @@ function registerTools(
     },
     async ({ mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
@@ -847,7 +853,7 @@ function registerTools(
     },
     async ({ url, postBody }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       const preCheck = await validateLinkDestination(url);
       if (preCheck.status === "dead") {
         return asTextResponse(
@@ -906,7 +912,7 @@ function registerTools(
     async ({ enabled, tabId, match, reload }) => {
       const activeTab = tabManager.getActiveTab();
       if (!activeTab && !tabId && !match) {
-        return asTextResponse("Error: No active tab");
+        return asNoActiveTabResponse();
       }
 
       return withAction(
@@ -959,7 +965,7 @@ function registerTools(
     },
     async ({ type }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
@@ -1029,7 +1035,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "go_back", {}, async () => {
         if (!tab.canGoBack()) {
           return "No previous page in history";
@@ -1053,7 +1059,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "go_forward", {}, async () => {
         if (!tab.canGoForward()) {
           return "No forward page in history";
@@ -1077,7 +1083,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "reload", {}, async () => {
         tabManager.reloadTab(tabManager.getActiveTabId()!);
         await waitForLoad(tab.view.webContents);
@@ -1102,7 +1108,7 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1141,7 +1147,7 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1175,7 +1181,7 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1209,11 +1215,11 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       const wc = tab.view.webContents;
       const resolvedSelector = await resolveSelector(wc, index, selector);
       if (!resolvedSelector) {
-        return asTextResponse("Error: No index or selector provided");
+        return asErrorTextResponse("No index or selector provided");
       }
       const result = await wc.executeJavaScript(`
         (function() {
@@ -1263,7 +1269,7 @@ function registerTools(
         );
       }
       if ("error" in result && typeof result.error === "string") {
-        return asTextResponse(`Error: ${result.error}`);
+        return asErrorTextResponse(result.error);
       }
       const parts: string[] = [`<${result.tag}>`];
       if (
@@ -1306,7 +1312,7 @@ function registerTools(
     },
     async ({ index, selector, text, mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1353,7 +1359,7 @@ function registerTools(
     },
     async ({ index, selector, text, mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1394,7 +1400,7 @@ function registerTools(
     },
     async ({ index, selector, label, value }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1425,7 +1431,7 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1450,7 +1456,7 @@ function registerTools(
     },
     async ({ key, index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1488,7 +1494,7 @@ function registerTools(
     },
     async ({ direction, amount }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1513,7 +1519,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "dismiss_popup", {}, async () =>
         dismissPopup(tab.view.webContents),
       );
@@ -1537,7 +1543,7 @@ function registerTools(
     },
     async ({ strategy }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1571,7 +1577,7 @@ function registerTools(
     },
     async ({ text, selector, timeoutMs }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -1795,7 +1801,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const bounds = tab.view.getBounds();
@@ -1883,7 +1889,7 @@ function registerTools(
     },
     async ({ index, selector, text, label, durationMs, persist, color }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       const normalizedText = normalizeLooseString(text);
       return withAction(
         runtime,
@@ -1942,7 +1948,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3059,7 +3065,7 @@ function registerTools(
     },
     async ({ title, folder, summary, note, tags }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3388,7 +3394,7 @@ function registerTools(
     },
     async ({ fields, submit }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3462,7 +3468,7 @@ function registerTools(
       submit_selector,
     }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3561,7 +3567,7 @@ function registerTools(
     },
     async ({ query, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       // Guard: reject queries that look like button/UI labels, not search terms
       const qLower = query.toLowerCase().trim();
@@ -3666,7 +3672,7 @@ function registerTools(
     },
     async ({ direction, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3731,7 +3737,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3795,7 +3801,7 @@ function registerTools(
     },
     async ({ index, selector: rawSelector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3856,7 +3862,7 @@ function registerTools(
     },
     async ({ index, selector: rawSelector, position }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3929,7 +3935,7 @@ function registerTools(
     },
     async ({ timeoutMs }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -4001,12 +4007,12 @@ function registerTools(
       let targetDomain = domain;
       if (!targetDomain) {
         const tab = tabManager.getActiveTab();
-        if (!tab) return asTextResponse("Error: No active tab and no domain specified");
+        if (!tab) return asErrorTextResponse("No active tab and no domain specified");
         try {
           targetDomain = new URL(tab.state.url).hostname;
         } catch (err) {
           logger.warn("Failed to parse active tab URL for vault_status:", err);
-          return asTextResponse("Error: Could not parse active tab URL");
+          return asErrorTextResponse("Could not parse active tab URL");
         }
       }
 
@@ -4086,7 +4092,7 @@ function registerTools(
       submit_index,
     }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       const wc = tab.view.webContents;
       let hostname: string;
@@ -4094,7 +4100,7 @@ function registerTools(
         hostname = new URL(tab.state.url).hostname;
       } catch (err) {
         logger.warn("Failed to parse active tab URL for vault_login:", err);
-        return asTextResponse("Error: Could not parse active tab URL");
+        return asErrorTextResponse("Could not parse active tab URL");
       }
 
       // Find matching credentials
@@ -4142,7 +4148,7 @@ function registerTools(
       // Get raw credentials (NEVER sent to AI — used only for form fill)
       const creds = vaultManager.getCredential(match.id);
       if (!creds) {
-        return asTextResponse("Error: Credential not found in vault");
+        return asErrorTextResponse("Credential not found in vault");
       }
 
       // Fill username field
@@ -4218,7 +4224,7 @@ function registerTools(
     },
     async ({ credential_label, code_index, submit_after, submit_index }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       const wc = tab.view.webContents;
       let hostname: string;
@@ -4226,7 +4232,7 @@ function registerTools(
         hostname = new URL(tab.state.url).hostname;
       } catch (err) {
         logger.warn("Failed to parse active tab URL for vault_totp:", err);
-        return asTextResponse("Error: Could not parse active tab URL");
+        return asErrorTextResponse("Could not parse active tab URL");
       }
 
       const matches = vaultManager.findEntriesForDomain(`https://${hostname}`);
