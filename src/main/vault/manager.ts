@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { VaultEntry } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 
 /**
  * Agent Credential Vault — encrypted credential storage for agent automation.
@@ -25,6 +26,7 @@ const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
 let cachedEntries: VaultEntry[] | null = null;
+const logger = createLogger("Vault");
 
 // --- Path helpers ---
 
@@ -119,7 +121,7 @@ function loadVault(): VaultEntry[] {
     cachedEntries = JSON.parse(json) as VaultEntry[];
     return cachedEntries;
   } catch (err) {
-    console.error("[Vessel Vault] Failed to load vault:", err);
+    logger.error("Failed to load vault:", err);
     throw new Error(
       "Could not unlock the Agent Credential Vault. Check that OS secret storage is available and that the stored vault key can be decrypted.",
     );

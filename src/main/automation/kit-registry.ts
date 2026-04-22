@@ -7,6 +7,10 @@ import {
   VALID_KIT_CATEGORIES,
 } from "../../shared/automation-kit-constants";
 import type { AutomationKit, KitCategory } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
+import { errorResult, okResult, type Result } from "../../shared/result";
+
+const logger = createLogger("KitRegistry");
 
 function getUserKitsDir(): string {
   return path.join(app.getPath("userData"), "kits");
@@ -59,20 +63,16 @@ export function getInstalledKits(): AutomationKit[] {
       if (isValidKit(parsed)) {
         kits.push(parsed);
       } else {
-        console.warn(`[kit-registry] Skipping invalid kit file: ${file}`);
+        logger.warn(`Skipping invalid kit file: ${file}`);
       }
-    } catch {
-      console.warn(`[kit-registry] Failed to read kit file: ${file}`);
+    } catch (err) {
+      logger.warn(`Failed to read kit file: ${file}`, err);
     }
   }
   return kits;
 }
 
-export async function installKitFromFile(): Promise<{
-  ok: boolean;
-  kit?: AutomationKit;
-  error?: string;
-}> {
+export async function installKitFromFile(): Promise<Result<{ kit: AutomationKit }>> {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     title: "Install Automation Kit",
     filters: [{ name: "Automation Kit", extensions: ["kit.json", "json"] }],
@@ -80,81 +80,76 @@ export async function installKitFromFile(): Promise<{
   });
 
   if (canceled || filePaths.length === 0) {
-    return { ok: false, error: "canceled" };
+    return errorResult("canceled");
   }
 
   let raw: string;
   try {
     raw = fs.readFileSync(filePaths[0], "utf-8");
   } catch {
-    return { ok: false, error: "Could not read the selected file." };
+    return errorResult("Could not read the selected file.");
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { ok: false, error: "File is not valid JSON." };
+    return errorResult("File is not valid JSON.");
   }
 
   if (!isValidKit(parsed)) {
-    return {
-      ok: false,
-      error:
-        "File is not a valid automation kit. Required fields: id, name, description, icon, inputs, promptTemplate.",
-    };
+    return errorResult(
+      "File is not a valid automation kit. Required fields: id, name, description, icon, inputs, promptTemplate.",
+    );
   }
 
   if (BUNDLED_KIT_IDS.has(parsed.id)) {
-    return {
-      ok: false,
-      error: `Kit id "${parsed.id}" conflicts with a built-in kit and cannot be overwritten.`,
-    };
+    return errorResult(
+      `Kit id "${parsed.id}" conflicts with a built-in kit and cannot be overwritten.`,
+    );
   }
 
   ensureKitsDir();
   const dest = getKitFilePath(parsed.id);
   if (!dest) {
-    return { ok: false, error: "Kit id contains unsupported characters." };
+    return errorResult("Kit id contains unsupported characters.");
   }
   try {
     fs.writeFileSync(dest, JSON.stringify(parsed, null, 2), "utf-8");
   } catch {
-    return { ok: false, error: "Failed to save the kit file." };
+    return errorResult("Failed to save the kit file.");
   }
 
-  return { ok: true, kit: parsed };
+  return okResult({ kit: parsed });
 }
 
 export function uninstallKit(
   id: string,
   scheduledKitIds?: ReadonlySet<string>,
-): { ok: boolean; error?: string } {
+): Result {
   if (BUNDLED_KIT_IDS.has(id)) {
-    return { ok: false, error: "Built-in kits cannot be removed." };
+    return errorResult("Built-in kits cannot be removed.");
   }
 
   if (scheduledKitIds?.has(id)) {
-    return {
-      ok: false,
-      error:
-        "This kit has active scheduled jobs. Delete or reassign them first.",
-    };
+    return errorResult(
+      "This kit has active scheduled jobs. Delete or reassign them first.",
+    );
   }
 
   ensureKitsDir();
   const target = getKitFilePath(id);
   if (!target) {
-    return { ok: false, error: "Kit id contains unsupported characters." };
+    return errorResult("Kit id contains unsupported characters.");
   }
   if (!fs.existsSync(target)) {
-    return { ok: false, error: "Kit not found." };
+    return errorResult("Kit not found.");
   }
 
   try {
     fs.unlinkSync(target);
-    return { ok: true };
+    return okResult();
   } catch {
-    return { ok: false, error: "Failed to remove the kit file." };
+    return errorResult("Failed to remove the kit file.");
   }
 }

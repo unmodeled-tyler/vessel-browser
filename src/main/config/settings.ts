@@ -6,6 +6,7 @@ import type {
   RuntimeHealthIssue,
   VesselSettings,
 } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 
 const defaults: VesselSettings = {
   defaultUrl: "https://start.duckduckgo.com",
@@ -34,6 +35,7 @@ const defaults: VesselSettings = {
 
 const SAVE_DEBOUNCE_MS = 150;
 const CHAT_PROVIDER_SECRET_FILENAME = "vessel-chat-provider-secret";
+const logger = createLogger("Settings");
 
 /** Allowlist of setting keys accepted via IPC. */
 export const SETTABLE_KEYS: ReadonlySet<string> = new Set(Object.keys(defaults));
@@ -239,7 +241,7 @@ function persistNow(): Promise<void> {
         JSON.stringify(buildPersistedSettings(settings!), null, 2),
       ),
     )
-    .catch((err) => console.error("[Vessel] Failed to save settings:", err));
+    .catch((err) => logger.error("Failed to save settings:", err));
 }
 
 function saveSettings(): void {

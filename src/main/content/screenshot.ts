@@ -1,16 +1,21 @@
 import type { WebContents } from "electron";
+import { createLogger } from "../../shared/logger";
+import {
+  errorResult,
+  getErrorMessage,
+  okResult,
+  type Result,
+} from "../../shared/result";
 
-export interface ScreenshotResult {
-  ok: true;
+const logger = createLogger("Screenshot");
+
+type ScreenshotPayload = {
   base64: string;
   width: number;
   height: number;
-}
+};
 
-export interface ScreenshotError {
-  ok: false;
-  error: string;
-}
+export type ScreenshotResult = Result<ScreenshotPayload>;
 
 /**
  * Capture a screenshot of the visible page area.
@@ -19,7 +24,7 @@ export interface ScreenshotError {
  */
 export async function captureScreenshot(
   wc: WebContents,
-): Promise<ScreenshotResult | ScreenshotError> {
+): Promise<ScreenshotResult> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
     try {
@@ -28,13 +33,20 @@ export async function captureScreenshot(
         const size = image.getSize();
         const base64 = image.toPNG().toString("base64");
         if (base64) {
-          return { ok: true, base64, width: size.width, height: size.height };
+          return okResult({
+            base64,
+            width: size.width,
+            height: size.height,
+          });
         }
       }
-    } catch {
-      // capturePage can fail if the webContents is destroyed mid-capture
+    } catch (err) {
+      logger.debug(
+        `capturePage attempt ${attempt + 1} failed; retrying if attempts remain.`,
+        getErrorMessage(err),
+      );
     }
   }
 
-  return { ok: false, error: "Page image was empty after 3 attempts" };
+  return errorResult("Page image was empty after 3 attempts");
 }

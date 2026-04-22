@@ -1,5 +1,8 @@
 import { globalShortcut } from "electron";
+import { createLogger } from "../../shared/logger";
 import type { TabManager } from "../tabs/tab-manager";
+
+const logger = createLogger("Shortcuts");
 
 /**
  * Registers the Ctrl+H global shortcut for highlight capture.
@@ -17,7 +20,7 @@ export function registerHighlightShortcut(
       tabManager.captureHighlightFromActiveTab();
     });
     if (!success) {
-      console.warn("[Vessel] Failed to register Ctrl+H shortcut");
+      logger.warn("Failed to register Ctrl+H shortcut");
     }
   };
 
