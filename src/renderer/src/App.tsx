@@ -91,6 +91,14 @@ const App: Component = () => {
 
     window.vessel.ui.rendererReady(view as "chrome" | "sidebar" | "devtools");
 
+    const cleanupSettings = window.vessel.settings.onUpdate((settings) => {
+      applyTheme(settings.theme ?? "dark");
+    });
+
+    onCleanup(() => {
+      cleanupSettings();
+    });
+
     if (view !== "chrome") return;
 
     const cleanupKeys = setupKeybindings({
@@ -115,15 +123,9 @@ const App: Component = () => {
       showHighlightResult,
     );
 
-    // Re-apply theme when settings change
-    const cleanupSettings = window.vessel.settings.onUpdate((settings) => {
-      applyTheme(settings.theme ?? "dark");
-    });
-
     onCleanup(() => {
       cleanupKeys();
       cleanupCapture();
-      cleanupSettings();
     });
   });
 

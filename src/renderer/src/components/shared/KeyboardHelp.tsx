@@ -57,9 +57,9 @@ const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
           border-radius: 14px;
           padding: 24px;
           box-shadow:
-            0 4px 24px rgba(0, 0, 0, 0.2),
-            0 24px 64px rgba(0, 0, 0, 0.3),
-            inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            0 4px 24px var(--shadow-color),
+            0 24px 64px var(--shadow-color-strong),
+            inset 0 1px 0 var(--inset-highlight);
           animation: command-bar-enter 350ms var(--ease-out-expo) both;
         }
         .command-bar-overlay.closing .keyboard-help {
@@ -84,8 +84,8 @@ const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
           padding: 0;
         }
         .keyboard-help-close kbd {
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: var(--kbd-bg);
+          border: 1px solid var(--kbd-border);
           padding: 2px 8px;
           border-radius: 4px;
           font-size: 11px;
@@ -93,7 +93,7 @@ const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
           font-family: var(--font-ui);
         }
         .keyboard-help-close:hover kbd {
-          background: rgba(255, 255, 255, 0.1);
+          background: var(--surface-hover);
           color: var(--text-secondary);
         }
         .keyboard-help-grid {
@@ -116,11 +116,11 @@ const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
           font-size: 11px;
           font-family: var(--font-mono);
           font-weight: 500;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: var(--kbd-bg);
+          border: 1px solid var(--kbd-border);
           border-radius: 4px;
           color: var(--text-primary);
-          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+          box-shadow: 0 1px 2px var(--shadow-color);
         }
         .keyboard-help-plus {
           font-size: 10px;

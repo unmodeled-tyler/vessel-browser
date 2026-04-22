@@ -64,11 +64,21 @@ import { buildCompactScopedContext } from "./compact-context";
 import { MAX_AGENT_DEBUG_CONTENT_LENGTH } from "./content-limits";
 import type { AgentToolProfile } from "./tool-profile";
 import { formatCompactToolResult } from "./compact-tool-result";
+import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 
 export interface ActionContext {
   tabManager: TabManager;
   runtime: AgentRuntime;
   toolProfile?: AgentToolProfile;
+}
+
+function getBookmarkMetadataFromArgs(args: Record<string, unknown>) {
+  return normalizeBookmarkMetadata({
+    intent: args.intent,
+    expectedContent: args.expectedContent,
+    keyFields: args.keyFields,
+    agentHints: args.agentHints,
+  });
 }
 
 export interface FillFormFieldInput {
@@ -4652,26 +4662,7 @@ export async function executeAction(
             note,
             {
               onDuplicate,
-              extra: {
-                intent:
-                  typeof args.intent === "string" && args.intent.trim()
-                    ? args.intent.trim()
-                    : undefined,
-                expectedContent:
-                  typeof args.expectedContent === "string" &&
-                  args.expectedContent.trim()
-                    ? args.expectedContent.trim()
-                    : undefined,
-                keyFields: Array.isArray(args.keyFields)
-                  ? (args.keyFields.filter(
-                      (f): f is string => typeof f === "string",
-                    ))
-                  : undefined,
-                agentHints:
-                  args.agentHints && typeof args.agentHints === "object"
-                    ? args.agentHints
-                    : undefined,
-              },
+              extra: getBookmarkMetadataFromArgs(args),
             },
           );
           if (result.status === "conflict" && result.existing) {
@@ -4732,24 +4723,7 @@ export async function executeAction(
                   ? args.title.trim()
                   : undefined,
               note,
-              intent:
-                typeof args.intent === "string" && args.intent.trim()
-                  ? args.intent.trim()
-                  : undefined,
-              expectedContent:
-                typeof args.expectedContent === "string" &&
-                args.expectedContent.trim()
-                  ? args.expectedContent.trim()
-                  : undefined,
-              keyFields: Array.isArray(args.keyFields)
-                ? (args.keyFields.filter(
-                    (f): f is string => typeof f === "string",
-                  ))
-                : undefined,
-              agentHints:
-                args.agentHints && typeof args.agentHints === "object"
-                  ? args.agentHints
-                  : undefined,
+              ...getBookmarkMetadataFromArgs(args),
             });
             if (!updated) {
               return `Bookmark ${existing.id} not found`;
@@ -4769,26 +4743,7 @@ export async function executeAction(
             note,
             {
               onDuplicate: "update",
-              extra: {
-                intent:
-                  typeof args.intent === "string" && args.intent.trim()
-                    ? args.intent.trim()
-                    : undefined,
-                expectedContent:
-                  typeof args.expectedContent === "string" &&
-                  args.expectedContent.trim()
-                    ? args.expectedContent.trim()
-                    : undefined,
-                keyFields: Array.isArray(args.keyFields)
-                  ? (args.keyFields.filter(
-                      (f): f is string => typeof f === "string",
-                    ))
-                  : undefined,
-                agentHints:
-                  args.agentHints && typeof args.agentHints === "object"
-                    ? args.agentHints
-                    : undefined,
-              },
+              extra: getBookmarkMetadataFromArgs(args),
             },
           );
           const bookmark = result.bookmark;

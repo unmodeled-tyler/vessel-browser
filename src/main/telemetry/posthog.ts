@@ -73,6 +73,7 @@ let sessionStartedAt: number | null = null;
 
 function isEnabled(): boolean {
   if (POSTHOG_API_KEY === "YOUR_POSTHOG_KEY_HERE") return false;
+  if (process.env.VESSEL_DEV === "1") return false;
   return loadSettings().telemetryEnabled !== false;
 }
 

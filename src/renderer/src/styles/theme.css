@@ -1,4 +1,6 @@
 :root {
+  color-scheme: dark;
+
   /* Base palette — warm dark, not pure black */
   --bg-primary: #1a1a1e;
   --bg-secondary: #222226;
@@ -46,9 +48,51 @@
   --font-ui: 'Inter', -apple-system, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
   --font-reader: Charter, Georgia, serif;
+
+  /* ═══════════════════════════════════════
+     Semantic surfaces, shadows & overlays
+     ═══════════════════════════════════════ */
+  --overlay-bg: rgba(0, 0, 0, 0.55);
+  --shadow-color: rgba(0, 0, 0, 0.2);
+  --shadow-color-strong: rgba(0, 0, 0, 0.3);
+  --inset-highlight: rgba(255, 255, 255, 0.04);
+
+  --glass-gradient-start: rgba(50, 50, 54, 0.97);
+  --glass-gradient-end: rgba(34, 34, 38, 0.97);
+
+  --surface-hover: rgba(255, 255, 255, 0.04);
+  --surface-active: rgba(255, 255, 255, 0.07);
+  --surface-elevated: rgba(0, 0, 0, 0.14);
+  --surface-glass: rgba(255, 255, 255, 0.02);
+
+  --status-success: #84d19a;
+  --status-success-bg: rgba(132, 209, 154, 0.12);
+  --status-error: #ff8e8e;
+  --status-error-bg: rgba(255, 142, 142, 0.12);
+  --status-warning: #ffb074;
+  --status-warning-bg: rgba(255, 161, 103, 0.12);
+  --status-info: #22c55e;
+  --status-info-bg: rgba(34, 197, 94, 0.12);
+
+  --kbd-bg: rgba(255, 255, 255, 0.06);
+  --kbd-border: rgba(255, 255, 255, 0.08);
+  --kbd-shadow: rgba(0, 0, 0, 0.15);
+  --code-bg: rgba(255, 255, 255, 0.06);
+  --code-block-bg: rgba(0, 0, 0, 0.22);
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.08);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.14);
+
+  --border-glass: rgba(255, 255, 255, 0.04);
+  --border-focus: rgba(196, 160, 90, 0.45);
+
+  --button-primary-fg: #1a1a1e;
+  --button-primary-hover-bg: #d4b06a;
 }
 
 [data-theme="light"] {
+  color-scheme: light;
+
   --bg-primary: #f8f7f5;
   --bg-secondary: #efeeec;
   --bg-tertiary: #e5e4e2;
@@ -68,4 +112,42 @@
   --loading-bar: #8a6d2f;
   --error: #b04040;
   --success: #408040;
+
+  /* Semantic surfaces, shadows & overlays */
+  --overlay-bg: rgba(0, 0, 0, 0.25);
+  --shadow-color: rgba(0, 0, 0, 0.12);
+  --shadow-color-strong: rgba(0, 0, 0, 0.18);
+  --inset-highlight: rgba(255, 255, 255, 0.4);
+
+  --glass-gradient-start: rgba(219, 217, 215, 0.97);
+  --glass-gradient-end: rgba(239, 238, 236, 0.97);
+
+  --surface-hover: rgba(0, 0, 0, 0.04);
+  --surface-active: rgba(0, 0, 0, 0.07);
+  --surface-elevated: rgba(0, 0, 0, 0.06);
+  --surface-glass: rgba(0, 0, 0, 0.02);
+
+  --status-success: #5a9a5a;
+  --status-success-bg: rgba(90, 154, 90, 0.10);
+  --status-error: #d05050;
+  --status-error-bg: rgba(208, 80, 80, 0.10);
+  --status-warning: #c07040;
+  --status-warning-bg: rgba(192, 112, 64, 0.10);
+  --status-info: #3a9a3a;
+  --status-info-bg: rgba(58, 154, 58, 0.10);
+
+  --kbd-bg: rgba(0, 0, 0, 0.05);
+  --kbd-border: rgba(0, 0, 0, 0.08);
+  --kbd-shadow: rgba(0, 0, 0, 0.1);
+  --code-bg: rgba(0, 0, 0, 0.05);
+  --code-block-bg: rgba(0, 0, 0, 0.06);
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+
+  --border-glass: rgba(0, 0, 0, 0.06);
+  --border-focus: rgba(138, 109, 47, 0.45);
+
+  --button-primary-fg: #f8f7f5;
+  --button-primary-hover-bg: #7c622a;
 }

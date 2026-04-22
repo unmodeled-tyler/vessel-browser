@@ -75,6 +75,7 @@ import {
 } from "../sessions/manager";
 import { registerVaultHandlers } from "./vault";
 import { registerWindowControlHandlers } from "./window-controls";
+import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 
 let activeChatProvider: AIProvider | null = null;
 
@@ -588,14 +589,21 @@ export function registerIpcHandlers(
       agentHints?: Record<string, string>,
     ) => {
       trackBookmarkAction("save");
-      return bookmarkManager.saveBookmarkWithPolicy(url, title, folderId, note, {
+      const result = bookmarkManager.saveBookmarkWithPolicy(url, title, folderId, note, {
+        onDuplicate: "update",
         extra: {
-          intent: intent?.trim() || undefined,
-          expectedContent: expectedContent?.trim() || undefined,
-          keyFields,
-          agentHints,
+          ...normalizeBookmarkMetadata({
+            intent,
+            expectedContent,
+            keyFields,
+            agentHints,
+          }),
         },
       });
+      if (!result.bookmark) {
+        throw new Error("Bookmark save failed");
+      }
+      return result.bookmark;
     },
   );
 

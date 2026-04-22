@@ -1,4 +1,9 @@
-import type { PageContent, InteractiveElement, StructuredDataEntity } from "./types";
+import type {
+  PageContent,
+  InteractiveElement,
+  StructuredDataEntity,
+  StructuredDataValue,
+} from "./types";
 
 export type PageType =
   | "article"
@@ -147,6 +152,52 @@ function mapActionButtons(interactiveElements: InteractiveElement[]): ActionButt
   return buttons;
 }
 
+function asStructuredObject(
+  value: StructuredDataValue | undefined,
+): Record<string, StructuredDataValue> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, StructuredDataValue>)
+    : undefined;
+}
+
+function stringifyStructuredScalar(
+  value: StructuredDataValue | undefined,
+): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
+function firstStructuredString(
+  ...values: Array<StructuredDataValue | undefined>
+): string | undefined {
+  for (const value of values) {
+    const normalized = stringifyStructuredScalar(value);
+    if (normalized) return normalized;
+  }
+  return undefined;
+}
+
+function getOfferPrice(
+  offers: StructuredDataValue | undefined,
+): string | undefined {
+  if (Array.isArray(offers)) {
+    for (const offer of offers) {
+      const price = getOfferPrice(offer);
+      if (price) return price;
+    }
+    return undefined;
+  }
+
+  const offer = asStructuredObject(offers);
+  return firstStructuredString(offer?.price);
+}
+
 function extractPrimaryEntity(
   pageType: PageType,
   structuredData: StructuredDataEntity[] | undefined,
@@ -158,22 +209,27 @@ function extractPrimaryEntity(
     );
     if (product) {
       const attrs = product.attributes ?? {};
+      const aggregateRating = asStructuredObject(attrs.aggregateRating);
       return {
         type: "Product",
-        nameField: typeof attrs.name === "string" ? attrs.name : undefined,
-        priceField: typeof attrs.price === "string"
-          ? attrs.price
-          : typeof attrs.offers === "object" && attrs.offers !== null
-            ? String((attrs.offers as Record<string, unknown>)["price"] ?? "")
-            : undefined,
-        imageField: typeof attrs.image === "string"
-          ? attrs.image
-          : Array.isArray(attrs.image)
-            ? String(attrs.image[0])
-            : undefined,
-        descriptionField: typeof attrs.description === "string" ? attrs.description : undefined,
-        reviewsField: typeof attrs.reviews === "string" ? attrs.reviews : undefined,
-        ratingField: typeof attrs.rating === "string" ? attrs.rating : undefined,
+        nameField: firstStructuredString(attrs.name),
+        priceField: firstStructuredString(attrs.price) ?? getOfferPrice(attrs.offers),
+        imageField: firstStructuredString(
+          attrs.image,
+          Array.isArray(attrs.image) ? attrs.image[0] : undefined,
+        ),
+        descriptionField: firstStructuredString(attrs.description),
+        reviewsField: firstStructuredString(
+          attrs.reviews,
+          attrs.reviewCount,
+          aggregateRating?.reviewCount,
+          aggregateRating?.ratingCount,
+        ),
+        ratingField: firstStructuredString(
+          attrs.rating,
+          attrs.ratingValue,
+          aggregateRating?.ratingValue,
+        ),
         addToCartField: undefined,
       };
     }

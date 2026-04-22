@@ -74,9 +74,24 @@ import * as vaultManager from "../vault/manager";
 import { requestConsent } from "../vault/consent";
 import { appendAuditEntry } from "../vault/audit";
 import { trackVaultAction } from "../telemetry/posthog";
+import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
+
+function getBookmarkMetadataFromToolArgs(args: {
+  intent?: unknown;
+  expected_content?: unknown;
+  key_fields?: unknown;
+  agent_hints?: unknown;
+}) {
+  return normalizeBookmarkMetadata({
+    intent: args.intent,
+    expectedContent: args.expected_content,
+    keyFields: args.key_fields,
+    agentHints: args.agent_hints,
+  });
+}
 
 // Well-known path where external MCP clients (e.g. Hermes) can read the
 // current auth token and endpoint. Written on successful start. The token is
@@ -3581,6 +3596,26 @@ function registerTools(
           .describe(
             'How to handle an existing bookmark with the same URL in the same folder: "ask" (default), "update", or "duplicate"',
           ),
+        intent: z
+          .string()
+          .optional()
+          .describe(
+            "Human-readable description of what this bookmark is for",
+          ),
+        expected_content: z
+          .string()
+          .optional()
+          .describe(
+            "Brief description of the content the agent should expect to find here",
+          ),
+        key_fields: z
+          .array(z.string())
+          .optional()
+          .describe("Important form field names for this page"),
+        agent_hints: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Arbitrary key-value hints for the agent"),
       },
     },
     async ({
@@ -3594,6 +3629,10 @@ function registerTools(
       create_folder_if_missing,
       note,
       on_duplicate,
+      intent,
+      expected_content,
+      key_fields,
+      agent_hints,
     }) => {
       return withAction(
         runtime,
@@ -3609,6 +3648,10 @@ function registerTools(
           folder_summary,
           create_folder_if_missing,
           note,
+          intent,
+          expected_content,
+          key_fields,
+          agent_hints,
         },
         async () => {
           const currentTab = tabManager.getActiveTab();
@@ -3644,7 +3687,15 @@ function registerTools(
             source.title,
             target.folderId,
             note,
-            { onDuplicate: on_duplicate ?? "ask" },
+            {
+              onDuplicate: on_duplicate ?? "ask",
+              extra: getBookmarkMetadataFromToolArgs({
+                intent,
+                expected_content,
+                key_fields,
+                agent_hints,
+              }),
+            },
           );
           if (result.status === "conflict" && result.existing) {
             return composeFolderAwareResponse(
@@ -3790,6 +3841,22 @@ function registerTools(
           .boolean()
           .optional()
           .describe('If true, organize into the default "Archive" folder'),
+        intent: z
+          .string()
+          .optional()
+          .describe("Human-readable description of what this bookmark is for"),
+        expected_content: z
+          .string()
+          .optional()
+          .describe("Brief description of content the agent should expect"),
+        key_fields: z
+          .array(z.string())
+          .optional()
+          .describe("Important form field names for this page"),
+        agent_hints: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Arbitrary key-value hints for the agent"),
       },
     },
     async (args) => {
@@ -3845,6 +3912,7 @@ function registerTools(
                   ? args.title.trim()
                   : undefined,
               note,
+              ...getBookmarkMetadataFromToolArgs(args),
             });
             if (!updated) {
               return `Bookmark ${existing.id} not found`;
@@ -3857,12 +3925,18 @@ function registerTools(
 
           if ("error" in source) return `Error: ${source.error}`;
 
-          const bookmark = bookmarkManager.saveBookmark(
+          const result = bookmarkManager.saveBookmarkWithPolicy(
             source.url,
             source.title,
             target.folderId,
             note,
+            {
+              onDuplicate: "update",
+              extra: getBookmarkMetadataFromToolArgs(args),
+            },
           );
+          const bookmark = result.bookmark;
+          if (!bookmark) return "Error: Bookmark save failed";
           return composeFolderAwareResponse(
             `Saved and organized "${bookmark.title}" (${bookmark.url}) into "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
             target.createdFolder,

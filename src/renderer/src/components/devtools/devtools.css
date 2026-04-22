@@ -66,12 +66,12 @@
 }
 
 .devtools-tab-badge.error {
-  background: rgba(192, 112, 112, 0.2);
+  background: color-mix(in srgb, var(--status-error) 20%, transparent);
   color: var(--error);
 }
 
 .devtools-tab-badge.count {
-  background: rgba(196, 160, 90, 0.15);
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
   color: var(--accent-primary);
 }
 
@@ -133,12 +133,12 @@
 }
 
 .console-entry.level-error {
-  background: rgba(192, 112, 112, 0.06);
+  background: color-mix(in srgb, var(--status-error) 6%, transparent);
   border-left: 2px solid var(--error);
 }
 
 .console-entry.level-warning {
-  background: rgba(196, 160, 90, 0.06);
+  background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
   border-left: 2px solid var(--accent-primary);
 }
 
@@ -224,7 +224,7 @@
 }
 
 .network-entry.error {
-  background: rgba(192, 112, 112, 0.06);
+  background: color-mix(in srgb, var(--status-error) 6%, transparent);
 }
 
 .network-method {
@@ -336,7 +336,7 @@
 
 .devtools-close-btn.active {
   color: var(--accent-primary);
-  background: rgba(196, 160, 90, 0.12);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .devtools-export-dropdown {
@@ -347,7 +347,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border-visible);
   border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--shadow-color-strong);
   padding: 10px;
   z-index: 100;
   display: flex;
@@ -417,8 +417,8 @@
 
 .export-date-btn.active {
   color: var(--accent-primary);
-  background: rgba(196, 160, 90, 0.12);
-  border-color: rgba(196, 160, 90, 0.3);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
 }
 
 .export-date-inputs {
@@ -451,11 +451,10 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   outline: none;
-  color-scheme: dark;
 }
 
 .export-date-input:focus {
-  border-color: rgba(196, 160, 90, 0.4);
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
 }
 
 .export-submit {
@@ -464,7 +463,7 @@
   font-size: 12px;
   font-weight: 600;
   font-family: var(--font-ui);
-  color: var(--bg-primary);
+  color: var(--button-primary-fg);
   background: var(--accent-primary);
   border: none;
   border-radius: var(--radius-sm);

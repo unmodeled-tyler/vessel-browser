@@ -1638,9 +1638,9 @@ const Settings: Component = () => {
           overscroll-behavior: contain;
           scrollbar-gutter: stable;
           box-shadow:
-            0 4px 24px rgba(0, 0, 0, 0.2),
-            0 24px 64px rgba(0, 0, 0, 0.3),
-            inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            0 4px 24px var(--shadow-color),
+            0 24px 64px var(--shadow-color-strong),
+            inset 0 1px 0 var(--inset-highlight);
           animation: command-bar-enter 350ms var(--ease-out-expo) both;
         }
         .command-bar-overlay.closing .settings-panel {
@@ -1657,8 +1657,8 @@ const Settings: Component = () => {
           margin-bottom: 20px;
           padding: 14px;
           border-radius: var(--radius-md);
-          border: 1px solid rgba(224, 200, 120, 0.14);
-          background: rgba(224, 200, 120, 0.06);
+          border: 1px solid color-mix(in srgb, var(--accent-primary) 14%, transparent);
+          background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
         }
         .settings-callout-title {
           font-size: 12px;
@@ -1675,9 +1675,9 @@ const Settings: Component = () => {
         }
         .settings-premium-callout {
           background:
-            radial-gradient(circle at top right, rgba(196, 160, 90, 0.16), transparent 40%),
-            rgba(224, 200, 120, 0.06);
-          border-color: rgba(196, 160, 90, 0.22);
+            radial-gradient(circle at top right, color-mix(in srgb, var(--accent-primary) 16%, transparent), transparent 40%),
+            color-mix(in srgb, var(--accent-primary) 6%, transparent);
+          border-color: color-mix(in srgb, var(--accent-primary) 22%, transparent);
         }
         .settings-premium-callout-actions {
           display: flex;
@@ -1693,7 +1693,7 @@ const Settings: Component = () => {
           padding: 14px;
           border-radius: var(--radius-md);
           border: 1px solid var(--border-visible);
-          background: rgba(255, 255, 255, 0.015);
+          background: var(--surface-glass);
         }
         .settings-health-issues {
           display: flex;
@@ -1706,16 +1706,16 @@ const Settings: Component = () => {
           line-height: 1.5;
           padding: 10px 12px;
           border-radius: var(--radius-md);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          border: 1px solid var(--border-glass);
           color: var(--text-secondary);
         }
         .settings-health-issue.warning {
-          border-color: rgba(240, 198, 54, 0.28);
-          background: rgba(240, 198, 54, 0.06);
+          border-color: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+          background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
         }
         .settings-health-issue.error {
-          border-color: rgba(255, 108, 91, 0.32);
-          background: rgba(255, 108, 91, 0.06);
+          border-color: color-mix(in srgb, var(--status-error) 32%, transparent);
+          background: color-mix(in srgb, var(--status-error) 6%, transparent);
         }
         .settings-label {
           display: block;
@@ -1756,7 +1756,7 @@ const Settings: Component = () => {
         }
         .settings-input:focus {
           border-color: var(--accent-primary);
-          box-shadow: 0 0 0 2px rgba(196, 160, 90, 0.1);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 10%, transparent);
           outline: none;
         }
         .settings-hint {
@@ -1785,8 +1785,8 @@ const Settings: Component = () => {
           width: 36px;
           height: 20px;
           border-radius: 999px;
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.06);
+          background: var(--surface-hover);
+          border: 1px solid var(--border-glass);
           padding: 0;
           flex-shrink: 0;
           cursor: pointer;
@@ -1795,14 +1795,14 @@ const Settings: Component = () => {
             border-color var(--duration-normal) var(--ease-in-out);
         }
         .toggle-switch:hover {
-          background: rgba(255, 255, 255, 0.14);
+          background: var(--surface-active);
         }
         .toggle-switch.on {
           background: var(--accent-primary);
           border-color: transparent;
         }
         .toggle-switch.on:hover {
-          background: #d4b06a;
+          background: color-mix(in srgb, var(--accent-primary) 85%, white);
         }
         .toggle-switch-thumb {
           position: absolute;
@@ -1812,7 +1812,7 @@ const Settings: Component = () => {
           height: 14px;
           border-radius: 999px;
           background: var(--text-primary);
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+          box-shadow: 0 1px 3px var(--shadow-color-strong);
           transition: transform var(--duration-normal) var(--ease-out-expo);
           pointer-events: none;
         }
@@ -1825,10 +1825,10 @@ const Settings: Component = () => {
           line-height: 1.5;
         }
         .settings-status.success {
-          color: #84d19a;
+          color: var(--status-success);
         }
         .settings-status.error {
-          color: #ff8e8e;
+          color: var(--status-error);
         }
         .settings-save, .settings-close {
           height: 34px;
@@ -1845,9 +1845,9 @@ const Settings: Component = () => {
         }
         .settings-save {
           background: var(--accent-primary);
-          color: white;
+          color: var(--button-primary-fg);
         }
-        .settings-save:hover { background: #d4b06a; }
+        .settings-save:hover { background: var(--button-primary-hover-bg); }
         .settings-close {
           background: var(--bg-tertiary);
           color: var(--text-secondary);
@@ -1938,11 +1938,11 @@ const Settings: Component = () => {
         }
         .premium-btn-upgrade {
           background: var(--accent-primary);
-          color: white;
+          color: var(--button-primary-fg);
           width: 100%;
         }
         .premium-btn-upgrade:hover {
-          background: #d4b06a;
+          background: var(--button-primary-hover-bg);
         }
         .premium-btn-manage {
           background: var(--bg-tertiary);
@@ -1958,8 +1958,8 @@ const Settings: Component = () => {
           display: inline-flex;
           align-items: center;
           gap: 6px;
-          background: rgba(240, 198, 54, 0.15);
-          color: #f0c636;
+          background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+          color: var(--accent-primary);
           font-size: 12px;
           font-weight: 600;
           padding: 4px 12px;
@@ -1978,7 +1978,7 @@ const Settings: Component = () => {
         }
         .premium-btn-reset {
           background: transparent;
-          color: var(--text-tertiary, #71717a);
+          color: var(--text-muted);
           border: 1px solid var(--border-subtle);
           font-size: 11px;
           padding: 0 12px;
@@ -1994,8 +1994,8 @@ const Settings: Component = () => {
           margin-bottom: 20px;
           padding: 16px;
           border-radius: var(--radius-md);
-          border: 1px solid rgba(196, 160, 90, 0.25);
-          background: rgba(196, 160, 90, 0.08);
+          border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+          background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
         }
         .welcome-banner-header {
           display: flex;
@@ -2022,7 +2022,7 @@ const Settings: Component = () => {
           justify-content: center;
         }
         .welcome-banner-dismiss:hover {
-          background: rgba(255, 255, 255, 0.08);
+          background: var(--surface-hover);
           color: var(--text-primary);
         }
         .welcome-banner-text {
@@ -2050,8 +2050,8 @@ const Settings: Component = () => {
           padding: 0 5px;
           font-size: 11px;
           font-family: var(--font-mono);
-          background: rgba(255, 255, 255, 0.08);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+          background: var(--kbd-bg);
+          border: 1px solid var(--kbd-border);
           border-radius: 3px;
           color: var(--text-primary);
         }
@@ -2074,8 +2074,8 @@ const Settings: Component = () => {
           display: inline-block;
           font-size: 10px;
           font-weight: 600;
-          color: #f0c636;
-          background: rgba(240, 198, 54, 0.15);
+          color: var(--accent-primary);
+          background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
           padding: 1px 6px;
           border-radius: 4px;
           margin-left: 8px;
@@ -2124,7 +2124,7 @@ const Settings: Component = () => {
           border-radius: 4px;
           background: transparent;
           border: none;
-          color: var(--text-tertiary, #71717a);
+          color: var(--text-muted);
           font-size: 16px;
           cursor: pointer;
           display: flex;
@@ -2133,8 +2133,8 @@ const Settings: Component = () => {
           transition: background var(--duration-fast), color var(--duration-fast);
         }
         .vault-entry-remove:hover {
-          background: rgba(255, 108, 91, 0.12);
-          color: #ff8e8e;
+          background: color-mix(in srgb, var(--status-error) 12%, transparent);
+          color: var(--status-error);
         }
         .vault-add-btn {
           height: 32px;
@@ -2158,7 +2158,7 @@ const Settings: Component = () => {
           flex-direction: column;
           gap: 8px;
           padding: 12px;
-          background: rgba(255, 255, 255, 0.02);
+          background: var(--surface-glass);
           border: 1px solid var(--border-subtle);
           border-radius: var(--radius-md);
         }
