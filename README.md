@@ -16,7 +16,7 @@ Open source chromium-based browser for persistent web agents. Linux is the most 
 Vessel gives external agent harnesses a real browser with durable state, MCP control, and a human-visible supervisory UI. It is built for long-running workflows where the agent drives and the human audits, intervenes, and redirects when needed.
 
 - **Built for agent harnesses** such as Hermes Agent, OpenClaw, and other MCP clients
-- **Keeps browser state alive** with named sessions, bookmarks, checkpoints, and structured page visibility
+- **Keeps browser state alive** with named sessions, editable bookmarks, annotated checkpoints, action undo, and structured page visibility
 - **Keeps humans in the loop** with approvals, runtime controls, and a visible browser instead of a headless black box
 
 *Vessel is in active development and currently makes no security assurances. Use and deploy it with care.*
@@ -89,14 +89,16 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
 - **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands
-- **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision across five tabs: Supervisor, Bookmarks, Checkpoints, Chat, and Automate
+- **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision across seven tabs: Supervisor, Bookmarks, Checkpoints, Chat, Automate, History, and Changes
 - **Chat Assistant** — built-in conversational AI in the sidebar Chat tab; supports Anthropic, OpenAI, Ollama, llama.cpp, Mistral, xAI, Google Gemini, OpenRouter, and any OpenAI-compatible endpoint; reads the current page automatically; has full access to the same browser tools as external agents; multi-turn session history; configure provider, model, and API key in Settings
 - **Automation Kits** (Premium) — parameterized workflow templates in the sidebar Automate tab; fill in a short form and the built-in agent executes the workflow autonomously; bundled kits include Research & Collect (multi-source research with bookmark saving) and Price Scout (cross-retailer price comparison); designed for a future kit marketplace
 - **Dev Tools Panel** (`F12`) — inspect console output, network requests, and MCP/agent activity in a resizable panel at the bottom of the window; export logs by category and date range as JSON
-- **Agent-Meaningful Bookmarks** — bookmarks carry structured context the agent can read and act on: `intent` (what the page is for), `expectedContent` (what to expect on the page), `keyFields` (important form fields), `agentHints` (arbitrary directives), and a stored `pageSchema`; all fields are searchable
+- **Action Undo / Rollback** — restore the browser to the session snapshot captured immediately before the last successful mutating agent action; available from the Supervisor tab and through the `undo_last_action` tool
+- **Agent-Meaningful Bookmarks** — bookmarks carry structured context the agent can read and act on: `intent` (what the page is for), `expectedContent` (what to expect on the page), `keyFields` (important form fields), `agentHints` (arbitrary directives), and a stored `pageSchema`; humans can create and edit this metadata directly in the Bookmarks tab, and all fields are searchable
 - **Page Schema Inference** — Vessel automatically infers a typed schema for every page: `pageType` (article, product, form, search, checkout, login, dashboard), `primaryEntity` (structured fields for products and articles), `formFields` (with names, types, labels, selectors), and `actionButtons` (with inferred intents: submit, addToCart, login, etc.); schema is attached to every content extraction result
 - **Bookmarks for Agents** — save pages into folders, attach one-line folder summaries, and search bookmarks over MCP instead of dumping the entire library
 - **Named Session Persistence** — save cookies, localStorage, and current tab layout under a reusable name, then reload it after a restart
+- **Annotated Checkpoints** — capture and restore short-lived browser recovery points with names and editable notes, so humans and agents can mark why a checkpoint matters before risky flows
 - **Page Highlights** — agents can visually highlight text or elements on any page with labeled, color-coded markers that persist across navigation; highlight count and navigation controls appear in the sidebar; cleared explicitly or via tool call
 - **Agent Transcript Dock** — floating transcript overlay anchored to the browser chrome; configurable display modes (off, summary, full) set in Settings; shows live agent thinking and status updates without occupying sidebar space
 - **Workflow Flow Tracking** — agents can declare a named multi-step workflow at runtime using `flow_start`; progress is tracked step-by-step with `flow_advance` and visible in the sidebar throughout execution
@@ -104,6 +106,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Popup Recovery Tools** — agents can explicitly dismiss common popups, newsletter gates, and consent walls instead of brute-forcing generic clicks
 - **Form Autofill Profiles** — save reusable personal or work profiles in Settings and fill common contact, address, and organization fields on the current page; Vessel matches fields using labels, names, placeholders, and autocomplete hints
 - **Page Diff / "What Changed?"** — Vessel remembers the last snapshot of a page and surfaces a `Changed` badge in the address bar when the title, headings, or main content differ on a later visit; expand it to see a compact summary of what changed since the last snapshot
+- **What Changed Timeline** (Premium) — the sidebar Changes tab keeps a per-page history of recent change bursts, showing when each update was detected and a compact summary of what changed
 - **Per-Tab Ad Blocking Controls** — tabs default to ad blocking on, but agents can selectively disable and re-enable blocking when a page misbehaves
 - **Domain Policy** — allowlist or blocklist domains globally in Settings; agents cannot navigate to blocked domains
 - **Agent Credential Vault** (Premium) — encrypted credential storage for agent-driven logins; credentials are filled directly into login forms via a "blind fill" pattern and are never sent to AI providers; user consent dialog before every use; TOTP 2FA support; domain-scoped access; append-only audit log
@@ -152,7 +155,7 @@ Main Process                              Renderer (SolidJS)
 
 Each browser tab is a separate `WebContentsView` managed by the main process. The browser chrome (SolidJS) runs in its own view layered on top. All communication between renderer and main goes through typed IPC channels via `contextBridge`.
 
-The sidebar Automate tab renders kit forms entirely in the renderer and passes the rendered prompt to the built-in agent via the same `query()` path used by the Chat tab — no additional IPC surface is needed.
+The sidebar Automate tab renders kit forms entirely in the renderer and passes the rendered prompt to the built-in agent via the same `query()` path used by the Chat tab — no additional IPC surface is needed. The Changes tab reads the current page's diff timeline through IPC and unlocks persisted history for Premium users.
 
 ## Getting Started
 
@@ -234,8 +237,8 @@ Vessel is designed to act as the browser runtime that your external agent harnes
 2. Open Settings (`Ctrl+,`) to confirm MCP status, copy the endpoint, or change the MCP port
 3. Optional: set an Obsidian vault path, create autofill profiles, or adjust session preferences
 4. Start Hermes Agent or OpenClaw and point it at Vessel — the easiest way is `vessel-browser-mcp --stdio` as the MCP command (auth is resolved automatically), or connect directly to `http://127.0.0.1:<mcpPort>/mcp` with the bearer token from `~/.config/vessel/mcp-auth.json`
-5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, or restore the browser session while the harness runs
-6. Use the Bookmarks panel to organize saved pages into folders and expose those bookmarks back to the agent over MCP
+5. Use the Supervisor panel in Vessel's sidebar to pause the agent, change approval mode, review pending approvals, checkpoint, undo the last mutating action, or restore the browser session while the harness runs
+6. Use the Bookmarks panel to organize saved pages into folders, edit agent-facing bookmark metadata, and expose those bookmarks back to the agent over MCP
 
 Notes:
 
@@ -249,6 +252,7 @@ Notes:
 - Settings now show MCP runtime status, active endpoint, startup warnings, and allow changing the MCP port with an immediate server restart
 - Settings also include reusable Form Autofill profiles for one-click filling of common contact and address forms on the active page
 - The address bar can also show a `Changed` badge when Vessel detects that a previously visited page has meaningfully changed since the last saved snapshot
+- Premium users can open the sidebar Changes tab for the full What Changed timeline for the active page
 - Agents can selectively disable ad blocking for a problematic tab, reload, retry the flow, and turn blocking back on later
 - Agents can persist authenticated state with named sessions, for example `github-logged-in`, and reload that state in later runs
 - The intended control plane is an external harness driving Vessel through MCP
@@ -306,6 +310,7 @@ Page interaction and recovery tools exposed today include:
 - `vessel_set_ad_blocking`
 - `vessel_wait_for`
 - `vessel_screenshot` (Premium) — capture the full page as an image for visual AI analysis
+- `undo_last_action` — restore the browser to the snapshot captured before the last successful mutating agent action
 
 Page highlight tools:
 
@@ -521,7 +526,7 @@ src/
 │   └── src/
 │       ├── components/
 │       │   ├── chrome/   # TitleBar, TabBar, AddressBar, AgentTranscriptDock
-│       │   ├── ai/       # CommandBar, Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate)
+│       │   ├── ai/       # CommandBar, Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate/History/Changes)
 │       │   ├── devtools/ # DevTools panel (Console, Network, Activity)
 │       │   └── shared/   # Settings panel
 │       ├── stores/       # SolidJS signal stores (tabs, ai, ui, runtime, bookmarks, etc.)
