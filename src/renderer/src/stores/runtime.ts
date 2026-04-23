@@ -61,6 +61,8 @@ export function useRuntime() {
       window.vessel.ai.createCheckpoint(name, note),
     restoreCheckpoint: (checkpointId: string) =>
       window.vessel.ai.restoreCheckpoint(checkpointId),
+    updateCheckpointNote: (checkpointId: string, note?: string) =>
+      window.vessel.ai.updateCheckpointNote(checkpointId, note),
     captureSession: (note?: string) => window.vessel.ai.captureSession(note),
     restoreSession: () => window.vessel.ai.restoreSession(),
   };

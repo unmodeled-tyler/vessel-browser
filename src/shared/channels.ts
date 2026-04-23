@@ -30,6 +30,7 @@ export const Channels = {
   AGENT_APPROVAL_RESOLVE: "agent:approval-resolve",
   AGENT_CHECKPOINT_CREATE: "agent:checkpoint-create",
   AGENT_CHECKPOINT_RESTORE: "agent:checkpoint-restore",
+  AGENT_CHECKPOINT_UPDATE_NOTE: "agent:checkpoint-update-note",
   AGENT_SESSION_CAPTURE: "agent:session-capture",
   AGENT_SESSION_RESTORE: "agent:session-restore",
 
@@ -39,6 +40,7 @@ export const Channels = {
 
   // UI state
   SIDEBAR_TOGGLE: "ui:sidebar-toggle",
+  SIDEBAR_NAVIGATE: "ui:sidebar-navigate",
   SIDEBAR_RESIZE: "ui:sidebar-resize",
   SIDEBAR_RESIZE_START: "ui:sidebar-resize-start",
   SIDEBAR_RESIZE_COMMIT: "ui:sidebar-resize-commit",
@@ -57,6 +59,7 @@ export const Channels = {
   BOOKMARKS_GET: "bookmarks:get",
   BOOKMARKS_UPDATE: "bookmarks:update",
   BOOKMARK_SAVE: "bookmarks:save",
+  BOOKMARK_UPDATE: "bookmarks:update-item",
   BOOKMARK_REMOVE: "bookmarks:remove",
   BOOKMARK_ADD_CONTEXT_TO_CHAT: "bookmarks:add-context-to-chat",
   FOLDER_CREATE: "bookmarks:folder-create",
@@ -150,5 +153,6 @@ export const Channels = {
   PAGE_DIFF_ACTIVITY: "page:diff-activity",
   PAGE_CHANGED: "page:changed",
   PAGE_DIFF_GET: "page:diff-get",
+  PAGE_DIFF_HISTORY: "page:diff-history",
   PAGE_DIFF_DIRTY: "page:diff-dirty",
 } as const;

@@ -2734,6 +2734,10 @@ function registerTools(
             source.title,
             target.folderId,
             trimmedNote,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
           );
           return composeFolderAwareResponse(
             `Saved and archived "${bookmark.title}" (${bookmark.url}) into "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
