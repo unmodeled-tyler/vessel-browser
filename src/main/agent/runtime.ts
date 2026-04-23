@@ -184,6 +184,17 @@ export class AgentRuntime {
     return clone(checkpoint);
   }
 
+  updateCheckpointNote(checkpointId: string, note: string): AgentCheckpoint | null {
+    const index = this.state.checkpoints.findIndex((item) => item.id === checkpointId);
+    if (index === -1) return null;
+    this.state.checkpoints[index] = {
+      ...this.state.checkpoints[index],
+      note: note.trim() || undefined,
+    };
+    this.emit();
+    return clone(this.state.checkpoints[index]);
+  }
+
   captureSession(note?: string): SessionSnapshot {
     const snapshot = this.tabManager.snapshotSession(note);
     this.state.session = snapshot;

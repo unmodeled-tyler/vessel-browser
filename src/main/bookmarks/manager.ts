@@ -14,6 +14,7 @@ import {
   createDebouncedJsonPersistence,
   loadJsonFile,
 } from "../persistence/json-file";
+import { normalizeBookmarkMetadataUpdate } from "./metadata";
 
 export const UNSORTED_ID = "unsorted";
 export const ARCHIVE_FOLDER_NAME = "Archive";
@@ -80,6 +81,17 @@ const persistence = createDebouncedJsonPersistence({
 
 function save(): void {
   persistence.schedule();
+}
+
+function assignDefinedBookmarkFields(
+  bookmark: Bookmark,
+  fields: Partial<Bookmark> | undefined,
+): void {
+  if (!fields) return;
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    Object.assign(bookmark, { [key]: value });
+  }
 }
 
 function emit(): void {
@@ -318,9 +330,7 @@ export function saveBookmarkWithPolicy(
       if (note !== undefined) {
         bookmark.note = note.trim() || undefined;
       }
-      if (options?.extra) {
-        Object.assign(bookmark, options.extra);
-      }
+      assignDefinedBookmarkFields(bookmark, options?.extra);
       bookmark.savedAt = new Date().toISOString();
       save();
       emit();
@@ -377,6 +387,12 @@ export function updateBookmark(
   load();
   const bookmark = state!.bookmarks.find((item) => item.id === id);
   if (!bookmark) return null;
+  const metadataUpdates = normalizeBookmarkMetadataUpdate({
+    intent: updates.intent,
+    expectedContent: updates.expectedContent,
+    keyFields: updates.keyFields,
+    agentHints: updates.agentHints,
+  });
 
   if (typeof updates.title === "string") {
     const trimmed = updates.title.trim();
@@ -396,24 +412,24 @@ export function updateBookmark(
         : UNSORTED_ID;
   }
 
-  if (typeof updates.intent === "string") {
-    bookmark.intent = updates.intent.trim() || undefined;
+  if ("intent" in metadataUpdates) {
+    bookmark.intent = metadataUpdates.intent;
   }
 
-  if (typeof updates.expectedContent === "string") {
-    bookmark.expectedContent = updates.expectedContent.trim() || undefined;
+  if ("expectedContent" in metadataUpdates) {
+    bookmark.expectedContent = metadataUpdates.expectedContent;
   }
 
-  if (updates.keyFields !== undefined) {
-    bookmark.keyFields = updates.keyFields;
+  if ("keyFields" in metadataUpdates) {
+    bookmark.keyFields = metadataUpdates.keyFields;
   }
 
   if (updates.pageSchema !== undefined) {
     bookmark.pageSchema = updates.pageSchema;
   }
 
-  if (updates.agentHints !== undefined) {
-    bookmark.agentHints = updates.agentHints;
+  if ("agentHints" in metadataUpdates) {
+    bookmark.agentHints = metadataUpdates.agentHints;
   }
 
   save();

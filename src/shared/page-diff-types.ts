@@ -1,3 +1,8 @@
+export interface PageDiffHistoryItem {
+  detectedAt: string;
+  summary: string;
+}
+
 export interface ContentChange {
   kind: "added" | "removed" | "changed";
   section: "title" | "headings" | "content";
@@ -16,8 +21,5 @@ export interface PageDiff {
   burstCount?: number;
   firstDetectedAt?: string;
   lastDetectedAt?: string;
-  recentBursts?: Array<{
-    detectedAt: string;
-    summary: string;
-  }>;
+  recentBursts?: PageDiffHistoryItem[];
 }
