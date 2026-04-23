@@ -731,18 +731,9 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
   })()
 `;
 
-import type { WebContents } from "electron";
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-import {
-  DEFAULT_PAGE_SCRIPT_TIMEOUT_MS,
-  EXTRACT_SCRIPT_TIMEOUT_MS,
-  EXTRACT_TIMEOUT_BASE_MS,
-  EXTRACT_TIMEOUT_MAX_MS,
-} from "../config/timing";
 
 async function waitForDomReady(
   webContents: WebContents,

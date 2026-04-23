@@ -44,7 +44,6 @@ function attachDestroyCleanup(wc: WebContents): void {
   });
 }
 
-
 const MAX_RECENT_DIFF_BURSTS = 5;
 
 export function getLatestPageDiff(rawUrl: string): PageDiff | null {
@@ -124,9 +123,9 @@ function computeNextSnapshotDueAt(
 ): number {
   const lastCaptureAt = lastMutationSnapshotAt.get(wcId) || 0;
   const lastActivityAt = lastMutationActivityAt.get(wcId) || 0;
-  const earliestAllowedAt = lastCaptureAt + MIN_MUTATION_CAPTURE_INTERVAL_MS;
+  const earliestAllowedAt = lastCaptureAt + MUTATION_CAPTURE_INTERVAL_MS;
   const stableAfterActivityAt = lastActivityAt
-    ? lastActivityAt + SETTLE_AFTER_ACTIVITY_MS
+    ? lastActivityAt + MUTATION_SETTLE_AFTER_MS
     : 0;
   return Math.max(now + delayMs, earliestAllowedAt, stableAfterActivityAt);
 }

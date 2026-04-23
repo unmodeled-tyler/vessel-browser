@@ -17,7 +17,3 @@ export const MUTATION_SETTLE_AFTER_MS = 1500;
 
 // --- Agent stream idle ---
 export const AGENT_STREAM_IDLE_TIMEOUT_MS = 30000;
-
-// --- Navigation ---
-export const WAIT_FOR_NAVIGATION_TIMEOUT_MS = 10000;
-export const WAIT_FOR_NAVIGATION_START_MS = 2000;
