@@ -17,6 +17,7 @@ import type {
   ProviderConfig,
   RuntimeHealthState,
 } from "../../../../shared/types";
+import { createLogger } from "../../../../shared/logger";
 import { PROVIDERS } from "../../../../shared/providers";
 
 const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
@@ -29,6 +30,8 @@ const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
   defaultModel: p.defaultModel,
   models: p.models,
 }));
+
+const logger = createLogger("Settings");
 
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
@@ -68,7 +71,9 @@ const Settings: Component = () => {
     try {
       const sessions = await window.vessel.sessions.list();
       setSessionList(sessions);
-    } catch { /* sessions not available */ }
+    } catch (err) {
+      logger.warn("Failed to load named sessions list:", err);
+    }
   };
 
   // Agent Credential Vault
@@ -106,7 +111,9 @@ const Settings: Component = () => {
     try {
       const profiles = await window.vessel.autofill.list();
       setAutofillProfiles(profiles);
-    } catch { /* autofill not available */ }
+    } catch (err) {
+      logger.warn("Failed to load autofill profiles:", err);
+    }
   };
 
   const handleAutofillAdd = async () => {
@@ -175,7 +182,9 @@ const Settings: Component = () => {
     try {
       const entries = await window.vessel.vault.list();
       setVaultEntries(entries);
-    } catch { /* vault not available */ }
+    } catch (err) {
+      logger.warn("Failed to load vault entries:", err);
+    }
   };
 
   const handleVaultAdd = async () => {
@@ -207,7 +216,8 @@ const Settings: Component = () => {
       await window.vessel.vault.remove(id);
       await loadVaultEntries();
       setVaultMessage({ kind: "success", text: "Credential removed." });
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to remove credential:", err);
       setVaultMessage({ kind: "error", text: "Failed to remove credential." });
     }
   };
@@ -242,7 +252,10 @@ const Settings: Component = () => {
       | "settings_banner_viewed"
       | "settings_banner_clicked"
       | "welcome_banner_clicked",
-  ) => window.vessel.premium.trackContext(step).catch(() => {});
+  ) =>
+    window.vessel.premium.trackContext(step).catch((err) => {
+      logger.warn("Failed to track premium context:", err);
+    });
 
   const startPremiumCheckout = () => {
     void window.vessel.premium.checkout(premiumEmail().trim() || undefined);
@@ -297,7 +310,8 @@ const Settings: Component = () => {
         setModelFetchWarning(null);
         setModelFetchState("error");
       }
-    }).catch(() => {
+    }).catch((err) => {
+      logger.warn("Failed to fetch provider models:", err);
       setProviderModels([]);
       setModelFetchWarning(null);
       setModelFetchState("error");
@@ -366,7 +380,9 @@ const Settings: Component = () => {
       const ps = await window.vessel.premium.getState();
       setPremiumState(ps);
       if (ps.email) setPremiumEmail(ps.email);
-    } catch { /* premium API not available */ }
+    } catch (err) {
+      logger.warn("Failed to load premium state:", err);
+    }
     // Load vault entries
     await loadVaultEntries();
     // Load named sessions

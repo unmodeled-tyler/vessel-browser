@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { app, BrowserWindow } from "electron";
+import { createLogger } from "../shared/logger";
+
+const logger = createLogger("Splash");
 
 function findIconBase64(): string {
   const candidates = [
@@ -178,7 +181,7 @@ export function createSplashWindow(): BrowserWindow {
     fs.writeFileSync(tmpPath, html, "utf-8");
     void splash.loadFile(tmpPath);
   } catch (err) {
-    console.warn("[splash] Failed to write temp HTML, using fallback:", err);
+    logger.warn("Failed to write temp HTML, using fallback:", err);
     void splash.loadFile(path.join(__dirname, "../../resources/vessel-icon.png"));
   }
 

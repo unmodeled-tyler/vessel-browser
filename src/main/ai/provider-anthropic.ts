@@ -6,6 +6,10 @@ import { getEffectiveMaxIterations } from "../premium/manager";
 import type { AgentToolProfile } from "./tool-profile";
 import { isClickReadLoop } from "./tool-guardrails";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export class AnthropicProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile = "default";
 
@@ -66,7 +70,7 @@ export class AnthropicProvider implements AIProvider {
     userMessage: string,
     tools: Anthropic.Tool[],
     onChunk: (text: string) => void,
-    onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
+    onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
     onEnd: () => void,
     history?: AIMessage[],
   ): Promise<void> {
@@ -99,7 +103,7 @@ export class AnthropicProvider implements AIProvider {
         const toolUseBlocks: Array<{
           id: string;
           name: string;
-          input: Record<string, any>;
+          input: Record<string, unknown>;
           _malformedArgs?: string;
         }> = [];
         let currentToolUse: {
@@ -143,10 +147,14 @@ export class AnthropicProvider implements AIProvider {
               }
             } else if (event.type === "content_block_stop" && currentToolUse) {
               try {
+                const input = JSON.parse(currentToolUse.inputJson || "{}");
+                if (!isRecord(input)) {
+                  throw new Error("Tool input must be a JSON object");
+                }
                 toolUseBlocks.push({
                   id: currentToolUse.id,
                   name: currentToolUse.name,
-                  input: JSON.parse(currentToolUse.inputJson || "{}"),
+                  input,
                 });
               } catch {
                 // Track the malformed args so we can send an error result
@@ -202,7 +210,9 @@ export class AnthropicProvider implements AIProvider {
             continue;
           }
 
-          const argSummary = tb.input.url || tb.input.text || tb.input.direction || "";
+          const argSummary = [tb.input.url, tb.input.text, tb.input.direction]
+            .map((v): string => typeof v === "string" ? v : "")
+            .find((v) => v.length > 0) ?? "";
           onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);
           let result: string;
           try {

@@ -34,35 +34,27 @@ tmp/
 # AI instruction files (local overrides)
 AGENTS.md
 CLAUDE.md
+.codex
+speedee-system-for-agents.md
+
+# Docs (local overrides)
 cloudflare/
 release-checklist.md
-.codex
-tests/
-navigation-regression.ts
-speedee-system-for-agents.md
-.claude/skills/gitnexus/gitnexus-cli/SKILL.md
-.gitignore
-.claude/skills/gitnexus/gitnexus-debugging/SKILL.md
-.gitignore
-.claude/skills/gitnexus/gitnexus-exploring/SKILL.md
-.claude/skills/gitnexus/gitnexus-guide/SKILL.md
-.gitignore
-.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md
-.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md
 docs/AUTOMATION-CHALLENGE-POSTMORTEM.md
 docs/cloudflare-r2-windows-distribution.md
 docs/improvement-roadmap.md
 docs/releasing.md
 docs/TEST-CHALLENGE-URLS.md
-.gitignore
 docs/superpowers/plans/2026-03-28-linux-app-store-distribution.md
 docs/superpowers/specs/2026-03-28-linux-app-store-distribution-design.md
 docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
-tests/navigation-regression.ts
-tests/navigation-regression.ts
-tests/navigation-regression.ts
-tests/navigation-regression.ts
-tests/fixtures/navigation-harness.ts
-tests/fixtures/navigation-harness.ts
-tests/structured-data.test.ts
-tests/bookmark-context.test.ts
+
+# Tests (local overrides)
+tests/
+navigation-regression.ts
+
+# Claude skills (local overrides)
+.claude/skills/
+
+# HF Space demo files (not part of the core browser)
+hf-space/

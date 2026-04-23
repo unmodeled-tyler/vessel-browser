@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { app } from "electron";
+import { createLogger } from "../../shared/logger";
 
 interface TraceSessionLike {
   logToolCall(
@@ -21,6 +22,7 @@ type TraceFactory = (
 ) => TraceSessionLike;
 
 const require = createRequire(import.meta.url);
+const logger = createLogger("DevTrace");
 
 let cachedFactory: TraceFactory | null | undefined;
 
@@ -62,7 +64,7 @@ function loadLocalFactory(): TraceFactory | null {
         return cachedFactory;
       }
     } catch (err) {
-      console.warn("[dev-trace] Failed to load local trace logger:", err);
+      logger.warn("Failed to load local trace logger:", err);
     }
   }
 

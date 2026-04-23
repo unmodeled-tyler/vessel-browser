@@ -8,11 +8,13 @@ import {
 } from "electron";
 import path from "path";
 import type { HighlightColor, TabRole, TabState } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 import { checkDomainPolicy } from "../network/domain-policy";
 import { assertSafeURL } from "../network/url-safety";
 
 const MAX_CUSTOM_HISTORY = 50;
 const READER_MODE_DATA_URL_PREFIX = "data:text/html;charset=utf-8,";
+const logger = createLogger("Tab");
 
 interface OpenUrlRequest {
   url: string;
@@ -74,7 +76,7 @@ export class Tab {
   ): string | null {
     const blockReason = this.getNavigationBlockReason(url);
     if (blockReason) {
-      console.warn(`[Tab] ${blockReason}`);
+      logger.warn(blockReason);
       return blockReason;
     }
     void this.view.webContents.loadURL(url, options);
@@ -166,7 +168,7 @@ export class Tab {
     wc.setWindowOpenHandler(({ url, disposition }) => {
       const error = this.getNavigationBlockReason(url);
       if (error) {
-        console.warn(`[Tab] ${error}`);
+        logger.warn(error);
         return { action: "deny" };
       }
       this.onOpenUrl?.({
@@ -185,7 +187,7 @@ export class Tab {
       const error = this.getNavigationBlockReason(url);
       if (!error) return;
       event.preventDefault();
-      console.warn(`[Tab] ${context}: ${error}`);
+      logger.warn(`${context}: ${error}`);
     };
 
     wc.on("will-navigate", (event, url) => {
@@ -267,7 +269,7 @@ export class Tab {
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 999px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
         ::-webkit-scrollbar-corner { background: transparent; }
-      `).catch(() => {});
+      `).catch((err) => logger.warn("Failed to inject scrollbar CSS:", err));
     });
 
     wc.on("page-favicon-updated", (_, favicons) => {
@@ -296,7 +298,8 @@ export class Tab {
         .then((highlightedText: string) => {
           this.buildContextMenu(wc, params, highlightedText.trim());
         })
-        .catch(() => {
+        .catch((err) => {
+          logger.warn("Failed to inspect highlighted text for context menu:", err);
           this.buildContextMenu(wc, params, "");
         });
     });
@@ -563,7 +566,7 @@ export class Tab {
             document.addEventListener('mouseup', window.__vesselHighlightHandler);
           }
         })()
-      `).catch(() => {});
+      `).catch((err) => logger.warn("Failed to inject highlight listener:", err));
     } else {
       // Remove listener and visual indicator
       void wc.executeJavaScript(`
@@ -575,7 +578,7 @@ export class Tab {
             delete window.__vesselHighlightHandler;
           }
         })()
-      `).catch(() => {});
+      `).catch((err) => logger.warn("Failed to remove highlight listener:", err));
     }
   }
 

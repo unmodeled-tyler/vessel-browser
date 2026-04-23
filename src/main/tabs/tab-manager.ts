@@ -2,6 +2,7 @@ import { BaseWindow, type WebContents } from "electron";
 import { Tab } from "./tab";
 import { randomUUID } from "crypto";
 import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, highlightBatchOnPage } from "../highlights/inject";
 import {
@@ -12,6 +13,8 @@ import * as historyManager from "../history/manager";
 import { destroySession, destroyAllSessions } from "../devtools/manager";
 
 export type { HighlightCaptureResult };
+
+const logger = createLogger("TabManager");
 
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
@@ -257,7 +260,9 @@ export class TabManager {
         color: h.color,
       }));
     if (entries.length > 0) {
-      void highlightBatchOnPage(wc, entries).catch(() => {});
+      void highlightBatchOnPage(wc, entries).catch((err) =>
+        logger.warn("Failed to batch highlight:", err),
+      );
     }
   }
 
@@ -282,10 +287,13 @@ export class TabManager {
       try {
         const result = await captureSelectionHighlight(wc);
         if (result.success && result.text) {
-          await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch(() => {});
+          await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch((err) =>
+            logger.warn("Failed to capture highlight:", err),
+          );
         }
         this.highlightCaptureCallback?.(result);
-      } catch {
+      } catch (err) {
+        logger.warn("Failed to capture highlight from page:", err);
         this.highlightCaptureCallback?.({
           success: false,
           message: "Could not capture selection",
@@ -311,7 +319,9 @@ export class TabManager {
         if (tabUrl === normalized) {
           void this.removeHighlightMarksForText(wc, text);
         }
-      } catch {}
+      } catch (err) {
+        logger.warn("Failed to remove highlight from matching tab:", err);
+      }
     }
     this.highlightCaptureCallback?.({
       success: true,
@@ -347,10 +357,14 @@ export class TabManager {
               undefined,
               undefined,
               color,
-            ).catch(() => {});
+            ).catch((err) =>
+              logger.warn("Failed to update highlight color:", err),
+            );
           });
         }
-      } catch {}
+      } catch (err) {
+        logger.warn("Failed to iterate highlights for color change:", err);
+      }
     }
     this.highlightCaptureCallback?.({
       success: true,
@@ -376,7 +390,9 @@ export class TabManager {
         });
       })()`,
       )
-      .catch(() => {});
+      .catch((err) =>
+        logger.warn("Failed to remove highlight marks:", err),
+      );
   }
 
   private broadcastState(): void {

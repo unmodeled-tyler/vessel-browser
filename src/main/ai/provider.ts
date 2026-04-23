@@ -5,6 +5,7 @@ import type {
   ProviderConfig,
   ProviderModelsResult,
 } from "../../shared/types";
+import { okResult } from "../../shared/result";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
 import { PROVIDERS } from "../../shared/providers";
@@ -163,7 +164,7 @@ export async function fetchProviderModels(
   if (normalized.id === "anthropic") {
     const client = new Anthropic({ apiKey: normalized.apiKey });
     const page = await client.models.list();
-    return { ok: true, models: page.data.map((model) => model.id) };
+    return okResult({ models: page.data.map((model) => model.id) });
   }
 
   const meta = PROVIDERS[normalized.id];
@@ -180,9 +181,10 @@ export async function fetchProviderModels(
       ? await probeLlamaCppCtxWarning(baseURL)
       : undefined;
   return {
-    ok: true,
-    models,
-    ...(warning ? { warning } : {}),
+    ...okResult({
+      models,
+      ...(warning ? { warning } : {}),
+    }),
   };
 }
 

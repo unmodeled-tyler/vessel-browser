@@ -1,5 +1,8 @@
 import { createSignal } from "solid-js";
 import type { BookmarksState } from "../../../shared/types";
+import { createLogger } from "../../../shared/logger";
+
+const logger = createLogger("BookmarksStore");
 
 const INITIAL: BookmarksState = { folders: [], bookmarks: [] };
 
@@ -20,7 +23,7 @@ async function init() {
       window.vessel.bookmarks.onUpdate((s) => setBookmarksState(s));
     } catch (error) {
       initialized = false;
-      console.error("Failed to initialize bookmarks store", error);
+      logger.error("Failed to initialize bookmarks store:", error);
     } finally {
       initPromise = null;
     }

@@ -1,5 +1,8 @@
 import { createSignal } from 'solid-js';
 import type { TabState } from '../../../shared/types';
+import { createLogger } from '../../../shared/logger';
+
+const logger = createLogger("TabsStore");
 
 const [tabs, setTabs] = createSignal<TabState[]>([]);
 const [activeTabId, setActiveTabId] = createSignal('');
@@ -25,7 +28,7 @@ async function doInit(): Promise<void> {
     setActiveTabId(initialState.activeId);
   } catch (error) {
     initialized = false;
-    console.error("Failed to initialize tabs store", error);
+    logger.error("Failed to initialize tabs store:", error);
     throw error;
   }
 }

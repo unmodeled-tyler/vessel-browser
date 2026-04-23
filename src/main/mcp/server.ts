@@ -7,6 +7,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { PageContent } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
+import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import {
@@ -26,10 +28,28 @@ import {
 } from "../network/link-validation";
 import {
   clearOverlays,
+  clickResolvedSelector,
+  composeDuplicateBookmarkResponse,
+  composeFolderAwareResponse,
+  describeFolder,
+  dismissPopup,
   fillFormFields,
+  focusElement,
+  getBookmarkMetadataFromArgs,
+  getTabByMatch,
+  hoverElement,
   isAddToCartText,
+  isDangerousAction,
   isDuplicateCartClick,
+  pressKeyDirect as pressKey,
   recordCartClick,
+  resolveBookmarkFolderTarget,
+  scrollPage,
+  selectOptionDirect as selectOption,
+  setElementValue,
+  submitFormDirect as submitForm,
+  typeKeystroke,
+  waitForConditionDirect as waitForCondition,
 } from "../ai/page-actions";
 import {
   coerceOptionalNumber,
@@ -74,24 +94,9 @@ import * as vaultManager from "../vault/manager";
 import { requestConsent } from "../vault/consent";
 import { appendAuditEntry } from "../vault/audit";
 import { trackVaultAction } from "../telemetry/posthog";
-import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
-
 let httpServer: http.Server | null = null;
 let mcpAuthToken: string | null = null;
-
-function getBookmarkMetadataFromToolArgs(args: {
-  intent?: unknown;
-  expected_content?: unknown;
-  key_fields?: unknown;
-  agent_hints?: unknown;
-}) {
-  return normalizeBookmarkMetadata({
-    intent: args.intent,
-    expectedContent: args.expected_content,
-    keyFields: args.key_fields,
-    agentHints: args.agent_hints,
-  });
-}
+const logger = createLogger("MCP");
 
 // Well-known path where external MCP clients (e.g. Hermes) can read the
 // current auth token and endpoint. Written on successful start. The token is
@@ -147,7 +152,7 @@ function writeMcpAuthFile(endpoint: string, token: string): void {
       { mode: 0o600 },
     );
   } catch (err) {
-    console.warn("[Vessel MCP] Failed to write auth file:", err);
+    logger.warn("Failed to write auth file:", err);
   }
 }
 
@@ -174,7 +179,7 @@ function clearMcpAuthFile(): void {
       { mode: 0o600 },
     );
   } catch (err) {
-    console.warn("[Vessel MCP] Failed to clear auth file:", err);
+    logger.warn("Failed to clear auth file:", err);
   }
 }
 
@@ -196,13 +201,14 @@ function asTextResponse(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-async function loadPermittedUrl(
-  wc: Electron.WebContents,
-  url: string,
-): Promise<void> {
-  assertPermittedNavigationURL(url);
-  await wc.loadURL(url);
+function asErrorTextResponse(message: string) {
+  return asTextResponse(`Error: ${message}`);
 }
+
+function asNoActiveTabResponse() {
+  return asErrorTextResponse("No active tab");
+}
+
 
 function asPromptResponse(text: string) {
   return {
@@ -216,6 +222,10 @@ function asPromptResponse(text: string) {
       },
     ],
   };
+}
+
+function isDangerousMcpAction(name: string): boolean {
+  return name === "close_tab" || isDangerousAction(name);
 }
 
 function getActiveTabSummary(tabManager: TabManager) {
@@ -235,998 +245,24 @@ function getActiveTabSummary(tabManager: TabManager) {
   };
 }
 
-function formatFolderStatus(limit = 6): string {
-  const folders = bookmarkManager.listFolderOverviews();
-  const visible = folders.slice(0, limit);
-  const summary = visible
-    .map((folder) => `${folder.name} (${folder.count})`)
-    .join(", ");
-  return `Folder status: ${summary}${folders.length > limit ? ", ..." : ""}`;
-}
 
-function describeFolder(folderId?: string): string {
-  if (!folderId || folderId === bookmarkManager.UNSORTED_ID) {
-    return "Unsorted";
-  }
-  return bookmarkManager.getFolder(folderId)?.name ?? folderId;
-}
 
-function resolveBookmarkFolderTarget(args: {
-  folder_id?: unknown;
-  folder_name?: unknown;
-  folder_summary?: unknown;
-  create_folder_if_missing?: unknown;
-  archive?: unknown;
-}): {
-  folderId?: string;
-  folderName: string;
-  createdFolder?: string;
-  error?: string;
-} {
-  const folderId =
-    typeof args.folder_id === "string" ? args.folder_id.trim() : "";
-  if (folderId) {
-    if (folderId === bookmarkManager.UNSORTED_ID) {
-      return {
-        folderId: bookmarkManager.UNSORTED_ID,
-        folderName: "Unsorted",
-      };
-    }
 
-    const folder = bookmarkManager.getFolder(folderId);
-    if (!folder) {
-      return { folderName: "Unsorted", error: `Folder ${folderId} not found` };
-    }
-    return { folderId: folder.id, folderName: folder.name };
-  }
 
-  const requestedName =
-    typeof args.folder_name === "string" && args.folder_name.trim()
-      ? args.folder_name.trim()
-      : args.archive
-        ? bookmarkManager.ARCHIVE_FOLDER_NAME
-        : "";
 
-  if (!requestedName || requestedName.toLowerCase() === "unsorted") {
-    return {
-      folderId: bookmarkManager.UNSORTED_ID,
-      folderName: "Unsorted",
-    };
-  }
 
-  const existing = bookmarkManager.findFolderByName(requestedName);
-  if (existing) {
-    return { folderId: existing.id, folderName: existing.name };
-  }
 
-  const createIfMissing = args.create_folder_if_missing !== false;
-  if (!createIfMissing) {
-    return {
-      folderName: requestedName,
-      error: `Folder "${requestedName}" not found`,
-    };
-  }
 
-  const folderSummary =
-    typeof args.folder_summary === "string" && args.folder_summary.trim()
-      ? args.folder_summary.trim()
-      : undefined;
-  const { folder } = bookmarkManager.ensureFolder(requestedName, folderSummary);
-  return {
-    folderId: folder.id,
-    folderName: folder.name,
-    createdFolder: folder.name,
-  };
-}
 
-function composeFolderAwareResponse(
-  message: string,
-  createdFolder?: string,
-): string {
-  const prefix = createdFolder ? `Created folder "${createdFolder}".\n` : "";
-  return `${prefix}${message}\n${formatFolderStatus()}`;
-}
 
-function composeDuplicateBookmarkResponse(args: {
-  url: string;
-  folderName: string;
-  bookmarkId: string;
-}): string {
-  return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with on_duplicate="update" to refresh the existing bookmark or on_duplicate="duplicate" to keep both entries.`;
-}
 
 
 
-async function scrollPage(
-  wc: Electron.WebContents,
-  deltaY: number,
-): Promise<{
-  beforeY: number;
-  afterY: number;
-  movedY: number;
-}> {
-  const getScrollY = () =>
-    wc.executeJavaScript(`
-      (function() {
-        return Math.max(
-          window.scrollY || 0,
-          window.pageYOffset || 0,
-          document.scrollingElement?.scrollTop || 0,
-          document.documentElement?.scrollTop || 0,
-          document.body?.scrollTop || 0,
-        );
-      })()
-    `);
 
-  const beforeY = await getScrollY();
-  await wc.executeJavaScript(`window.scrollBy(0, ${deltaY})`);
-  await sleep(100);
-  const afterY = await getScrollY();
-  return {
-    beforeY,
-    afterY,
-    movedY: Math.round(afterY - beforeY),
-  };
-}
 
 
 
-async function clickElement(
-  wc: Electron.WebContents,
-  selector: string,
-): Promise<string> {
-  const target = await wc.executeJavaScript(`
-    (async function() {
-      function matchesTarget(candidate, el) {
-        return !!candidate && (candidate === el || el.contains(candidate) || candidate.contains(el));
-      }
 
-      function samplePoints(rect) {
-        const width = window.innerWidth || document.documentElement?.clientWidth || 0;
-        const height = window.innerHeight || document.documentElement?.clientHeight || 0;
-        const insetX = Math.min(12, rect.width / 4);
-        const insetY = Math.min(12, rect.height / 4);
-        const raw = [
-          [rect.left + rect.width / 2, rect.top + rect.height / 2],
-          [rect.left + insetX, rect.top + insetY],
-          [rect.right - insetX, rect.top + insetY],
-          [rect.left + insetX, rect.bottom - insetY],
-          [rect.right - insetX, rect.bottom - insetY],
-        ];
-        return raw.map(([x, y]) => ({
-          x: Math.min(Math.max(1, x), Math.max(1, width - 1)),
-          y: Math.min(Math.max(1, y), Math.max(1, height - 1)),
-        }));
-      }
-
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { error: "Element not found" };
-
-      if (el instanceof HTMLElement) {
-        el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
-      }
-
-      await new Promise((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          resolve(undefined);
-        };
-        if (
-          typeof requestAnimationFrame === "function" &&
-          document.visibilityState === "visible"
-        ) {
-          requestAnimationFrame(() => finish());
-        }
-        setTimeout(finish, 32);
-      });
-
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) {
-        return { error: "Element is not visible. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it (scroll or scroll_to_element) then call read_page to refresh visible elements before clicking again." };
-      }
-
-      const points = samplePoints(rect);
-      const hit = points.find((point) => matchesTarget(document.elementFromPoint(point.x, point.y), el));
-      const chosen = hit || points[0];
-      const top = document.elementFromPoint(chosen.x, chosen.y);
-
-      return {
-        x: Math.round(chosen.x),
-        y: Math.round(chosen.y),
-        obstructed: !matchesTarget(top, el),
-        hiddenWindow: document.visibilityState !== "visible",
-      };
-    })()
-  `);
-
-  if (!target || typeof target !== "object") {
-    return "Error: Could not resolve click target";
-  }
-  if ("error" in target && typeof target.error === "string") {
-    return `Error: ${target.error}`;
-  }
-
-  const x = typeof target.x === "number" ? target.x : null;
-  const y = typeof target.y === "number" ? target.y : null;
-  const hiddenWindow = target.hiddenWindow === true;
-  if (x == null || y == null) {
-    return "Error: Could not resolve click coordinates";
-  }
-
-  if (hiddenWindow) {
-    const activationResult = await activateElement(wc, selector);
-    if (activationResult.startsWith("Error:")) {
-      return activationResult;
-    }
-    await sleep(80);
-    return "Clicked via DOM activation";
-  }
-
-  wc.sendInputEvent({ type: "mouseMove", x, y });
-  await sleep(16);
-  wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
-  await sleep(24);
-  wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
-  await sleep(80);
-
-  return target.obstructed
-    ? "Clicked via pointer events (target may be partially obstructed)"
-    : "Clicked via pointer events";
-}
-
-async function activateElement(
-  wc: Electron.WebContents,
-  selector: string,
-): Promise<string> {
-  const activated = await wc.executeJavaScript(`
-    (function() {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { error: "Element not found" };
-      if (el instanceof HTMLElement) {
-        el.focus({ preventScroll: true });
-      }
-      if (typeof el.click === "function") {
-        el.click();
-        return { ok: true };
-      }
-      return { error: "Element is not clickable" };
-    })()
-  `);
-
-  if (!activated || typeof activated !== "object") {
-    return "Error: Could not activate element";
-  }
-  if ("error" in activated && typeof activated.error === "string") {
-    return `Error: ${activated.error}`;
-  }
-
-  return "Activated element via DOM click";
-}
-
-async function describeElementForClick(
-  wc: Electron.WebContents,
-  selector: string,
-): Promise<{ text: string; href?: string } | { error: string }> {
-  const result = await wc.executeJavaScript(`
-    (function() {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { error: "Element not found" };
-      const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
-      const text = (el.textContent || el.tagName || "Element").trim().slice(0, 100);
-      return {
-        text: text || "Element",
-        href: anchor instanceof HTMLAnchorElement ? anchor.href : undefined,
-      };
-    })()
-  `);
-
-  if (!result || typeof result !== "object") {
-    return { error: "Element not found" };
-  }
-  if ("error" in result && typeof result.error === "string") {
-    return { error: result.error };
-  }
-
-  return {
-    text:
-      "text" in result && typeof result.text === "string"
-        ? result.text
-        : "Element",
-    href:
-      "href" in result && typeof result.href === "string"
-        ? result.href
-        : undefined,
-  };
-}
-
-async function clickResolvedSelector(
-  wc: Electron.WebContents,
-  selector: string,
-): Promise<string> {
-  // Shadow DOM direct interaction via stored element reference
-  if (selector.startsWith("__vessel_idx:")) {
-    const idx = Number(selector.slice("__vessel_idx:".length));
-    const beforeUrl = wc.getURL();
-    const idxLabel = await wc.executeJavaScript(
-      `window.__vessel?.getElementText?.(${idx}) || ""`,
-    );
-    if (
-      typeof idxLabel === "string" &&
-      isAddToCartText(idxLabel) &&
-      isDuplicateCartClick(beforeUrl, idxLabel)
-    ) {
-      return `Blocked: "${idxLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
-    }
-    const result = await wc.executeJavaScript(
-      `window.__vessel?.interactByIndex?.(${idx}, "click") || "Error: interactByIndex not available"`,
-    );
-    if (typeof result === "string" && result.startsWith("Error")) return result;
-    if (typeof idxLabel === "string" && isAddToCartText(idxLabel)) {
-      recordCartClick(beforeUrl, idxLabel);
-    }
-    await waitForPotentialNavigation(wc, beforeUrl);
-    const afterUrl = wc.getURL();
-    if (afterUrl !== beforeUrl) return `${result} -> ${afterUrl}`;
-    let overlayHint = await detectPostClickOverlay(wc);
-    if (
-      !overlayHint &&
-      typeof idxLabel === "string" &&
-      isAddToCartText(idxLabel)
-    ) {
-      await sleep(1200);
-      overlayHint = await detectPostClickOverlay(wc);
-    }
-    if (!overlayHint) {
-      const hrefMatch = typeof result === "string"
-        ? result.match(/\nhref: (https?:\/\/\S+)/)
-        : null;
-      if (hrefMatch) {
-        try {
-          await loadPermittedUrl(wc, hrefMatch[1]);
-          await waitForLoad(wc, 8000);
-          const hrefUrl = wc.getURL();
-          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
-        } catch {}
-      }
-      return result;
-    }
-    const dialogActions =
-      typeof idxLabel === "string" && isAddToCartText(idxLabel)
-        ? await getCartDialogActions(wc)
-        : null;
-    const actionsSuffix = dialogActions
-      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
-      : "";
-    return `${result}\n${overlayHint}${actionsSuffix}`;
-  }
-
-  // Shadow-piercing selector path
-  if (selector.includes(" >>> ")) {
-    const beforeUrl = wc.getURL();
-    const shadowLabel = await wc.executeJavaScript(`
-      (function() {
-        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
-        return el ? (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || "") : "";
-      })()
-    `);
-    if (
-      typeof shadowLabel === "string" &&
-      isAddToCartText(shadowLabel) &&
-      isDuplicateCartClick(beforeUrl, shadowLabel)
-    ) {
-      return `Blocked: "${shadowLabel}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
-    }
-    const result = await wc.executeJavaScript(`
-      (function() {
-        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
-        if (!el || !document.contains(el)) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
-        if (el instanceof HTMLElement) { el.focus(); el.click(); }
-        var anchor = el instanceof HTMLAnchorElement ? el : el.closest('a[href]');
-        var href = anchor instanceof HTMLAnchorElement ? anchor.href : null;
-        return "Clicked: " + (el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase()) + (href ? "\\nhref: " + href : "");
-      })()
-    `);
-    if (typeof result === "string" && result.startsWith("Error")) return result;
-    if (typeof shadowLabel === "string" && isAddToCartText(shadowLabel)) {
-      recordCartClick(beforeUrl, shadowLabel);
-    }
-    await waitForPotentialNavigation(wc, beforeUrl);
-    const afterUrl2 = wc.getURL();
-    if (afterUrl2 !== beforeUrl) return `${result} -> ${afterUrl2}`;
-    let overlayHint2 = await detectPostClickOverlay(wc);
-    if (
-      !overlayHint2 &&
-      typeof shadowLabel === "string" &&
-      isAddToCartText(shadowLabel)
-    ) {
-      await sleep(1200);
-      overlayHint2 = await detectPostClickOverlay(wc);
-    }
-    if (!overlayHint2) {
-      const hrefMatch = typeof result === "string"
-        ? result.match(/\nhref: (https?:\/\/\S+)/)
-        : null;
-      if (hrefMatch) {
-        try {
-          await loadPermittedUrl(wc, hrefMatch[1]);
-          await waitForLoad(wc, 8000);
-          const hrefUrl = wc.getURL();
-          if (hrefUrl !== beforeUrl) return `${result.split("\n")[0]} -> ${hrefUrl}`;
-        } catch {}
-      }
-      return result;
-    }
-    const dialogActions2 =
-      typeof shadowLabel === "string" && isAddToCartText(shadowLabel)
-        ? await getCartDialogActions(wc)
-        : null;
-    const actionsSuffix2 = dialogActions2
-      ? `\n${dialogActions2}\nClick one of these dialog actions. Do NOT click any other element.`
-      : "";
-    return `${result}\n${overlayHint2}${actionsSuffix2}`;
-  }
-
-  const beforeUrl = wc.getURL();
-  const elInfo = await describeElementForClick(wc, selector);
-  if ("error" in elInfo) return `Error: ${elInfo.error}`;
-
-  // Block duplicate add-to-cart clicks on the same page
-  const cartMatch = isAddToCartText(elInfo.text);
-  if (cartMatch && isDuplicateCartClick(beforeUrl, elInfo.text)) {
-    return `Blocked: "${elInfo.text}" was already clicked on this page. The item is in your cart. Call read_page to see available actions (e.g. View Cart, Continue Shopping).`;
-  }
-
-  if (!cartMatch) {
-    const dialogActions = await getCartDialogActions(wc);
-    if (dialogActions) {
-      return `Blocked: a cart confirmation dialog is open. Do not click background elements.\n${dialogActions}\nClick one of these dialog actions instead.`;
-    }
-  }
-
-  if (elInfo.href) {
-    const validation = await validateLinkDestination(elInfo.href);
-    if (validation.status === "dead") {
-      return formatDeadLinkMessage(elInfo.text, validation);
-    }
-  }
-
-  if (cartMatch) {
-    recordCartClick(beforeUrl, elInfo.text);
-  }
-
-  const clickText = `Clicked: ${elInfo.text}`;
-  const clickResult = await clickElement(wc, selector);
-  if (clickResult.startsWith("Error:")) return clickResult;
-
-  await waitForPotentialNavigation(wc, beforeUrl);
-  const afterUrl = wc.getURL();
-  if (afterUrl !== beforeUrl) {
-    return `${clickText} -> ${afterUrl}`;
-  }
-
-  const overlayHint = await detectPostClickOverlay(wc);
-  if (overlayHint) {
-    const dialogActions = cartMatch ? await getCartDialogActions(wc) : null;
-    const actionsSuffix = dialogActions
-      ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
-      : "";
-    return `${clickText} (${clickResult})\n${overlayHint}${actionsSuffix}`;
-  }
-
-  // Do not "recover" cart clicks with a second DOM activation. On sites like
-  // Powell's, that fallback can submit Add to Basket twice while the drawer is opening.
-  if (cartMatch) {
-    await sleep(1200);
-    const delayedOverlayHint = await detectPostClickOverlay(wc);
-    if (delayedOverlayHint) {
-      const dialogActions = await getCartDialogActions(wc);
-      const actionsSuffix = dialogActions
-        ? `\n${dialogActions}\nClick one of these dialog actions. Do NOT click any other element.`
-        : "";
-      return `${clickText} (${clickResult})\n${delayedOverlayHint}${actionsSuffix}`;
-    }
-    return `${clickText} (${clickResult})`;
-  }
-
-  const activationResult = await activateElement(wc, selector);
-  if (!activationResult.startsWith("Error:")) {
-    await waitForPotentialNavigation(wc, beforeUrl);
-    const fallbackUrl = wc.getURL();
-    if (fallbackUrl !== beforeUrl) {
-      return `${clickText} -> ${fallbackUrl} (recovered via DOM activation)`;
-    }
-  }
-
-  const postActivationOverlayHint = await detectPostClickOverlay(wc);
-  if (postActivationOverlayHint) {
-    return `${clickText} (${clickResult})\n${postActivationOverlayHint}`;
-  }
-
-  return `${clickText} (${clickResult})`;
-}
-
-async function getCartDialogActions(
-  wc: Electron.WebContents,
-): Promise<string | null> {
-  const result = await wc.executeJavaScript(`
-    (function() {
-      function isVisible(el) {
-        if (!(el instanceof HTMLElement)) return false;
-        const style = getComputedStyle(el);
-        if (style.display === "none" || style.visibility === "hidden") return false;
-        const rect = el.getBoundingClientRect();
-        return rect.width >= 20 && rect.height >= 10;
-      }
-
-      function findDialogRoot() {
-        const selectors = [
-          '[data-test="basket-flyout"]',
-          '[role="dialog"]',
-          'dialog[open]',
-          '[role="alertdialog"]',
-          '[aria-modal="true"]',
-        ];
-        for (const selector of selectors) {
-          const nodes = document.querySelectorAll(selector);
-          for (const node of nodes) {
-            if (!(node instanceof HTMLElement) || !isVisible(node)) continue;
-            const text = (node.textContent || "").slice(0, 800).toLowerCase();
-            const cartSignals = [
-              "added to cart", "added to bag", "added to basket",
-              "item added", "your basket", "your cart", "your bag",
-              "view basket", "view cart", "continue shopping",
-            ];
-            if (cartSignals.some((signal) => text.includes(signal))) {
-              return node;
-            }
-          }
-        }
-        return null;
-      }
-
-      const dialog = findDialogRoot();
-      if (!dialog) return { found: false, actions: [] };
-
-      const actions = [];
-      dialog.querySelectorAll('button, a[href], [role="button"]').forEach((el) => {
-        if (!(el instanceof HTMLElement) || !isVisible(el)) return;
-        const label = (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 80);
-        if (!label || label.length < 2) return;
-        const href = el.getAttribute("href") || "";
-        const selector = el.id ? "#" + el.id
-          : el.getAttribute("data-test") ? '[data-test="' + el.getAttribute("data-test") + '"]'
-          : el.getAttribute("aria-label") ? '[aria-label="' + el.getAttribute("aria-label") + '"]'
-          : null;
-        if (selector) {
-          actions.push({ label: label, href: href, selector: selector });
-        }
-      });
-
-      return {
-        found: true,
-        actions: actions.map((action) =>
-          '- "' + action.label + '"' +
-          (action.href ? ' -> ' + action.href : "") +
-          (action.selector ? ' (selector: ' + action.selector + ')' : "")
-        ),
-      };
-    })()
-  `);
-
-  if (
-    !result ||
-    typeof result !== "object" ||
-    !("found" in result) ||
-    !result.found
-  ) {
-    return null;
-  }
-  if (
-    !("actions" in result) ||
-    !Array.isArray(result.actions) ||
-    result.actions.length === 0
-  ) {
-    return null;
-  }
-
-  return `Available dialog actions:\n${result.actions.join("\n")}`;
-}
-
-async function detectPostClickOverlay(
-  wc: Electron.WebContents,
-): Promise<string | null> {
-  const result = await wc.executeJavaScript(`
-    (function() {
-      var vw = window.innerWidth || document.documentElement.clientWidth;
-      var vh = window.innerHeight || document.documentElement.clientHeight;
-      var vpArea = Math.max(1, vw * vh);
-
-      function isVisible(el) {
-        if (!(el instanceof HTMLElement)) return false;
-        var style = getComputedStyle(el);
-        if (style.display === "none" || style.visibility === "hidden") return false;
-        return el.getBoundingClientRect().width > 0;
-      }
-
-      function hasFixedAncestor(el) {
-        var current = el.parentElement;
-        while (current && current !== document.body) {
-          var position = getComputedStyle(current).position;
-          if (position === "fixed" || position === "sticky") return true;
-          current = current.parentElement;
-        }
-        return false;
-      }
-
-      function effectiveZ(el) {
-        var current = el;
-        while (current && current !== document.body) {
-          var z = parseInt(getComputedStyle(current).zIndex, 10);
-          if (z > 0) return z;
-          current = current.parentElement;
-        }
-        return 0;
-      }
-
-      function touchesViewportEdge(rect) {
-        return rect.left <= 24 || rect.top <= 24 ||
-          rect.right >= vw - 24 || rect.bottom >= vh - 24;
-      }
-
-      var cartPhrases = [
-        "added to cart", "added to bag", "added to basket",
-        "added to your cart", "added to your bag", "added to your basket",
-      ];
-      var cartActions = [
-        "view cart", "go to cart", "view basket", "go to basket",
-        "continue shopping", "keep shopping", "checkout",
-      ];
-
-      var selectors = 'dialog[open], [role="dialog"], [role="alertdialog"], [aria-modal="true"], [data-test="basket-flyout"]';
-      var candidates = document.querySelectorAll(selectors);
-      var hit = null;
-      for (var i = 0; i < candidates.length; i++) {
-        if (isVisible(candidates[i])) {
-          hit = candidates[i];
-          break;
-        }
-      }
-
-      if (!hit) {
-        var elements = document.querySelectorAll("*");
-        for (var j = 0; j < elements.length; j++) {
-          var el = elements[j];
-          if (!(el instanceof HTMLElement) || !isVisible(el)) continue;
-          var style = getComputedStyle(el);
-          var position = style.position;
-          var isFixed = position === "fixed" || position === "sticky";
-          var isAbsolute = position === "absolute";
-          if (!isFixed && !isAbsolute) continue;
-          if (isAbsolute && !hasFixedAncestor(el)) continue;
-          if (effectiveZ(el) < 5) continue;
-          var rect = el.getBoundingClientRect();
-          var areaRatio = (rect.width * rect.height) / vpArea;
-          if (rect.width >= 160 && rect.height >= 100 && areaRatio >= 0.05 && touchesViewportEdge(rect)) {
-            hit = el;
-            break;
-          }
-        }
-      }
-
-      if (!hit) return { found: false, label: "", cartLike: false };
-      var text = (hit.textContent || "").slice(0, 800).toLowerCase();
-      var cartLike = cartPhrases.concat(cartActions).some(function(signal) {
-        return text.indexOf(signal) !== -1;
-      });
-      var heading = hit.querySelector("h1,h2,h3,h4");
-      var label = (hit.getAttribute("aria-label") || (heading && heading.textContent) || "").trim().slice(0, 80);
-      return { found: true, label: label, cartLike: cartLike };
-    })()
-  `);
-
-  if (
-    !result ||
-    typeof result !== "object" ||
-    !("found" in result) ||
-    !result.found
-  ) {
-    return null;
-  }
-
-  const label =
-    typeof result.label === "string" && result.label
-      ? ` ("${result.label}")`
-      : "";
-  if ("cartLike" in result && result.cartLike) {
-    return `A cart confirmation dialog appeared${label}. Call read_page to see available actions — do not click Add to Cart again.`;
-  }
-
-  return `A dialog or overlay appeared${label}. Call read_page to see available actions.`;
-}
-
-async function dismissPopup(wc: Electron.WebContents): Promise<string> {
-  const before = await extractContent(wc);
-  const initialBlocking = before.overlays.filter(
-    (overlay) => overlay.blocksInteraction,
-  ).length;
-
-  // Refuse to dismiss cart confirmation dialogs
-  if (initialBlocking > 0) {
-    const overlayText = before.overlays
-      .map((o: { label?: string; text?: string }) =>
-        [o.label, o.text].filter(Boolean).join(" "),
-      )
-      .join(" ")
-      .toLowerCase();
-    const cartSignals = [
-      "added to cart",
-      "added to bag",
-      "added to basket",
-      "item added",
-      "items in your basket",
-      "items in your cart",
-      "items in your bag",
-      "your basket",
-      "your cart",
-      "your bag",
-      "view basket",
-      "view cart",
-      "continue shopping",
-    ];
-    if (cartSignals.some((s) => overlayText.includes(s))) {
-      // Instead of refusing, try to click "Continue Shopping" automatically
-      const continueResult = await wc.executeJavaScript(`
-        (function() {
-          var dialog = document.querySelector('[role="dialog"], dialog[open], [role="alertdialog"], [aria-modal="true"]');
-          if (!dialog) return "Error: dialog not found";
-          var buttons = dialog.querySelectorAll('button, a[href], [role="button"]');
-          var continueBtn = null;
-          var viewCartBtn = null;
-          for (var i = 0; i < buttons.length; i++) {
-            var label = (buttons[i].getAttribute('aria-label') || buttons[i].textContent || '').trim().toLowerCase();
-            if (/continue shopping|keep shopping/.test(label)) { continueBtn = buttons[i]; break; }
-            if (/view (basket|cart|bag)|checkout/.test(label) && !viewCartBtn) { viewCartBtn = buttons[i]; }
-          }
-          var target = continueBtn || viewCartBtn;
-          if (!target) return "Error: no dialog action found";
-          var actionLabel = (target.getAttribute('aria-label') || target.textContent || '').trim();
-          if (target.tagName === 'A' && target.href) {
-            window.location.href = target.href;
-            return "Clicked: " + actionLabel + " -> " + target.href;
-          }
-          target.click();
-          return "Clicked: " + actionLabel;
-        })()
-      `);
-
-      if (
-        typeof continueResult === "string" &&
-        !continueResult.startsWith("Error")
-      ) {
-        return `Cart confirmation handled: ${continueResult}. Item was already added to your cart.`;
-      }
-
-      return "Cannot dismiss: this is a cart confirmation dialog. Item is in your cart. Use read_page to see dialog actions (e.g. View Basket, Continue Shopping) and click one of them instead.";
-    }
-  }
-
-  const initialDormant = before.dormantOverlays.length;
-
-  const candidates = await wc.executeJavaScript(`
-    (function() {
-      function text(value) {
-        const trimmed = value == null ? "" : String(value).trim();
-        return trimmed || "";
-      }
-
-      ${selectorHelpersJS(["data-testid", "data-test", "aria-label", "name", "title"])}
-
-      function isVisible(el) {
-        if (!(el instanceof HTMLElement)) return true;
-        const style = window.getComputedStyle(el);
-        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
-          return false;
-        }
-        if (el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true") {
-          return false;
-        }
-        const rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      }
-
-      function overlayRoots() {
-        const nodes = [];
-        document.querySelectorAll("dialog, [role='dialog'], [role='alertdialog'], [aria-modal='true']").forEach((el) => {
-          if (isVisible(el)) nodes.push(el);
-        });
-        // Detect known consent manager containers
-        document.querySelectorAll("#onetrust-consent-sdk, #onetrust-banner-sdk, [id*='onetrust'], [class*='onetrust'], #CybotCookiebotDialog, #truste-consent-track, [id*='cookie-banner'], [id*='consent-banner'], [class*='cookie-consent'], [class*='consent-banner'], [id*='gdpr'], [class*='gdpr']").forEach((el) => {
-          if (el instanceof HTMLElement && isVisible(el)) nodes.push(el);
-        });
-        document.querySelectorAll("body *").forEach((el) => {
-          if (!(el instanceof HTMLElement) || !isVisible(el)) return;
-          const style = window.getComputedStyle(el);
-          const rect = el.getBoundingClientRect();
-          const zIndex = Number.parseInt(style.zIndex, 10);
-          const coversCenter =
-            rect.left <= (window.innerWidth || 0) / 2 &&
-            rect.right >= (window.innerWidth || 0) / 2 &&
-            rect.top <= (window.innerHeight || 0) / 2 &&
-            rect.bottom >= (window.innerHeight || 0) / 2;
-          if (
-            (style.position === "fixed" || style.position === "sticky") &&
-            Number.isFinite(zIndex) &&
-            zIndex >= 10 &&
-            coversCenter
-          ) {
-            nodes.push(el);
-          }
-        });
-        return Array.from(new Set(nodes));
-      }
-
-      function scoreCandidate(el, rooted) {
-        const label = text(
-          el.getAttribute("aria-label") ||
-            el.getAttribute("title") ||
-            el.textContent ||
-            el.getAttribute("value"),
-        ).toLowerCase();
-        const classText = text(typeof el.className === "string" ? el.className : "").toLowerCase();
-        const idText = text(el.id).toLowerCase();
-        const combined = classText + " " + idText;
-        let score = rooted ? 30 : 0;
-        if (/^x$|^×$/.test(label)) score += 120;
-        if (/no thanks|no, thanks|not now|maybe later|dismiss|close|skip|cancel|continue without|no thank you|reject|decline/.test(label)) score += 100;
-        if (/close|dismiss|modal-close|overlay-close/.test(combined)) score += 90;
-        if (/onetrust-close|onetrust-reject|cookie.*close|consent.*close|cookie.*reject|consent.*reject/.test(combined)) score += 110;
-        if (/onetrust-accept|cookie.*accept|consent.*accept/.test(combined)) score += 80;
-        if (el.getAttribute("aria-label")) score += 20;
-        if (/accept|continue|submit|sign up|subscribe|join|start|next/.test(label) && !/cookie|consent|onetrust/.test(combined)) score -= 80;
-        const rect = el.getBoundingClientRect();
-        if (rect.top < 120) score += 10;
-        if (rect.right > (window.innerWidth || 0) - 120) score += 15;
-        return score;
-      }
-
-      const selector = "button, [role='button'], a[href], input[type='button'], input[type='submit'], [aria-label], [title]";
-      const results = [];
-      const roots = overlayRoots();
-
-      function collect(container, rooted) {
-        container.querySelectorAll(selector).forEach((el) => {
-          if (!(el instanceof HTMLElement) || !isVisible(el)) return;
-          const candidateSelector = selectorFor(el);
-          if (!candidateSelector) return;
-          var label = text(
-            el.getAttribute("aria-label") ||
-              el.getAttribute("title") ||
-              el.textContent ||
-              el.getAttribute("value"),
-          );
-          if (!label) {
-            var idLower = (el.id || "").toLowerCase();
-            var classLower = (typeof el.className === "string" ? el.className : "").toLowerCase();
-            var combined = idLower + " " + classLower;
-            if (/onetrust|consent|cookie|banner|gdpr|trustarc|cookiebot/.test(combined)) {
-              label = idLower.includes("accept") ? "Accept cookies"
-                : idLower.includes("reject") ? "Reject cookies"
-                : idLower.includes("close") || classLower.includes("close") ? "Close"
-                : "Consent button";
-            } else {
-              return;
-            }
-          }
-          results.push({
-            selector: candidateSelector,
-            label: label.slice(0, 120),
-            score: scoreCandidate(el, rooted),
-          });
-        });
-      }
-
-      roots.forEach((root) => collect(root, true));
-      if (results.length === 0) {
-        collect(document, false);
-      }
-
-      const seen = new Set();
-      return results
-        .filter((candidate) => {
-          if (seen.has(candidate.selector)) return false;
-          seen.add(candidate.selector);
-          return candidate.score > 0;
-        })
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 8);
-    })()
-  `);
-
-  if (Array.isArray(candidates)) {
-    for (const candidate of candidates) {
-      if (
-        !candidate ||
-        typeof candidate !== "object" ||
-        typeof candidate.selector !== "string"
-      ) {
-        continue;
-      }
-      const result = await clickElement(wc, candidate.selector);
-      if (result.startsWith("Error:")) continue;
-      await sleep(250);
-      const after = await extractContent(wc);
-      const blocking = after.overlays.filter(
-        (overlay) => overlay.blocksInteraction,
-      ).length;
-      if (
-        blocking < initialBlocking ||
-        (initialBlocking > 0 && blocking === 0)
-      ) {
-        const label =
-          typeof candidate.label === "string" && candidate.label
-            ? candidate.label
-            : "popup control";
-        return `Dismissed popup using "${label}"`;
-      }
-    }
-  }
-
-  wc.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-  await sleep(16);
-  wc.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
-  await sleep(200);
-
-  const afterEscape = await extractContent(wc);
-  const escapeBlocking = afterEscape.overlays.filter(
-    (overlay) => overlay.blocksInteraction,
-  ).length;
-  if (
-    escapeBlocking < initialBlocking ||
-    (initialBlocking > 0 && escapeBlocking === 0)
-  ) {
-    return "Dismissed popup with Escape";
-  }
-
-  return initialBlocking > 0
-    ? "Could not dismiss the blocking popup automatically"
-    : initialDormant > 0
-      ? `No active blocking popup detected. Found ${initialDormant} dormant consent/modal surface(s) in the DOM, likely geo-gated or inactive in this session.`
-      : "No blocking popup detected";
-}
-
-function isDangerousAction(name: string): boolean {
-  return [
-    "navigate",
-    "click",
-    "type",
-    "select_option",
-    "submit_form",
-    "press_key",
-    "create_tab",
-    "switch_tab",
-    "close_tab",
-    "restore_checkpoint",
-    "login",
-    "fill_form",
-    "search",
-    "paginate",
-  ].includes(name);
-}
-
-function getTabByMatch(tabManager: TabManager, match: string) {
-  const lowered = match.toLowerCase();
-  return (
-    tabManager
-      .getAllStates()
-      .find(
-        (tab) =>
-          tab.title.toLowerCase().includes(lowered) ||
-          tab.url.toLowerCase().includes(lowered),
-      ) || null
-  );
-}
 
 async function getPostActionState(
   tabManager: TabManager,
@@ -1280,8 +316,8 @@ async function getPostActionState(
           warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
         }
       }
-    } catch {
-      // Best-effort post-action warning only
+    } catch (err) {
+      logger.warn("Failed to compute post-action state warning:", err);
     }
 
     return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
@@ -1314,410 +350,18 @@ async function withAction(
       name,
       args,
       tabId: tabManager.getActiveTabId(),
-      dangerous: isDangerousAction(name),
+      dangerous: isDangerousMcpAction(name),
       executor,
     });
     const stateInfo = await getPostActionState(tabManager, name);
     const flowCtx = runtime.getFlowContext();
     return asTextResponse(result + stateInfo + flowCtx);
   } catch (error) {
-    return asTextResponse(
-      `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    return asErrorTextResponse(getErrorMessage(error));
   }
 }
 
-async function setElementValue(
-  wc: Electron.WebContents,
-  selector: string,
-  value: string,
-): Promise<string> {
-  // Shadow DOM direct interaction via stored element reference
-  if (selector.startsWith("__vessel_idx:")) {
-    const idx = Number(selector.slice("__vessel_idx:".length));
-    return wc.executeJavaScript(
-      `window.__vessel?.interactByIndex?.(${idx}, "value", ${JSON.stringify(value)}) || "Error: interactByIndex not available"`,
-    );
-  }
-  // Shadow-piercing selector path
-  if (selector.includes(" >>> ")) {
-    return wc.executeJavaScript(`
-      (function() {
-        var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)});
-        if (!el) return "Error[stale-index]: Shadow DOM element not found — call read_page to refresh.";
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return "Error[not-input]: Element is not a text input";
-        var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-        var desc = Object.getOwnPropertyDescriptor(proto, "value");
-        if (desc && desc.set) { desc.set.call(el, ${JSON.stringify(value)}); } else { el.value = ${JSON.stringify(value)}; }
-        el.focus();
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-        return "Typed into: " + (el.getAttribute("aria-label") || el.placeholder || el.name || "input");
-      })()
-    `);
-  }
-  return wc.executeJavaScript(`
-    (function() {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-        return 'Error[not-input]: Element is not a text input';
-      }
-      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
-        return 'Error[disabled]: Input is disabled';
-      }
-      const prototype = el instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
-      if (descriptor && descriptor.set) {
-        descriptor.set.call(el, ${JSON.stringify(value)});
-      } else {
-        el.value = ${JSON.stringify(value)};
-      }
-      el.focus();
-      el.dispatchEvent(new InputEvent('input', {
-        bubbles: true,
-        cancelable: true,
-        data: ${JSON.stringify(value)},
-        inputType: 'insertText',
-      }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return 'Typed into: ' +
-        (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
-        ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
-    })()
-  `);
-}
-
-async function typeKeystroke(
-  wc: Electron.WebContents,
-  selector: string,
-  value: string,
-): Promise<string> {
-  return wc.executeJavaScript(`
-    (async function() {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-        return 'Error[not-input]: Element is not a text input';
-      }
-      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
-        return 'Error[disabled]: Input is disabled';
-      }
-      el.focus();
-      const prototype = el instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
-      if (descriptor && descriptor.set) {
-        descriptor.set.call(el, '');
-      } else {
-        el.value = '';
-      }
-      el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: '', inputType: 'deleteContentBackward' }));
-      const chars = ${JSON.stringify(value)}.split('');
-      for (const ch of chars) {
-        el.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true, cancelable: true }));
-        el.dispatchEvent(new KeyboardEvent('keypress', { key: ch, bubbles: true, cancelable: true }));
-        if (descriptor && descriptor.set) {
-          descriptor.set.call(el, el.value + ch);
-        } else {
-          el.value += ch;
-        }
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: ch, inputType: 'insertText' }));
-        el.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true, cancelable: true }));
-      }
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return 'Typed into: ' +
-        (el.getAttribute('aria-label') || el.placeholder || el.name || 'input') +
-        ' = ' + (el.type === 'password' ? '[hidden]' : String(el.value).slice(0, 80));
-    })()
-  `);
-}
-
-async function hoverElement(
-  wc: Electron.WebContents,
-  selector: string,
-): Promise<string> {
-  const pos = await wc.executeJavaScript(`
-    (function() {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return { error: 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.' };
-      if (el instanceof HTMLElement) {
-        el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
-      }
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return { error: 'Error[hidden]: Element has no visible area. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it then call read_page to refresh visible elements.' };
-      el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
-      el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
-      const label = (el.textContent || el.tagName || 'Element').trim().slice(0, 80);
-      return {
-        x: Math.round(rect.left + rect.width / 2),
-        y: Math.round(rect.top + rect.height / 2),
-        label: label,
-      };
-    })()
-  `);
-
-  if (!pos || typeof pos !== "object") return "Error: Could not hover element";
-  if ("error" in pos && typeof pos.error === "string") return pos.error;
-  const x = typeof pos.x === "number" ? pos.x : null;
-  const y = typeof pos.y === "number" ? pos.y : null;
-  if (x == null || y == null)
-    return "Error: Could not resolve hover coordinates";
-
-  wc.sendInputEvent({ type: "mouseMove", x, y });
-  const label = typeof pos.label === "string" ? pos.label : "element";
-  return `Hovered: ${label}`;
-}
-
-async function focusElement(
-  wc: Electron.WebContents,
-  selector: string,
-): Promise<string> {
-  return wc.executeJavaScript(`
-    (function() {
-      const el = document.querySelector(${JSON.stringify(selector)});
-      if (!el) return 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.';
-      if (!(el instanceof HTMLElement)) return 'Error[not-interactive]: Element is not focusable';
-      if (el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true') {
-        return 'Error[disabled]: Element is disabled';
-      }
-      el.focus({ preventScroll: false });
-      return 'Focused: ' + (el.getAttribute('aria-label') || el.textContent?.trim().slice(0, 60) || el.tagName.toLowerCase());
-    })()
-  `);
-}
-
-async function selectOption(
-  wc: Electron.WebContents,
-  index?: number,
-  selector?: string,
-  label?: string,
-  value?: string,
-): Promise<string> {
-  const resolvedSelector = await resolveSelector(wc, index, selector);
-  if (!resolvedSelector)
-    return "Error: No select element index or selector provided";
-
-  return wc.executeJavaScript(`
-    (function() {
-      const el = document.querySelector(${JSON.stringify(resolvedSelector)});
-      if (!(el instanceof HTMLSelectElement)) {
-        return 'Element is not a select dropdown';
-      }
-      if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
-        return 'Select is disabled';
-      }
-      const requestedLabel = ${JSON.stringify(label || "")}.trim().toLowerCase();
-      const requestedValue = ${JSON.stringify(value || "")}.trim();
-      const option = Array.from(el.options).find((item) => {
-        const optionLabel = (item.textContent || '').trim().toLowerCase();
-        return (requestedLabel && optionLabel === requestedLabel) ||
-          (requestedValue && item.value === requestedValue);
-      });
-      if (!option) return 'Option not found';
-      el.value = option.value;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return 'Selected: ' + ((option.textContent || option.value).trim().slice(0, 100));
-    })()
-  `);
-}
-
-async function submitForm(
-  wc: Electron.WebContents,
-  index?: number,
-  selector?: string,
-): Promise<string> {
-  const beforeUrl = wc.getURL();
-  let resolvedSelector = await resolveSelector(wc, index, selector);
-
-  // If no index/selector provided, find the first visible form on the page
-  if (!resolvedSelector) {
-    resolvedSelector = await wc.executeJavaScript(`
-      (function() {
-        var forms = document.querySelectorAll('form');
-        for (var i = 0; i < forms.length; i++) {
-          var f = forms[i];
-          var rect = f.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) return 'form';
-        }
-        return forms.length > 0 ? 'form' : null;
-      })()
-    `);
-    if (!resolvedSelector) return "Error: No form found on the page";
-  }
-
-  // Get form info to determine submission method
-  const formInfo = await wc.executeJavaScript(`
-    (function() {
-      const target = document.querySelector(${JSON.stringify(resolvedSelector)});
-      if (!target) return { error: 'Target not found' };
-      // Find the form: nested, or linked via form="id" attribute
-      var form = target instanceof HTMLFormElement ? target : target.closest('form');
-      if (!form) {
-        const formId = target.getAttribute('form');
-        if (formId) {
-          const linked = document.getElementById(formId);
-          if (linked instanceof HTMLFormElement) form = linked;
-        }
-      }
-      if (!form) return { error: 'No parent form found' };
-      function isSubmitControl(el) {
-        return (
-          (el instanceof HTMLButtonElement &&
-            ((el.getAttribute('type') || '').trim().toLowerCase() === '' ||
-              el.type === 'submit')) ||
-          (el instanceof HTMLInputElement &&
-            (el.type === 'submit' || el.type === 'image'))
-        );
-      }
-      const submitter = isSubmitControl(target)
-        ? target
-        : Array.from(document.querySelectorAll('button, input[type="submit"], input[type="image"]')).find(
-            (candidate) => isSubmitControl(candidate) && candidate.form === form,
-          );
-      if (
-        submitter instanceof HTMLElement &&
-        (submitter.hasAttribute('disabled') ||
-          submitter.getAttribute('aria-disabled') === 'true')
-      ) {
-        return { error: 'Submit control is disabled' };
-      }
-      // Collect form data and determine method
-      const submitterActionAttr =
-        (submitter instanceof HTMLButtonElement ||
-          submitter instanceof HTMLInputElement
-          ? submitter.getAttribute('formaction')?.trim()
-          : '') || '';
-      const action = submitterActionAttr
-        ? new URL(submitterActionAttr, document.baseURI).toString()
-        : form.action || window.location.href;
-      const submitterMethodAttr =
-        (submitter instanceof HTMLButtonElement ||
-          submitter instanceof HTMLInputElement
-          ? submitter.getAttribute('formmethod')?.trim()
-          : '') || '';
-      const method = (
-        submitterMethodAttr ||
-        form.getAttribute('method') ||
-        form.method ||
-        'GET'
-      ).toUpperCase();
-      let fd;
-      try {
-        fd = submitter instanceof HTMLElement
-          ? new FormData(form, submitter)
-          : new FormData(form);
-      } catch {
-        fd = new FormData(form);
-      }
-      const params = new URLSearchParams();
-      for (const [k, v] of fd.entries()) {
-        if (typeof v === 'string') params.append(k, v);
-      }
-      // Use requestSubmit to fire JS submit handlers for all methods
-      if (typeof form.requestSubmit === 'function') {
-        try {
-          if (
-            submitter instanceof HTMLButtonElement ||
-            submitter instanceof HTMLInputElement
-          ) {
-            form.requestSubmit(submitter);
-          } else {
-            form.requestSubmit();
-          }
-        } catch {
-          form.requestSubmit();
-        }
-        return { submitted: true, method };
-      }
-      if (submitter instanceof HTMLElement && typeof submitter.click === 'function') {
-        submitter.click();
-        return { submitted: true, method };
-      }
-      // Last resort: form.submit() bypasses JS handlers but at least submits
-      if (method === 'GET') {
-        return { action, method, params: params.toString(), found: true };
-      }
-      form.submit();
-      return { submitted: true, method };
-    })()
-  `);
-
-  if (formInfo.error) return formInfo.error;
-
-  // Fallback for GET when requestSubmit was unavailable
-  if (formInfo.found && formInfo.method === "GET") {
-    const url = new URL(formInfo.action);
-    if (formInfo.params) {
-      url.search = formInfo.params;
-    }
-    await loadPermittedUrl(wc, url.toString());
-    await waitForPotentialNavigation(wc, beforeUrl);
-    const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl
-      ? `Submitted form via GET -> ${afterUrl}`
-      : "Submitted form via GET";
-  }
-
-  if (formInfo.submitted) {
-    await waitForPotentialNavigation(wc, beforeUrl);
-    const afterUrl = wc.getURL();
-    return afterUrl !== beforeUrl
-      ? `Submitted form via ${formInfo.method} -> ${afterUrl}`
-      : `Submitted form via ${formInfo.method}`;
-  }
-
-  return "Submitted form";
-}
-
-async function pressKey(
-  wc: Electron.WebContents,
-  key: string,
-  index?: number,
-  selector?: string,
-): Promise<string> {
-  const resolvedSelector = await resolveSelector(wc, index, selector);
-
-  return wc.executeJavaScript(`
-    (function() {
-      const key = ${JSON.stringify(key)};
-      const selector = ${JSON.stringify(resolvedSelector)};
-      const target = selector ? document.querySelector(selector) : document.activeElement;
-      if (!target || !(target instanceof HTMLElement)) {
-        return selector ? 'Target not found' : 'No focused element';
-      }
-      target.focus();
-      const eventInit = { key, bubbles: true, cancelable: true };
-      target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
-      target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
-      const tag = target.tagName;
-      const type = target instanceof HTMLInputElement ? target.type : '';
-      if (key === 'Enter') {
-        if (tag === 'BUTTON' || (tag === 'INPUT' && (type === 'submit' || type === 'button'))) {
-          target.click();
-        } else if (tag === 'INPUT' || tag === 'TEXTAREA') {
-          const form = target.closest('form');
-          if (form) {
-            if (typeof form.requestSubmit === 'function') {
-              form.requestSubmit();
-            } else {
-              const submitBtn = form.querySelector('[type="submit"]');
-              if (submitBtn) submitBtn.click();
-              else form.submit();
-            }
-          }
-        }
-      }
-      target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
-      return 'Pressed key: ' + key;
-    })()
-  `);
-}
-
-async function waitForCondition(
+async function waitForConditionMcp(
   wc: Electron.WebContents,
   text?: string,
   selector?: string,
@@ -1726,114 +370,103 @@ async function waitForCondition(
   const effectiveTimeout = Math.max(250, timeoutMs || 5000);
   const expectedText = (text || "").trim();
   const expectedSelector = (selector || "").trim();
+  const startedAt = Date.now();
 
-  if (!expectedText && !expectedSelector) {
+  const result = await waitForCondition(
+    wc,
+    expectedText,
+    expectedSelector,
+    effectiveTimeout,
+  );
+  const elapsedMs = Date.now() - startedAt;
+
+  if (result === "Error: wait_for requires text or selector") {
     return JSON.stringify({
       matched: false,
       error: "wait_for requires text or selector",
     });
   }
 
-  // Wait for any pending load to finish first
-  if (wc.isLoading()) {
-    await waitForLoad(wc, Math.min(effectiveTimeout, 5000));
+  if (result.startsWith("Error: Invalid selector ")) {
+    return JSON.stringify({
+      matched: false,
+      error: result.slice("Error: ".length),
+    });
   }
 
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < effectiveTimeout) {
-    const result = await wc.executeJavaScript(`
-      (function() {
-        var selector = ${JSON.stringify(expectedSelector)};
-        var text = ${JSON.stringify(expectedText)};
-        if (selector) {
-          try {
-            if (document.querySelector(selector)) return 'selector';
-          } catch (e) {
-            return 'invalid_selector:' + e.message;
-          }
-        }
-        if (text && document.body && document.body.innerText && document.body.innerText.includes(text)) return 'text';
-        return '';
-      })()
-    `);
-
-    const elapsedMs = Date.now() - startedAt;
-
-    if (result === "selector") {
-      return JSON.stringify({
-        matched: true,
-        type: "selector",
-        value: expectedSelector,
-        elapsed_ms: elapsedMs,
-      });
-    }
-    if (result === "text") {
-      return JSON.stringify({
-        matched: true,
-        type: "text",
-        value: expectedText.slice(0, 80),
-        elapsed_ms: elapsedMs,
-      });
-    }
-    if (typeof result === "string" && result.startsWith("invalid_selector:")) {
-      return JSON.stringify({
-        matched: false,
-        error: `Invalid selector "${expectedSelector}" — ${result.slice(17)}`,
-      });
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 150));
+  if (result.startsWith("Error: Page is still busy; wait_for timed out")) {
+    return JSON.stringify({
+      matched: false,
+      error: result.slice("Error: ".length),
+      elapsed_ms: elapsedMs,
+      timeout_ms: effectiveTimeout,
+    });
   }
 
-  const elapsedMs = Date.now() - startedAt;
+  if (expectedSelector && result === `Matched selector ${expectedSelector}`) {
+    return JSON.stringify({
+      matched: true,
+      type: "selector",
+      value: expectedSelector,
+      elapsed_ms: elapsedMs,
+    });
+  }
 
-  // On timeout, provide diagnostic info
-  const diagnostic = expectedSelector
-    ? await wc.executeJavaScript(`
-        (function() {
-          try {
-            var count = document.querySelectorAll(${JSON.stringify(expectedSelector)}).length;
-            return count > 0 ? 'found ' + count + ' after timeout' : 'not found (page has ' + document.querySelectorAll('*').length + ' elements)';
-          } catch (e) { return 'selector error: ' + e.message; }
-        })()
-      `)
-    : null;
+  const matchedTextPrefix = 'Matched text "';
+  if (result.startsWith(matchedTextPrefix) && result.endsWith('"')) {
+    return JSON.stringify({
+      matched: true,
+      type: "text",
+      value: result.slice(matchedTextPrefix.length, -1),
+      elapsed_ms: elapsedMs,
+    });
+  }
 
-  return JSON.stringify({
+  const timeoutPayload: {
+    matched: false;
+    type: "selector" | "text";
+    value: string;
+    elapsed_ms: number;
+    timeout_ms: number;
+    diagnostic?: string;
+  } = {
     matched: false,
     type: expectedSelector ? "selector" : "text",
-    value: expectedSelector ? expectedSelector : expectedText.slice(0, 80),
+    value: expectedSelector || expectedText.slice(0, 80),
     elapsed_ms: elapsedMs,
     timeout_ms: effectiveTimeout,
-    ...(diagnostic ? { diagnostic } : {}),
-  });
-}
+  };
 
-async function captureScreenshotPayload(
-  wc: Electron.WebContents,
-): Promise<
-  | { ok: true; base64: string; width: number; height: number }
-  | { ok: false; error: string }
-> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
-    const image = await wc.capturePage();
-    if (!image.isEmpty()) {
-      const size = image.getSize();
-      const base64 = image.toPNG().toString("base64");
-      if (base64) {
-        return {
-          ok: true,
-          base64,
-          width: size.width,
-          height: size.height,
-        };
-      }
+  if (expectedSelector) {
+  const diagnostic = await wc.executeJavaScript(`
+      (function() {
+        try {
+          var count = document.querySelectorAll(${JSON.stringify(expectedSelector)}).length;
+          return count > 0 ? 'found ' + count + ' after timeout' : 'not found (page has ' + document.querySelectorAll('*').length + ' elements)';
+        } catch (e) {
+          return 'selector error: ' + e.message;
+        }
+      })()
+    `).catch((err) => {
+      logger.warn("Failed to gather wait_for timeout diagnostic:", err);
+      return null;
+    });
+    if (typeof diagnostic === "string" && diagnostic.trim()) {
+      timeoutPayload.diagnostic = diagnostic;
     }
   }
 
-  return { ok: false, error: "page image was empty after 3 attempts" };
+  return JSON.stringify(timeoutPayload);
 }
+
+
+
+
+
+
+
+
+
 
 function registerTools(
   server: McpServer,
@@ -1929,8 +562,8 @@ function registerTools(
           pageTitle = wc.getTitle();
           const page = await extractContent(wc);
           pageType = detectPageType(page);
-        } catch {
-          // Fall back to GENERAL
+        } catch (err) {
+          logger.warn("Failed to detect page type for tool scoring, falling back to GENERAL:", err);
         }
       }
 
@@ -1993,7 +626,7 @@ function registerTools(
     },
     async () => {
       const activeTab = getActiveTabSummary(tabManager);
-      if (!activeTab) return asTextResponse("Error: No active tab");
+      if (!activeTab) return asNoActiveTabResponse();
       return asTextResponse(JSON.stringify(activeTab, null, 2));
     },
   );
@@ -2125,7 +758,7 @@ function registerTools(
     },
     async ({ mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
@@ -2163,7 +796,7 @@ function registerTools(
     },
     async ({ mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
@@ -2220,7 +853,7 @@ function registerTools(
     },
     async ({ url, postBody }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       const preCheck = await validateLinkDestination(url);
       if (preCheck.status === "dead") {
         return asTextResponse(
@@ -2279,7 +912,7 @@ function registerTools(
     async ({ enabled, tabId, match, reload }) => {
       const activeTab = tabManager.getActiveTab();
       if (!activeTab && !tabId && !match) {
-        return asTextResponse("Error: No active tab");
+        return asNoActiveTabResponse();
       }
 
       return withAction(
@@ -2332,7 +965,7 @@ function registerTools(
     },
     async ({ type }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const pageContent = await extractContent(tab.view.webContents);
@@ -2402,7 +1035,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "go_back", {}, async () => {
         if (!tab.canGoBack()) {
           return "No previous page in history";
@@ -2426,7 +1059,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "go_forward", {}, async () => {
         if (!tab.canGoForward()) {
           return "No forward page in history";
@@ -2450,7 +1083,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "reload", {}, async () => {
         tabManager.reloadTab(tabManager.getActiveTabId()!);
         await waitForLoad(tab.view.webContents);
@@ -2475,7 +1108,7 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2514,7 +1147,7 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2548,7 +1181,7 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2582,11 +1215,11 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       const wc = tab.view.webContents;
       const resolvedSelector = await resolveSelector(wc, index, selector);
       if (!resolvedSelector) {
-        return asTextResponse("Error: No index or selector provided");
+        return asErrorTextResponse("No index or selector provided");
       }
       const result = await wc.executeJavaScript(`
         (function() {
@@ -2636,7 +1269,7 @@ function registerTools(
         );
       }
       if ("error" in result && typeof result.error === "string") {
-        return asTextResponse(`Error: ${result.error}`);
+        return asErrorTextResponse(result.error);
       }
       const parts: string[] = [`<${result.tag}>`];
       if (
@@ -2679,7 +1312,7 @@ function registerTools(
     },
     async ({ index, selector, text, mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2726,7 +1359,7 @@ function registerTools(
     },
     async ({ index, selector, text, mode }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2767,7 +1400,7 @@ function registerTools(
     },
     async ({ index, selector, label, value }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2798,29 +1431,13 @@ function registerTools(
     },
     async ({ index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
         "submit_form",
         { index, selector },
-        async () => {
-          const wc = tab.view.webContents;
-          const beforeUrl = wc.getURL();
-          const result = await submitForm(wc, index, selector);
-          if (
-            result.startsWith("Error") ||
-            result.startsWith("Target") ||
-            result.startsWith("No parent") ||
-            result.startsWith("Submit control")
-          ) {
-            return result;
-          }
-          // Wait for navigation from form submission
-          await waitForPotentialNavigation(wc, beforeUrl);
-          const afterUrl = wc.getURL();
-          return afterUrl !== beforeUrl ? `${result} -> ${afterUrl}` : result;
-        },
+        async () => submitForm(tab.view.webContents, index, selector),
       );
     },
   );
@@ -2839,7 +1456,7 @@ function registerTools(
     },
     async ({ key, index, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2877,7 +1494,7 @@ function registerTools(
     },
     async ({ direction, amount }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2902,7 +1519,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(runtime, tabManager, "dismiss_popup", {}, async () =>
         dismissPopup(tab.view.webContents),
       );
@@ -2926,7 +1543,7 @@ function registerTools(
     },
     async ({ strategy }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -2960,14 +1577,14 @@ function registerTools(
     },
     async ({ text, selector, timeoutMs }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
         "wait_for",
         { text, selector, timeoutMs },
         async () =>
-          waitForCondition(tab.view.webContents, text, selector, timeoutMs),
+          waitForConditionMcp(tab.view.webContents, text, selector, timeoutMs),
       );
     },
   );
@@ -3184,7 +1801,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       try {
         const bounds = tab.view.getBounds();
@@ -3272,7 +1889,7 @@ function registerTools(
     },
     async ({ index, selector, text, label, durationMs, persist, color }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       const normalizedText = normalizeLooseString(text);
       return withAction(
         runtime,
@@ -3331,7 +1948,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -3490,7 +2107,9 @@ function registerTools(
             h.label,
             undefined,
             h.color,
-          ).catch(() => {});
+          ).catch((err) =>
+            logger.warn("Failed to restore highlight after removal:", err),
+          );
         }
       }
 
@@ -3689,7 +2308,7 @@ function registerTools(
             note,
             {
               onDuplicate: on_duplicate ?? "ask",
-              extra: getBookmarkMetadataFromToolArgs({
+              extra: getBookmarkMetadataFromArgs({
                 intent,
                 expected_content,
                 key_fields,
@@ -3912,7 +2531,7 @@ function registerTools(
                   ? args.title.trim()
                   : undefined,
               note,
-              ...getBookmarkMetadataFromToolArgs(args),
+              ...getBookmarkMetadataFromArgs(args),
             });
             if (!updated) {
               return `Bookmark ${existing.id} not found`;
@@ -3932,7 +2551,7 @@ function registerTools(
             note,
             {
               onDuplicate: "update",
-              extra: getBookmarkMetadataFromToolArgs(args),
+              extra: getBookmarkMetadataFromArgs(args),
             },
           );
           const bookmark = result.bookmark;
@@ -4446,7 +3065,7 @@ function registerTools(
     },
     async ({ title, folder, summary, note, tags }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -4626,7 +3245,8 @@ function registerTools(
       let page: PageContent;
       try {
         page = await extractContent(wc);
-      } catch {
+      } catch (err) {
+        logger.warn("Failed to extract page while generating suggestions:", err);
         return asTextResponse(
           "Could not read page. Try navigate to a working URL.",
         );
@@ -4774,7 +3394,7 @@ function registerTools(
     },
     async ({ fields, submit }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -4848,7 +3468,7 @@ function registerTools(
       submit_selector,
     }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -4947,7 +3567,7 @@ function registerTools(
     },
     async ({ query, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       // Guard: reject queries that look like button/UI labels, not search terms
       const qLower = query.toLowerCase().trim();
@@ -5052,7 +3672,7 @@ function registerTools(
     },
     async ({ direction, selector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -5117,7 +3737,7 @@ function registerTools(
     },
     async () => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -5181,7 +3801,7 @@ function registerTools(
     },
     async ({ index, selector: rawSelector }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -5242,7 +3862,7 @@ function registerTools(
     },
     async ({ index, selector: rawSelector, position }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -5315,7 +3935,7 @@ function registerTools(
     },
     async ({ timeoutMs }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
@@ -5387,11 +4007,12 @@ function registerTools(
       let targetDomain = domain;
       if (!targetDomain) {
         const tab = tabManager.getActiveTab();
-        if (!tab) return asTextResponse("Error: No active tab and no domain specified");
+        if (!tab) return asErrorTextResponse("No active tab and no domain specified");
         try {
           targetDomain = new URL(tab.state.url).hostname;
-        } catch {
-          return asTextResponse("Error: Could not parse active tab URL");
+        } catch (err) {
+          logger.warn("Failed to parse active tab URL for vault_status:", err);
+          return asErrorTextResponse("Could not parse active tab URL");
         }
       }
 
@@ -5471,14 +4092,15 @@ function registerTools(
       submit_index,
     }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       const wc = tab.view.webContents;
       let hostname: string;
       try {
         hostname = new URL(tab.state.url).hostname;
-      } catch {
-        return asTextResponse("Error: Could not parse active tab URL");
+      } catch (err) {
+        logger.warn("Failed to parse active tab URL for vault_login:", err);
+        return asErrorTextResponse("Could not parse active tab URL");
       }
 
       // Find matching credentials
@@ -5526,7 +4148,7 @@ function registerTools(
       // Get raw credentials (NEVER sent to AI — used only for form fill)
       const creds = vaultManager.getCredential(match.id);
       if (!creds) {
-        return asTextResponse("Error: Credential not found in vault");
+        return asErrorTextResponse("Credential not found in vault");
       }
 
       // Fill username field
@@ -5602,14 +4224,15 @@ function registerTools(
     },
     async ({ credential_label, code_index, submit_after, submit_index }) => {
       const tab = tabManager.getActiveTab();
-      if (!tab) return asTextResponse("Error: No active tab");
+      if (!tab) return asNoActiveTabResponse();
 
       const wc = tab.view.webContents;
       let hostname: string;
       try {
         hostname = new URL(tab.state.url).hostname;
-      } catch {
-        return asTextResponse("Error: Could not parse active tab URL");
+      } catch (err) {
+        logger.warn("Failed to parse active tab URL for vault_totp:", err);
+        return asErrorTextResponse("Could not parse active tab URL");
       }
 
       const matches = vaultManager.findEntriesForDomain(`https://${hostname}`);
@@ -5828,7 +4451,7 @@ export function startMcpServer(
         await mcpServer.connect(transport);
         await transport.handleRequest(req, res);
       } catch (error) {
-        console.error("[Vessel MCP] Error handling request:", error);
+        logger.error("Error handling request:", error);
         if (!res.headersSent) {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(
@@ -5852,7 +4475,7 @@ export function startMcpServer(
         error.code === "EADDRINUSE"
           ? `Port ${port} is already in use. MCP server not started.`
           : error.message;
-      console.error("[Vessel MCP] Server error:", error);
+      logger.error("Server error:", error);
       clearMcpAuthFile();
       setMcpHealth({
         configuredPort: port,
@@ -5864,14 +4487,12 @@ export function startMcpServer(
       if (httpServer === server) {
         httpServer = null;
       }
-      finish({
-        ok: false,
+      finish(errorResult(message, {
         configuredPort: port,
         activePort: null,
         endpoint: null,
         authToken: null,
-        error: message,
-      });
+      }));
     });
 
     server.listen(port, "127.0.0.1", () => {
@@ -5888,7 +4509,7 @@ export function startMcpServer(
         message: `MCP server listening on ${endpoint}.`,
       });
       if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
-        console.log(`[Vessel MCP] Server listening on ${endpoint} (auth enabled)`);
+        logger.info(`Server listening on ${endpoint} (auth enabled)`);
       }
       if (mcpAuthToken) {
         writeMcpAuthFile(endpoint, mcpAuthToken);
@@ -5929,7 +4550,7 @@ export function stopMcpServer(): Promise<void> {
         message: "MCP server is stopped.",
       });
       if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
-        console.log("[Vessel MCP] Server stopped");
+        logger.info("Server stopped");
       }
       resolve();
     });

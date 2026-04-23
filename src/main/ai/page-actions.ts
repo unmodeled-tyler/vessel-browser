@@ -65,6 +65,7 @@ import { MAX_AGENT_DEBUG_CONTENT_LENGTH } from "./content-limits";
 import type { AgentToolProfile } from "./tool-profile";
 import { formatCompactToolResult } from "./compact-tool-result";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
+import { createLogger } from "../../shared/logger";
 
 export interface ActionContext {
   tabManager: TabManager;
@@ -72,12 +73,14 @@ export interface ActionContext {
   toolProfile?: AgentToolProfile;
 }
 
-function getBookmarkMetadataFromArgs(args: Record<string, unknown>) {
+const logger = createLogger("PageActions");
+
+export function getBookmarkMetadataFromArgs(args: Record<string, unknown>) {
   return normalizeBookmarkMetadata({
-    intent: args.intent,
-    expectedContent: args.expectedContent,
-    keyFields: args.keyFields,
-    agentHints: args.agentHints,
+    intent: args.intent ?? args.intent,
+    expectedContent: args.expectedContent ?? args.expected_content,
+    keyFields: args.keyFields ?? args.key_fields,
+    agentHints: args.agentHints ?? args.agent_hints,
   });
 }
 
@@ -99,7 +102,7 @@ export interface FillFormFieldResult {
 const DEFAULT_PAGE_SCRIPT_TIMEOUT_MS = 1500;
 const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
 
-async function loadPermittedUrl(
+export async function loadPermittedUrl(
   wc: WebContents,
   url: string,
 ): Promise<void> {
@@ -335,7 +338,9 @@ async function executePageScript<T>(
     }
 
     return result as T;
-  } catch {
+  } catch (err) {
+    const label = options?.label ? ` (${options.label})` : "";
+    logger.warn(`Failed to execute page script${label}:`, err);
     return null;
   } finally {
     if (timer) {
@@ -459,8 +464,8 @@ async function getPostSearchSummary(wc: WebContents): Promise<string> {
           : scoped;
       return `\nSearch results snapshot:\n${truncated}`;
     }
-  } catch {
-    // Fall back to the lighter title/overlay summary below.
+  } catch (err) {
+    logger.warn("Failed to build post-search summary, falling back to nav summary:", err);
   }
 
   const fallback = await getPostNavSummary(wc);
@@ -497,14 +502,14 @@ async function getPostClickNavSummary(
           : scoped;
       return `\nPage snapshot after navigation:\n${truncated}`;
     }
-  } catch {
-    // Fall through to empty return — getPostActionState still provides URL/title.
+  } catch (err) {
+    logger.warn("Failed to build post-click navigation summary:", err);
   }
 
   return "";
 }
 
-async function scrollPage(
+export async function scrollPage(
   wc: WebContents,
   deltaY: number,
 ): Promise<{
@@ -559,7 +564,7 @@ async function scrollPage(
 
 
 
-async function clickElement(
+export async function clickElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -681,7 +686,7 @@ async function clickElement(
     : "Clicked via pointer events";
 }
 
-async function activateElement(
+export async function activateElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -720,7 +725,7 @@ async function activateElement(
   return "Activated element via DOM click";
 }
 
-async function describeElementForClick(
+export async function describeElementForClick(
   wc: WebContents,
   selector: string,
 ): Promise<
@@ -1123,8 +1128,8 @@ async function restoreLocaleSnapshot(
         return;
       }
     }
-  } catch {
-    // Fall back to reloading the last known-good URL below.
+  } catch (err) {
+    logger.warn("Failed to restore locale via history navigation, trying URL reload fallback:", err);
   }
 
   if (snapshot.url && snapshot.url !== wc.getURL()) {
@@ -1133,8 +1138,8 @@ async function restoreLocaleSnapshot(
       await wc.loadURL(snapshot.url);
       await waitForLoad(wc, 3000);
       return;
-    } catch {
-      // Ignore and let the caller continue with the restored best effort.
+    } catch (err) {
+      logger.warn("Failed to restore locale via safe URL load, trying page reload fallback:", err);
     }
   }
 
@@ -1142,8 +1147,8 @@ async function restoreLocaleSnapshot(
     try {
       await wc.reload();
       await waitForLoad(wc, 3000);
-    } catch {
-      // Best-effort recovery only.
+    } catch (err) {
+      logger.warn("Failed to restore locale via page reload:", err);
     }
   }
 }
@@ -1284,7 +1289,7 @@ function recordProductAddedToCart(url: string, productName: string): void {
 /**
  * Check if the given product URL was already added to cart during this session.
  */
-function isProductAlreadyInCart(url: string): boolean {
+export function isProductAlreadyInCart(url: string): boolean {
   pruneCartAddedProducts();
   return cartAddedProducts.has(normalizeCartProductKey(url));
 }
@@ -1293,7 +1298,7 @@ function isProductAlreadyInCart(url: string): boolean {
  * Build a summary of products already added to cart, filtered to the current
  * site when a URL is available so unrelated domains do not leak into the prompt.
  */
-function getCartAddedSummary(url?: string): string {
+export function getCartAddedSummary(url?: string): string {
   pruneCartAddedProducts();
   const origin = cartOrigin(url);
   const items = Array.from(cartAddedProducts.entries())
@@ -1317,7 +1322,7 @@ export function clearCartState(): void {
   clickStreakCount = 0;
 }
 
-async function buildCartSuccessSuffix(
+export async function buildCartSuccessSuffix(
   wc: WebContents,
   productUrl: string,
   overlayHint?: string | null,
@@ -1341,7 +1346,7 @@ async function buildCartSuccessSuffix(
   return `\n${overlayHint}${actionsSuffix}${cartSummary}`;
 }
 
-async function clickResolvedSelector(
+export async function clickResolvedSelector(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -1584,17 +1589,17 @@ async function clickResolvedSelector(
   if (sameTabLinkTarget) {
     const validation = await validateLinkDestination(elInfo.href!);
     if (validation.status !== "dead") {
-      try {
-        await loadPermittedUrl(wc, elInfo.href!);
-        await waitForLoad(wc, 8000);
-        const hrefFallbackUrl = wc.getURL();
-        if (hrefFallbackUrl !== beforeUrl) {
-          return `${clickText} -> ${hrefFallbackUrl} (recovered via href fallback)`;
+        try {
+          await loadPermittedUrl(wc, elInfo.href!);
+          await waitForLoad(wc, 8000);
+          const hrefFallbackUrl = wc.getURL();
+          if (hrefFallbackUrl !== beforeUrl) {
+            return `${clickText} -> ${hrefFallbackUrl} (recovered via href fallback)`;
+          }
+        } catch (err) {
+          logger.warn("Failed href fallback after click, returning generic click result:", err);
         }
-      } catch {
-        // Fall through to the generic click result when href fallback fails.
       }
-    }
   }
 
   // Final fallback: click didn't navigate, no overlay, no href fallback.
@@ -1649,8 +1654,8 @@ async function tryAutoDismissCartDialog(wc: WebContents): Promise<string | null>
       await sleep(500);
       return result;
     }
-  } catch {
-    // Fall through — caller will show dialog actions as fallback
+  } catch (err) {
+    logger.warn("Failed to auto-dismiss cart dialog, falling back to dialog actions:", err);
   }
   return null;
 }
@@ -1659,7 +1664,7 @@ async function tryAutoDismissCartDialog(wc: WebContents): Promise<string | null>
  * When a cart dialog is open, extract its interactive actions (buttons/links)
  * so the model can act on them without needing to call read_page.
  */
-async function getCartDialogActions(wc: WebContents): Promise<string | null> {
+export async function getCartDialogActions(wc: WebContents): Promise<string | null> {
   const result = await executePageScript<{
     found: boolean;
     actions: string[];
@@ -1713,7 +1718,7 @@ async function getCartDialogActions(wc: WebContents): Promise<string | null> {
  * Lightweight post-click check: did a dialog / cart-drawer appear?
  * Runs a small DOM query instead of a full extraction so it stays fast.
  */
-async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
+export async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
   const result = await executePageScript<{
     found: boolean;
     label: string;
@@ -2598,7 +2603,7 @@ export async function fillFormFields(
   return results;
 }
 
-function getTabByMatch(
+export function getTabByMatch(
   tabManager: TabManager,
   match?: string,
 ): { id: string; title: string; url: string } | null {
@@ -2615,7 +2620,7 @@ function getTabByMatch(
   );
 }
 
-function isDangerousAction(name: string): boolean {
+export function isDangerousAction(name: string): boolean {
   return [
     "navigate",
     "open_bookmark",
@@ -2626,6 +2631,7 @@ function isDangerousAction(name: string): boolean {
     "press_key",
     "create_tab",
     "switch_tab",
+    "close_tab",
     "restore_checkpoint",
     "load_session",
     "login",
@@ -2751,7 +2757,7 @@ async function setElementValue(
     : result || "Error: Could not type into element";
 }
 
-async function typeKeystroke(
+export async function typeKeystroke(
   wc: WebContents,
   selector: string,
   value: string,
@@ -2806,7 +2812,7 @@ async function typeKeystroke(
     : result || "Error: Could not type into element";
 }
 
-async function hoverElement(
+export async function hoverElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -2842,7 +2848,7 @@ async function hoverElement(
   return `Hovered: ${label}`;
 }
 
-async function focusElement(
+export async function focusElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -2860,9 +2866,9 @@ async function focusElement(
   `);
 }
 
-async function waitForCondition(
+export async function waitForCondition(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const timeoutMs = Math.max(250, Number(args.timeoutMs) || 5000);
   const selector =
@@ -2926,7 +2932,7 @@ async function waitForCondition(
 
 function findCheckpoint(
   checkpoints: AgentCheckpoint[],
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): AgentCheckpoint | null {
   if (typeof args.checkpointId === "string" && args.checkpointId.trim()) {
     return (
@@ -2946,14 +2952,18 @@ function findCheckpoint(
   return null;
 }
 
-function resolveBookmarkFolderTarget(args: Record<string, any>): {
+export function resolveBookmarkFolderTarget(args: Record<string, unknown>): {
   folderId?: string;
   folderName: string;
   createdFolder?: string;
   error?: string;
 } {
   const folderId =
-    typeof args.folderId === "string" ? args.folderId.trim() : "";
+    typeof args.folderId === "string"
+      ? args.folderId.trim()
+      : typeof args.folder_id === "string"
+        ? args.folder_id.trim()
+        : "";
   if (folderId) {
     if (folderId === bookmarkManager.UNSORTED_ID) {
       return {
@@ -2971,9 +2981,11 @@ function resolveBookmarkFolderTarget(args: Record<string, any>): {
   const folderName =
     typeof args.folderName === "string" && args.folderName.trim()
       ? args.folderName.trim()
-      : args.archive
-        ? bookmarkManager.ARCHIVE_FOLDER_NAME
-        : "";
+      : typeof args.folder_name === "string" && args.folder_name.trim()
+        ? args.folder_name.trim()
+        : args.archive
+          ? bookmarkManager.ARCHIVE_FOLDER_NAME
+          : "";
   if (!folderName || folderName.toLowerCase() === "unsorted") {
     return {
       folderId: bookmarkManager.UNSORTED_ID,
@@ -2986,14 +2998,18 @@ function resolveBookmarkFolderTarget(args: Record<string, any>): {
     return { folderId: existing.id, folderName: existing.name };
   }
 
-  if (args.createFolderIfMissing === false) {
+  const createIfMissing =
+    args.createFolderIfMissing ?? args.create_folder_if_missing;
+  if (createIfMissing === false) {
     return { folderName, error: `Folder "${folderName}" not found` };
   }
 
   const folderSummary =
     typeof args.folderSummary === "string" && args.folderSummary.trim()
       ? args.folderSummary.trim()
-      : undefined;
+      : typeof args.folder_summary === "string" && args.folder_summary.trim()
+        ? args.folder_summary.trim()
+        : undefined;
   const { folder } = bookmarkManager.ensureFolder(folderName, folderSummary);
   return {
     folderId: folder.id,
@@ -3002,7 +3018,7 @@ function resolveBookmarkFolderTarget(args: Record<string, any>): {
   };
 }
 
-function formatFolderStatus(limit = 6): string {
+export function formatFolderStatus(limit = 6): string {
   const folders = bookmarkManager.listFolderOverviews();
   const summary = folders
     .slice(0, limit)
@@ -3011,14 +3027,14 @@ function formatFolderStatus(limit = 6): string {
   return `Folder status: ${summary}${folders.length > limit ? ", ..." : ""}`;
 }
 
-function describeFolder(folderId?: string): string {
+export function describeFolder(folderId?: string): string {
   if (!folderId || folderId === bookmarkManager.UNSORTED_ID) {
     return "Unsorted";
   }
   return bookmarkManager.getFolder(folderId)?.name ?? folderId;
 }
 
-function composeDuplicateBookmarkResponse(args: {
+export function composeDuplicateBookmarkResponse(args: {
   url: string;
   folderName: string;
   bookmarkId: string;
@@ -3026,7 +3042,7 @@ function composeDuplicateBookmarkResponse(args: {
   return `Bookmark already exists for ${args.url} in "${args.folderName}" (id=${args.bookmarkId}). Retry with onDuplicate="update" to refresh the existing bookmark or onDuplicate="duplicate" to keep both entries.`;
 }
 
-function composeFolderAwareResponse(
+export function composeFolderAwareResponse(
   message: string,
   createdFolder?: string,
 ): string {
@@ -3034,9 +3050,9 @@ function composeFolderAwareResponse(
   return `${prefix}${message}\n${formatFolderStatus()}`;
 }
 
-async function selectOption(
+export async function selectOption(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const selector = await resolveSelector(wc, args.index, args.selector);
   if (!selector) return "Error: No select element index or selector provided";
@@ -3077,9 +3093,9 @@ async function selectOption(
     : result || "Error: Could not select option";
 }
 
-async function submitForm(
+export async function submitForm(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const beforeUrl = wc.getURL();
   let selector = await resolveSelector(wc, args.index, args.selector);
@@ -3111,7 +3127,14 @@ async function submitForm(
   }
 
   // Get form info to determine submission method
-  const formInfo = await executePageScript<Record<string, any>>(
+  const formInfo = await executePageScript<{
+    error?: string;
+    found?: boolean;
+    method?: string;
+    action?: string;
+    params?: string;
+    submitted?: boolean;
+  }>(
     wc,
     `
     (function() {
@@ -3281,6 +3304,42 @@ async function submitForm(
   }
 
   return "Submitted form";
+}
+
+export async function pressKeyDirect(
+  wc: WebContents,
+  key: string,
+  index?: number,
+  selector?: string,
+): Promise<string> {
+  return pressKey(wc, { key, index, selector });
+}
+
+export async function submitFormDirect(
+  wc: WebContents,
+  index?: number,
+  selector?: string,
+): Promise<string> {
+  return submitForm(wc, { index, selector });
+}
+
+export async function selectOptionDirect(
+  wc: WebContents,
+  index?: number,
+  selector?: string,
+  label?: string,
+  value?: string,
+): Promise<string> {
+  return selectOption(wc, { index, selector, label, value });
+}
+
+export async function waitForConditionDirect(
+  wc: WebContents,
+  text?: string,
+  selector?: string,
+  timeoutMs?: number,
+): Promise<string> {
+  return waitForCondition(wc, { text, selector, timeoutMs });
 }
 
 export {
@@ -3590,7 +3649,7 @@ async function locateSearchTarget(
 
 async function searchPage(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const query = String(args.query || "");
   if (!query) return "Error: No search query provided.";
@@ -3694,7 +3753,7 @@ async function searchPage(
 
 async function pressKey(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const key = typeof args.key === "string" ? args.key.trim() : "";
   if (!key) return "Error: No key provided";
@@ -3951,11 +4010,10 @@ const KNOWN_TOOLS = new Set([
 
 export async function executeAction(
   name: string,
-  rawArgs: Record<string, unknown>,
+  args: Record<string, unknown>,
   ctx: ActionContext,
 ): Promise<string> {
   name = normalizeToolAlias(name);
-  const args = rawArgs as Record<string, any>;
 
   // Detect concatenated tool names (e.g. "create_checkpointcurrent_tablist_tabs")
   // from models that don't properly support parallel tool calls
@@ -4357,7 +4415,8 @@ export async function executeAction(
                 }, 6000),
               ),
             ]);
-          } catch {
+          } catch (err) {
+            logger.warn("Failed to extract content for read_page, falling back to lighter recovery:", err);
             content = null;
           }
 
@@ -4380,12 +4439,13 @@ export async function executeAction(
                     extractContent(wc),
                     new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
                   ]);
-                } catch {
+                } catch (err) {
+                  logger.warn("Failed to re-extract content after iframe consent dismissal:", err);
                   content = null;
                 }
               }
-            } catch {
-              // iframe dismiss failed — fall through to emergency extraction
+            } catch (err) {
+              logger.warn("Failed iframe consent dismissal during read_page recovery:", err);
             }
           }
 
@@ -4920,7 +4980,8 @@ export async function executeAction(
           let page;
           try {
             page = await extractContent(wc);
-          } catch {
+          } catch (err) {
+            logger.warn("Failed to extract content for suggest:", err);
             return "Could not read page. Try navigate to a working URL.";
           }
 

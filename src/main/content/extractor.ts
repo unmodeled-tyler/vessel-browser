@@ -5,6 +5,9 @@ import { extractStructuredDataFromJsonLd } from "./structured-data";
 import { trackExtractionFailed } from "../telemetry/posthog";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import { inferPageSchema } from "../../shared/page-schema";
+import { createLogger } from "../../shared/logger";
+
+const logger = createLogger("Extractor");
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -768,7 +771,8 @@ async function executeScript(
         timer = setTimeout(() => resolve(null), EXECUTE_SCRIPT_TIMEOUT_MS);
       }),
     ]);
-  } catch {
+  } catch (err) {
+    logger.warn("Failed to execute page script:", err);
     return null;
   } finally {
     if (timer) {
@@ -937,8 +941,8 @@ async function estimateExtractionTimeout(webContents: WebContents): Promise<numb
       );
       return EXTRACT_TIMEOUT_BASE_MS + extra;
     }
-  } catch {
-    // Can't estimate — use base
+  } catch (err) {
+    logger.warn("Failed to estimate extraction timeout, using base timeout:", err);
   }
   return EXTRACT_TIMEOUT_BASE_MS;
 }

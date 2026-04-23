@@ -48,11 +48,8 @@ To create your own Vessel Browser Space:
    ```
 5. **Commit and push** — Hugging Face will build and deploy automatically
 
-Alternatively, use the one-liner prepare script:
-```bash
-cd /path/to/vessel-browser
-bash hf-space/prepare.sh /path/to/hf-space-repo
-```
+> **Why `Dockerfile` pulls a pre-built image instead of building from source:**
+> The full build (`npm ci` + `npm run build` inside the container) exceeds the memory limit on Hugging Face Spaces free tier (`cpu-basic`). The default `Dockerfile` uses a pre-built image from GitHub Container Registry. If you need to build from source locally or on a paid tier, use `Dockerfile.full-build` instead.
 
 ## Tech Stack
 

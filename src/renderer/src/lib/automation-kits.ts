@@ -1,4 +1,7 @@
 import type { AutomationKit } from "../../../shared/types";
+import { createLogger } from "../../../shared/logger";
+
+const logger = createLogger("AutomationKits");
 
 export const BUNDLED_KITS: AutomationKit[] = [
   {
@@ -146,8 +149,8 @@ export function renderKitPrompt(
 ): string {
   for (const input of kit.inputs) {
     if (input.required && !values[input.key]?.trim()) {
-      console.warn(
-        `[automation-kits] Required field "${input.key}" is empty for kit "${kit.id}".`,
+      logger.warn(
+        `Required field "${input.key}" is empty for kit "${kit.id}".`,
       );
     }
   }

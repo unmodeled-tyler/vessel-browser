@@ -1,5 +1,14 @@
 import { loadSettings, setSetting } from "../config/settings";
 import type { PremiumState, PremiumStatus } from "../../shared/types";
+import { createLogger } from "../../shared/logger";
+import {
+  errorResult,
+  getErrorMessage,
+  okResult,
+  type Result,
+} from "../../shared/result";
+
+const logger = createLogger("Premium");
 
 /**
  * Vessel Premium subscription manager.
@@ -28,18 +37,15 @@ type PremiumVerificationResponse = {
   expiresAt: string;
 };
 
-type ActivationCodeStartResult = {
-  ok: boolean;
-  email?: string;
-  challengeToken?: string;
-  error?: string;
-};
+type ActivationCodeStartResult = Result<{
+  email: string;
+  challengeToken: string;
+}>;
 
-type ActivationCodeVerifyResult = {
-  ok: boolean;
-  state: PremiumState;
-  error?: string;
-};
+type ActivationCodeVerifyResult = Result<
+  { state: PremiumState },
+  { state: PremiumState }
+>;
 
 // --- Premium feature definitions ---
 
@@ -125,7 +131,9 @@ export function isFeatureGated(featureName: string): boolean {
  * Open a Stripe Checkout session in the user's default browser.
  * The verification API creates the checkout session and returns the URL.
  */
-export async function getCheckoutUrl(email?: string): Promise<{ ok: boolean; url?: string; error?: string }> {
+export async function getCheckoutUrl(
+  email?: string,
+): Promise<Result<{ url: string }>> {
   try {
     const params = new URLSearchParams();
     if (email) params.set("email", email);
@@ -137,28 +145,23 @@ export async function getCheckoutUrl(email?: string): Promise<{ ok: boolean; url
 
     if (!res.ok) {
       const body = await res.text();
-      return { ok: false, error: body || `HTTP ${res.status}` };
+      return errorResult(body || `HTTP ${res.status}`);
     }
 
     const { url } = (await res.json()) as { url: string };
-    return { ok: true, url };
+    return okResult({ url });
   } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Failed to create checkout",
-    };
+    return errorResult(getErrorMessage(err, "Failed to create checkout"));
   }
 }
 
 /**
  * Open the Stripe Customer Portal for subscription management.
  */
-export async function getPortalUrl(): Promise<{ ok: boolean; url?: string; error?: string }> {
-  return {
-    ok: false,
-    error:
-      "Billing portal access is temporarily disabled until authenticated customer access is implemented.",
-  };
+export async function getPortalUrl(): Promise<Result<{ url: string }>> {
+  return errorResult(
+    "Billing portal access is temporarily disabled until authenticated customer access is implemented.",
+  );
 }
 
 // --- Subscription verification ---
@@ -187,7 +190,7 @@ export async function verifySubscription(
 
     if (!res.ok) {
       // Can't reach API — keep current state (offline grace handles expiry)
-      console.warn("[Vessel Premium] Verification API returned", res.status);
+      logger.warn("Verification API returned a non-OK status:", res.status);
       return current;
     }
 
@@ -205,7 +208,7 @@ export async function verifySubscription(
     setSetting("premium", updated);
     return updated;
   } catch (err) {
-    console.warn("[Vessel Premium] Verification failed:", err);
+    logger.warn("Verification failed:", err);
     return current;
   }
 }
@@ -218,7 +221,7 @@ export async function requestActivationCode(
 ): Promise<ActivationCodeStartResult> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) {
-    return { ok: false, error: "Email is required" };
+    return errorResult("Email is required");
   }
 
   try {
@@ -233,22 +236,15 @@ export async function requestActivationCode(
       error?: string;
     };
     if (!res.ok || !data.challengeToken) {
-      return {
-        ok: false,
-        error: data.error || `HTTP ${res.status}`,
-      };
+      return errorResult(data.error || `HTTP ${res.status}`);
     }
 
-    return {
-      ok: true,
+    return okResult({
       email: normalizedEmail,
       challengeToken: data.challengeToken,
-    };
+    });
   } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Failed to send code",
-    };
+    return errorResult(getErrorMessage(err, "Failed to send code"));
   }
 }
 
@@ -263,17 +259,15 @@ export async function verifyActivationCode(
   const normalizedEmail = email.trim().toLowerCase();
   const trimmedCode = code.trim();
   if (!normalizedEmail) {
-    return { ok: false, state: getPremiumState(), error: "Email is required" };
+    return errorResult("Email is required", { state: getPremiumState() });
   }
   if (!trimmedCode) {
-    return { ok: false, state: getPremiumState(), error: "Code is required" };
+    return errorResult("Code is required", { state: getPremiumState() });
   }
   if (!challengeToken.trim()) {
-    return {
-      ok: false,
+    return errorResult("Request a new activation code and try again.", {
       state: getPremiumState(),
-      error: "Request a new activation code and try again.",
-    };
+    });
   }
 
   try {
@@ -291,11 +285,9 @@ export async function verifyActivationCode(
       error?: string;
     };
     if (!res.ok) {
-      return {
-        ok: false,
+      return errorResult(data.error || `HTTP ${res.status}`, {
         state: getPremiumState(),
-        error: data.error || `HTTP ${res.status}`,
-      };
+      });
     }
 
     const updated: PremiumState = {
@@ -308,13 +300,13 @@ export async function verifyActivationCode(
     };
 
     setSetting("premium", updated);
-    return { ok: isPremiumActiveState(updated), state: updated };
+    return isPremiumActiveState(updated)
+      ? okResult({ state: updated })
+      : errorResult("Subscription is not active.", { state: updated });
   } catch (err) {
-    return {
-      ok: false,
+    return errorResult(getErrorMessage(err, "Failed to verify code"), {
       state: getPremiumState(),
-      error: err instanceof Error ? err.message : "Failed to verify code",
-    };
+    });
   }
 }
 
