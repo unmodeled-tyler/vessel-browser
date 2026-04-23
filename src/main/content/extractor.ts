@@ -6,6 +6,12 @@ import { trackExtractionFailed } from "../telemetry/posthog";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import { inferPageSchema } from "../../shared/page-schema";
 import { createLogger } from "../../shared/logger";
+import {
+  DEFAULT_PAGE_SCRIPT_TIMEOUT_MS,
+  EXTRACT_SCRIPT_TIMEOUT_MS,
+  EXTRACT_TIMEOUT_BASE_MS,
+  EXTRACT_TIMEOUT_MAX_MS,
+} from "../config/timing";
 
 const logger = createLogger("Extractor");
 
@@ -725,15 +731,22 @@ const DIRECT_EXTRACTION_SCRIPT = String.raw`
   })()
 `;
 
+import type { WebContents } from "electron";
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const EXECUTE_SCRIPT_TIMEOUT_MS = 3000;
+import {
+  DEFAULT_PAGE_SCRIPT_TIMEOUT_MS,
+  EXTRACT_SCRIPT_TIMEOUT_MS,
+  EXTRACT_TIMEOUT_BASE_MS,
+  EXTRACT_TIMEOUT_MAX_MS,
+} from "../config/timing";
 
 async function waitForDomReady(
   webContents: WebContents,
-  timeoutMs = 1500,
+  timeoutMs = DEFAULT_PAGE_SCRIPT_TIMEOUT_MS,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
 
@@ -768,7 +781,10 @@ async function executeScript(
     return await Promise.race([
       webContents.executeJavaScript(script),
       new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), EXECUTE_SCRIPT_TIMEOUT_MS);
+        timer = setTimeout(
+          () => resolve(null),
+          EXTRACT_SCRIPT_TIMEOUT_MS,
+        );
       }),
     ]);
   } catch (err) {
@@ -922,9 +938,6 @@ function mergePageContent(
     url: mergedBase.url || webContents.getURL() || "",
   };
 }
-
-const EXTRACT_TIMEOUT_BASE_MS = 12000;
-const EXTRACT_TIMEOUT_MAX_MS = 20000;
 
 /** Estimate extraction timeout based on page complexity. */
 async function estimateExtractionTimeout(webContents: WebContents): Promise<number> {

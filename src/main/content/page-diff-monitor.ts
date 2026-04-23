@@ -5,6 +5,10 @@ import { diffSnapshots } from "./page-diff";
 import * as pageSnapshots from "./page-snapshots";
 import { extractContent } from "./extractor";
 import type { SendToRendererViews } from "../ipc/common";
+import {
+  MUTATION_CAPTURE_INTERVAL_MS,
+  MUTATION_SETTLE_AFTER_MS,
+} from "../config/timing";
 
 const latestPageDiffs = new Map<string, PageDiff>();
 const recentPageDiffBursts = new Map<
@@ -40,8 +44,7 @@ function attachDestroyCleanup(wc: WebContents): void {
   });
 }
 
-const MIN_MUTATION_CAPTURE_INTERVAL_MS = 5000;
-const SETTLE_AFTER_ACTIVITY_MS = 1500;
+
 const MAX_RECENT_DIFF_BURSTS = 5;
 
 export function getLatestPageDiff(rawUrl: string): PageDiff | null {

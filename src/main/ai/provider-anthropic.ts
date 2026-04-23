@@ -5,6 +5,7 @@ import { isRichToolResult, type RichToolResult } from "./tool-result";
 import { getEffectiveMaxIterations } from "../premium/manager";
 import type { AgentToolProfile } from "./tool-profile";
 import { isClickReadLoop } from "./tool-guardrails";
+import { AGENT_STREAM_IDLE_TIMEOUT_MS } from "../config/timing";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -114,7 +115,7 @@ export class AnthropicProvider implements AIProvider {
 
         // Idle timeout: if no streaming events arrive for 30s, abort.
         // Prevents the agent from hanging indefinitely on slow API responses.
-        const STREAM_IDLE_TIMEOUT_MS = 30_000;
+        const STREAM_IDLE_TIMEOUT_MS = AGENT_STREAM_IDLE_TIMEOUT_MS;
         let idleTimer: ReturnType<typeof setTimeout> | null = null;
         const resetIdleTimer = () => {
           if (idleTimer) clearTimeout(idleTimer);

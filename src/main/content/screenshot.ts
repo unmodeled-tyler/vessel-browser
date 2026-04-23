@@ -9,6 +9,9 @@ import {
 
 const logger = createLogger("Screenshot");
 
+const SCREENSHOT_RETRY_COUNT = 3;
+const SCREENSHOT_RETRY_BASE_DELAY_MS = 120;
+
 type ScreenshotPayload = {
   base64: string;
   width: number;
@@ -25,8 +28,10 @@ export type ScreenshotResult = Result<ScreenshotPayload>;
 export async function captureScreenshot(
   wc: WebContents,
 ): Promise<ScreenshotResult> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
+  for (let attempt = 0; attempt < SCREENSHOT_RETRY_COUNT; attempt += 1) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, SCREENSHOT_RETRY_BASE_DELAY_MS * (attempt + 1)),
+    );
     try {
       const image = await wc.capturePage();
       if (!image.isEmpty()) {
