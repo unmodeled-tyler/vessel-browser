@@ -402,7 +402,7 @@ export function shouldRetryCompactToolLoop(
 
 export function stableToolSignature(
   name: string,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): string {
   const canonicalArgs = canonicalizeArgsForTool(name, args);
   const sortedEntries = Object.entries(canonicalArgs).sort(([left], [right]) =>
@@ -445,7 +445,7 @@ function toLikelyUrl(value: string): string | null {
 function scalarArgsForTool(
   name: string,
   scalar: string,
-): Record<string, any> | null {
+): Record<string, unknown> | null {
   const trimmed = scalar.trim();
   if (!trimmed) return null;
 
@@ -513,14 +513,14 @@ function tryParseJsonWithCommonRepairs(raw: string): unknown {
 export function parseToolArgsWithRepair(
   name: string,
   argsJson: string,
-): { args: Record<string, any>; repaired: boolean } | null {
+): { args: Record<string, unknown>; repaired: boolean } | null {
   const trimmed = (argsJson || '').trim();
   if (!trimmed) return { args: {}, repaired: false };
 
   try {
     const parsed = JSON.parse(trimmed);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { args: parsed as Record<string, any>, repaired: false };
+      return { args: parsed as Record<string, unknown>, repaired: false };
     }
     if (typeof parsed === 'string') {
       const scalarArgs = scalarArgsForTool(name, parsed);
@@ -534,7 +534,7 @@ export function parseToolArgsWithRepair(
   try {
     const repaired = tryParseJsonWithCommonRepairs(trimmed);
     if (repaired && typeof repaired === 'object' && !Array.isArray(repaired)) {
-      return { args: repaired as Record<string, any>, repaired: true };
+      return { args: repaired as Record<string, unknown>, repaired: true };
     }
     if (typeof repaired === 'string') {
       const scalarArgs = scalarArgsForTool(name, repaired);
@@ -550,8 +550,8 @@ export function parseToolArgsWithRepair(
 
 export function coerceToolArgsForExecution(
   name: string,
-  args: Record<string, any>,
-): Record<string, any> {
+  args: Record<string, unknown>,
+): Record<string, unknown> {
   const coerced = { ...args };
 
   if (name === 'search') {
@@ -584,8 +584,8 @@ export function coerceToolArgsForExecution(
 
 function canonicalizeArgsForTool(
   name: string,
-  args: Record<string, any>,
-): Record<string, any> {
+  args: Record<string, unknown>,
+): Record<string, unknown> {
   const canonical = coerceToolArgsForExecution(name, args);
 
   if (typeof canonical.url === 'string') {
@@ -606,7 +606,7 @@ function canonicalizeArgsForTool(
 
 export function resolveToolCallName(
   rawName: string,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
   availableToolNames: Set<string>,
 ): string {
   const aliased = normalizeToolAlias(rawName);
@@ -679,9 +679,12 @@ export function recoverTextEncodedToolCalls(
 
     const rawName = match[1] ?? '';
     const argsJson = match[2] ?? '{}';
-    let parsedArgs: Record<string, any> = {};
+    let parsedArgs: Record<string, unknown> = {};
     try {
-      parsedArgs = JSON.parse(argsJson);
+      const raw = JSON.parse(argsJson);
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        parsedArgs = raw as Record<string, unknown>;
+      }
     } catch {
       continue;
     }
@@ -911,7 +914,7 @@ export class OpenAICompatProvider implements AIProvider {
     userMessage: string,
     tools: Anthropic.Tool[],
     onChunk: (text: string) => void,
-    onToolCall: (name: string, args: Record<string, any>) => Promise<string>,
+    onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
     onEnd: () => void,
     history?: AIMessage[],
   ): Promise<void> {
@@ -1000,7 +1003,7 @@ export class OpenAICompatProvider implements AIProvider {
         // Ensure every tool call has an ID (some providers like Ollama omit them)
         for (const tc of Object.values(toolCallAccums)) {
           if (!tc.id) tc.id = `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          let parsedArgs: Record<string, any> = {};
+          let parsedArgs: Record<string, unknown> = {};
           const repairedArgs = parseToolArgsWithRepair(tc.name, tc.argsJson || '{}');
           if (repairedArgs) {
             parsedArgs = repairedArgs.args;
@@ -1125,7 +1128,7 @@ export class OpenAICompatProvider implements AIProvider {
             continue;
           }
 
-          let args: Record<string, any> = {};
+          let args: Record<string, unknown> = {};
           const repairedArgs = parseToolArgsWithRepair(tc.name, tc.argsJson || '{}');
           if (!repairedArgs) {
             onChunk(`\n<<tool:${tc.name}:⚠ invalid args>>\n`);
@@ -1191,7 +1194,9 @@ export class OpenAICompatProvider implements AIProvider {
             }
             continue;
           }
-          const argSummary = args.url || args.query || args.text || args.direction || '';
+          const argSummary = [args.url, args.query, args.text, args.direction]
+            .map((v): string => typeof v === 'string' ? v : '')
+            .find((v) => v.length > 0) ?? '';
           onChunk(`\n<<tool:${tc.name}${argSummary ? ':' + argSummary : ''}>>\n`);
           let result: string;
           try {

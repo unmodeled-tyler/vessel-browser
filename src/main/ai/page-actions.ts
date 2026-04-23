@@ -2868,7 +2868,7 @@ export async function focusElement(
 
 export async function waitForCondition(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const timeoutMs = Math.max(250, Number(args.timeoutMs) || 5000);
   const selector =
@@ -2932,7 +2932,7 @@ export async function waitForCondition(
 
 function findCheckpoint(
   checkpoints: AgentCheckpoint[],
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): AgentCheckpoint | null {
   if (typeof args.checkpointId === "string" && args.checkpointId.trim()) {
     return (
@@ -2952,7 +2952,7 @@ function findCheckpoint(
   return null;
 }
 
-export function resolveBookmarkFolderTarget(args: Record<string, any>): {
+export function resolveBookmarkFolderTarget(args: Record<string, unknown>): {
   folderId?: string;
   folderName: string;
   createdFolder?: string;
@@ -3052,7 +3052,7 @@ export function composeFolderAwareResponse(
 
 export async function selectOption(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const selector = await resolveSelector(wc, args.index, args.selector);
   if (!selector) return "Error: No select element index or selector provided";
@@ -3095,7 +3095,7 @@ export async function selectOption(
 
 export async function submitForm(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const beforeUrl = wc.getURL();
   let selector = await resolveSelector(wc, args.index, args.selector);
@@ -3127,7 +3127,14 @@ export async function submitForm(
   }
 
   // Get form info to determine submission method
-  const formInfo = await executePageScript<Record<string, any>>(
+  const formInfo = await executePageScript<{
+    error?: string;
+    found?: boolean;
+    method?: string;
+    action?: string;
+    params?: string;
+    submitted?: boolean;
+  }>(
     wc,
     `
     (function() {
@@ -3642,7 +3649,7 @@ async function locateSearchTarget(
 
 async function searchPage(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const query = String(args.query || "");
   if (!query) return "Error: No search query provided.";
@@ -3746,7 +3753,7 @@ async function searchPage(
 
 async function pressKey(
   wc: WebContents,
-  args: Record<string, any>,
+  args: Record<string, unknown>,
 ): Promise<string> {
   const key = typeof args.key === "string" ? args.key.trim() : "";
   if (!key) return "Error: No key provided";
@@ -4003,11 +4010,10 @@ const KNOWN_TOOLS = new Set([
 
 export async function executeAction(
   name: string,
-  rawArgs: Record<string, unknown>,
+  args: Record<string, unknown>,
   ctx: ActionContext,
 ): Promise<string> {
   name = normalizeToolAlias(name);
-  const args = rawArgs as Record<string, any>;
 
   // Detect concatenated tool names (e.g. "create_checkpointcurrent_tablist_tabs")
   // from models that don't properly support parallel tool calls
