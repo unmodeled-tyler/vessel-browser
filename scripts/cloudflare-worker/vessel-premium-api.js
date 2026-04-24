@@ -560,6 +560,15 @@ function handleSuccess(request) {
 <head>
   <meta charset="utf-8">
   <title>Vessel Premium — Activated!</title>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=AW-18032196333"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'AW-18032196333');
+  </script>
   <style>
     body { font-family: -apple-system, system-ui, sans-serif; background: #0a0a0e; color: #e4e4e7; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
     .card { text-align: center; max-width: 480px; padding: 48px; }

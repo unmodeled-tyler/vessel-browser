@@ -222,9 +222,15 @@ export class AgentRuntime {
   }
 
   undoLastAction(): string | null {
-    const snapshot = this.undoSnapshots.pop();
+    const snapshot = this.undoSnapshots.at(-1);
     if (!snapshot) return null;
-    this.tabManager.restoreSession(snapshot.snapshot);
+    try {
+      this.tabManager.restoreSession(snapshot.snapshot);
+      this.undoSnapshots.pop(); // only consume on success
+    } catch (error) {
+      logger.error("Failed to restore undo snapshot", error);
+      return null;
+    }
     this.captureSession(`Undid ${snapshot.actionName}`);
     return snapshot.actionName;
   }

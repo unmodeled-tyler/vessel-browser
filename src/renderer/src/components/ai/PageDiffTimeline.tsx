@@ -15,8 +15,10 @@ const PageDiffTimeline: Component = () => {
   const [bursts, setBursts] = createSignal<PageDiffHistoryItem[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
+  let latestRequestId = 0;
 
   const loadHistory = async () => {
+    const requestId = ++latestRequestId;
     const tab = activeTab();
     if (!tab?.url) {
       setBursts([]);
@@ -28,6 +30,7 @@ const PageDiffTimeline: Component = () => {
     setLoading(true);
     try {
       const result = await window.vessel.pageDiff.getHistory();
+      if (requestId !== latestRequestId) return; // stale request
       if (result && typeof result === "object" && "error" in result) {
         setError(result.error);
         setBursts([]);
@@ -36,10 +39,13 @@ const PageDiffTimeline: Component = () => {
         setError(null);
       }
     } catch {
+      if (requestId !== latestRequestId) return;
       setError("Failed to load diff history");
       setBursts([]);
     } finally {
-      setLoading(false);
+      if (requestId === latestRequestId) {
+        setLoading(false);
+      }
     }
   };
 
