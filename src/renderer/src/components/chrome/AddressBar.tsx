@@ -52,6 +52,15 @@ const AddressBar: Component = () => {
     }, 8000);
   };
 
+  const openDiffTimeline = async () => {
+    setDiffExpanded(false);
+    if (diffCollapseTimer) {
+      clearTimeout(diffCollapseTimer);
+      diffCollapseTimer = null;
+    }
+    await window.vessel.ui.openSidebarTab("diff");
+  };
+
   const formatRelativeTime = (isoDate: string): string => {
     const diff = Date.now() - new Date(isoDate).getTime();
     const mins = Math.floor(diff / 60000);
@@ -243,11 +252,11 @@ const AddressBar: Component = () => {
           <button
             class="agent-status-badge recent"
             style="cursor: pointer; font-size: 11px;"
-            onClick={() => setDiffExpanded(!diffExpanded())}
-            title="Page content has changed since your last visit"
+            onClick={() => void openDiffTimeline()}
+            title="Open the What Changed timeline"
           >
             <span class="agent-status-dot" style="background: #f59e0b;" aria-hidden="true" />
-            <span class="agent-status-text">Changed</span>
+            <span class="agent-status-text">What Changed?</span>
           </button>
         </Show>
       </div>
@@ -275,7 +284,17 @@ const AddressBar: Component = () => {
                 </span>
               </Show>
             </div>
-            <button class="page-diff-popup-close" onClick={() => setDiffExpanded(false)}>&times;</button>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button
+                class="nav-btn"
+                style="height: 24px; min-width: auto; padding: 0 8px;"
+                onClick={() => void openDiffTimeline()}
+                title="Open the full What Changed timeline"
+              >
+                Timeline
+              </button>
+              <button class="page-diff-popup-close" onClick={() => setDiffExpanded(false)}>&times;</button>
+            </div>
           </div>
           <Show when={pageDiff()!.recentBursts?.length && (pageDiff()!.recentBursts?.length || 0) > 1}>
             <div class="page-diff-burst-history">

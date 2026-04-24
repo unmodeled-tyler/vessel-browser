@@ -24,6 +24,10 @@ import {
   onMcpStatusChange,
 } from "../health/runtime-health";
 import {
+  isUndoableAction,
+  isUndoableResult,
+} from "./undo-policy";
+import {
   createTaskTracker,
   formatTaskTracker,
   updateTaskTracker,
@@ -31,6 +35,7 @@ import {
 
 const MAX_ACTIONS = 120;
 const MAX_CHECKPOINTS = 20;
+const MAX_UNDO_SNAPSHOTS = 10;
 const MAX_TRANSCRIPT_ENTRIES = 40;
 const MAX_TRANSCRIPT_TEXT_LENGTH = 8000;
 const PERSIST_DEBOUNCE_MS = 500;
@@ -47,12 +52,20 @@ interface RuntimePersistenceShape {
   checkpoints: AgentCheckpoint[];
 }
 
+interface UndoSnapshot {
+  id: string;
+  actionName: string;
+  snapshot: SessionSnapshot;
+  capturedAt: string;
+}
+
 interface ControlledActionOptions {
   source: ActionSource;
   name: string;
   args?: Record<string, unknown>;
   tabId?: string | null;
   dangerous?: boolean;
+  undoable?: boolean;
   executor: () => Promise<string>;
 }
 
@@ -116,6 +129,7 @@ export class AgentRuntime {
   private state: AgentRuntimeState;
   private updateListener: ((state: AgentRuntimeState) => void) | null = null;
   private pendingResolvers = new Map<string, (approved: boolean) => void>();
+  private undoSnapshots: UndoSnapshot[] = [];
 
   constructor(private readonly tabManager: TabManager) {
     this.state = this.loadPersistedState();
@@ -134,6 +148,8 @@ export class AgentRuntime {
   getState(): AgentRuntimeState {
     const snapshot = clone(this.state);
     snapshot.mcpStatus = getMcpStatus();
+    snapshot.canUndo = this.canUndo();
+    snapshot.undoInfo = this.getUndoInfo();
     return snapshot;
   }
 
@@ -182,6 +198,41 @@ export class AgentRuntime {
     this.tabManager.restoreSession(checkpoint.snapshot);
     this.captureSession(`Restored ${checkpoint.name}`);
     return clone(checkpoint);
+  }
+
+  updateCheckpointNote(checkpointId: string, note: string): AgentCheckpoint | null {
+    const index = this.state.checkpoints.findIndex((item) => item.id === checkpointId);
+    if (index === -1) return null;
+    this.state.checkpoints[index] = {
+      ...this.state.checkpoints[index],
+      note: note.trim() || undefined,
+    };
+    this.emit();
+    return clone(this.state.checkpoints[index]);
+  }
+
+  canUndo(): boolean {
+    return this.undoSnapshots.length > 0;
+  }
+
+  getUndoInfo(): { actionName: string; capturedAt: string } | null {
+    const latest = this.undoSnapshots[this.undoSnapshots.length - 1];
+    if (!latest) return null;
+    return { actionName: latest.actionName, capturedAt: latest.capturedAt };
+  }
+
+  undoLastAction(): string | null {
+    const snapshot = this.undoSnapshots.at(-1);
+    if (!snapshot) return null;
+    try {
+      this.tabManager.restoreSession(snapshot.snapshot);
+      this.undoSnapshots.pop(); // only consume on success
+    } catch (error) {
+      logger.error("Failed to restore undo snapshot", error);
+      return null;
+    }
+    this.captureSession(`Undid ${snapshot.actionName}`);
+    return snapshot.actionName;
   }
 
   captureSession(note?: string): SessionSnapshot {
@@ -366,6 +417,7 @@ export class AgentRuntime {
     args = {},
     tabId = null,
     dangerous = false,
+    undoable,
     executor,
   }: ControlledActionOptions): Promise<string> {
     const action = this.startAction({
@@ -423,8 +475,16 @@ export class AgentRuntime {
       mode: "replace",
     });
 
+    const shouldCaptureUndo = undoable ?? isUndoableAction(name);
+    const undoSnapshot = shouldCaptureUndo
+      ? this.createUndoSnapshot(name)
+      : null;
+
     try {
       const result = await executor();
+      if (undoSnapshot && isUndoableResult(result)) {
+        this.pushUndoSnapshot(undoSnapshot);
+      }
       this.finishAction(action.id, "completed", summarizeText(result));
       this.publishTranscript({
         source,
@@ -451,6 +511,23 @@ export class AgentRuntime {
       });
       throw error;
     }
+  }
+
+  private createUndoSnapshot(name: string): UndoSnapshot {
+    return {
+      id: randomUUID(),
+      actionName: name,
+      snapshot: this.tabManager.snapshotSession(
+        `Auto-checkpoint before ${name}`,
+      ),
+      capturedAt: new Date().toISOString(),
+    };
+  }
+
+  private pushUndoSnapshot(snapshot: UndoSnapshot): void {
+    this.undoSnapshots = [...this.undoSnapshots, snapshot].slice(
+      -MAX_UNDO_SNAPSHOTS,
+    );
   }
 
   resolveApproval(approvalId: string, approved: boolean): AgentRuntimeState {

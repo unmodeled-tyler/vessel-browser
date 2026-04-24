@@ -21,7 +21,10 @@ import type {
   VesselSettings,
 } from "../shared/types";
 import type { AutofillProfile, AutofillResult } from "../shared/autofill-types";
-import type { PageDiff } from "../shared/page-diff-types";
+import type {
+  PageDiff,
+  PageDiffHistoryItem,
+} from "../shared/page-diff-types";
 import type { DevToolsPanelState } from "../main/devtools/types";
 
 const api = {
@@ -149,6 +152,13 @@ const api = {
       checkpointId: string,
     ): Promise<AgentCheckpoint | null> =>
       ipcRenderer.invoke(Channels.AGENT_CHECKPOINT_RESTORE, checkpointId),
+    updateCheckpointNote: (
+      checkpointId: string,
+      note?: string,
+    ): Promise<AgentCheckpoint | null> =>
+      ipcRenderer.invoke(Channels.AGENT_CHECKPOINT_UPDATE_NOTE, checkpointId, note),
+    undoLastAction: (): Promise<string | null> =>
+      ipcRenderer.invoke(Channels.AGENT_UNDO_LAST_ACTION),
     captureSession: (note?: string): Promise<SessionSnapshot> =>
       ipcRenderer.invoke(Channels.AGENT_SESSION_CAPTURE, note),
     restoreSession: (
@@ -204,6 +214,8 @@ const api = {
   },
   ui: {
     toggleSidebar: () => ipcRenderer.invoke(Channels.SIDEBAR_TOGGLE),
+    openSidebarTab: (tab: string) =>
+      ipcRenderer.invoke(Channels.SIDEBAR_NAVIGATE, tab),
     startSidebarResize: () => ipcRenderer.invoke(Channels.SIDEBAR_RESIZE_START),
     resizeSidebar: (width: number) =>
       ipcRenderer.invoke(Channels.SIDEBAR_RESIZE, width),
@@ -219,6 +231,11 @@ const api = {
       ipcRenderer.on(Channels.SIDEBAR_CONTEXT_MENU, handler);
       return () =>
         ipcRenderer.removeListener(Channels.SIDEBAR_CONTEXT_MENU, handler);
+    },
+    onSidebarNavigate: (cb: (tab: string) => void): (() => void) => {
+      const handler = (_: unknown, tab: string) => cb(tab);
+      ipcRenderer.on(Channels.SIDEBAR_NAVIGATE, handler);
+      return () => ipcRenderer.removeListener(Channels.SIDEBAR_NAVIGATE, handler);
     },
     toggleFocusMode: () => ipcRenderer.invoke(Channels.FOCUS_MODE_TOGGLE),
     setSettingsVisibility: (open: boolean) =>
@@ -269,6 +286,19 @@ const api = {
         keyFields,
         agentHints,
       ),
+    updateBookmark: (
+      id: string,
+      updates: {
+        title?: string;
+        note?: string;
+        folderId?: string;
+        intent?: string;
+        expectedContent?: string;
+        keyFields?: string[];
+        agentHints?: Record<string, string>;
+      },
+    ): Promise<Bookmark | null> =>
+      ipcRenderer.invoke(Channels.BOOKMARK_UPDATE, id, updates),
     removeBookmark: (id: string): Promise<boolean> =>
       ipcRenderer.invoke(Channels.BOOKMARK_REMOVE, id),
     createFolder: (name: string): Promise<BookmarkFolder> =>
@@ -487,6 +517,8 @@ const api = {
     },
     get: (): Promise<PageDiff | null> =>
       ipcRenderer.invoke(Channels.PAGE_DIFF_GET),
+    getHistory: (): Promise<PageDiffHistoryItem[] | { error: string }> =>
+      ipcRenderer.invoke(Channels.PAGE_DIFF_HISTORY),
   },
 };
 

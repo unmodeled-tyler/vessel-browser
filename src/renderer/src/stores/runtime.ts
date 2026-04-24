@@ -17,6 +17,8 @@ const DEFAULT_RUNTIME_STATE: AgentRuntimeState = {
   mcpStatus: "stopped",
   flowState: null,
   taskTracker: null,
+  canUndo: false,
+  undoInfo: null,
 };
 
 const [runtimeState, setRuntimeState] = createSignal<AgentRuntimeState>(
@@ -61,6 +63,9 @@ export function useRuntime() {
       window.vessel.ai.createCheckpoint(name, note),
     restoreCheckpoint: (checkpointId: string) =>
       window.vessel.ai.restoreCheckpoint(checkpointId),
+    updateCheckpointNote: (checkpointId: string, note?: string) =>
+      window.vessel.ai.updateCheckpointNote(checkpointId, note),
+    undoLastAction: () => window.vessel.ai.undoLastAction(),
     captureSession: (note?: string) => window.vessel.ai.captureSession(note),
     restoreSession: () => window.vessel.ai.restoreSession(),
   };

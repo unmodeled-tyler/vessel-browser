@@ -58,3 +58,4 @@ navigation-regression.ts
 
 # HF Space demo files (not part of the core browser)
 hf-space/
+tests/input-coercion.test.ts

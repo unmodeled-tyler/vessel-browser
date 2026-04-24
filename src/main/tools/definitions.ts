@@ -704,6 +704,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     hiddenByDefault: true,
   },
 
+  // --- Undo ---
+  {
+    name: "undo_last_action",
+    title: "Undo Last Action",
+    description:
+      "Undo the most recent agent action by restoring the browser to its state before that action ran. Works for click, type, submit, navigate, and similar mutating actions. Returns the name of the undone action, or an error if nothing can be undone.",
+    tier: 1,
+  },
+
   // --- Speedee System: Suggestion Engine ---
   {
     name: "suggest",

@@ -865,6 +865,15 @@
     color: var(--text-secondary);
 }
 
+.bookmark-item .bookmark-folder-edit {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.bookmark-item .bookmark-item-footer {
+    flex-wrap: wrap;
+}
+
 
 /* ═══════════════════════════════════════
    Agent supervisor panel
@@ -939,6 +948,10 @@
 .agent-panel-controls,
 .agent-checkpoint-row {
     align-items: stretch;
+}
+
+.agent-checkpoint-row {
+    flex-direction: column;
 }
 
 .agent-section-header {

@@ -436,6 +436,21 @@ export function registerIpcHandlers(
     };
   });
 
+  ipcMain.handle(Channels.SIDEBAR_NAVIGATE, (_, tab: string) => {
+    assertString(tab, "tab");
+    if (!windowState.uiState.sidebarOpen) {
+      windowState.uiState.sidebarOpen = true;
+      layoutViews(windowState);
+    }
+    if (!sidebarView.webContents.isDestroyed()) {
+      sidebarView.webContents.send(Channels.SIDEBAR_NAVIGATE, tab);
+    }
+    return {
+      open: windowState.uiState.sidebarOpen,
+      width: windowState.uiState.sidebarWidth,
+    };
+  });
+
   ipcMain.handle(Channels.SIDEBAR_RESIZE_START, () => {
     sidebarResizeActive = true;
     clearSidebarResizeRecoveryTimer();
@@ -557,6 +572,14 @@ export function registerIpcHandlers(
     runtime.restoreCheckpoint(checkpointId),
   );
 
+  ipcMain.handle(Channels.AGENT_CHECKPOINT_UPDATE_NOTE, (_, checkpointId: string, note?: string) =>
+    runtime.updateCheckpointNote(checkpointId, note || ""),
+  );
+
+  ipcMain.handle(Channels.AGENT_UNDO_LAST_ACTION, () =>
+    runtime.undoLastAction(),
+  );
+
   ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (_, note?: string) =>
     runtime.captureSession(note),
   );
@@ -609,6 +632,26 @@ export function registerIpcHandlers(
         throw new Error("Bookmark save failed");
       }
       return result.bookmark;
+    },
+  );
+
+  ipcMain.handle(
+    Channels.BOOKMARK_UPDATE,
+    (
+      _,
+      id: string,
+      updates: {
+        title?: string;
+        note?: string;
+        folderId?: string;
+        intent?: string;
+        expectedContent?: string;
+        keyFields?: string[];
+        agentHints?: Record<string, string>;
+      },
+    ) => {
+      trackBookmarkAction("save");
+      return bookmarkManager.updateBookmark(id, updates);
     },
   );
 

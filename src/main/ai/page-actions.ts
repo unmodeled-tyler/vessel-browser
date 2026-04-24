@@ -4975,6 +4975,12 @@ export async function executeAction(
           return "Workflow ended.";
         }
 
+        case "undo_last_action": {
+          const undone = ctx.runtime.undoLastAction();
+          if (!undone) return "Nothing to undo. No undo snapshots available.";
+          return `Undid action: ${undone}. Browser restored to state before that action.`;
+        }
+
         case "suggest": {
           if (!wc) return "No active tab. Use navigate to open a page.";
           let page;

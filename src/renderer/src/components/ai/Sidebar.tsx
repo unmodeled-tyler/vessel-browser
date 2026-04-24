@@ -22,10 +22,15 @@ import {
   getBookmarkSearchMatch,
   normalizeBookmarkSearchText,
 } from "../../../../shared/bookmark-search";
-import type { BookmarkFolder, PremiumState } from "../../../../shared/types";
+import type {
+  Bookmark,
+  BookmarkFolder,
+  PremiumState,
+} from "../../../../shared/types";
 import { useScrollFade } from "../../lib/useScrollFade";
 import DropdownSelect from "../shared/DropdownSelect";
 import AutomationTab from "./AutomationTab";
+import PageDiffTimeline from "./PageDiffTimeline";
 import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
 
@@ -121,6 +126,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     resolveApproval,
     createCheckpoint,
     restoreCheckpoint,
+    updateCheckpointNote,
+    undoLastAction,
     restoreSession,
   } = useRuntime();
   const {
@@ -136,13 +143,14 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const {
     bookmarksState,
     saveBookmark,
+    updateBookmark,
     removeBookmark,
     createFolderWithSummary,
     removeFolder,
     renameFolder,
   } = useBookmarks();
   const [sidebarTab, setSidebarTab] = createSignal<
-    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation" | "history"
+    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation" | "history" | "diff"
   >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
@@ -354,7 +362,13 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     }
   };
   const [checkpointName, setCheckpointName] = createSignal("");
+  const [checkpointNote, setCheckpointNote] = createSignal("");
   const [bookmarkNote, setBookmarkNote] = createSignal("");
+  const [bookmarkIntent, setBookmarkIntent] = createSignal("");
+  const [bookmarkExpectedContent, setBookmarkExpectedContent] =
+    createSignal("");
+  const [bookmarkKeyFields, setBookmarkKeyFields] = createSignal("");
+  const [bookmarkAgentHints, setBookmarkAgentHints] = createSignal("");
   const [bookmarkSaveExpanded, setBookmarkSaveExpanded] = createSignal(false);
   const [selectedFolderId, setSelectedFolderId] = createSignal<string>(
     UNSORTED_FOLDER.id,
@@ -367,6 +381,18 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   );
   const [editingFolderName, setEditingFolderName] = createSignal("");
   const [editingFolderSummary, setEditingFolderSummary] = createSignal("");
+  const [editingBookmarkId, setEditingBookmarkId] = createSignal<string | null>(
+    null,
+  );
+  const [editingBookmarkTitle, setEditingBookmarkTitle] = createSignal("");
+  const [editingBookmarkNote, setEditingBookmarkNote] = createSignal("");
+  const [editingBookmarkIntent, setEditingBookmarkIntent] = createSignal("");
+  const [editingBookmarkExpectedContent, setEditingBookmarkExpectedContent] =
+    createSignal("");
+  const [editingBookmarkKeyFields, setEditingBookmarkKeyFields] =
+    createSignal("");
+  const [editingBookmarkAgentHints, setEditingBookmarkAgentHints] =
+    createSignal("");
   const [deletingFolderId, setDeletingFolderId] = createSignal<string | null>(
     null,
   );
@@ -609,6 +635,61 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
       year: "numeric",
     });
 
+  const parseBookmarkKeyFields = (value: string): string[] | undefined => {
+    const fields = value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return fields.length > 0 ? fields : undefined;
+  };
+
+  const parseBookmarkAgentHints = (
+    value: string,
+  ): Record<string, string> | undefined => {
+    const entries = value
+      .split("\n")
+      .map((line) => {
+        const separator = line.indexOf(":");
+        if (separator === -1) return null;
+        const key = line.slice(0, separator).trim();
+        const hint = line.slice(separator + 1).trim();
+        return key ? ([key, hint] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, string] => Boolean(entry))
+      .filter(([, hint]) => hint.length > 0);
+
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  };
+
+  const formatBookmarkKeyFields = (value?: string[]) => value?.join(", ") || "";
+
+  const formatBookmarkAgentHints = (value?: Record<string, string>) =>
+    value
+      ? Object.entries(value)
+          .map(([key, hint]) => `${key}: ${hint}`)
+          .join("\n")
+      : "";
+
+  const resetBookmarkEditor = () => {
+    setEditingBookmarkId(null);
+    setEditingBookmarkTitle("");
+    setEditingBookmarkNote("");
+    setEditingBookmarkIntent("");
+    setEditingBookmarkExpectedContent("");
+    setEditingBookmarkKeyFields("");
+    setEditingBookmarkAgentHints("");
+  };
+
+  const startEditingBookmark = (bookmark: Bookmark) => {
+    setEditingBookmarkId(bookmark.id);
+    setEditingBookmarkTitle(bookmark.title || bookmark.url);
+    setEditingBookmarkNote(bookmark.note || "");
+    setEditingBookmarkIntent(bookmark.intent || "");
+    setEditingBookmarkExpectedContent(bookmark.expectedContent || "");
+    setEditingBookmarkKeyFields(formatBookmarkKeyFields(bookmark.keyFields));
+    setEditingBookmarkAgentHints(formatBookmarkAgentHints(bookmark.agentHints));
+  };
+
   const handleSaveBookmark = async () => {
     const tab = currentTab();
     if (!tab?.url) return;
@@ -617,9 +698,30 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
       tab.title?.trim() || tab.url,
       selectedFolderId(),
       bookmarkNote(),
+      bookmarkIntent() || undefined,
+      bookmarkExpectedContent() || undefined,
+      parseBookmarkKeyFields(bookmarkKeyFields()),
+      parseBookmarkAgentHints(bookmarkAgentHints()),
     );
     setBookmarkNote("");
+    setBookmarkIntent("");
+    setBookmarkExpectedContent("");
+    setBookmarkKeyFields("");
+    setBookmarkAgentHints("");
     setBookmarkSaveExpanded(false);
+  };
+
+  const handleUpdateBookmark = async (bookmarkId: string) => {
+    const updated = await updateBookmark(bookmarkId, {
+      title: editingBookmarkTitle(),
+      note: editingBookmarkNote(),
+      intent: editingBookmarkIntent(),
+      expectedContent: editingBookmarkExpectedContent(),
+      keyFields: parseBookmarkKeyFields(editingBookmarkKeyFields()),
+      agentHints: parseBookmarkAgentHints(editingBookmarkAgentHints()),
+    });
+    if (!updated) return;
+    resetBookmarkEditor();
   };
 
   const handleCreateFolder = async (e: Event) => {
@@ -674,6 +776,23 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const isFolderExpanded = (folderId: string) =>
     normalizedBookmarkSearch().length > 0 ||
     expandedFolderIds().includes(folderId);
+
+  onMount(() => {
+    const cleanup = window.vessel.ui.onSidebarNavigate((tab) => {
+      if (
+        tab === "supervisor" ||
+        tab === "bookmarks" ||
+        tab === "checkpoints" ||
+        tab === "chat" ||
+        tab === "automation" ||
+        tab === "history" ||
+        tab === "diff"
+      ) {
+        setSidebarTab(tab);
+      }
+    });
+    onCleanup(cleanup);
+  });
 
   return (
     <Show when={props.forceOpen || sidebarOpen()}>
@@ -780,6 +899,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           >
             History
           </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "diff" }}
+            role="tab"
+            aria-selected={sidebarTab() === "diff"}
+            onClick={() => setSidebarTab("diff")}
+          >
+            Changes
+          </button>
         </div>
 
         <div
@@ -836,6 +964,20 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 >
                   Restore session
                 </button>
+                <Show when={runtimeState().canUndo}>
+                  <button
+                    class="agent-primary-button"
+                    type="button"
+                    onClick={() => void undoLastAction()}
+                    title={
+                      runtimeState().undoInfo
+                        ? `Undo: ${runtimeState().undoInfo!.actionName}`
+                        : "Undo last action"
+                    }
+                  >
+                    Undo last action
+                  </button>
+                </Show>
               </div>
 
               <div class="agent-muted">{approvalModeDescription()}</div>
@@ -1010,6 +1152,41 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                       value={bookmarkNote()}
                       onInput={(e) => setBookmarkNote(e.currentTarget.value)}
                       placeholder="Optional note about why this matters"
+                      rows={2}
+                    />
+                    <textarea
+                      class="bookmark-note-input"
+                      value={bookmarkIntent()}
+                      onInput={(e) =>
+                        setBookmarkIntent(e.currentTarget.value)
+                      }
+                      placeholder="Intent: what is this page for?"
+                      rows={1}
+                    />
+                    <textarea
+                      class="bookmark-note-input"
+                      value={bookmarkExpectedContent()}
+                      onInput={(e) =>
+                        setBookmarkExpectedContent(e.currentTarget.value)
+                      }
+                      placeholder="Expected content: what should be here?"
+                      rows={1}
+                    />
+                    <input
+                      class="bookmark-input"
+                      value={bookmarkKeyFields()}
+                      onInput={(e) =>
+                        setBookmarkKeyFields(e.currentTarget.value)
+                      }
+                      placeholder="Key fields (comma-separated)"
+                    />
+                    <textarea
+                      class="bookmark-note-input"
+                      value={bookmarkAgentHints()}
+                      onInput={(e) =>
+                        setBookmarkAgentHints(e.currentTarget.value)
+                      }
+                      placeholder="Agent hints (one key:value per line)"
                       rows={2}
                     />
                   </div>
@@ -1246,16 +1423,175 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                                         {bookmark.note}
                                       </div>
                                     </Show>
+                                    <Show
+                                      when={
+                                        bookmark.intent ||
+                                        bookmark.expectedContent ||
+                                        (bookmark.keyFields?.length || 0) > 0 ||
+                                        ((bookmark.agentHints &&
+                                          Object.keys(bookmark.agentHints)
+                                            .length) ||
+                                          0) > 0
+                                      }
+                                    >
+                                      <div class="bookmark-item-note">
+                                        <Show when={bookmark.intent}>
+                                          <div>
+                                            <strong>Intent:</strong>{" "}
+                                            {bookmark.intent}
+                                          </div>
+                                        </Show>
+                                        <Show when={bookmark.expectedContent}>
+                                          <div>
+                                            <strong>Expected:</strong>{" "}
+                                            {bookmark.expectedContent}
+                                          </div>
+                                        </Show>
+                                        <Show
+                                          when={
+                                            (bookmark.keyFields?.length || 0) > 0
+                                          }
+                                        >
+                                          <div>
+                                            <strong>Key fields:</strong>{" "}
+                                            {bookmark.keyFields?.join(", ")}
+                                          </div>
+                                        </Show>
+                                        <Show
+                                          when={
+                                            bookmark.agentHints &&
+                                            Object.keys(bookmark.agentHints)
+                                              .length > 0
+                                          }
+                                        >
+                                          <div>
+                                            <strong>Hints:</strong>{" "}
+                                            {Object.entries(
+                                              bookmark.agentHints || {},
+                                            )
+                                              .map(
+                                                ([key, hint]) =>
+                                                  `${key}: ${hint}`,
+                                              )
+                                              .join(" • ")}
+                                          </div>
+                                        </Show>
+                                      </div>
+                                    </Show>
+                                    <Show when={editingBookmarkId() === bookmark.id}>
+                                      <div class="bookmark-folder-edit">
+                                        <input
+                                          class="bookmark-input"
+                                          value={editingBookmarkTitle()}
+                                          onInput={(e) =>
+                                            setEditingBookmarkTitle(
+                                              e.currentTarget.value,
+                                            )
+                                          }
+                                          placeholder="Bookmark title"
+                                        />
+                                        <textarea
+                                          class="bookmark-note-input"
+                                          rows={2}
+                                          value={editingBookmarkNote()}
+                                          onInput={(e) =>
+                                            setEditingBookmarkNote(
+                                              e.currentTarget.value,
+                                            )
+                                          }
+                                          placeholder="Why this bookmark matters"
+                                        />
+                                        <textarea
+                                          class="bookmark-note-input"
+                                          rows={1}
+                                          value={editingBookmarkIntent()}
+                                          onInput={(e) =>
+                                            setEditingBookmarkIntent(
+                                              e.currentTarget.value,
+                                            )
+                                          }
+                                          placeholder="Intent"
+                                        />
+                                        <textarea
+                                          class="bookmark-note-input"
+                                          rows={1}
+                                          value={editingBookmarkExpectedContent()}
+                                          onInput={(e) =>
+                                            setEditingBookmarkExpectedContent(
+                                              e.currentTarget.value,
+                                            )
+                                          }
+                                          placeholder="Expected content"
+                                        />
+                                        <input
+                                          class="bookmark-input"
+                                          value={editingBookmarkKeyFields()}
+                                          onInput={(e) =>
+                                            setEditingBookmarkKeyFields(
+                                              e.currentTarget.value,
+                                            )
+                                          }
+                                          placeholder="Key fields (comma-separated)"
+                                        />
+                                        <textarea
+                                          class="bookmark-note-input"
+                                          rows={2}
+                                          value={editingBookmarkAgentHints()}
+                                          onInput={(e) =>
+                                            setEditingBookmarkAgentHints(
+                                              e.currentTarget.value,
+                                            )
+                                          }
+                                          placeholder="Agent hints (one key:value per line)"
+                                        />
+                                        <div class="bookmark-item-footer">
+                                          <button
+                                            class="bookmark-secondary-button"
+                                            type="button"
+                                            onClick={() =>
+                                              void handleUpdateBookmark(
+                                                bookmark.id,
+                                              )
+                                            }
+                                          >
+                                            Save edits
+                                          </button>
+                                          <button
+                                            class="bookmark-ghost-button"
+                                            type="button"
+                                            onClick={resetBookmarkEditor}
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </Show>
                                     <div class="bookmark-item-footer">
                                       <span class="bookmark-item-time">
                                         {formatBookmarkDate(bookmark.savedAt)}
                                       </span>
                                       <button
-                                        class="bookmark-ghost-button danger"
+                                        class="bookmark-ghost-button"
                                         type="button"
                                         onClick={() =>
-                                          void removeBookmark(bookmark.id)
+                                          editingBookmarkId() === bookmark.id
+                                            ? resetBookmarkEditor()
+                                            : startEditingBookmark(bookmark)
                                         }
+                                      >
+                                        {editingBookmarkId() === bookmark.id
+                                          ? "Close"
+                                          : "Edit"}
+                                      </button>
+                                      <button
+                                        class="bookmark-ghost-button danger"
+                                        type="button"
+                                        onClick={() => {
+                                          if (editingBookmarkId() === bookmark.id) {
+                                            resetBookmarkEditor();
+                                          }
+                                          void removeBookmark(bookmark.id);
+                                        }}
                                       >
                                         Remove
                                       </button>
@@ -1295,13 +1631,24 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                     onInput={(e) => setCheckpointName(e.currentTarget.value)}
                     placeholder="Checkpoint name"
                   />
+                  <textarea
+                    class="agent-textarea"
+                    rows={2}
+                    value={checkpointNote()}
+                    onInput={(e) => setCheckpointNote(e.currentTarget.value)}
+                    placeholder="Optional note for this checkpoint"
+                  />
                   <button
                     class="agent-primary-button"
                     type="button"
                     onClick={async () => {
                       const name = checkpointName().trim();
-                      await createCheckpoint(name || undefined);
+                      await createCheckpoint(
+                        name || undefined,
+                        checkpointNote() || undefined,
+                      );
                       setCheckpointName("");
+                      setCheckpointNote("");
                     }}
                   >
                     Save checkpoint
@@ -1333,6 +1680,18 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                             <div class="checkpoint-timeline-time">
                               {new Date(checkpoint.createdAt).toLocaleString()}
                             </div>
+                            <textarea
+                              class="agent-textarea"
+                              rows={2}
+                              placeholder="Add a note..."
+                              value={checkpoint.note || ""}
+                              onBlur={(e) =>
+                                void updateCheckpointNote(
+                                  checkpoint.id,
+                                  e.currentTarget.value,
+                                )
+                              }
+                            />
                             <button
                               class="agent-control-button"
                               type="button"
@@ -1389,6 +1748,55 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 </Show>
               </div>
             </div>
+          </Show>
+
+          <Show when={sidebarTab() === "diff"}>
+            <section class="agent-panel">
+              <div class="agent-panel-header">
+                <div class="agent-panel-title">What Changed</div>
+                <div class="agent-panel-subtitle">
+                  {isPremium()
+                    ? "Page change timeline"
+                    : "Premium feature"}
+                </div>
+              </div>
+              <Show
+                when={isPremium()}
+                fallback={
+                  <div class="kit-upsell premium-chat-banner">
+                    <p class="kit-upsell-title">Vessel Premium</p>
+                    <p class="kit-upsell-body premium-chat-banner-body">
+                      The Diff timeline is a premium feature. Upgrade to see a
+                      full history of what changed on this page.
+                    </p>
+                    <div class="premium-inline-actions premium-chat-banner-actions">
+                      <button
+                        class="agent-primary-button premium-inline-primary"
+                        type="button"
+                        onClick={() =>
+                          void window.vessel.premium
+                            .checkout(premiumState().email || undefined)
+                            .catch(() => {
+                              /* ignore */
+                            })
+                        }
+                      >
+                        Start 7-day free trial — $5.99/mo after
+                      </button>
+                      <button
+                        class="agent-control-button premium-inline-secondary"
+                        type="button"
+                        onClick={openPremiumDetails}
+                      >
+                        See Premium
+                      </button>
+                    </div>
+                  </div>
+                }
+              >
+                <PageDiffTimeline />
+              </Show>
+            </section>
           </Show>
 
           <Show when={sidebarTab() === "chat"}>

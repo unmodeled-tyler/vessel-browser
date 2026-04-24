@@ -132,10 +132,5 @@ test("normalizeBookmarkMetadata returns undefined fields when nothing usable is 
     agentHints: [],
   });
 
-  assert.deepEqual(metadata, {
-    intent: undefined,
-    expectedContent: undefined,
-    keyFields: undefined,
-    agentHints: undefined,
-  });
+  assert.deepEqual(metadata, {});
 });

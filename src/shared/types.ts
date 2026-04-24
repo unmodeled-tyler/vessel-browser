@@ -365,6 +365,8 @@ export interface AgentRuntimeState {
   mcpStatus: McpConnectionStatus;
   flowState: FlowState | null;
   taskTracker: TaskTrackerState | null;
+  canUndo: boolean;
+  undoInfo: { actionName: string; capturedAt: string } | null;
 }
 
 export interface UIState {

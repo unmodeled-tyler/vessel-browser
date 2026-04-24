@@ -55,6 +55,18 @@ export function useBookmarks() {
         keyFields,
         agentHints,
       ),
+    updateBookmark: (
+      id: string,
+      updates: {
+        title?: string;
+        note?: string;
+        folderId?: string;
+        intent?: string;
+        expectedContent?: string;
+        keyFields?: string[];
+        agentHints?: Record<string, string>;
+      },
+    ) => window.vessel.bookmarks.updateBookmark(id, updates),
     removeBookmark: (id: string) => window.vessel.bookmarks.removeBookmark(id),
     createFolder: (name: string) => window.vessel.bookmarks.createFolder(name),
     createFolderWithSummary: (name: string, summary?: string) =>
