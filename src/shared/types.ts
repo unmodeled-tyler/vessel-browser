@@ -448,6 +448,17 @@ export interface PremiumState {
   expiresAt: string;
 }
 
+export type SearchEngineId = "duckduckgo" | "google" | "bing" | "brave" | "ecosia" | "kagi" | "none";
+
+export const SEARCH_ENGINE_PRESETS: Record<Exclude<SearchEngineId, "none">, { label: string; url: string }> = {
+  duckduckgo: { label: "DuckDuckGo", url: "https://duckduckgo.com/?q=" },
+  google: { label: "Google", url: "https://www.google.com/search?q=" },
+  bing: { label: "Bing", url: "https://www.bing.com/search?q=" },
+  brave: { label: "Brave Search", url: "https://search.brave.com/search?q=" },
+  ecosia: { label: "Ecosia", url: "https://www.ecosia.org/search?q=" },
+  kagi: { label: "Kagi", url: "https://kagi.com/search?q=" },
+};
+
 export interface VesselSettings {
   defaultUrl: string;
   theme: "dark" | "light";
@@ -464,6 +475,7 @@ export interface VesselSettings {
   downloadPath: string;
   premium: PremiumState;
   telemetryEnabled: boolean;
+  defaultSearchEngine: SearchEngineId;
 }
 
 export type RuntimeHealthSeverity = "warning" | "error";
