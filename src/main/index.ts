@@ -1,4 +1,4 @@
-import { app, dialog, globalShortcut } from "electron";
+import { app, dialog, globalShortcut, session } from "electron";
 import fs from "node:fs";
 import path from "path";
 import { createMainWindow, layoutViews } from "./window";
@@ -40,6 +40,13 @@ import * as autofillManager from "./autofill/manager";
 import * as pageSnapshots from "./content/page-snapshots";
 
 let runtime: AgentRuntime | null = null;
+
+function configureUserAgent(): void {
+  const originalUA = session.defaultSession.getUserAgent();
+  const maskedUA =
+    originalUA.replace(/ Electron\/[^\s]+/, "") + " Vessel/" + app.getVersion();
+  session.defaultSession.setUserAgent(maskedUA);
+}
 
 function checkWritableUserData(userDataPath: string): RuntimeHealthIssue[] {
   const issues: RuntimeHealthIssue[] = [];
@@ -122,6 +129,7 @@ async function maybeShowStartupHealthDialog(
 }
 
 async function bootstrap(): Promise<void> {
+  configureUserAgent();
   const splash = createSplashWindow();
   const settings = loadSettings();
   const userDataPath = app.getPath("userData");
