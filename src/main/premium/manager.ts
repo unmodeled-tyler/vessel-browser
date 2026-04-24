@@ -28,6 +28,7 @@ const VERIFICATION_API =
 const FREE_TOOL_ITERATION_LIMIT = 50;
 const REVALIDATION_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const OFFLINE_GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const MAX_API_ERROR_LOG_LENGTH = 300;
 
 type PremiumVerificationResponse = {
   status: PremiumStatus;
@@ -46,6 +47,27 @@ type ActivationCodeVerifyResult = Result<
   { state: PremiumState },
   { state: PremiumState }
 >;
+
+async function readApiErrorDetail(res: Response): Promise<string> {
+  try {
+    const text = (await res.text()).trim();
+    if (!text) return "";
+
+    try {
+      const data = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const detail = data.error || data.message;
+      if (typeof detail === "string" && detail.trim()) {
+        return detail.trim().slice(0, MAX_API_ERROR_LOG_LENGTH);
+      }
+    } catch {
+      // Fall back to logging the raw body below.
+    }
+
+    return text.slice(0, MAX_API_ERROR_LOG_LENGTH);
+  } catch {
+    return "";
+  }
+}
 
 // --- Premium feature definitions ---
 
@@ -190,7 +212,12 @@ export async function verifySubscription(
 
     if (!res.ok) {
       // Can't reach API — keep current state (offline grace handles expiry)
-      logger.warn("Verification API returned a non-OK status:", res.status);
+      const detail = await readApiErrorDetail(res);
+      logger.warn(
+        "Verification API returned a non-OK status:",
+        res.status,
+        detail,
+      );
       return current;
     }
 

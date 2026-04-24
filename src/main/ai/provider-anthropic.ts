@@ -211,7 +211,7 @@ export class AnthropicProvider implements AIProvider {
             continue;
           }
 
-          const argSummary = [tb.input.url, tb.input.text, tb.input.direction]
+          const argSummary = [tb.input.url, tb.input.query, tb.input.text, tb.input.direction]
             .map((v): string => typeof v === "string" ? v : "")
             .find((v) => v.length > 0) ?? "";
           onChunk(`\n<<tool:${tb.name}${argSummary ? ":" + argSummary : ""}>>\n`);

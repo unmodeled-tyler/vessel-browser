@@ -1,5 +1,7 @@
 import type { WebContents } from "electron";
-import type { AgentCheckpoint } from "../../shared/types";
+import type { AgentCheckpoint, SearchEngineId } from "../../shared/types";
+import { SEARCH_ENGINE_PRESETS } from "../../shared/types";
+import { loadSettings } from "../config/settings";
 import type { AgentRuntime } from "../agent/runtime";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
@@ -3449,13 +3451,29 @@ export function buildCommonSearchUrlShortcut(
   };
 }
 
+function buildDefaultEngineShortcut(rawQuery: string): SearchShortcut | null {
+  const settings = loadSettings();
+  const engineId: SearchEngineId = settings.defaultSearchEngine ?? "duckduckgo";
+  if (engineId === "none") return null;
+  const preset = SEARCH_ENGINE_PRESETS[engineId];
+  if (!preset) return null;
+  const query = normalizeSearchQuery(rawQuery);
+  if (!query) return null;
+  return {
+    url: preset.url + encodeURIComponent(query),
+    source: "default search engine",
+    appliedFilters: [],
+  };
+}
+
 export function buildSearchShortcut(
   currentUrl: string,
   rawQuery: string,
 ): SearchShortcut | null {
   return (
     buildHuggingFaceSearchShortcut(currentUrl, rawQuery) ??
-    buildCommonSearchUrlShortcut(currentUrl, rawQuery)
+    buildCommonSearchUrlShortcut(currentUrl, rawQuery) ??
+    buildDefaultEngineShortcut(rawQuery)
   );
 }
 
@@ -3514,7 +3532,7 @@ async function locateSearchTarget(
           const seen = new Set();
           const ordered = [];
           const specific = document.querySelectorAll(
-            'input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i]'
+            'input[type="search"], input[name="q"], input[name="query"], input[name="search"], input[role="searchbox"], input[aria-label*="search" i], input[placeholder*="search" i], textarea[name="q"], textarea[name="query"], textarea[name="search"], textarea[role="searchbox"], textarea[aria-label*="search" i], textarea[placeholder*="search" i]'
           );
           specific.forEach((el) => {
             if (!seen.has(el)) {
@@ -3522,7 +3540,7 @@ async function locateSearchTarget(
               ordered.push(el);
             }
           });
-          document.querySelectorAll('input[type="text"], input:not([type])').forEach((el) => {
+          document.querySelectorAll('input[type="text"], input:not([type]), textarea').forEach((el) => {
             if (seen.has(el)) return;
             const scope = nearestSearchScope(el);
             if (!scope) return;
@@ -3533,9 +3551,10 @@ async function locateSearchTarget(
         }
 
         function scoreInput(el) {
-          if (!(el instanceof HTMLInputElement)) return -1;
+          if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return -1;
           if (isDisabled(el) || !isVisible(el)) return -1;
-          const type = normalize(el.getAttribute("type") || el.type);
+          const isTextarea = el instanceof HTMLTextAreaElement;
+          const type = isTextarea ? "text" : normalize(el.getAttribute("type") || el.type);
           if (type && !["search", "text", ""].includes(type)) return -1;
 
           let score = 0;
@@ -3689,19 +3708,25 @@ async function searchPage(
     return `Error: "${query}" looks like the current site's name, not a product query. You are already on ${wc.getURL()}. Open a section like staff picks/new releases or search for actual book titles, authors, or genres instead.`;
   }
 
+  const runShortcut = async (shortcut: SearchShortcut): Promise<string> => {
+    const beforeUrl = wc.getURL();
+    await loadPermittedUrl(wc, shortcut.url);
+    await waitForPotentialNavigation(wc, beforeUrl, 4000);
+    const afterUrl = wc.getURL();
+    const applied =
+      shortcut.appliedFilters.length > 0
+        ? ` (${shortcut.appliedFilters.join(", ")})`
+        : "";
+    const destination = shortcut.section ? ` ${shortcut.section}` : "";
+    return `Searched "${query}" via ${shortcut.source}${destination} shortcut${applied} → ${afterUrl}${await getPostSearchSummary(wc)}`;
+  };
+
   if (typeof args.selector !== "string") {
-    const shortcut = buildSearchShortcut(wc.getURL(), query);
+    const shortcut =
+      buildHuggingFaceSearchShortcut(wc.getURL(), query) ??
+      buildCommonSearchUrlShortcut(wc.getURL(), query);
     if (shortcut) {
-      const beforeUrl = wc.getURL();
-      await loadPermittedUrl(wc, shortcut.url);
-      await waitForPotentialNavigation(wc, beforeUrl, 4000);
-      const afterUrl = wc.getURL();
-      const applied =
-        shortcut.appliedFilters.length > 0
-          ? ` (${shortcut.appliedFilters.join(", ")})`
-          : "";
-      const destination = shortcut.section ? ` ${shortcut.section}` : "";
-      return `Searched "${query}" via ${shortcut.source}${destination} shortcut${applied} → ${afterUrl}${await getPostSearchSummary(wc)}`;
+      return runShortcut(shortcut);
     }
   }
 
@@ -3713,6 +3738,12 @@ async function searchPage(
     return pageBusyError("search");
   }
   if (!searchInfo?.selector) {
+    if (typeof args.selector !== "string") {
+      const fallback = buildDefaultEngineShortcut(query);
+      if (fallback) {
+        return runShortcut(fallback);
+      }
+    }
     return "Error: Could not find a visible search input. Try read_page(mode=\"visible_only\") or provide a selector.";
   }
 

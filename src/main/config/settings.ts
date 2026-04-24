@@ -23,6 +23,7 @@ const defaults: VesselSettings = {
   domainPolicy: { allowedDomains: [], blockedDomains: [] },
   downloadPath: "",
   telemetryEnabled: true,
+  defaultSearchEngine: "duckduckgo",
   premium: {
     status: "free",
     customerId: "",

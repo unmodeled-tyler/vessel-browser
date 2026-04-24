@@ -16,7 +16,9 @@ import type {
   ProviderId,
   ProviderConfig,
   RuntimeHealthState,
+  SearchEngineId,
 } from "../../../../shared/types";
+import { SEARCH_ENGINE_PRESETS } from "../../../../shared/types";
 import { createLogger } from "../../../../shared/logger";
 import { PROVIDERS } from "../../../../shared/providers";
 
@@ -46,6 +48,7 @@ const Settings: Component = () => {
     createSignal<AgentTranscriptDisplayMode>("summary");
   const [health, setHealth] = createSignal<RuntimeHealthState | null>(null);
   const [defaultUrl, setDefaultUrl] = createSignal("https://start.duckduckgo.com");
+  const [defaultSearchEngine, setDefaultSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
   const [downloadPath, setDownloadPath] = createSignal("");
   const [status, setStatus] = createSignal<{
     kind: "success" | "error";
@@ -342,6 +345,7 @@ const Settings: Component = () => {
     const runtimeHealth = await window.vessel.settings.getHealth();
     setTheme(settings.theme ?? "dark");
     setDefaultUrl(settings.defaultUrl ?? "https://start.duckduckgo.com");
+    setDefaultSearchEngine(settings.defaultSearchEngine ?? "duckduckgo");
     setDownloadPath(settings.downloadPath ?? "");
     setAutoRestoreSession(settings.autoRestoreSession ?? true);
     setClearBookmarksOnLaunch(settings.clearBookmarksOnLaunch ?? false);
@@ -474,6 +478,7 @@ const Settings: Component = () => {
         agentTranscriptMode(),
       );
       await window.vessel.settings.set("telemetryEnabled", telemetryEnabled());
+      await window.vessel.settings.set("defaultSearchEngine", defaultSearchEngine());
       // Save domain policy
       const domains = domainList().split("\n").map(d => d.trim()).filter(d => d.length > 0);
       const domainPolicy = domainMode() === "allowlist"
@@ -619,6 +624,30 @@ const Settings: Component = () => {
             <p class="settings-hint">
               The page that opens when you create a new tab or launch Vessel
               without restoring a previous session.
+            </p>
+          </div>
+
+          <div class="settings-field">
+            <label class="settings-label" for="default-search-engine">
+              Default Search Engine
+            </label>
+            <select
+              id="default-search-engine"
+              class="settings-input"
+              value={defaultSearchEngine()}
+              onChange={(e) => setDefaultSearchEngine(e.currentTarget.value as SearchEngineId)}
+            >
+              <For each={Object.entries(SEARCH_ENGINE_PRESETS)}>
+                {([id, preset]) => (
+                  <option value={id}>{preset.label}</option>
+                )}
+              </For>
+              <option value="none">None (disabled)</option>
+            </select>
+            <p class="settings-hint">
+              The search engine used by the AI agent when it needs to search
+              the web. "None" disables the fallback and forces the agent to use
+              on-page search inputs only.
             </p>
           </div>
 

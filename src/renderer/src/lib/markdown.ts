@@ -285,6 +285,9 @@ export function renderMarkdown(source: string): string {
 
   const normalized = source
     .replace(/\r\n?/g, "\n")
+    // Extract erase-prev tokens — these signal that raw tool-call JSON
+    // was streamed as text and should be collapsed.
+    .replace(/<<erase_prev>>/g, "\x00ERASE\x00")
     // Extract tool call tokens before any other processing
     .replace(
       /<<tool:([^:>\n]+)(?::([^>\n]*))?>>/g,
@@ -312,6 +315,9 @@ export function renderMarkdown(source: string): string {
     .split(/\n{2,}/)
     .map((block) => {
       const trimmed = block.trim();
+      // Erase-prev token — signals that preceding raw text was a
+      // malformed tool-call leak from a small model. Mark for removal.
+      if (trimmed === "\x00ERASE\x00") return "\x00ERASE\x00";
       // Tool chip tokens pass through as-is
       if (/^\x00TC\d+\x00$/.test(trimmed)) return trimmed;
       return renderBlock(block);
@@ -319,7 +325,16 @@ export function renderMarkdown(source: string): string {
     .filter(Boolean)
     .join("");
 
-  let output = rendered;
+  // Collapse erase markers: remove any rendered HTML between the last
+  // tool-chip (or start) and an erase marker.
+  const erased = rendered.replace(
+    /(?:^|(?<=\x00TC\d+\x00))([\s\S]*?)\x00ERASE\x00/g,
+    (_, _content) => "",
+  );
+  // Clean up any remaining stray erase markers
+  const cleaned = erased.replace(/\x00ERASE\x00/g, "");
+
+  let output = cleaned;
   output = codeBlocks.reduce(
     (out, snippet, index) => out.replace(`\x00CB${index}\x00`, snippet),
     output,
