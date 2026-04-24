@@ -17,6 +17,8 @@ import { createLogger } from '../../shared/logger';
 
 const logger = createLogger("OpenAIProvider");
 
+export { hasRecentDuplicateToolCall } from './tool-guardrails';
+
 function shouldDebugAgentLoop(): boolean {
   const value = process.env.VESSEL_DEBUG_AGENT_LOOP;
   return value === '1' || value === 'true';
@@ -471,7 +473,81 @@ function scalarArgsForTool(
     if (mode) return { mode };
   }
 
+  if (name === 'save_bookmark') {
+    // Model may send a bare URL or "title url" as a single string
+    const url = toLikelyUrl(trimmed);
+    if (url) return { url };
+    // Try splitting on last space — "Title https://..."
+    const lastSpace = trimmed.lastIndexOf(' ');
+    if (lastSpace > 0) {
+      const maybeUrl = toLikelyUrl(trimmed.slice(lastSpace + 1));
+      if (maybeUrl) return { url: maybeUrl, title: trimmed.slice(0, lastSpace).replace(/^["']|["']$/g, '') };
+    }
+  }
+
   return null;
+}
+
+function firstStringArg(
+  args: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function normalizeElementTargetArgs(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalized = { ...args };
+
+  if (typeof normalized.index === 'string' && /^\d+$/.test(normalized.index.trim())) {
+    normalized.index = Number(normalized.index.trim());
+  }
+
+  if (typeof normalized.selector !== 'string' || !normalized.selector.trim()) {
+    const selector = firstStringArg(normalized, [
+      'cssSelector',
+      'css_selector',
+      'querySelector',
+      'query_selector',
+    ]);
+    if (selector) normalized.selector = selector;
+  }
+
+  if (typeof normalized.text !== 'string' || !normalized.text.trim()) {
+    const text = firstStringArg(normalized, [
+      'label',
+      'title',
+      'name',
+      'target',
+      'element',
+      'linkText',
+      'link_text',
+      'ariaLabel',
+      'aria_label',
+    ]);
+    if (text) normalized.text = text;
+  }
+
+  return normalized;
+}
+
+function hasElementTarget(args: Record<string, unknown>): boolean {
+  return (
+    typeof args.index === 'number' ||
+    (typeof args.selector === 'string' && args.selector.trim().length > 0) ||
+    (typeof args.text === 'string' && args.text.trim().length > 0)
+  );
+}
+
+export function isTargetlessClickArgs(args: Record<string, unknown>): boolean {
+  return !hasElementTarget(normalizeElementTargetArgs(args));
 }
 
 function tryParseJsonWithCommonRepairs(raw: string): unknown {
@@ -552,7 +628,15 @@ export function coerceToolArgsForExecution(
   name: string,
   args: Record<string, unknown>,
 ): Record<string, unknown> {
-  const coerced = { ...args };
+  let coerced = { ...args };
+
+  if (
+    name === 'click' ||
+    name === 'inspect_element' ||
+    name === 'scroll_to_element'
+  ) {
+    coerced = normalizeElementTargetArgs(coerced);
+  }
 
   if (name === 'search') {
     if (typeof coerced.query !== 'string' || !coerced.query.trim()) {
@@ -579,6 +663,28 @@ export function coerceToolArgsForExecution(
     }
   }
 
+  if (name === 'save_bookmark') {
+    // Normalize common alternate arg names from small models
+    if (typeof coerced.url !== 'string' || !coerced.url.trim()) {
+      if (typeof coerced.link === 'string' && coerced.link.trim()) {
+        coerced.url = coerced.link.trim();
+      } else if (typeof coerced.href === 'string' && coerced.href.trim()) {
+        coerced.url = coerced.href.trim();
+      }
+    }
+    if (typeof coerced.folderName !== 'string' || !coerced.folderName.trim()) {
+      if (typeof coerced.folder === 'string' && coerced.folder.trim()) {
+        coerced.folderName = coerced.folder.trim();
+      } else if (typeof coerced.category === 'string' && coerced.category.trim()) {
+        coerced.folderName = coerced.category.trim();
+      }
+    }
+    // Ensure createFolderIfMissing is boolean when folderName is set
+    if (coerced.folderName && typeof coerced.createFolderIfMissing === 'undefined') {
+      coerced.createFolderIfMissing = true;
+    }
+  }
+
   return coerced;
 }
 
@@ -602,6 +708,25 @@ function canonicalizeArgsForTool(
   }
 
   return canonical;
+}
+
+function unsupportedToolHint(name: string): string {
+  const normalized = name.trim().toLowerCase().replace(/[.\s/-]+/g, '_');
+  const BOOKMARK_NAMES = [
+    'organize_bookmark', 'organize_bookmarks', 'manage_bookmark',
+    'manage_bookmarks', 'add_to_bookmarks', 'save_to_bookmarks',
+    'bookmark_link', 'save_link', 'store_bookmark',
+  ];
+  if (BOOKMARK_NAMES.includes(normalized) || /bookmark|save.*link|organize/.test(normalized)) {
+    return (
+      `Error: "${name}" is not a supported tool. ` +
+      `Use save_bookmark to save a page as a bookmark, or create_bookmark_folder to create a folder. ` +
+      `Example: save_bookmark with {"url": "...", "title": "...", "folderName": "..."}`
+    );
+  }
+  return (
+    `Error: ${name} is not a supported tool. Choose one of the available browser tools instead.`
+  );
 }
 
 export function resolveToolCallName(
@@ -1128,7 +1253,28 @@ export class OpenAICompatProvider implements AIProvider {
 
         // Execute each tool and collect results
         for (const tc of toolCalls) {
-          // If this tool call had malformed args (sanitized above), send error to model
+          // Check for unsupported tool names FIRST — even if args are
+          // malformed, a clear "tool does not exist" message with the
+          // correct tool suggestion is more actionable than "invalid JSON".
+          if (!availableToolNames.has(tc.name)) {
+            const hint = unsupportedToolHint(tc.name);
+            onChunk(`\n<<tool:${tc.name}:⚠ unsupported>>\n`);
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: hint,
+            });
+            compactCorrectionCount += 1;
+            if (compactCorrectionCount >= 2) {
+              messages.push({
+                role: 'user',
+                content: `[System] You are calling unsupported tools. Stop inventing tool names. Use the supported tools you were given and take the next concrete step.`,
+              });
+            }
+            continue;
+          }
+
+          // Parse/repair args — handle malformed JSON from small models
           if (malformedToolCalls.has(tc.id)) {
             onChunk(`\n<<tool:${tc.name}:⚠ invalid args>>\n`);
             messages.push({
@@ -1152,24 +1298,30 @@ export class OpenAICompatProvider implements AIProvider {
           }
           args = repairedArgs.args;
           args = coerceToolArgsForExecution(tc.name, args);
-          if (!availableToolNames.has(tc.name)) {
-            onChunk(`\n<<tool:unsupported_tool:⚠ unsupported>>\n`);
+
+          const toolSignature = stableToolSignature(tc.name, args);
+          if (
+            this.agentToolProfile === 'compact' &&
+            tc.name === 'click' &&
+            isTargetlessClickArgs(args)
+          ) {
+            onChunk(`\n<<tool:${tc.name}:⚠ missing target>>\n`);
             messages.push({
               role: 'tool',
               tool_call_id: tc.id,
               content:
-                `Error: ${tc.name} is not a supported tool. Choose one of the available browser tools instead.`,
+                `Error: click requires an element target. Use click with {"index": N} from the latest read_page result, or {"text": "exact visible link/button text"}. ` +
+                `If you do not have a current result index, call read_page(mode="results_only") first and then click one listed result.`,
+            });
+            messages.push({
+              role: 'user',
+              content:
+                `[System] Your last click had no target. Do not call click with empty arguments. ` +
+                `Refresh the page state with read_page(mode="results_only") if needed, then click exactly one result by index or exact visible text.`,
             });
             compactCorrectionCount += 1;
-            if (compactCorrectionCount >= 2) {
-              messages.push({
-                role: 'user',
-                content: `[System] You are calling unsupported tools. Stop inventing tool names. Use the supported tools you were given and take the next concrete step.`,
-              });
-            }
             continue;
           }
-          const toolSignature = stableToolSignature(tc.name, args);
           // These tools must never be suppressed as duplicates:
           // - Read-only lookups: page state may have changed since last call
           // - go_back/go_forward: each call pops the history stack
