@@ -159,6 +159,23 @@ export class AgentRuntime {
 
   setApprovalMode(mode: ApprovalMode): AgentRuntimeState {
     this.state.supervisor.approvalMode = mode;
+    if (mode === "auto" && !this.state.supervisor.paused) {
+      const approvals = this.state.supervisor.pendingApprovals;
+      if (approvals.length > 0) {
+        const actionIds = new Set(approvals.map((approval) => approval.actionId));
+        this.state.supervisor.pendingApprovals = [];
+        this.state.actions = this.state.actions.map((action) =>
+          actionIds.has(action.id)
+            ? { ...action, status: "running", error: undefined }
+            : action,
+        );
+        for (const approval of approvals) {
+          const resolve = this.pendingResolvers.get(approval.id);
+          this.pendingResolvers.delete(approval.id);
+          resolve?.(true);
+        }
+      }
+    }
     this.emit();
     return this.getState();
   }
