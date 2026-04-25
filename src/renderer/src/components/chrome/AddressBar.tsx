@@ -5,25 +5,44 @@ import {
   Show,
   For,
   onCleanup,
+  onMount,
   type Component,
 } from "solid-js";
 import { useTabs } from "../../stores/tabs";
 import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
+import { useHistory } from "../../stores/history";
+import { useBookmarks } from "../../stores/bookmarks";
 import type { PageDiff } from "../../../../shared/page-diff-types";
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
+import {
+  SEARCH_ENGINE_PRESETS,
+  type SearchEngineId,
+} from "../../../../shared/types";
 import {
   getAgentPresence,
   getLatestAgentStatusMessage,
 } from "../../lib/agentActivity";
 import "./chrome.css";
 
+interface AutocompleteItem {
+  url: string;
+  title: string;
+  subtitle?: string;
+  source: "history" | "bookmark" | "search";
+}
+
 const AddressBar: Component = () => {
   const { activeTab, activeTabId, navigate, goBack, goForward, reload, toggleAdBlock } = useTabs();
   const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings, toggleDevTools, devtoolsPanelOpen } = useUI();
+  const { historyState } = useHistory();
+  const { bookmarksState } = useBookmarks();
   const [inputValue, setInputValue] = createSignal("");
+  const [showSuggestions, setShowSuggestions] = createSignal(false);
+  const [selectedIndex, setSelectedIndex] = createSignal(-1);
+  const [searchEngine, setSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
   const now = useNow();
   let inputRef: HTMLInputElement | undefined;
 
@@ -38,9 +57,37 @@ const AddressBar: Component = () => {
     () => runtimeState().supervisor.pendingApprovals.length,
   );
 
+  const searchEnginePreset = createMemo(() => {
+    const engine = searchEngine();
+    return engine === "none"
+      ? SEARCH_ENGINE_PRESETS.duckduckgo
+      : SEARCH_ENGINE_PRESETS[engine];
+  });
+
+  const buildSearchUrl = (query: string): string =>
+    searchEnginePreset().url + encodeURIComponent(query);
+
   const [pageDiff, setPageDiff] = createSignal<PageDiff | null>(null);
   const [diffExpanded, setDiffExpanded] = createSignal(false);
   let diffCollapseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  onMount(() => {
+    let disposed = false;
+    void window.vessel.settings.get()
+      .then((settings) => {
+        if (!disposed) {
+          setSearchEngine(settings.defaultSearchEngine ?? "duckduckgo");
+        }
+      })
+      .catch(() => {});
+    const unsubscribe = window.vessel.settings.onUpdate((settings) => {
+      setSearchEngine(settings.defaultSearchEngine ?? "duckduckgo");
+    });
+    onCleanup(() => {
+      disposed = true;
+      unsubscribe();
+    });
+  });
 
   const showIncomingDiff = (diff: PageDiff) => {
     setPageDiff(diff);
@@ -107,7 +154,59 @@ const AddressBar: Component = () => {
     const tab = activeTab();
     if (tab && !inputRef?.matches(":focus")) {
       setInputValue(tab.url === "about:blank" ? "" : tab.url);
+      setShowSuggestions(false);
+      setSelectedIndex(-1);
     }
+  });
+
+  // Autocomplete suggestions
+  const MAX_SUGGESTIONS = 8;
+
+  const suggestions = createMemo<AutocompleteItem[]>(() => {
+    const rawQuery = inputValue().trim();
+    const query = rawQuery.toLowerCase();
+    if (!query || query.length < 2) return [];
+
+    const results: AutocompleteItem[] = [];
+    const seen = new Set<string>();
+    const matchLimit = MAX_SUGGESTIONS - 1;
+
+    // Bookmarks first
+    for (const b of bookmarksState().bookmarks) {
+      if (seen.has(b.url)) continue;
+      const urlMatch = b.url.toLowerCase().includes(query);
+      const titleMatch = b.title.toLowerCase().includes(query);
+      if (urlMatch || titleMatch) {
+        seen.add(b.url);
+        results.push({ url: b.url, title: b.title, source: "bookmark" });
+      }
+      if (results.length >= matchLimit) break;
+    }
+
+    // History
+    if (results.length < matchLimit) {
+      for (const h of historyState().entries) {
+        if (seen.has(h.url)) continue;
+        const urlMatch = h.url.toLowerCase().includes(query);
+        const titleMatch = h.title.toLowerCase().includes(query);
+        if (urlMatch || titleMatch) {
+          seen.add(h.url);
+          results.push({ url: h.url, title: h.title, source: "history" });
+        }
+        if (results.length >= matchLimit) break;
+      }
+    }
+
+    if (results.length < MAX_SUGGESTIONS) {
+      results.push({
+        url: buildSearchUrl(rawQuery),
+        title: `Search for "${rawQuery}"`,
+        subtitle: searchEnginePreset().label,
+        source: "search",
+      });
+    }
+
+    return results;
   });
 
   createEffect(() => {
@@ -138,12 +237,53 @@ const AddressBar: Component = () => {
     });
   });
 
+  const selectSuggestion = (url: string) => {
+    setInputValue(url);
+    setShowSuggestions(false);
+    setSelectedIndex(-1);
+    navigate(url);
+    inputRef?.blur();
+  };
+
   const handleSubmit = (e: Event) => {
     e.preventDefault();
-    const val = inputValue().trim();
-    if (val) {
-      navigate(val);
-      inputRef?.blur();
+    const idx = selectedIndex();
+    const items = suggestions();
+    if (idx >= 0 && idx < items.length) {
+      selectSuggestion(items[idx].url);
+    } else {
+      const val = inputValue().trim();
+      if (val) {
+        navigate(val);
+        inputRef?.blur();
+        setShowSuggestions(false);
+      }
+    }
+  };
+
+  const handleInputKeyDown = (e: KeyboardEvent) => {
+    const items = suggestions();
+    const idx = selectedIndex();
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (items.length > 0) {
+        setShowSuggestions(true);
+        setSelectedIndex(idx < items.length - 1 ? idx + 1 : 0);
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (items.length > 0) {
+        setShowSuggestions(true);
+        setSelectedIndex(idx > 0 ? idx - 1 : items.length - 1);
+      }
+    } else if (e.key === "Escape") {
+      if (showSuggestions()) {
+        setShowSuggestions(false);
+        setSelectedIndex(-1);
+      } else {
+        inputRef?.blur();
+      }
     }
   };
 
@@ -219,12 +359,75 @@ const AddressBar: Component = () => {
             class="url-input"
             type="text"
             value={inputValue()}
-            onInput={(e) => setInputValue(e.currentTarget.value)}
-            onFocus={(e) => e.currentTarget.select()}
+            onInput={(e) => {
+              setInputValue(e.currentTarget.value);
+              setShowSuggestions(true);
+              setSelectedIndex(-1);
+            }}
+            onFocus={(e) => {
+              e.currentTarget.select();
+              const query = inputValue().trim();
+              if (query.length >= 2) setShowSuggestions(true);
+            }}
+            onKeyDown={handleInputKeyDown}
+            onBlur={() => {
+              // Delay to allow click on suggestion
+              setTimeout(() => {
+                setShowSuggestions(false);
+                setSelectedIndex(-1);
+              }, 150);
+            }}
             placeholder="Search or enter URL"
             spellcheck={false}
+            autocomplete="off"
+            aria-autocomplete="list"
+            aria-expanded={showSuggestions() && suggestions().length > 0}
+            aria-controls="address-autocomplete"
+            aria-activedescendant={
+              selectedIndex() >= 0
+                ? `address-autocomplete-${selectedIndex()}`
+                : undefined
+            }
           />
         </form>
+
+        <Show when={showSuggestions() && suggestions().length > 0}>
+          <div
+            id="address-autocomplete"
+            class="autocomplete-dropdown"
+            role="listbox"
+          >
+            <For each={suggestions()}>
+              {(item, i) => (
+                <div
+                  id={`address-autocomplete-${i()}`}
+                  class={`autocomplete-item ${
+                    selectedIndex() === i() ? "selected" : ""
+                  }`}
+                  role="option"
+                  aria-selected={selectedIndex() === i()}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectSuggestion(item.url);
+                  }}
+                  onMouseEnter={() => setSelectedIndex(i())}
+                >
+                  <span class="autocomplete-icon">
+                    {item.source === "bookmark"
+                      ? "\u2605"
+                      : item.source === "search"
+                        ? "\u2315"
+                        : "\u25CC"}
+                  </span>
+                  <span class="autocomplete-text">
+                    <span class="autocomplete-title">{item.title || item.url}</span>
+                    <span class="autocomplete-url">{item.subtitle || item.url}</span>
+                  </span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
 
         <div
           class={`agent-status-badge ${agentPresence()}`}

@@ -86,6 +86,16 @@ export const Channels = {
   // Ad blocking
   TAB_TOGGLE_AD_BLOCK: "tab:toggle-ad-block",
 
+  // Zoom
+  TAB_ZOOM_IN: "tab:zoom-in",
+  TAB_ZOOM_OUT: "tab:zoom-out",
+  TAB_ZOOM_RESET: "tab:zoom-reset",
+
+  // Closed tabs / duplication
+  TAB_REOPEN_CLOSED: "tab:reopen-closed",
+  TAB_DUPLICATE: "tab:duplicate",
+  TAB_CONTEXT_MENU: "tab:context-menu",
+
   // Find in page
   FIND_IN_PAGE_START: "find:start",
   FIND_IN_PAGE_NEXT: "find:next",

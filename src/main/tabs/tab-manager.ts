@@ -26,6 +26,8 @@ export class TabManager {
     | ((result: HighlightCaptureResult) => void)
     | null = null;
   private pageLoadCallback: ((url: string, wc: WebContents) => void) | null = null;
+  private closedTabs: { url: string; title: string; adBlockingEnabled: boolean }[] = [];
+  private readonly MAX_CLOSED_TABS = 20;
 
   constructor(
     window: BaseWindow,
@@ -92,6 +94,16 @@ export class TabManager {
     const tab = this.tabs.get(id);
     if (!tab) return;
 
+    // Remember closed tab for reopening
+    this.closedTabs.push({
+      url: tab.state.url,
+      title: tab.state.title,
+      adBlockingEnabled: tab.state.adBlockingEnabled,
+    });
+    if (this.closedTabs.length > this.MAX_CLOSED_TABS) {
+      this.closedTabs.shift();
+    }
+
     // Clean up lastReapply entry to prevent memory leak
     const wcId = tab.webContentsId;
     if (wcId !== undefined) {
@@ -135,6 +147,30 @@ export class TabManager {
 
   reloadTab(id: string): void {
     this.tabs.get(id)?.reload();
+  }
+
+  zoomIn(id: string): void {
+    this.tabs.get(id)?.zoomIn();
+  }
+
+  zoomOut(id: string): void {
+    this.tabs.get(id)?.zoomOut();
+  }
+
+  zoomReset(id: string): void {
+    this.tabs.get(id)?.zoomReset();
+  }
+
+  reopenClosedTab(): string | null {
+    const last = this.closedTabs.pop();
+    if (!last) return null;
+    return this.createTab(last.url, { adBlockingEnabled: last.adBlockingEnabled });
+  }
+
+  duplicateTab(id: string): string | null {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    return this.createTab(tab.state.url, { adBlockingEnabled: tab.state.adBlockingEnabled });
   }
 
   getActiveTab(): Tab | undefined {

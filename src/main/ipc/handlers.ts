@@ -1,4 +1,4 @@
-import { app, ipcMain } from "electron";
+import { app, ipcMain, Menu, MenuItem } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import * as historyManager from "../history/manager";
@@ -320,6 +320,58 @@ export function registerIpcHandlers(
     const newState = !tab.state.adBlockingEnabled;
     tab.setAdBlockingEnabled(newState);
     return newState;
+  });
+
+  ipcMain.handle(Channels.TAB_ZOOM_IN, (_, id: string) => {
+    assertString(id, "id");
+    tabManager.zoomIn(id);
+  });
+
+  ipcMain.handle(Channels.TAB_ZOOM_OUT, (_, id: string) => {
+    assertString(id, "id");
+    tabManager.zoomOut(id);
+  });
+
+  ipcMain.handle(Channels.TAB_ZOOM_RESET, (_, id: string) => {
+    assertString(id, "id");
+    tabManager.zoomReset(id);
+  });
+
+  ipcMain.handle(Channels.TAB_REOPEN_CLOSED, () => {
+    const id = tabManager.reopenClosedTab();
+    if (id) layoutViews(windowState);
+    return id;
+  });
+
+  ipcMain.handle(Channels.TAB_DUPLICATE, (_, id: string) => {
+    assertString(id, "id");
+    const newId = tabManager.duplicateTab(id);
+    if (newId) layoutViews(windowState);
+    return newId;
+  });
+
+  ipcMain.on(Channels.TAB_CONTEXT_MENU, (_event, id: string) => {
+    assertString(id, "id");
+    const menu = new Menu();
+    menu.append(
+      new MenuItem({
+        label: "Duplicate Tab",
+        click: () => {
+          const newId = tabManager.duplicateTab(id);
+          if (newId) layoutViews(windowState);
+        },
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        label: "Close Tab",
+        click: () => {
+          tabManager.closeTab(id);
+          layoutViews(windowState);
+        },
+      }),
+    );
+    menu.popup({ window: mainWindow });
   });
 
   ipcMain.handle(Channels.TAB_STATE_GET, () => ({

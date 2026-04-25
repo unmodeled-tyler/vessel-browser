@@ -36,7 +36,16 @@ const App: Component = () => {
     openSettings,
     focusMode,
   } = useUI();
-  const { createTab, closeTab, activeTabId, activeTab } = useTabs();
+  const {
+    createTab,
+    closeTab,
+    activeTabId,
+    activeTab,
+    zoomIn,
+    zoomOut,
+    zoomReset,
+    reopenClosed,
+  } = useTabs();
   const [highlightToast, setHighlightToast] = createSignal<{
     title: string;
     message: string;
@@ -112,6 +121,19 @@ const App: Component = () => {
       },
       openSettings,
       captureHighlight,
+      zoomIn: () => {
+        const id = activeTabId();
+        if (id) zoomIn(id);
+      },
+      zoomOut: () => {
+        const id = activeTabId();
+        if (id) zoomOut(id);
+      },
+      zoomReset: () => {
+        const id = activeTabId();
+        if (id) zoomReset(id);
+      },
+      reopenClosedTab: () => reopenClosed(),
       toggleDevTools: () => {
         window.vessel.devtoolsPanel.toggle();
       },

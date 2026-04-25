@@ -83,6 +83,10 @@ const TabBar: Component = () => {
               onAuxClick={(e) => {
                 if (e.button === 1) handleClose(tab.id);
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                window.vessel.tabs.showContextMenu(tab.id);
+              }}
               title={
                 modelActiveTabIds().has(tab.id)
                   ? `${tab.title || "New Tab"} • Agent active`
