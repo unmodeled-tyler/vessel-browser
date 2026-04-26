@@ -83,6 +83,10 @@ const TabBar: Component = () => {
               onAuxClick={(e) => {
                 if (e.button === 1) handleClose(tab.id);
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                window.vessel.tabs.showContextMenu(tab.id);
+              }}
               title={
                 modelActiveTabIds().has(tab.id)
                   ? `${tab.title || "New Tab"} • Agent active`
@@ -112,8 +116,15 @@ const TabBar: Component = () => {
             </div>
           )}
         </For>
-        <button class="tab-new" onClick={() => createTab()} data-tooltip="New Tab">
+      </div>
+      <div class="tab-actions">
+        <button class="tab-new" onClick={() => createTab()} data-tooltip="New tab" data-tooltip-pos="left">
           +
+        </button>
+        <button class="tab-new tab-new-private" onClick={() => window.vessel.tabs.openPrivateWindow()} data-tooltip="Private window" data-tooltip-pos="left">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11z" />
+          </svg>
         </button>
       </div>
     </div>

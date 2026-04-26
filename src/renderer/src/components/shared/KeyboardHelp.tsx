@@ -4,22 +4,33 @@ import { useAnimatedPresence } from "../../lib/useAnimatedPresence";
 interface KeyboardHelpProps {
   open: boolean;
   onClose: () => void;
+  privateMode?: boolean;
 }
 
 const SHORTCUTS = [
-  { keys: "Ctrl+L", action: "AI Command Bar" },
-  { keys: "Ctrl+Shift+L", action: "Toggle AI Sidebar" },
-  { keys: "Ctrl+Shift+F", action: "Toggle Focus Mode" },
-  { keys: "F12", action: "Toggle Dev Tools Panel" },
+  { keys: "Ctrl+L", action: "AI Command Bar", privateMode: false },
+  { keys: "Ctrl+Shift+L", action: "Toggle AI Sidebar", privateMode: false },
+  { keys: "Ctrl+Shift+F", action: "Toggle Focus Mode", privateMode: false },
+  { keys: "F12", action: "Toggle Dev Tools Panel", privateMode: false },
   { keys: "Ctrl+T", action: "New Tab" },
   { keys: "Ctrl+W", action: "Close Tab" },
-  { keys: "Ctrl+,", action: "Settings" },
-  { keys: "Ctrl+H", action: "Capture Highlight" },
+  { keys: "Ctrl+Shift+T", action: "Reopen Closed Tab" },
+  { keys: "Ctrl+F", action: "Find in Page" },
+  { keys: "Ctrl++ / Ctrl+=", action: "Zoom In" },
+  { keys: "Ctrl+-", action: "Zoom Out" },
+  { keys: "Ctrl+0", action: "Reset Zoom" },
+  { keys: "Ctrl+Shift+N", action: "New Private Window" },
+  { keys: "Ctrl+,", action: "Settings", privateMode: false },
+  { keys: "Ctrl+H", action: "Capture Highlight", privateMode: false },
   { keys: "?", action: "This help overlay" },
 ];
 
 const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
   const { visible, closing } = useAnimatedPresence(() => props.open, 200);
+  const shortcuts = () =>
+    props.privateMode
+      ? SHORTCUTS.filter((shortcut) => shortcut.privateMode !== false)
+      : SHORTCUTS;
 
   return (
     <Show when={visible()}>
@@ -32,7 +43,7 @@ const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
             </button>
           </div>
           <div class="keyboard-help-grid">
-            {SHORTCUTS.map((s) => (
+            {shortcuts().map((s) => (
               <>
                 <div class="keyboard-help-keys">
                   {s.keys.split("+").map((k, i) => (

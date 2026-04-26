@@ -1,4 +1,4 @@
-import { app, session } from "electron";
+import { app, session, type Session } from "electron";
 import fs from "node:fs";
 import path from "path";
 import type { WebContentsView } from "electron";
@@ -40,7 +40,14 @@ function resolveDownloadPath(downloadDir: string, filename: string): string {
 export function installDownloadHandler(
   chromeView: WebContentsView,
 ): void {
-  session.defaultSession.on("will-download", (_event, item) => {
+  installDownloadHandlerForSession(session.defaultSession, chromeView);
+}
+
+export function installDownloadHandlerForSession(
+  targetSession: Session,
+  chromeView: WebContentsView,
+): void {
+  targetSession.on("will-download", (_event, item) => {
     const settings = loadSettings();
     const downloadDir =
       settings.downloadPath.trim() ||

@@ -39,6 +39,14 @@ const api = {
     reload: (id: string) => ipcRenderer.invoke(Channels.TAB_RELOAD, id),
     toggleAdBlock: (id: string): Promise<boolean | null> =>
       ipcRenderer.invoke(Channels.TAB_TOGGLE_AD_BLOCK, id),
+    zoomIn: (id: string) => ipcRenderer.invoke(Channels.TAB_ZOOM_IN, id),
+    zoomOut: (id: string) => ipcRenderer.invoke(Channels.TAB_ZOOM_OUT, id),
+    zoomReset: (id: string) => ipcRenderer.invoke(Channels.TAB_ZOOM_RESET, id),
+    reopenClosed: () => ipcRenderer.invoke(Channels.TAB_REOPEN_CLOSED),
+    duplicate: (id: string) => ipcRenderer.invoke(Channels.TAB_DUPLICATE, id),
+    showContextMenu: (id: string) => ipcRenderer.send(Channels.TAB_CONTEXT_MENU, id),
+    openPrivateWindow: () => ipcRenderer.invoke(Channels.OPEN_PRIVATE_WINDOW),
+    isPrivateMode: (): Promise<boolean> => ipcRenderer.invoke(Channels.IS_PRIVATE_MODE),
     getState: (): Promise<{ tabs: TabState[]; activeId: string }> =>
       ipcRenderer.invoke(Channels.TAB_STATE_GET),
     onStateUpdate: (

@@ -212,7 +212,24 @@ async function bootstrap(): Promise<void> {
   registerHighlightShortcut(windowState.mainWindow, tabManager);
 
   // Set up the application menu
-  setupAppMenu();
+  setupAppMenu({
+    reopenClosedTab: () => {
+      const id = tabManager.reopenClosedTab();
+      if (id) layoutViews(windowState);
+    },
+    zoomIn: () => {
+      const id = tabManager.getActiveTabId();
+      if (id) tabManager.zoomIn(id);
+    },
+    zoomOut: () => {
+      const id = tabManager.getActiveTabId();
+      if (id) tabManager.zoomOut(id);
+    },
+    zoomReset: () => {
+      const id = tabManager.getActiveTabId();
+      if (id) tabManager.zoomReset(id);
+    },
+  });
 
   bookmarkManager.subscribe((state) => {
     chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);

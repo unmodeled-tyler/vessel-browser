@@ -5,25 +5,45 @@ import {
   Show,
   For,
   onCleanup,
+  onMount,
   type Component,
 } from "solid-js";
 import { useTabs } from "../../stores/tabs";
 import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
+import { useHistory } from "../../stores/history";
+import { useBookmarks } from "../../stores/bookmarks";
 import type { PageDiff } from "../../../../shared/page-diff-types";
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
+import {
+  SEARCH_ENGINE_PRESETS,
+  type SearchEngineId,
+} from "../../../../shared/types";
 import {
   getAgentPresence,
   getLatestAgentStatusMessage,
 } from "../../lib/agentActivity";
 import "./chrome.css";
 
+interface AutocompleteItem {
+  url: string;
+  title: string;
+  subtitle?: string;
+  source: "history" | "bookmark" | "search";
+}
+
 const AddressBar: Component = () => {
   const { activeTab, activeTabId, navigate, goBack, goForward, reload, toggleAdBlock } = useTabs();
   const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings, toggleDevTools, devtoolsPanelOpen } = useUI();
+  const isPrivateWindow = new URLSearchParams(window.location.search).get("private") === "1";
+  const { historyState } = useHistory();
+  const { bookmarksState } = useBookmarks();
   const [inputValue, setInputValue] = createSignal("");
+  const [showSuggestions, setShowSuggestions] = createSignal(false);
+  const [selectedIndex, setSelectedIndex] = createSignal(-1);
+  const [searchEngine, setSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
   const now = useNow();
   let inputRef: HTMLInputElement | undefined;
 
@@ -38,11 +58,40 @@ const AddressBar: Component = () => {
     () => runtimeState().supervisor.pendingApprovals.length,
   );
 
+  const searchEnginePreset = createMemo(() => {
+    const engine = searchEngine();
+    return engine === "none"
+      ? SEARCH_ENGINE_PRESETS.duckduckgo
+      : SEARCH_ENGINE_PRESETS[engine];
+  });
+
+  const buildSearchUrl = (query: string): string =>
+    searchEnginePreset().url + encodeURIComponent(query);
+
   const [pageDiff, setPageDiff] = createSignal<PageDiff | null>(null);
   const [diffExpanded, setDiffExpanded] = createSignal(false);
   let diffCollapseTimer: ReturnType<typeof setTimeout> | null = null;
 
+  onMount(() => {
+    let disposed = false;
+    void window.vessel.settings.get()
+      .then((settings) => {
+        if (!disposed) {
+          setSearchEngine(settings.defaultSearchEngine ?? "duckduckgo");
+        }
+      })
+      .catch(() => {});
+    const unsubscribe = window.vessel.settings.onUpdate((settings) => {
+      setSearchEngine(settings.defaultSearchEngine ?? "duckduckgo");
+    });
+    onCleanup(() => {
+      disposed = true;
+      unsubscribe();
+    });
+  });
+
   const showIncomingDiff = (diff: PageDiff) => {
+    if (isPrivateWindow) return;
     setPageDiff(diff);
     setDiffExpanded(true);
     if (diffCollapseTimer) clearTimeout(diffCollapseTimer);
@@ -53,6 +102,7 @@ const AddressBar: Component = () => {
   };
 
   const openDiffTimeline = async () => {
+    if (isPrivateWindow) return;
     setDiffExpanded(false);
     if (diffCollapseTimer) {
       clearTimeout(diffCollapseTimer);
@@ -87,6 +137,7 @@ const AddressBar: Component = () => {
   };
 
   createEffect(() => {
+    if (isPrivateWindow) return;
     const unsubscribe = window.vessel.pageDiff.onChanged((diff) => {
       const tab = activeTab();
       if (!tab) return;
@@ -107,11 +158,68 @@ const AddressBar: Component = () => {
     const tab = activeTab();
     if (tab && !inputRef?.matches(":focus")) {
       setInputValue(tab.url === "about:blank" ? "" : tab.url);
+      setShowSuggestions(false);
+      setSelectedIndex(-1);
     }
+  });
+
+  // Autocomplete suggestions
+  const MAX_SUGGESTIONS = 8;
+
+  const suggestions = createMemo<AutocompleteItem[]>(() => {
+    const rawQuery = inputValue().trim();
+    const query = rawQuery.toLowerCase();
+    if (!query || query.length < 2) return [];
+
+    const results: AutocompleteItem[] = [];
+    const seen = new Set<string>();
+    const matchLimit = MAX_SUGGESTIONS - 1;
+
+    // Bookmarks first
+    for (const b of bookmarksState().bookmarks) {
+      if (seen.has(b.url)) continue;
+      const urlMatch = b.url.toLowerCase().includes(query);
+      const titleMatch = b.title.toLowerCase().includes(query);
+      if (urlMatch || titleMatch) {
+        seen.add(b.url);
+        results.push({ url: b.url, title: b.title, source: "bookmark" });
+      }
+      if (results.length >= matchLimit) break;
+    }
+
+    // History
+    if (results.length < matchLimit) {
+      for (const h of historyState().entries) {
+        if (seen.has(h.url)) continue;
+        const urlMatch = h.url.toLowerCase().includes(query);
+        const titleMatch = h.title.toLowerCase().includes(query);
+        if (urlMatch || titleMatch) {
+          seen.add(h.url);
+          results.push({ url: h.url, title: h.title, source: "history" });
+        }
+        if (results.length >= matchLimit) break;
+      }
+    }
+
+    if (results.length < MAX_SUGGESTIONS) {
+      results.push({
+        url: buildSearchUrl(rawQuery),
+        title: `Search for "${rawQuery}"`,
+        subtitle: searchEnginePreset().label,
+        source: "search",
+      });
+    }
+
+    return results;
   });
 
   createEffect(() => {
     const tab = activeTab();
+    if (isPrivateWindow) {
+      setPageDiff(null);
+      setDiffExpanded(false);
+      return;
+    }
     if (!tab) {
       setPageDiff(null);
       setDiffExpanded(false);
@@ -138,12 +246,53 @@ const AddressBar: Component = () => {
     });
   });
 
+  const selectSuggestion = (url: string) => {
+    setInputValue(url);
+    setShowSuggestions(false);
+    setSelectedIndex(-1);
+    navigate(url);
+    inputRef?.blur();
+  };
+
   const handleSubmit = (e: Event) => {
     e.preventDefault();
-    const val = inputValue().trim();
-    if (val) {
-      navigate(val);
-      inputRef?.blur();
+    const idx = selectedIndex();
+    const items = suggestions();
+    if (idx >= 0 && idx < items.length) {
+      selectSuggestion(items[idx].url);
+    } else {
+      const val = inputValue().trim();
+      if (val) {
+        navigate(val);
+        inputRef?.blur();
+        setShowSuggestions(false);
+      }
+    }
+  };
+
+  const handleInputKeyDown = (e: KeyboardEvent) => {
+    const items = suggestions();
+    const idx = selectedIndex();
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (items.length > 0) {
+        setShowSuggestions(true);
+        setSelectedIndex(idx < items.length - 1 ? idx + 1 : 0);
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (items.length > 0) {
+        setShowSuggestions(true);
+        setSelectedIndex(idx > 0 ? idx - 1 : items.length - 1);
+      }
+    } else if (e.key === "Escape") {
+      if (showSuggestions()) {
+        setShowSuggestions(false);
+        setSelectedIndex(-1);
+      } else {
+        inputRef?.blur();
+      }
     }
   };
 
@@ -212,6 +361,15 @@ const AddressBar: Component = () => {
         </button>
       </div>
 
+      <Show when={isPrivateWindow}>
+        <div class="private-badge" title="Private Browsing - history and cookies are not saved">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM5.5 7a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm3.5 3.5c0-1-1.5-2-2.5-2s-2.5 1-2.5 2" />
+          </svg>
+          <span>Private</span>
+        </div>
+      </Show>
+
       <div class="url-shell">
         <form class="url-form" onSubmit={handleSubmit}>
           <input
@@ -219,34 +377,99 @@ const AddressBar: Component = () => {
             class="url-input"
             type="text"
             value={inputValue()}
-            onInput={(e) => setInputValue(e.currentTarget.value)}
-            onFocus={(e) => e.currentTarget.select()}
+            onInput={(e) => {
+              setInputValue(e.currentTarget.value);
+              setShowSuggestions(true);
+              setSelectedIndex(-1);
+            }}
+            onFocus={(e) => {
+              e.currentTarget.select();
+              const query = inputValue().trim();
+              if (query.length >= 2) setShowSuggestions(true);
+            }}
+            onKeyDown={handleInputKeyDown}
+            onBlur={() => {
+              // Delay to allow click on suggestion
+              setTimeout(() => {
+                setShowSuggestions(false);
+                setSelectedIndex(-1);
+              }, 150);
+            }}
             placeholder="Search or enter URL"
             spellcheck={false}
+            autocomplete="off"
+            aria-autocomplete="list"
+            aria-expanded={showSuggestions() && suggestions().length > 0}
+            aria-controls="address-autocomplete"
+            aria-activedescendant={
+              selectedIndex() >= 0
+                ? `address-autocomplete-${selectedIndex()}`
+                : undefined
+            }
           />
         </form>
 
-        <div
-          class={`agent-status-badge ${agentPresence()}`}
-          title={
-            agentStatusMessage() ||
-            (agentPresence() === "active"
-              ? "Agent is actively using the browser"
-              : agentPresence() === "recent"
-                ? "Agent is connected"
-                : "No agent connection detected")
-          }
-        >
-          <span class="agent-status-dot" aria-hidden="true" />
-          <span class="agent-status-text">
-            {agentStatusMessage() ||
+        <Show when={showSuggestions() && suggestions().length > 0}>
+          <div
+            id="address-autocomplete"
+            class="autocomplete-dropdown"
+            role="listbox"
+          >
+            <For each={suggestions()}>
+              {(item, i) => (
+                <div
+                  id={`address-autocomplete-${i()}`}
+                  class={`autocomplete-item ${
+                    selectedIndex() === i() ? "selected" : ""
+                  }`}
+                  role="option"
+                  aria-selected={selectedIndex() === i()}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectSuggestion(item.url);
+                  }}
+                  onMouseEnter={() => setSelectedIndex(i())}
+                >
+                  <span class="autocomplete-icon">
+                    {item.source === "bookmark"
+                      ? "\u2605"
+                      : item.source === "search"
+                        ? "\u2315"
+                        : "\u25CC"}
+                  </span>
+                  <span class="autocomplete-text">
+                    <span class="autocomplete-title">{item.title || item.url}</span>
+                    <span class="autocomplete-url">{item.subtitle || item.url}</span>
+                  </span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        <Show when={!isPrivateWindow}>
+          <div
+            class={`agent-status-badge ${agentPresence()}`}
+            title={
+              agentStatusMessage() ||
               (agentPresence() === "active"
-                ? "Agent Active"
+                ? "Agent is actively using the browser"
                 : agentPresence() === "recent"
-                  ? "Agent Connected"
-                  : "Agent Offline")}
-          </span>
-        </div>
+                  ? "Agent is connected"
+                  : "No agent connection detected")
+            }
+          >
+            <span class="agent-status-dot" aria-hidden="true" />
+            <span class="agent-status-text">
+              {agentStatusMessage() ||
+                (agentPresence() === "active"
+                  ? "Agent Active"
+                  : agentPresence() === "recent"
+                    ? "Agent Connected"
+                    : "Agent Offline")}
+            </span>
+          </div>
+        </Show>
 
         <Show when={pageDiff()}>
           <button
@@ -398,12 +621,13 @@ const AddressBar: Component = () => {
             </Show>
           </svg>
         </button>
-        <button
-          class="nav-btn"
-          classList={{ active: !!activeTab()?.isReaderMode }}
-          onClick={() => window.vessel.content.toggleReader()}
-          data-tooltip="Reader Mode"
-        >
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn"
+            classList={{ active: !!activeTab()?.isReaderMode }}
+            onClick={() => window.vessel.content.toggleReader()}
+            data-tooltip="Reader Mode"
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <rect
               x="2"
@@ -440,13 +664,15 @@ const AddressBar: Component = () => {
               stroke-width="1"
             />
           </svg>
-        </button>
-        <button
-          class="nav-btn"
-          classList={{ active: devtoolsPanelOpen() }}
-          onClick={toggleDevTools}
-          data-tooltip="Dev Tools"
-        >
+          </button>
+        </Show>
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn"
+            classList={{ active: devtoolsPanelOpen() }}
+            onClick={toggleDevTools}
+            data-tooltip="Dev Tools"
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <polyline
               points="3,5 1,7 3,9"
@@ -474,17 +700,19 @@ const AddressBar: Component = () => {
               stroke-linecap="round"
             />
           </svg>
-        </button>
-        <button
-          class="nav-btn nav-btn-sidebar"
-          classList={{ "has-approvals": pendingApprovalCount() > 0 }}
-          onClick={toggleSidebar}
-          title={
-            pendingApprovalCount() > 0
-              ? `AI Sidebar — ${pendingApprovalCount()} pending approval${pendingApprovalCount() > 1 ? "s" : ""}`
-              : "AI Sidebar (Ctrl+Shift+L)"
-          }
-        >
+          </button>
+        </Show>
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn nav-btn-sidebar"
+            classList={{ "has-approvals": pendingApprovalCount() > 0 }}
+            onClick={toggleSidebar}
+            title={
+              pendingApprovalCount() > 0
+                ? `AI Sidebar — ${pendingApprovalCount()} pending approval${pendingApprovalCount() > 1 ? "s" : ""}`
+                : "AI Sidebar (Ctrl+Shift+L)"
+            }
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <rect
               x="1"
@@ -510,12 +738,14 @@ const AddressBar: Component = () => {
               {pendingApprovalCount()}
             </span>
           </Show>
-        </button>
-        <button
-          class="nav-btn"
-          onClick={openSettings}
-          data-tooltip="Settings"
-        >
+          </button>
+        </Show>
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn"
+            onClick={openSettings}
+            data-tooltip="Settings"
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <circle
               cx="7"
@@ -532,7 +762,8 @@ const AddressBar: Component = () => {
               stroke-linecap="round"
             />
           </svg>
-        </button>
+          </button>
+        </Show>
       </div>
     </div>
   );

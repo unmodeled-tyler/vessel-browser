@@ -3,6 +3,7 @@ import type { RuntimeHealthState } from '../../../shared/types';
 import './chrome.css';
 
 const TitleBar: Component = () => {
+  const isPrivateWindow = new URLSearchParams(window.location.search).get("private") === "1";
   const [mcpStatus, setMcpStatus] = createSignal<'ready' | 'error' | 'starting' | 'stopped'>('starting');
   const [mcpTooltip, setMcpTooltip] = createSignal('MCP: starting...');
 
@@ -33,6 +34,7 @@ const TitleBar: Component = () => {
   });
 
   const handleMcpClick = () => {
+    if (isPrivateWindow) return;
     window.vessel.ui.setSettingsVisibility(true);
   };
 

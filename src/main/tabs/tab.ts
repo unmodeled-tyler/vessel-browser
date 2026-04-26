@@ -3,6 +3,7 @@ import {
   clipboard,
   Menu,
   MenuItem,
+  session,
   WebContentsView,
   type WebContents,
 } from "electron";
@@ -91,6 +92,7 @@ export class Tab {
       adBlockingEnabled?: boolean;
       role?: TabRole;
       parentWindow?: BaseWindow;
+      sessionPartition?: string;
       onOpenUrl?: (request: OpenUrlRequest) => void;
       onPageLoad?: (url: string, wc: WebContents) => void;
       onHighlightSelection?: (wc: WebContents) => void;
@@ -111,14 +113,16 @@ export class Tab {
     this.onHighlightRemove = options?.onHighlightRemove;
     this.onHighlightRecolor = options?.onHighlightRecolor;
 
-    this.view = new WebContentsView({
-      webPreferences: {
-        preload: path.join(__dirname, "../preload/content-script.js"),
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
+    const webPreferences: Electron.WebPreferences = {
+      preload: path.join(__dirname, "../preload/content-script.js"),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    };
+    if (options?.sessionPartition) {
+      webPreferences.session = session.fromPartition(options.sessionPartition);
+    }
+    this.view = new WebContentsView({ webPreferences });
 
     const initialUrl = url || "about:blank";
 
@@ -138,11 +142,28 @@ export class Tab {
     // Ensure clipboard shortcuts work in tab content
     // Don't preventDefault — let the page handle clipboard natively.
     // Only intercept as fallback when the focused view doesn't route the event.
-    this.view.webContents.on("before-input-event", (_event, input) => {
+    this.view.webContents.on("before-input-event", (event, input) => {
       if (!input.control && !input.meta) return;
       if (input.type !== "keyDown") return;
       const key = input.key.toLowerCase();
       const wc = this.view.webContents;
+
+      if (key === "+" || key === "=") {
+        this.zoomIn();
+        event.preventDefault();
+        return;
+      }
+      if (key === "-") {
+        this.zoomOut();
+        event.preventDefault();
+        return;
+      }
+      if (key === "0") {
+        this.zoomReset();
+        event.preventDefault();
+        return;
+      }
+
       // Use Electron's clipboard methods but don't block the event —
       // this lets pages with custom clipboard handlers still work.
       if (key === "c") wc.copy();
@@ -473,6 +494,22 @@ export class Tab {
 
   reload(): void {
     this.view.webContents.reload();
+  }
+
+  zoomIn(): void {
+    const wc = this.view.webContents;
+    const level = wc.getZoomLevel();
+    wc.setZoomLevel(level + 0.5);
+  }
+
+  zoomOut(): void {
+    const wc = this.view.webContents;
+    const level = wc.getZoomLevel();
+    wc.setZoomLevel(level - 0.5);
+  }
+
+  zoomReset(): void {
+    this.view.webContents.setZoomLevel(0);
   }
 
   setAdBlockingEnabled(enabled: boolean): boolean {

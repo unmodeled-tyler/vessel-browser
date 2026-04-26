@@ -6,6 +6,11 @@ interface KeyBindingHandlers {
   closeTab: () => void;
   openSettings: () => void;
   captureHighlight: () => void;
+  zoomIn?: () => void;
+  zoomOut?: () => void;
+  zoomReset?: () => void;
+  reopenClosedTab?: () => void;
+  openPrivateWindow?: () => void;
   toggleDevTools?: () => void;
   toggleKeyboardHelp?: () => void;
 }
@@ -13,37 +18,52 @@ interface KeyBindingHandlers {
 export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
   const listener = (e: KeyboardEvent) => {
     const ctrl = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
 
     // Ctrl+L — open command bar (AI)
-    if (ctrl && e.key === 'l' && !e.shiftKey) {
+    if (ctrl && key === 'l' && !e.shiftKey) {
       e.preventDefault();
       handlers.openCommandBar();
       return;
     }
 
     // Ctrl+Shift+L — toggle sidebar
-    if (ctrl && e.key === 'L' && e.shiftKey) {
+    if (ctrl && key === 'l' && e.shiftKey) {
       e.preventDefault();
       handlers.toggleSidebar();
       return;
     }
 
     // Ctrl+Shift+F — focus mode
-    if (ctrl && e.key === 'F' && e.shiftKey) {
+    if (ctrl && key === 'f' && e.shiftKey) {
       e.preventDefault();
       handlers.toggleFocusMode();
       return;
     }
 
+    // Ctrl+Shift+T — reopen closed tab
+    if (ctrl && key === 't' && e.shiftKey) {
+      e.preventDefault();
+      handlers.reopenClosedTab?.();
+      return;
+    }
+
+    // Ctrl+Shift+N — new private window
+    if (ctrl && key === 'n' && e.shiftKey) {
+      e.preventDefault();
+      handlers.openPrivateWindow?.();
+      return;
+    }
+
     // Ctrl+T — new tab
-    if (ctrl && e.key === 't') {
+    if (ctrl && key === 't' && !e.shiftKey) {
       e.preventDefault();
       handlers.newTab();
       return;
     }
 
     // Ctrl+W — close tab
-    if (ctrl && e.key === 'w') {
+    if (ctrl && key === 'w') {
       e.preventDefault();
       handlers.closeTab();
       return;
@@ -57,7 +77,7 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     }
 
     // Ctrl+H — capture highlight from selection
-    if (ctrl && e.key === 'h' && !e.shiftKey) {
+    if (ctrl && key === 'h' && !e.shiftKey) {
       e.preventDefault();
       handlers.captureHighlight();
       return;
@@ -67,6 +87,27 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     if (e.key === 'F12') {
       e.preventDefault();
       handlers.toggleDevTools?.();
+      return;
+    }
+
+    // Ctrl++ / Ctrl+= — zoom in
+    if (ctrl && (e.key === '+' || e.key === '=')) {
+      e.preventDefault();
+      handlers.zoomIn?.();
+      return;
+    }
+
+    // Ctrl+- — zoom out
+    if (ctrl && e.key === '-') {
+      e.preventDefault();
+      handlers.zoomOut?.();
+      return;
+    }
+
+    // Ctrl+0 — reset zoom
+    if (ctrl && e.key === '0') {
+      e.preventDefault();
+      handlers.zoomReset?.();
       return;
     }
 

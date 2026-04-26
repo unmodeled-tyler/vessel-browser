@@ -359,6 +359,25 @@
     transform: scale(0.95);
 }
 
+.tab-new-private {
+    color: var(--text-muted);
+    opacity: 0.6;
+    font-size: 11px;
+}
+
+.tab-new-private:hover {
+    color: var(--accent-primary);
+    opacity: 1;
+}
+
+.tab-actions {
+    display: flex;
+    align-items: end;
+    gap: 1px;
+    flex-shrink: 0;
+    padding-bottom: 1px;
+}
+
 
 /* ═══════════════════════════════════════
    Address bar — refined URL shell
@@ -435,7 +454,8 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
-    overflow: hidden;
+    overflow: visible;
+    position: relative;
     transition:
         border-color var(--duration-normal) var(--ease-in-out),
         box-shadow var(--duration-normal) var(--ease-in-out),
@@ -475,6 +495,94 @@
 
 .url-input::placeholder {
     color: var(--text-muted);
+}
+
+/* Autocomplete dropdown */
+
+.autocomplete-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-top: none;
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    max-height: 280px;
+    overflow-y: auto;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.autocomplete-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-in-out);
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+    background: var(--surface-hover);
+}
+
+.autocomplete-item.selected {
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.autocomplete-icon {
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.autocomplete-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 1px;
+}
+
+.autocomplete-title {
+    font-size: 12px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.autocomplete-url {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.private-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    margin: 0 4px;
+    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
+    border-radius: var(--radius-sm);
+    color: var(--accent-primary);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.private-badge svg {
+    opacity: 0.8;
 }
 
 .agent-status-badge {

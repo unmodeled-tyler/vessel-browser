@@ -10,7 +10,7 @@ import {
   type HighlightCaptureResult,
 } from "../highlights/capture";
 import * as historyManager from "../history/manager";
-import { destroySession, destroyAllSessions } from "../devtools/manager";
+import { destroySession } from "../devtools/manager";
 
 export type { HighlightCaptureResult };
 
@@ -26,13 +26,21 @@ export class TabManager {
     | ((result: HighlightCaptureResult) => void)
     | null = null;
   private pageLoadCallback: ((url: string, wc: WebContents) => void) | null = null;
+  private closedTabs: { url: string; title: string; adBlockingEnabled: boolean }[] = [];
+  private readonly MAX_CLOSED_TABS = 20;
+  readonly isPrivate: boolean;
+  private readonly sessionPartition: string | undefined;
 
   constructor(
     window: BaseWindow,
     onStateChange: (tabs: TabState[], activeId: string) => void,
+    options?: { isPrivate?: boolean; sessionPartition?: string },
   ) {
     this.window = window;
     this.onStateChange = onStateChange;
+    this.isPrivate = options?.isPrivate ?? false;
+    this.sessionPartition =
+      options?.sessionPartition ?? (this.isPrivate ? "private-mode" : undefined);
   }
 
   onPageLoad(cb: (url: string, wc: WebContents) => void): void {
@@ -48,12 +56,15 @@ export class TabManager {
     const tab = new Tab(id, url, () => this.broadcastState(), {
       adBlockingEnabled: options?.adBlockingEnabled,
       parentWindow: this.window,
+      sessionPartition: this.sessionPartition,
       onOpenUrl: ({ url: requestedUrl, background, adBlockingEnabled }) => {
         this.createTab(requestedUrl, { background, adBlockingEnabled });
       },
       onPageLoad: (pageUrl, wc) => {
         this.reapplyHighlights(pageUrl, wc);
-        historyManager.addEntry(pageUrl, wc.getTitle());
+        if (!this.isPrivate) {
+          historyManager.addEntry(pageUrl, wc.getTitle());
+        }
         this.pageLoadCallback?.(pageUrl, wc);
       },
       onHighlightSelection: (wc) => this.captureHighlightFromPage(wc),
@@ -91,6 +102,16 @@ export class TabManager {
   closeTab(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
+
+    // Remember closed tab for reopening
+    this.closedTabs.push({
+      url: tab.state.url,
+      title: tab.state.title,
+      adBlockingEnabled: tab.state.adBlockingEnabled,
+    });
+    if (this.closedTabs.length > this.MAX_CLOSED_TABS) {
+      this.closedTabs.shift();
+    }
 
     // Clean up lastReapply entry to prevent memory leak
     const wcId = tab.webContentsId;
@@ -135,6 +156,30 @@ export class TabManager {
 
   reloadTab(id: string): void {
     this.tabs.get(id)?.reload();
+  }
+
+  zoomIn(id: string): void {
+    this.tabs.get(id)?.zoomIn();
+  }
+
+  zoomOut(id: string): void {
+    this.tabs.get(id)?.zoomOut();
+  }
+
+  zoomReset(id: string): void {
+    this.tabs.get(id)?.zoomReset();
+  }
+
+  reopenClosedTab(): string | null {
+    const last = this.closedTabs.pop();
+    if (!last) return null;
+    return this.createTab(last.url, { adBlockingEnabled: last.adBlockingEnabled });
+  }
+
+  duplicateTab(id: string): string | null {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    return this.createTab(tab.state.url, { adBlockingEnabled: tab.state.adBlockingEnabled });
   }
 
   getActiveTab(): Tab | undefined {
@@ -225,11 +270,11 @@ export class TabManager {
     return ids;
   }
 
-  private destroyAllTabs(): void {
-    destroyAllSessions();
-    for (const id of this.order) {
+  destroyAllTabs(): void {
+    for (const id of [...this.order]) {
       const tab = this.tabs.get(id);
       if (!tab) continue;
+      destroySession(id);
       this.window.contentView.removeChildView(tab.view);
       tab.destroy();
     }

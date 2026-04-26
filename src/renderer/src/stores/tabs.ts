@@ -81,5 +81,10 @@ export function useTabs() {
       }
       return newState;
     },
+    zoomIn: (id: string) => window.vessel.tabs.zoomIn(id),
+    zoomOut: (id: string) => window.vessel.tabs.zoomOut(id),
+    zoomReset: (id: string) => window.vessel.tabs.zoomReset(id),
+    reopenClosed: () => window.vessel.tabs.reopenClosed(),
+    duplicate: (id: string) => window.vessel.tabs.duplicate(id),
   };
 }
