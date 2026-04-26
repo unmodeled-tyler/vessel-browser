@@ -78,6 +78,7 @@ import {
 import { registerVaultHandlers } from "./vault";
 import { registerWindowControlHandlers } from "./window-controls";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
+import { createPrivateWindow } from "../private/window";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -90,6 +91,14 @@ export function registerIpcHandlers(
   runtime: AgentRuntime,
 ): void {
   const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
+
+  // Private browsing
+  ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, () => {
+    createPrivateWindow();
+  });
+
+  ipcMain.handle(Channels.IS_PRIVATE_MODE, () => false);
+
   let sidebarResizeRecoveryTimer: NodeJS.Timeout | null = null;
   let sidebarResizeActive = false;
   let runtimeUpdateTimer: NodeJS.Timeout | null = null;

@@ -45,6 +45,8 @@ const api = {
     reopenClosed: () => ipcRenderer.invoke(Channels.TAB_REOPEN_CLOSED),
     duplicate: (id: string) => ipcRenderer.invoke(Channels.TAB_DUPLICATE, id),
     showContextMenu: (id: string) => ipcRenderer.send(Channels.TAB_CONTEXT_MENU, id),
+    openPrivateWindow: () => ipcRenderer.invoke(Channels.OPEN_PRIVATE_WINDOW),
+    isPrivateMode: (): Promise<boolean> => ipcRenderer.invoke(Channels.IS_PRIVATE_MODE),
     getState: (): Promise<{ tabs: TabState[]; activeId: string }> =>
       ipcRenderer.invoke(Channels.TAB_STATE_GET),
     onStateUpdate: (

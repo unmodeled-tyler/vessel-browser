@@ -10,6 +10,7 @@ interface KeyBindingHandlers {
   zoomOut?: () => void;
   zoomReset?: () => void;
   reopenClosedTab?: () => void;
+  openPrivateWindow?: () => void;
   toggleDevTools?: () => void;
   toggleKeyboardHelp?: () => void;
 }
@@ -44,6 +45,13 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     if (ctrl && key === 't' && e.shiftKey) {
       e.preventDefault();
       handlers.reopenClosedTab?.();
+      return;
+    }
+
+    // Ctrl+Shift+N — new private window
+    if (ctrl && key === 'n' && e.shiftKey) {
+      e.preventDefault();
+      handlers.openPrivateWindow?.();
       return;
     }
 

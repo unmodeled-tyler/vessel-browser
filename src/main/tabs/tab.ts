@@ -3,6 +3,7 @@ import {
   clipboard,
   Menu,
   MenuItem,
+  session,
   WebContentsView,
   type WebContents,
 } from "electron";
@@ -91,6 +92,7 @@ export class Tab {
       adBlockingEnabled?: boolean;
       role?: TabRole;
       parentWindow?: BaseWindow;
+      sessionPartition?: string;
       onOpenUrl?: (request: OpenUrlRequest) => void;
       onPageLoad?: (url: string, wc: WebContents) => void;
       onHighlightSelection?: (wc: WebContents) => void;
@@ -111,14 +113,16 @@ export class Tab {
     this.onHighlightRemove = options?.onHighlightRemove;
     this.onHighlightRecolor = options?.onHighlightRecolor;
 
-    this.view = new WebContentsView({
-      webPreferences: {
-        preload: path.join(__dirname, "../preload/content-script.js"),
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
+    const webPreferences: Electron.WebPreferences = {
+      preload: path.join(__dirname, "../preload/content-script.js"),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    };
+    if (options?.sessionPartition) {
+      webPreferences.session = session.fromPartition(options.sessionPartition);
+    }
+    this.view = new WebContentsView({ webPreferences });
 
     const initialUrl = url || "about:blank";
 

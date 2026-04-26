@@ -96,6 +96,10 @@ export const Channels = {
   TAB_DUPLICATE: "tab:duplicate",
   TAB_CONTEXT_MENU: "tab:context-menu",
 
+  // Private browsing
+  OPEN_PRIVATE_WINDOW: "private:open-window",
+  IS_PRIVATE_MODE: "private:is-private",
+
   // Find in page
   FIND_IN_PAGE_START: "find:start",
   FIND_IN_PAGE_NEXT: "find:next",

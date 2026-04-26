@@ -359,6 +359,25 @@
     transform: scale(0.95);
 }
 
+.tab-new-private {
+    color: var(--text-muted);
+    opacity: 0.6;
+    font-size: 11px;
+}
+
+.tab-new-private:hover {
+    color: var(--accent-primary);
+    opacity: 1;
+}
+
+.tab-actions {
+    display: flex;
+    align-items: end;
+    gap: 1px;
+    flex-shrink: 0;
+    padding-bottom: 1px;
+}
+
 
 /* ═══════════════════════════════════════
    Address bar — refined URL shell
@@ -542,6 +561,28 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.private-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    margin: 0 4px;
+    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
+    border-radius: var(--radius-sm);
+    color: var(--accent-primary);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.private-badge svg {
+    opacity: 0.8;
 }
 
 .agent-status-badge {

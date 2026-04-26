@@ -37,6 +37,7 @@ const AddressBar: Component = () => {
   const { activeTab, activeTabId, navigate, goBack, goForward, reload, toggleAdBlock } = useTabs();
   const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings, toggleDevTools, devtoolsPanelOpen } = useUI();
+  const isPrivateWindow = new URLSearchParams(window.location.search).get("private") === "1";
   const { historyState } = useHistory();
   const { bookmarksState } = useBookmarks();
   const [inputValue, setInputValue] = createSignal("");
@@ -90,6 +91,7 @@ const AddressBar: Component = () => {
   });
 
   const showIncomingDiff = (diff: PageDiff) => {
+    if (isPrivateWindow) return;
     setPageDiff(diff);
     setDiffExpanded(true);
     if (diffCollapseTimer) clearTimeout(diffCollapseTimer);
@@ -100,6 +102,7 @@ const AddressBar: Component = () => {
   };
 
   const openDiffTimeline = async () => {
+    if (isPrivateWindow) return;
     setDiffExpanded(false);
     if (diffCollapseTimer) {
       clearTimeout(diffCollapseTimer);
@@ -134,6 +137,7 @@ const AddressBar: Component = () => {
   };
 
   createEffect(() => {
+    if (isPrivateWindow) return;
     const unsubscribe = window.vessel.pageDiff.onChanged((diff) => {
       const tab = activeTab();
       if (!tab) return;
@@ -211,6 +215,11 @@ const AddressBar: Component = () => {
 
   createEffect(() => {
     const tab = activeTab();
+    if (isPrivateWindow) {
+      setPageDiff(null);
+      setDiffExpanded(false);
+      return;
+    }
     if (!tab) {
       setPageDiff(null);
       setDiffExpanded(false);
@@ -352,6 +361,15 @@ const AddressBar: Component = () => {
         </button>
       </div>
 
+      <Show when={isPrivateWindow}>
+        <div class="private-badge" title="Private Browsing - history and cookies are not saved">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM5.5 7a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm3.5 3.5c0-1-1.5-2-2.5-2s-2.5 1-2.5 2" />
+          </svg>
+          <span>Private</span>
+        </div>
+      </Show>
+
       <div class="url-shell">
         <form class="url-form" onSubmit={handleSubmit}>
           <input
@@ -429,27 +447,29 @@ const AddressBar: Component = () => {
           </div>
         </Show>
 
-        <div
-          class={`agent-status-badge ${agentPresence()}`}
-          title={
-            agentStatusMessage() ||
-            (agentPresence() === "active"
-              ? "Agent is actively using the browser"
-              : agentPresence() === "recent"
-                ? "Agent is connected"
-                : "No agent connection detected")
-          }
-        >
-          <span class="agent-status-dot" aria-hidden="true" />
-          <span class="agent-status-text">
-            {agentStatusMessage() ||
+        <Show when={!isPrivateWindow}>
+          <div
+            class={`agent-status-badge ${agentPresence()}`}
+            title={
+              agentStatusMessage() ||
               (agentPresence() === "active"
-                ? "Agent Active"
+                ? "Agent is actively using the browser"
                 : agentPresence() === "recent"
-                  ? "Agent Connected"
-                  : "Agent Offline")}
-          </span>
-        </div>
+                  ? "Agent is connected"
+                  : "No agent connection detected")
+            }
+          >
+            <span class="agent-status-dot" aria-hidden="true" />
+            <span class="agent-status-text">
+              {agentStatusMessage() ||
+                (agentPresence() === "active"
+                  ? "Agent Active"
+                  : agentPresence() === "recent"
+                    ? "Agent Connected"
+                    : "Agent Offline")}
+            </span>
+          </div>
+        </Show>
 
         <Show when={pageDiff()}>
           <button
@@ -601,12 +621,13 @@ const AddressBar: Component = () => {
             </Show>
           </svg>
         </button>
-        <button
-          class="nav-btn"
-          classList={{ active: !!activeTab()?.isReaderMode }}
-          onClick={() => window.vessel.content.toggleReader()}
-          data-tooltip="Reader Mode"
-        >
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn"
+            classList={{ active: !!activeTab()?.isReaderMode }}
+            onClick={() => window.vessel.content.toggleReader()}
+            data-tooltip="Reader Mode"
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <rect
               x="2"
@@ -643,13 +664,15 @@ const AddressBar: Component = () => {
               stroke-width="1"
             />
           </svg>
-        </button>
-        <button
-          class="nav-btn"
-          classList={{ active: devtoolsPanelOpen() }}
-          onClick={toggleDevTools}
-          data-tooltip="Dev Tools"
-        >
+          </button>
+        </Show>
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn"
+            classList={{ active: devtoolsPanelOpen() }}
+            onClick={toggleDevTools}
+            data-tooltip="Dev Tools"
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <polyline
               points="3,5 1,7 3,9"
@@ -677,17 +700,19 @@ const AddressBar: Component = () => {
               stroke-linecap="round"
             />
           </svg>
-        </button>
-        <button
-          class="nav-btn nav-btn-sidebar"
-          classList={{ "has-approvals": pendingApprovalCount() > 0 }}
-          onClick={toggleSidebar}
-          title={
-            pendingApprovalCount() > 0
-              ? `AI Sidebar — ${pendingApprovalCount()} pending approval${pendingApprovalCount() > 1 ? "s" : ""}`
-              : "AI Sidebar (Ctrl+Shift+L)"
-          }
-        >
+          </button>
+        </Show>
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn nav-btn-sidebar"
+            classList={{ "has-approvals": pendingApprovalCount() > 0 }}
+            onClick={toggleSidebar}
+            title={
+              pendingApprovalCount() > 0
+                ? `AI Sidebar — ${pendingApprovalCount()} pending approval${pendingApprovalCount() > 1 ? "s" : ""}`
+                : "AI Sidebar (Ctrl+Shift+L)"
+            }
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <rect
               x="1"
@@ -713,12 +738,14 @@ const AddressBar: Component = () => {
               {pendingApprovalCount()}
             </span>
           </Show>
-        </button>
-        <button
-          class="nav-btn"
-          onClick={openSettings}
-          data-tooltip="Settings"
-        >
+          </button>
+        </Show>
+        <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn"
+            onClick={openSettings}
+            data-tooltip="Settings"
+          >
           <svg width="14" height="14" viewBox="0 0 14 14">
             <circle
               cx="7"
@@ -735,7 +762,8 @@ const AddressBar: Component = () => {
               stroke-linecap="round"
             />
           </svg>
-        </button>
+          </button>
+        </Show>
       </div>
     </div>
   );

@@ -131,3 +131,28 @@ export function installAdBlocking(tabManager: TabManager): void {
     callback({ cancel: shouldBlockRequest(details) });
   });
 }
+
+/**
+ * Install ad-blocking on a non-default session (e.g. private browsing).
+ * Each session gets its own onBeforeRequest handler scoped to the given TabManager.
+ */
+export function installAdBlockingForSession(
+  ses: Electron.Session,
+  tabManager: TabManager,
+): void {
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    const webContentsId =
+      typeof details.webContentsId === "number" ? details.webContentsId : null;
+    if (webContentsId == null) {
+      callback({});
+      return;
+    }
+
+    if (!tabManager.isAdBlockingEnabledForWebContents(webContentsId)) {
+      callback({});
+      return;
+    }
+
+    callback({ cancel: shouldBlockRequest(details) });
+  });
+}

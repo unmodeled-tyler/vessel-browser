@@ -29,6 +29,8 @@ try {
 const App: Component = () => {
   const view =
     new URLSearchParams(window.location.search).get("view") || "chrome";
+  const isPrivateWindow =
+    new URLSearchParams(window.location.search).get("private") === "1";
   const {
     openCommandBar,
     toggleSidebar,
@@ -111,16 +113,16 @@ const App: Component = () => {
     if (view !== "chrome") return;
 
     const cleanupKeys = setupKeybindings({
-      openCommandBar,
-      toggleSidebar,
-      toggleFocusMode,
+      openCommandBar: isPrivateWindow ? undefined : openCommandBar,
+      toggleSidebar: isPrivateWindow ? undefined : toggleSidebar,
+      toggleFocusMode: isPrivateWindow ? undefined : toggleFocusMode,
       newTab: () => createTab(),
       closeTab: () => {
         const id = activeTabId();
         if (id) closeTab(id);
       },
-      openSettings,
-      captureHighlight,
+      openSettings: isPrivateWindow ? undefined : openSettings,
+      captureHighlight: isPrivateWindow ? undefined : captureHighlight,
       zoomIn: () => {
         const id = activeTabId();
         if (id) zoomIn(id);
@@ -134,9 +136,12 @@ const App: Component = () => {
         if (id) zoomReset(id);
       },
       reopenClosedTab: () => reopenClosed(),
-      toggleDevTools: () => {
-        window.vessel.devtoolsPanel.toggle();
-      },
+      openPrivateWindow: () => window.vessel.tabs.openPrivateWindow(),
+      toggleDevTools: isPrivateWindow
+        ? undefined
+        : () => {
+            window.vessel.devtoolsPanel.toggle();
+          },
       toggleKeyboardHelp: () => setKeyboardHelpOpen((v) => !v),
     });
 
@@ -161,12 +166,16 @@ const App: Component = () => {
 
   return (
     <div class="app" classList={{ "focus-mode": focusMode() }}>
-      <BookmarkNotifications />
-      <HighlightNotifications toast={highlightToast()} onDismiss={() => setHighlightToast(null)} />
+      <Show when={!isPrivateWindow}>
+        <BookmarkNotifications />
+        <HighlightNotifications toast={highlightToast()} onDismiss={() => setHighlightToast(null)} />
+      </Show>
       <DownloadToast />
       <FindBar />
-      <FlowProgress />
-      <AgentTranscriptDock />
+      <Show when={!isPrivateWindow}>
+        <FlowProgress />
+        <AgentTranscriptDock />
+      </Show>
       <div class="chrome">
         <TitleBar />
         <TabBar />
@@ -175,9 +184,15 @@ const App: Component = () => {
           <div class="loading-bar" classList={{ closing: loadingPresence.closing() }} />
         </Show>
       </div>
-      <CommandBar />
-      <Settings />
-      <KeyboardHelp open={keyboardHelpOpen()} onClose={() => setKeyboardHelpOpen(false)} />
+      <Show when={!isPrivateWindow}>
+        <CommandBar />
+        <Settings />
+      </Show>
+      <KeyboardHelp
+        open={keyboardHelpOpen()}
+        onClose={() => setKeyboardHelpOpen(false)}
+        privateMode={isPrivateWindow}
+      />
     </div>
   );
 };

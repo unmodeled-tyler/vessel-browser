@@ -289,19 +289,27 @@ button:active:not(:disabled) {
     bottom: calc(100% + 6px);
     left: 50%;
     transform: translateX(-50%) translateY(4px);
-    padding: 4px 10px;
+    min-height: 24px;
+    max-width: min(240px, calc(100vw - 24px));
+    padding: 5px 9px;
     border-radius: var(--radius-md);
     background: var(--bg-elevated);
+    background-clip: padding-box;
     border: 1px solid var(--border-visible);
     color: var(--text-primary);
     font-size: 11px;
-    font-weight: 450;
-    line-height: 1.4;
-    white-space: nowrap;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: 0;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: normal;
     pointer-events: none;
     opacity: 0;
-    z-index: 9999;
-    box-shadow: 0 4px 16px var(--shadow-color-strong);
+    z-index: 2147483647;
+    box-shadow:
+        0 8px 24px var(--shadow-color-strong),
+        0 0 0 1px color-mix(in srgb, var(--bg-primary) 70%, transparent);
     transition:
         opacity var(--duration-normal) var(--ease-in-out),
         transform var(--duration-normal) var(--ease-out-expo);

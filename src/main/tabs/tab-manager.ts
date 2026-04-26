@@ -10,7 +10,7 @@ import {
   type HighlightCaptureResult,
 } from "../highlights/capture";
 import * as historyManager from "../history/manager";
-import { destroySession, destroyAllSessions } from "../devtools/manager";
+import { destroySession } from "../devtools/manager";
 
 export type { HighlightCaptureResult };
 
@@ -28,13 +28,19 @@ export class TabManager {
   private pageLoadCallback: ((url: string, wc: WebContents) => void) | null = null;
   private closedTabs: { url: string; title: string; adBlockingEnabled: boolean }[] = [];
   private readonly MAX_CLOSED_TABS = 20;
+  readonly isPrivate: boolean;
+  private readonly sessionPartition: string | undefined;
 
   constructor(
     window: BaseWindow,
     onStateChange: (tabs: TabState[], activeId: string) => void,
+    options?: { isPrivate?: boolean; sessionPartition?: string },
   ) {
     this.window = window;
     this.onStateChange = onStateChange;
+    this.isPrivate = options?.isPrivate ?? false;
+    this.sessionPartition =
+      options?.sessionPartition ?? (this.isPrivate ? "private-mode" : undefined);
   }
 
   onPageLoad(cb: (url: string, wc: WebContents) => void): void {
@@ -50,12 +56,15 @@ export class TabManager {
     const tab = new Tab(id, url, () => this.broadcastState(), {
       adBlockingEnabled: options?.adBlockingEnabled,
       parentWindow: this.window,
+      sessionPartition: this.sessionPartition,
       onOpenUrl: ({ url: requestedUrl, background, adBlockingEnabled }) => {
         this.createTab(requestedUrl, { background, adBlockingEnabled });
       },
       onPageLoad: (pageUrl, wc) => {
         this.reapplyHighlights(pageUrl, wc);
-        historyManager.addEntry(pageUrl, wc.getTitle());
+        if (!this.isPrivate) {
+          historyManager.addEntry(pageUrl, wc.getTitle());
+        }
         this.pageLoadCallback?.(pageUrl, wc);
       },
       onHighlightSelection: (wc) => this.captureHighlightFromPage(wc),
@@ -261,11 +270,11 @@ export class TabManager {
     return ids;
   }
 
-  private destroyAllTabs(): void {
-    destroyAllSessions();
-    for (const id of this.order) {
+  destroyAllTabs(): void {
+    for (const id of [...this.order]) {
       const tab = this.tabs.get(id);
       if (!tab) continue;
+      destroySession(id);
       this.window.contentView.removeChildView(tab.view);
       tab.destroy();
     }
