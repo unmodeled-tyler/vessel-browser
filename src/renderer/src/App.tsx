@@ -137,6 +137,14 @@ const App: Component = () => {
       },
       reopenClosedTab: () => reopenClosed(),
       openPrivateWindow: () => window.vessel.tabs.openPrivateWindow(),
+      print: () => {
+        const id = activeTabId();
+        if (id) window.vessel.tabs.print(id);
+      },
+      printToPdf: () => {
+        const id = activeTabId();
+        if (id) void window.vessel.tabs.printToPdf(id);
+      },
       toggleDevTools: isPrivateWindow
         ? undefined
         : () => {

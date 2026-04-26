@@ -180,9 +180,39 @@ function registerPrivateIpcHandlers(state: PrivateWindowState): void {
     return newId;
   });
 
+  ipc.handle(Channels.TAB_PIN, (_e, id: string) => {
+    tabManager.pinTab(id);
+  });
+
+  ipc.handle(Channels.TAB_UNPIN, (_e, id: string) => {
+    tabManager.unpinTab(id);
+  });
+
+  ipc.handle(Channels.TAB_PRINT, (_e, id: string) => {
+    tabManager.printTab(id);
+  });
+
+  ipc.handle(Channels.TAB_PRINT_TO_PDF, (_e, id: string) => {
+    return tabManager.saveTabAsPdf(id);
+  });
+
   ipc.on(Channels.TAB_CONTEXT_MENU, (_e, id: string) => {
     const { Menu, MenuItem } = require("electron") as typeof import("electron");
+    const tab = tabManager.getTab(id);
+    const isPinned = tab?.state.isPinned ?? false;
     const menu = new Menu();
+    menu.append(
+      new MenuItem({
+        label: isPinned ? "Unpin Tab" : "Pin Tab",
+        click: () => {
+          if (isPinned) {
+            tabManager.unpinTab(id);
+          } else {
+            tabManager.pinTab(id);
+          }
+        },
+      }),
+    );
     menu.append(
       new MenuItem({
         label: "Duplicate Tab",
@@ -192,15 +222,37 @@ function registerPrivateIpcHandlers(state: PrivateWindowState): void {
         },
       }),
     );
+    menu.append(new MenuItem({ type: "separator" }));
     menu.append(
       new MenuItem({
-        label: "Close Tab",
+        label: "Print Page",
         click: () => {
-          tabManager.closeTab(id);
-          layoutPrivateViews(state);
+          tabManager.printTab(id);
         },
       }),
     );
+    menu.append(
+      new MenuItem({
+        label: "Save Page as PDF",
+        click: () => {
+          void tabManager.saveTabAsPdf(id).catch((error) => {
+            logger.warn("Failed to save private page as PDF:", error);
+          });
+        },
+      }),
+    );
+    if (!isPinned) {
+      menu.append(new MenuItem({ type: "separator" }));
+      menu.append(
+        new MenuItem({
+          label: "Close Tab",
+          click: () => {
+            tabManager.closeTab(id);
+            layoutPrivateViews(state);
+          },
+        }),
+      );
+    }
     menu.popup({ window: state.window });
   });
 

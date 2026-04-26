@@ -86,5 +86,9 @@ export function useTabs() {
     zoomReset: (id: string) => window.vessel.tabs.zoomReset(id),
     reopenClosed: () => window.vessel.tabs.reopenClosed(),
     duplicate: (id: string) => window.vessel.tabs.duplicate(id),
+    pin: (id: string) => window.vessel.tabs.pin(id),
+    unpin: (id: string) => window.vessel.tabs.unpin(id),
+    print: (id: string) => window.vessel.tabs.print(id),
+    printToPdf: (id: string) => window.vessel.tabs.printToPdf(id),
   };
 }

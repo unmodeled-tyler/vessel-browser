@@ -10,6 +10,7 @@ export interface TabState {
   canGoForward: boolean;
   isReaderMode: boolean;
   adBlockingEnabled: boolean;
+  isPinned: boolean;
   role?: TabRole;
 }
 
@@ -212,6 +213,7 @@ export interface SessionTabSnapshot {
   url: string;
   title: string;
   adBlockingEnabled?: boolean;
+  isPinned?: boolean;
 }
 
 export interface SessionSnapshot {
@@ -649,4 +651,3 @@ export interface VaultAuditEntry {
   sessionId?: string;
   approved: boolean;
 }
-

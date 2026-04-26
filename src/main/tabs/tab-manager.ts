@@ -1,6 +1,7 @@
-import { BaseWindow, type WebContents } from "electron";
+import { BaseWindow, dialog, type WebContents } from "electron";
 import { Tab } from "./tab";
 import { randomUUID } from "crypto";
+import { promises as fs } from "fs";
 import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import * as highlightsManager from "../highlights/manager";
@@ -15,6 +16,15 @@ import { destroySession } from "../devtools/manager";
 export type { HighlightCaptureResult };
 
 const logger = createLogger("TabManager");
+
+function sanitizePdfFilename(title: string): string {
+  const clean = title
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const base = (clean || "Vessel Page").replace(/\.pdf$/i, "");
+  return `${base}.pdf`;
+}
 
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
@@ -102,6 +112,7 @@ export class TabManager {
   closeTab(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
+    if (tab.state.isPinned) return; // Pinned tabs cannot be closed
 
     // Remember closed tab for reopening
     this.closedTabs.push({
@@ -182,6 +193,60 @@ export class TabManager {
     return this.createTab(tab.state.url, { adBlockingEnabled: tab.state.adBlockingEnabled });
   }
 
+  pinTab(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    tab.setPinned(true);
+    // Move pinned tab to the front of the order
+    this.order = this.order.filter((tid) => tid !== id);
+    const firstNonPinned = this.order.findIndex((tid) => !this.tabs.get(tid)?.state.isPinned);
+    if (firstNonPinned === -1) {
+      this.order.push(id);
+    } else {
+      this.order.splice(firstNonPinned, 0, id);
+    }
+    this.broadcastState();
+  }
+
+  unpinTab(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    tab.setPinned(false);
+    // Move after all pinned tabs
+    this.order = this.order.filter((tid) => tid !== id);
+    const firstNonPinned = this.order.findIndex((tid) => !this.tabs.get(tid)?.state.isPinned);
+    if (firstNonPinned === -1) {
+      this.order.push(id);
+    } else {
+      this.order.splice(firstNonPinned, 0, id);
+    }
+    this.broadcastState();
+  }
+
+  printTab(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    tab.view.webContents.print();
+  }
+
+  async saveTabAsPdf(id: string): Promise<string | null> {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Save Page as PDF",
+      defaultPath: sanitizePdfFilename(tab.state.title || "Vessel Page"),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (canceled || !filePath) return null;
+
+    const data = await tab.view.webContents.printToPDF({
+      printBackground: true,
+    });
+    await fs.writeFile(filePath, data);
+    return filePath;
+  }
+
   getActiveTab(): Tab | undefined {
     return this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
   }
@@ -234,6 +299,7 @@ export class TabManager {
         url: state.url || "about:blank",
         title: state.title,
         adBlockingEnabled: state.adBlockingEnabled,
+        isPinned: state.isPinned,
       })),
       activeIndex: activeIndex >= 0 ? activeIndex : 0,
       activeTabId: activeId || undefined,
@@ -259,6 +325,12 @@ export class TabManager {
         adBlockingEnabled: tab.adBlockingEnabled ?? true,
       }),
     );
+
+    tabs.forEach((tab, index) => {
+      if (tab.isPinned && ids[index]) {
+        this.pinTab(ids[index]);
+      }
+    });
 
     const activeId = ids[activeIndex];
     if (activeId) {

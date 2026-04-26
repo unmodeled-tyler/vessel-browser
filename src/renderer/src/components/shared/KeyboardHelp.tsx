@@ -20,6 +20,8 @@ const SHORTCUTS = [
   { keys: "Ctrl+-", action: "Zoom Out" },
   { keys: "Ctrl+0", action: "Reset Zoom" },
   { keys: "Ctrl+Shift+N", action: "New Private Window" },
+  { keys: "Ctrl+P", action: "Print Page" },
+  { keys: "Ctrl+Shift+P", action: "Save Page as PDF" },
   { keys: "Ctrl+,", action: "Settings", privateMode: false },
   { keys: "Ctrl+H", action: "Capture Highlight", privateMode: false },
   { keys: "?", action: "This help overlay" },

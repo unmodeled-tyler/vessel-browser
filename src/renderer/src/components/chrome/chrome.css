@@ -195,6 +195,19 @@
     }
 }
 
+.tab-item.pinned {
+    max-width: 40px;
+    min-width: 36px;
+    padding: 0 10px;
+    justify-content: center;
+}
+
+.tab-item.pinned .tab-favicon,
+.tab-item.pinned .tab-favicon-fallback {
+    width: 14px;
+    height: 14px;
+}
+
 .tab-item:hover {
     background: var(--surface-hover);
     color: var(--text-secondary);

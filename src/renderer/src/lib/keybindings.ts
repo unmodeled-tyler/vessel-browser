@@ -11,6 +11,8 @@ interface KeyBindingHandlers {
   zoomReset?: () => void;
   reopenClosedTab?: () => void;
   openPrivateWindow?: () => void;
+  print?: () => void;
+  printToPdf?: () => void;
   toggleDevTools?: () => void;
   toggleKeyboardHelp?: () => void;
 }
@@ -66,6 +68,20 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     if (ctrl && key === 'w') {
       e.preventDefault();
       handlers.closeTab();
+      return;
+    }
+
+    // Ctrl+Shift+P — save as PDF
+    if (ctrl && key === 'p' && e.shiftKey) {
+      e.preventDefault();
+      handlers.printToPdf?.();
+      return;
+    }
+
+    // Ctrl+P — print
+    if (ctrl && key === 'p' && !e.shiftKey) {
+      e.preventDefault();
+      handlers.print?.();
       return;
     }
 

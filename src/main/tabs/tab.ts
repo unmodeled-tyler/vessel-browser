@@ -136,6 +136,7 @@ export class Tab {
       canGoForward: false,
       isReaderMode: false,
       adBlockingEnabled: options?.adBlockingEnabled ?? true,
+      isPinned: false,
       role: options?.role,
     };
 
@@ -517,6 +518,12 @@ export class Tab {
     this._state.adBlockingEnabled = enabled;
     this.onChange();
     return true;
+  }
+
+  setPinned(pinned: boolean): void {
+    if (this._state.isPinned === pinned) return;
+    this._state.isPinned = pinned;
+    this.onChange();
   }
 
   get highlightModeActive(): boolean {

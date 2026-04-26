@@ -96,6 +96,14 @@ export const Channels = {
   TAB_DUPLICATE: "tab:duplicate",
   TAB_CONTEXT_MENU: "tab:context-menu",
 
+  // Pin tabs
+  TAB_PIN: "tab:pin",
+  TAB_UNPIN: "tab:unpin",
+
+  // Print
+  TAB_PRINT: "tab:print",
+  TAB_PRINT_TO_PDF: "tab:print-to-pdf",
+
   // Private browsing
   OPEN_PRIVATE_WINDOW: "private:open-window",
   IS_PRIVATE_MODE: "private:is-private",

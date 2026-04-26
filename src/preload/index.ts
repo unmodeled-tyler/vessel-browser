@@ -47,6 +47,11 @@ const api = {
     showContextMenu: (id: string) => ipcRenderer.send(Channels.TAB_CONTEXT_MENU, id),
     openPrivateWindow: () => ipcRenderer.invoke(Channels.OPEN_PRIVATE_WINDOW),
     isPrivateMode: (): Promise<boolean> => ipcRenderer.invoke(Channels.IS_PRIVATE_MODE),
+    pin: (id: string) => ipcRenderer.invoke(Channels.TAB_PIN, id),
+    unpin: (id: string) => ipcRenderer.invoke(Channels.TAB_UNPIN, id),
+    print: (id: string) => ipcRenderer.invoke(Channels.TAB_PRINT, id),
+    printToPdf: (id: string): Promise<string | null> =>
+      ipcRenderer.invoke(Channels.TAB_PRINT_TO_PDF, id),
     getState: (): Promise<{ tabs: TabState[]; activeId: string }> =>
       ipcRenderer.invoke(Channels.TAB_STATE_GET),
     onStateUpdate: (

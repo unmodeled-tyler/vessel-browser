@@ -75,44 +75,50 @@ const TabBar: Component = () => {
         <For each={tabs()}>
           {(tab) => (
             <div
-              class={`tab-item ${tab.id === activeTabId() ? "active" : ""} ${
+              class={`tab-item ${tab.isPinned ? "pinned" : ""} ${tab.id === activeTabId() ? "active" : ""} ${
                 modelActiveTabIds().has(tab.id) ? "model-active" : ""
               }`}
               classList={{ closing: closingTabIds().has(tab.id) }}
               onClick={() => switchTab(tab.id)}
               onAuxClick={(e) => {
-                if (e.button === 1) handleClose(tab.id);
+                if (e.button === 1 && !tab.isPinned) handleClose(tab.id);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 window.vessel.tabs.showContextMenu(tab.id);
               }}
               title={
-                modelActiveTabIds().has(tab.id)
-                  ? `${tab.title || "New Tab"} • Agent active`
-                  : tab.title
+                tab.isPinned
+                  ? tab.title || tab.url
+                  : modelActiveTabIds().has(tab.id)
+                    ? `${tab.title || "New Tab"} • Agent active`
+                    : tab.title
               }
               role="tab"
             >
               <TabFavicon favicon={tab.favicon} title={tab.title || "New Tab"} url={tab.url} />
-              {modelActiveTabIds().has(tab.id) && (
-                <span
-                  class="tab-agent-indicator"
-                  aria-hidden="true"
-                  title="Agent active on this tab"
-                />
+              {!tab.isPinned && (
+                <>
+                  {modelActiveTabIds().has(tab.id) && (
+                    <span
+                      class="tab-agent-indicator"
+                      aria-hidden="true"
+                      title="Agent active on this tab"
+                    />
+                  )}
+                  <span class="tab-title">{tab.title || "New Tab"}</span>
+                  {tab.isLoading && <span class="tab-loading" />}
+                  <button
+                    class="tab-close"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleClose(tab.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                </>
               )}
-              <span class="tab-title">{tab.title || "New Tab"}</span>
-              {tab.isLoading && <span class="tab-loading" />}
-              <button
-                class="tab-close"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleClose(tab.id);
-                }}
-              >
-                ×
-              </button>
             </div>
           )}
         </For>
