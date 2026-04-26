@@ -290,8 +290,9 @@ button:active:not(:disabled) {
     left: 50%;
     transform: translateX(-50%) translateY(4px);
     min-height: 24px;
+    width: max-content;
     max-width: min(240px, calc(100vw - 24px));
-    padding: 5px 9px;
+    padding: 6px 10px;
     border-radius: var(--radius-md);
     background: var(--bg-elevated);
     background-clip: padding-box;
@@ -299,11 +300,11 @@ button:active:not(:disabled) {
     color: var(--text-primary);
     font-size: 11px;
     font-weight: 600;
-    line-height: 1.25;
+    line-height: 1.45;
     letter-spacing: 0;
     text-align: center;
     white-space: normal;
-    overflow-wrap: normal;
+    overflow-wrap: break-word;
     pointer-events: none;
     opacity: 0;
     z-index: 2147483647;
