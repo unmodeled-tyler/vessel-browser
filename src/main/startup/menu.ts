@@ -6,6 +6,8 @@ interface AppMenuHandlers {
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
+  viewPageSource: () => void;
+  savePageAs: () => void;
 }
 
 /** Builds and sets the application menu. */
@@ -18,6 +20,11 @@ export function setupAppMenu(handlers: AppMenuHandlers): void {
           label: "New Window",
           accelerator: "CommandOrControl+N",
           click: handlers.newWindow,
+        },
+        {
+          label: "Save Page As...",
+          accelerator: "CommandOrControl+S",
+          click: handlers.savePageAs,
         },
         {
           label: "Reopen Closed Tab",
@@ -55,6 +62,12 @@ export function setupAppMenu(handlers: AppMenuHandlers): void {
           label: "Actual Size",
           accelerator: "CommandOrControl+0",
           click: handlers.zoomReset,
+        },
+        { type: "separator" },
+        {
+          label: "View Page Source",
+          accelerator: "CommandOrControl+U",
+          click: handlers.viewPageSource,
         },
       ],
     },
