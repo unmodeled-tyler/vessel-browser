@@ -492,7 +492,12 @@ vessel-browser-launch --dry-run
 | `F12` | Toggle Dev Tools Panel |
 | `Ctrl+T` | New Tab |
 | `Ctrl+W` | Close Tab |
+| `Ctrl+Shift+T` | Reopen Closed Tab |
 | `Ctrl+Shift+N` | New Private Window |
+| `Ctrl+F` | Find in Page |
+| `Ctrl++` / `Ctrl+=` | Zoom In |
+| `Ctrl+-` | Zoom Out |
+| `Ctrl+0` | Reset Zoom |
 | `Ctrl+P` | Print Active Page |
 | `Ctrl+Shift+P` | Save Active Page as PDF |
 | `Ctrl+,` | Settings |
