@@ -1,5 +1,6 @@
 import {
   BaseWindow,
+  BrowserWindow,
   clipboard,
   Menu,
   MenuItem,
@@ -528,6 +529,39 @@ export class Tab {
 
   zoomReset(): void {
     this.view.webContents.setZoomLevel(0);
+  }
+
+  async viewSource(): Promise<void> {
+    const url = this.view.webContents.getURL();
+    let html: string;
+    try {
+      html = await this.view.webContents.executeJavaScript(
+        "document.documentElement.outerHTML"
+      );
+    } catch (err) {
+      logger.warn("Failed to retrieve page source:", err);
+      return;
+    }
+    const escaped = html
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const win = new BrowserWindow({
+      width: 960,
+      height: 700,
+      title: `view-source:${url}`,
+      backgroundColor: "#1a1a1e",
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: false,
+      },
+    });
+    const style =
+      "background:#1a1a1e;color:#e0e0e0;font-family:monospace;font-size:12px;line-height:1.5;padding:16px;margin:0;white-space:pre-wrap;word-break:break-all;";
+    const dataUrl = `data:text/html;charset=utf-8,<!DOCTYPE html><html><head><title>view-source:${url}</title></head><body style="${style}"><pre>${escaped}</pre></body></html>`;
+    win.loadURL(dataUrl);
   }
 
   setAdBlockingEnabled(enabled: boolean): boolean {
