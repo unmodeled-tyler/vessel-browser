@@ -233,6 +233,16 @@ async function bootstrap(): Promise<void> {
       const id = tabManager.getActiveTabId();
       if (id) tabManager.zoomReset(id);
     },
+    viewPageSource: () => {
+      const activeTab = tabManager.getActiveTab();
+      if (activeTab) activeTab.viewSource();
+    },
+    savePageAs: () => {
+      const activeTabId = tabManager.getActiveTabId();
+      if (activeTabId) {
+        void tabManager.savePage(activeTabId);
+      }
+    },
   });
 
   bookmarkManager.subscribe((state) => {
