@@ -20,6 +20,23 @@ function getHighlightsPath(): string {
   return path.join(app.getPath("userData"), "vessel-highlights.json");
 }
 
+function createPersistence() {
+  return createDebouncedJsonPersistence({
+    debounceMs: SAVE_DEBOUNCE_MS,
+    filePath: getHighlightsPath(),
+    getValue: () => state,
+    logLabel: "highlights",
+    resetOnSchedule: true,
+  });
+}
+
+let persistence: ReturnType<typeof createPersistence> | null = null;
+
+function getPersistence(): ReturnType<typeof createPersistence> {
+  persistence ??= createPersistence();
+  return persistence;
+}
+
 function load(): HighlightsState {
   if (state) return state;
   state = loadJsonFile({
@@ -35,16 +52,8 @@ function load(): HighlightsState {
   return state;
 }
 
-const persistence = createDebouncedJsonPersistence({
-  debounceMs: SAVE_DEBOUNCE_MS,
-  filePath: getHighlightsPath(),
-  getValue: () => state,
-  logLabel: "highlights",
-  resetOnSchedule: true,
-});
-
 function save(): void {
-  persistence.schedule();
+  getPersistence().schedule();
 }
 
 function emit(): void {
@@ -165,5 +174,5 @@ export function clearHighlightsForUrl(url: string): number {
 }
 
 export function flushPersist(): Promise<void> {
-  return persistence.flush();
+  return getPersistence().flush();
 }

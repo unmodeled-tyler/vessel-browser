@@ -249,7 +249,7 @@ export function buildCompactScopedContext(
   const primaryResults = primaryResultElements.map(formatElement);
   if (primaryResults.length > 0) {
     lines.push("");
-    lines.push("### Results — click one of these to open a product");
+    lines.push("### Primary Results");
     lines.push(...primaryResults.map((item) => `- ${item}`));
     lines.push("");
     lines.push("IMPORTANT: Use click(index=N) on a result above. Do NOT click filter or sort links.");

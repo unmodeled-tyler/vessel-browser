@@ -59,6 +59,22 @@ function getBookmarksPath(): string {
   return path.join(app.getPath("userData"), "vessel-bookmarks.json");
 }
 
+function createPersistence() {
+  return createDebouncedJsonPersistence({
+    debounceMs: SAVE_DEBOUNCE_MS,
+    filePath: getBookmarksPath(),
+    getValue: () => state,
+    logLabel: "bookmarks",
+  });
+}
+
+let persistence: ReturnType<typeof createPersistence> | null = null;
+
+function getPersistence(): ReturnType<typeof createPersistence> {
+  persistence ??= createPersistence();
+  return persistence;
+}
+
 function load(): BookmarksState {
   if (state) return state;
   state = loadJsonFile({
@@ -75,15 +91,8 @@ function load(): BookmarksState {
   return state;
 }
 
-const persistence = createDebouncedJsonPersistence({
-  debounceMs: SAVE_DEBOUNCE_MS,
-  filePath: getBookmarksPath(),
-  getValue: () => state,
-  logLabel: "bookmarks",
-});
-
 function save(): void {
-  persistence.schedule();
+  getPersistence().schedule();
 }
 
 function assignDefinedBookmarkFields(
@@ -577,5 +586,5 @@ export function renameFolder(
 }
 
 export function flushPersist(): Promise<void> {
-  return persistence.flush();
+  return getPersistence().flush();
 }
