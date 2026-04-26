@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "path";
 import { createMainWindow, layoutViews } from "./window";
 import { registerIpcHandlers } from "./ipc/handlers";
+import { createSecondaryWindow } from "./secondary/window";
 import { Channels } from "../shared/channels";
 import {
   flushPersist as flushSettingsPersist,
@@ -213,6 +214,9 @@ async function bootstrap(): Promise<void> {
 
   // Set up the application menu
   setupAppMenu({
+    newWindow: () => {
+      createSecondaryWindow();
+    },
     reopenClosedTab: () => {
       const id = tabManager.reopenClosedTab();
       if (id) layoutViews(windowState);

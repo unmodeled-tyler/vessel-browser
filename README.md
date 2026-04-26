@@ -93,7 +93,7 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Chat Assistant** — built-in conversational AI in the sidebar Chat tab; supports Anthropic, OpenAI, Ollama, llama.cpp, Mistral, xAI, Google Gemini, OpenRouter, and any OpenAI-compatible endpoint; reads the current page automatically; has full access to the same browser tools as external agents; multi-turn session history; configure provider, model, and API key in Settings
 - **Automation Kits** (Premium) — parameterized workflow templates in the sidebar Automate tab; fill in a short form and the built-in agent executes the workflow autonomously; bundled kits include Research & Collect (multi-source research with bookmark saving) and Price Scout (cross-retailer price comparison); designed for a future kit marketplace
 - **Dev Tools Panel** (`F12`) — inspect console output, network requests, and MCP/agent activity in a resizable panel at the bottom of the window; export logs by category and date range as JSON
-- **Browser Basics For Long Runs** — pinned tabs stay compact at the front of the tab strip and are protected from accidental close; print the active page with `Ctrl+P` or save it directly as PDF with `Ctrl+Shift+P`
+- **Browser Basics For Long Runs** — pinned tabs stay compact at the front of the tab strip and are protected from accidental close; tab groups can be color-coded and collapsed; audible tabs show audio indicators with mute controls; open additional browser windows with `Ctrl+N`; print the active page with `Ctrl+P` or save it directly as PDF with `Ctrl+Shift+P`
 - **Action Undo / Rollback** — restore the browser to the session snapshot captured immediately before the last successful mutating agent action; available from the Supervisor tab and through the `undo_last_action` tool
 - **Agent-Meaningful Bookmarks** — bookmarks carry structured context the agent can read and act on: `intent` (what the page is for), `expectedContent` (what to expect on the page), `keyFields` (important form fields), `agentHints` (arbitrary directives), and a stored `pageSchema`; humans can create and edit this metadata directly in the Bookmarks tab, and all fields are searchable
 - **Portable Bookmark Export** — export browser-compatible Netscape HTML for import into Chrome, Firefox, Safari, Edge, Brave, and other browsers; optionally include Vessel notes/agent metadata, or export a full-fidelity Vessel JSON archive
@@ -490,6 +490,7 @@ vessel-browser-launch --dry-run
 | `Ctrl+Shift+L` | Toggle AI Sidebar |
 | `Ctrl+Shift+F` | Toggle Focus Mode |
 | `F12` | Toggle Dev Tools Panel |
+| `Ctrl+N` | New Window |
 | `Ctrl+T` | New Tab |
 | `Ctrl+W` | Close Tab |
 | `Ctrl+Shift+T` | Reopen Closed Tab |

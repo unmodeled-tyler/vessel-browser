@@ -1,4 +1,32 @@
 export type TabRole = "primary" | "research" | "auth" | "scratch";
+export type TabGroupColor =
+  | "blue"
+  | "green"
+  | "yellow"
+  | "orange"
+  | "red"
+  | "purple"
+  | "gray";
+
+export const TAB_GROUP_COLORS: TabGroupColor[] = [
+  "blue",
+  "green",
+  "yellow",
+  "orange",
+  "red",
+  "purple",
+  "gray",
+];
+
+export const TAB_GROUP_COLOR_LABELS: Record<TabGroupColor, string> = {
+  blue: "Blue",
+  green: "Green",
+  yellow: "Yellow",
+  orange: "Orange",
+  red: "Red",
+  purple: "Purple",
+  gray: "Gray",
+};
 
 export interface TabState {
   id: string;
@@ -11,6 +39,12 @@ export interface TabState {
   isReaderMode: boolean;
   adBlockingEnabled: boolean;
   isPinned: boolean;
+  isAudible: boolean;
+  isMuted: boolean;
+  groupId?: string;
+  groupName?: string;
+  groupColor?: TabGroupColor;
+  groupCollapsed?: boolean;
   role?: TabRole;
 }
 
@@ -214,6 +248,8 @@ export interface SessionTabSnapshot {
   title: string;
   adBlockingEnabled?: boolean;
   isPinned?: boolean;
+  groupName?: string;
+  groupColor?: TabGroupColor;
 }
 
 export interface SessionSnapshot {

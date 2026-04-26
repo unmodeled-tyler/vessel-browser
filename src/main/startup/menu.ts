@@ -1,6 +1,7 @@
 import { Menu } from "electron";
 
 interface AppMenuHandlers {
+  newWindow: () => void;
   reopenClosedTab: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -13,6 +14,11 @@ export function setupAppMenu(handlers: AppMenuHandlers): void {
     {
       label: "File",
       submenu: [
+        {
+          label: "New Window",
+          accelerator: "CommandOrControl+N",
+          click: handlers.newWindow,
+        },
         {
           label: "Reopen Closed Tab",
           accelerator: "CommandOrControl+Shift+T",

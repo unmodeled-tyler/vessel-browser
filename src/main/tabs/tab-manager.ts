@@ -2,7 +2,13 @@ import { BaseWindow, dialog, type WebContents } from "electron";
 import { Tab } from "./tab";
 import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
-import type { HighlightColor, SessionSnapshot, TabState } from "../../shared/types";
+import type {
+  HighlightColor,
+  SessionSnapshot,
+  TabGroupColor,
+  TabState,
+} from "../../shared/types";
+import { TAB_GROUP_COLORS } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, highlightBatchOnPage } from "../highlights/inject";
@@ -16,6 +22,12 @@ import { destroySession } from "../devtools/manager";
 export type { HighlightCaptureResult };
 
 const logger = createLogger("TabManager");
+interface TabGroup {
+  id: string;
+  name: string;
+  color: TabGroupColor;
+  collapsed: boolean;
+}
 
 function sanitizePdfFilename(title: string): string {
   const clean = title
@@ -29,6 +41,7 @@ function sanitizePdfFilename(title: string): string {
 export class TabManager {
   private tabs: Map<string, Tab> = new Map();
   private order: string[] = [];
+  private tabGroups: Map<string, TabGroup> = new Map();
   private activeTabId: string | null = null;
   private window: BaseWindow;
   private onStateChange: (tabs: TabState[], activeId: string) => void;
@@ -113,6 +126,7 @@ export class TabManager {
     const tab = this.tabs.get(id);
     if (!tab) return;
     if (tab.state.isPinned) return; // Pinned tabs cannot be closed
+    const groupId = tab.state.groupId;
 
     // Remember closed tab for reopening
     this.closedTabs.push({
@@ -135,6 +149,7 @@ export class TabManager {
     tab.destroy();
     this.tabs.delete(id);
     this.order = this.order.filter((tid) => tid !== id);
+    this.removeGroupIfEmpty(groupId);
 
     if (this.activeTabId === id) {
       if (this.order.length > 0) {
@@ -223,6 +238,60 @@ export class TabManager {
     this.broadcastState();
   }
 
+  createGroupFromTab(id: string): string | null {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    const previousGroupId = tab.state.groupId;
+    const groupId = randomUUID();
+    const color = TAB_GROUP_COLORS[this.tabGroups.size % TAB_GROUP_COLORS.length];
+    this.tabGroups.set(groupId, {
+      id: groupId,
+      name: `Group ${this.tabGroups.size + 1}`,
+      color,
+      collapsed: false,
+    });
+    this.assignTabToGroup(id, groupId);
+    this.removeGroupIfEmpty(previousGroupId);
+    return groupId;
+  }
+
+  assignTabToGroup(id: string, groupId: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab || !this.tabGroups.has(groupId)) return;
+    const previousGroupId = tab.state.groupId;
+    tab.setGroup(groupId);
+    this.removeGroupIfEmpty(previousGroupId);
+    this.broadcastState();
+  }
+
+  removeTabFromGroup(id: string): void {
+    const tab = this.tabs.get(id);
+    if (!tab) return;
+    const groupId = tab.state.groupId;
+    tab.setGroup(undefined);
+    this.removeGroupIfEmpty(groupId);
+    this.broadcastState();
+  }
+
+  toggleGroupCollapsed(groupId: string): boolean | null {
+    const group = this.tabGroups.get(groupId);
+    if (!group) return null;
+    group.collapsed = !group.collapsed;
+    this.broadcastState();
+    return group.collapsed;
+  }
+
+  setGroupColor(groupId: string, color: TabGroupColor): void {
+    const group = this.tabGroups.get(groupId);
+    if (!group || !TAB_GROUP_COLORS.includes(color)) return;
+    group.color = color;
+    this.broadcastState();
+  }
+
+  toggleMuted(id: string): boolean | null {
+    return this.tabs.get(id)?.toggleMuted() ?? null;
+  }
+
   printTab(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
@@ -260,7 +329,7 @@ export class TabManager {
   }
 
   getAllStates(): TabState[] {
-    return this.order.map((id) => this.tabs.get(id)!.state);
+    return this.order.map((id) => this.withGroupState(this.tabs.get(id)!.state));
   }
 
   findTabByWebContentsId(webContentsId: number): Tab | undefined {
@@ -300,6 +369,8 @@ export class TabManager {
         title: state.title,
         adBlockingEnabled: state.adBlockingEnabled,
         isPinned: state.isPinned,
+        groupName: state.groupName,
+        groupColor: state.groupColor,
       })),
       activeIndex: activeIndex >= 0 ? activeIndex : 0,
       activeTabId: activeId || undefined,
@@ -319,6 +390,7 @@ export class TabManager {
     );
 
     this.destroyAllTabs();
+    const restoredGroups = new Map<string, string>();
     const ids = tabs.map((tab, index) =>
       this.createTab(tab.url || "about:blank", {
         background: index !== activeIndex,
@@ -329,6 +401,21 @@ export class TabManager {
     tabs.forEach((tab, index) => {
       if (tab.isPinned && ids[index]) {
         this.pinTab(ids[index]);
+      }
+      if (tab.groupName && ids[index]) {
+        const key = `${tab.groupName}|${tab.groupColor ?? "blue"}`;
+        let groupId = restoredGroups.get(key);
+        if (!groupId) {
+          groupId = randomUUID();
+          restoredGroups.set(key, groupId);
+          this.tabGroups.set(groupId, {
+            id: groupId,
+            name: tab.groupName,
+            color: tab.groupColor ?? "blue",
+            collapsed: false,
+          });
+        }
+        this.assignTabToGroup(ids[index], groupId);
       }
     });
 
@@ -353,6 +440,7 @@ export class TabManager {
 
     this.tabs.clear();
     this.order = [];
+    this.tabGroups.clear();
     this.activeTabId = null;
     this.broadcastState();
   }
@@ -487,6 +575,26 @@ export class TabManager {
       success: true,
       message: `Color changed to ${color}`,
     });
+  }
+
+  private withGroupState(state: TabState): TabState {
+    if (!state.groupId) return state;
+    const group = this.tabGroups.get(state.groupId);
+    if (!group) return { ...state, groupId: undefined };
+    return {
+      ...state,
+      groupName: group.name,
+      groupColor: group.color,
+      groupCollapsed: group.collapsed,
+    };
+  }
+
+  private removeGroupIfEmpty(groupId?: string): void {
+    if (!groupId) return;
+    for (const tab of this.tabs.values()) {
+      if (tab.state.groupId === groupId) return;
+    }
+    this.tabGroups.delete(groupId);
   }
 
   private async removeHighlightMarksForText(

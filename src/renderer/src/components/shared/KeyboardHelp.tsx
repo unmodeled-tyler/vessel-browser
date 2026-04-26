@@ -12,6 +12,7 @@ const SHORTCUTS = [
   { keys: "Ctrl+Shift+L", action: "Toggle AI Sidebar", privateMode: false },
   { keys: "Ctrl+Shift+F", action: "Toggle Focus Mode", privateMode: false },
   { keys: "F12", action: "Toggle Dev Tools Panel", privateMode: false },
+  { keys: "Ctrl+N", action: "New Window" },
   { keys: "Ctrl+T", action: "New Tab" },
   { keys: "Ctrl+W", action: "Close Tab" },
   { keys: "Ctrl+Shift+T", action: "Reopen Closed Tab" },

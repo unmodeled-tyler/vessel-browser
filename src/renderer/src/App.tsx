@@ -31,6 +31,9 @@ const App: Component = () => {
     new URLSearchParams(window.location.search).get("view") || "chrome";
   const isPrivateWindow =
     new URLSearchParams(window.location.search).get("private") === "1";
+  const isSecondaryWindow =
+    new URLSearchParams(window.location.search).get("secondary") === "1";
+  const isChromeOnlyWindow = isPrivateWindow || isSecondaryWindow;
   const {
     openCommandBar,
     toggleSidebar,
@@ -113,16 +116,16 @@ const App: Component = () => {
     if (view !== "chrome") return;
 
     const cleanupKeys = setupKeybindings({
-      openCommandBar: isPrivateWindow ? undefined : openCommandBar,
-      toggleSidebar: isPrivateWindow ? undefined : toggleSidebar,
-      toggleFocusMode: isPrivateWindow ? undefined : toggleFocusMode,
+      openCommandBar: isChromeOnlyWindow ? undefined : openCommandBar,
+      toggleSidebar: isChromeOnlyWindow ? undefined : toggleSidebar,
+      toggleFocusMode: isChromeOnlyWindow ? undefined : toggleFocusMode,
       newTab: () => createTab(),
       closeTab: () => {
         const id = activeTabId();
         if (id) closeTab(id);
       },
-      openSettings: isPrivateWindow ? undefined : openSettings,
-      captureHighlight: isPrivateWindow ? undefined : captureHighlight,
+      openSettings: isChromeOnlyWindow ? undefined : openSettings,
+      captureHighlight: isChromeOnlyWindow ? undefined : captureHighlight,
       zoomIn: () => {
         const id = activeTabId();
         if (id) zoomIn(id);
@@ -136,6 +139,7 @@ const App: Component = () => {
         if (id) zoomReset(id);
       },
       reopenClosedTab: () => reopenClosed(),
+      openNewWindow: () => window.vessel.tabs.openNewWindow(),
       openPrivateWindow: () => window.vessel.tabs.openPrivateWindow(),
       print: () => {
         const id = activeTabId();
@@ -145,7 +149,7 @@ const App: Component = () => {
         const id = activeTabId();
         if (id) void window.vessel.tabs.printToPdf(id);
       },
-      toggleDevTools: isPrivateWindow
+      toggleDevTools: isChromeOnlyWindow
         ? undefined
         : () => {
             window.vessel.devtoolsPanel.toggle();
@@ -180,7 +184,7 @@ const App: Component = () => {
       </Show>
       <DownloadToast />
       <FindBar />
-      <Show when={!isPrivateWindow}>
+      <Show when={!isChromeOnlyWindow}>
         <FlowProgress />
         <AgentTranscriptDock />
       </Show>
@@ -192,14 +196,14 @@ const App: Component = () => {
           <div class="loading-bar" classList={{ closing: loadingPresence.closing() }} />
         </Show>
       </div>
-      <Show when={!isPrivateWindow}>
+      <Show when={!isChromeOnlyWindow}>
         <CommandBar />
         <Settings />
       </Show>
       <KeyboardHelp
         open={keyboardHelpOpen()}
         onClose={() => setKeyboardHelpOpen(false)}
-        privateMode={isPrivateWindow}
+        privateMode={isChromeOnlyWindow}
       />
     </div>
   );

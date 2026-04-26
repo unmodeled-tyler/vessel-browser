@@ -19,6 +19,7 @@ import type {
   RuntimeHealthState,
   ScheduledJob,
   SessionSnapshot,
+  TabGroupColor,
   TabState,
   VesselSettings,
 } from "../shared/types";
@@ -51,9 +52,24 @@ const api = {
     isPrivateMode: (): Promise<boolean> => ipcRenderer.invoke(Channels.IS_PRIVATE_MODE),
     pin: (id: string) => ipcRenderer.invoke(Channels.TAB_PIN, id),
     unpin: (id: string) => ipcRenderer.invoke(Channels.TAB_UNPIN, id),
+    createGroup: (id: string): Promise<string | null> =>
+      ipcRenderer.invoke(Channels.TAB_GROUP_CREATE, id),
+    addToGroup: (id: string, groupId: string) =>
+      ipcRenderer.invoke(Channels.TAB_GROUP_ADD_TAB, id, groupId),
+    removeFromGroup: (id: string) =>
+      ipcRenderer.invoke(Channels.TAB_GROUP_REMOVE_TAB, id),
+    toggleGroupCollapsed: (groupId: string): Promise<boolean | null> =>
+      ipcRenderer.invoke(Channels.TAB_GROUP_TOGGLE_COLLAPSED, groupId),
+    setGroupColor: (groupId: string, color: TabGroupColor) =>
+      ipcRenderer.invoke(Channels.TAB_GROUP_SET_COLOR, groupId, color),
+    showGroupContextMenu: (groupId: string) =>
+      ipcRenderer.send(Channels.TAB_GROUP_CONTEXT_MENU, groupId),
+    toggleMute: (id: string): Promise<boolean | null> =>
+      ipcRenderer.invoke(Channels.TAB_TOGGLE_MUTE, id),
     print: (id: string) => ipcRenderer.invoke(Channels.TAB_PRINT, id),
     printToPdf: (id: string): Promise<string | null> =>
       ipcRenderer.invoke(Channels.TAB_PRINT_TO_PDF, id),
+    openNewWindow: () => ipcRenderer.invoke(Channels.OPEN_NEW_WINDOW),
     getState: (): Promise<{ tabs: TabState[]; activeId: string }> =>
       ipcRenderer.invoke(Channels.TAB_STATE_GET),
     onStateUpdate: (

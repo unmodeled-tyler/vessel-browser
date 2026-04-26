@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js';
-import type { TabState } from '../../../shared/types';
+import type { TabGroupColor, TabState } from '../../../shared/types';
 import { createLogger } from '../../../shared/logger';
 
 const logger = createLogger("TabsStore");
@@ -88,6 +88,15 @@ export function useTabs() {
     duplicate: (id: string) => window.vessel.tabs.duplicate(id),
     pin: (id: string) => window.vessel.tabs.pin(id),
     unpin: (id: string) => window.vessel.tabs.unpin(id),
+    createGroup: (id: string) => window.vessel.tabs.createGroup(id),
+    addToGroup: (id: string, groupId: string) =>
+      window.vessel.tabs.addToGroup(id, groupId),
+    removeFromGroup: (id: string) => window.vessel.tabs.removeFromGroup(id),
+    toggleGroupCollapsed: (groupId: string) =>
+      window.vessel.tabs.toggleGroupCollapsed(groupId),
+    setGroupColor: (groupId: string, color: TabGroupColor) =>
+      window.vessel.tabs.setGroupColor(groupId, color),
+    toggleMute: (id: string) => window.vessel.tabs.toggleMute(id),
     print: (id: string) => window.vessel.tabs.print(id),
     printToPdf: (id: string) => window.vessel.tabs.printToPdf(id),
   };

@@ -7,6 +7,8 @@ import { Channels } from "../../shared/channels";
 import { installAdBlockingForSession } from "../network/ad-blocking";
 import { installDownloadHandlerForSession } from "../network/downloads";
 import { createLogger } from "../../shared/logger";
+import type { TabGroupColor } from "../../shared/types";
+import { TAB_GROUP_COLOR_LABELS, TAB_GROUP_COLORS } from "../../shared/types";
 
 const logger = createLogger("PrivateWindow");
 
@@ -188,6 +190,33 @@ function registerPrivateIpcHandlers(state: PrivateWindowState): void {
     tabManager.unpinTab(id);
   });
 
+  ipc.handle(Channels.TAB_GROUP_CREATE, (_e, id: string) => {
+    return tabManager.createGroupFromTab(id);
+  });
+
+  ipc.handle(Channels.TAB_GROUP_ADD_TAB, (_e, id: string, groupId: string) => {
+    tabManager.assignTabToGroup(id, groupId);
+  });
+
+  ipc.handle(Channels.TAB_GROUP_REMOVE_TAB, (_e, id: string) => {
+    tabManager.removeTabFromGroup(id);
+  });
+
+  ipc.handle(Channels.TAB_GROUP_TOGGLE_COLLAPSED, (_e, groupId: string) => {
+    return tabManager.toggleGroupCollapsed(groupId);
+  });
+
+  ipc.handle(
+    Channels.TAB_GROUP_SET_COLOR,
+    (_e, groupId: string, color: TabGroupColor) => {
+      tabManager.setGroupColor(groupId, color);
+    },
+  );
+
+  ipc.handle(Channels.TAB_TOGGLE_MUTE, (_e, id: string) => {
+    return tabManager.toggleMuted(id);
+  });
+
   ipc.handle(Channels.TAB_PRINT, (_e, id: string) => {
     tabManager.printTab(id);
   });
@@ -200,6 +229,19 @@ function registerPrivateIpcHandlers(state: PrivateWindowState): void {
     const { Menu, MenuItem } = require("electron") as typeof import("electron");
     const tab = tabManager.getTab(id);
     const isPinned = tab?.state.isPinned ?? false;
+    const groupId = tab?.state.groupId;
+    const isMuted = tab?.state.isMuted ?? false;
+    const groups = tabManager
+      .getAllStates()
+      .filter((state) => state.groupId && state.groupId !== groupId)
+      .reduce(
+        (map, state) =>
+          map.set(state.groupId!, {
+            id: state.groupId!,
+            name: state.groupName || "Group",
+          }),
+        new Map<string, { id: string; name: string }>(),
+      );
     const menu = new Menu();
     menu.append(
       new MenuItem({
@@ -219,6 +261,46 @@ function registerPrivateIpcHandlers(state: PrivateWindowState): void {
         click: () => {
           const newId = tabManager.duplicateTab(id);
           if (newId) layoutPrivateViews(state);
+        },
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        label: "Add to New Group",
+        click: () => {
+          tabManager.createGroupFromTab(id);
+        },
+      }),
+    );
+    if (groups.size > 0) {
+      menu.append(
+        new MenuItem({
+          label: "Add to Group",
+          submenu: [...groups.values()].map(
+            (group) =>
+              new MenuItem({
+                label: group.name,
+                click: () => tabManager.assignTabToGroup(id, group.id),
+              }),
+          ),
+        }),
+      );
+    }
+    if (groupId) {
+      menu.append(
+        new MenuItem({
+          label: "Remove from Group",
+          click: () => {
+            tabManager.removeTabFromGroup(id);
+          },
+        }),
+      );
+    }
+    menu.append(
+      new MenuItem({
+        label: isMuted ? "Unmute Tab" : "Mute Tab",
+        click: () => {
+          tabManager.toggleMuted(id);
         },
       }),
     );
@@ -256,11 +338,47 @@ function registerPrivateIpcHandlers(state: PrivateWindowState): void {
     menu.popup({ window: state.window });
   });
 
+  ipc.on(Channels.TAB_GROUP_CONTEXT_MENU, (_e, groupId: string) => {
+    const { Menu, MenuItem } = require("electron") as typeof import("electron");
+    const firstTab = tabManager
+      .getAllStates()
+      .find((tab) => tab.groupId === groupId);
+    if (!firstTab) return;
+    const menu = new Menu();
+    menu.append(
+      new MenuItem({
+        label: firstTab.groupCollapsed ? "Expand Group" : "Collapse Group",
+        click: () => tabManager.toggleGroupCollapsed(groupId),
+      }),
+    );
+    menu.append(
+      new MenuItem({
+        label: "Group Color",
+        submenu: TAB_GROUP_COLORS.map(
+          (color) =>
+            new MenuItem({
+              label: TAB_GROUP_COLOR_LABELS[color],
+              type: "radio",
+              checked: firstTab.groupColor === color,
+              click: () => tabManager.setGroupColor(groupId, color),
+            }),
+        ),
+      }),
+    );
+    menu.popup({ window: state.window });
+  });
+
   // Report that this is a private window
   ipc.handle(Channels.IS_PRIVATE_MODE, () => true);
 
   ipc.handle(Channels.OPEN_PRIVATE_WINDOW, () => {
     createPrivateWindow();
+  });
+
+  ipc.handle(Channels.OPEN_NEW_WINDOW, () => {
+    const { createSecondaryWindow } =
+      require("../secondary/window") as typeof import("../secondary/window");
+    createSecondaryWindow();
   });
 
   ipc.handle(Channels.WINDOW_MINIMIZE, () => {

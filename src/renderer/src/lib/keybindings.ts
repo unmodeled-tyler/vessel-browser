@@ -10,6 +10,7 @@ interface KeyBindingHandlers {
   zoomOut?: () => void;
   zoomReset?: () => void;
   reopenClosedTab?: () => void;
+  openNewWindow?: () => void;
   openPrivateWindow?: () => void;
   print?: () => void;
   printToPdf?: () => void;
@@ -54,6 +55,13 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     if (ctrl && key === 'n' && e.shiftKey) {
       e.preventDefault();
       handlers.openPrivateWindow?.();
+      return;
+    }
+
+    // Ctrl+N — new window
+    if (ctrl && key === 'n' && !e.shiftKey) {
+      e.preventDefault();
+      handlers.openNewWindow?.();
       return;
     }
 

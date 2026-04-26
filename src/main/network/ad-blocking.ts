@@ -51,6 +51,7 @@ const THIRD_PARTY_PATH_PATTERNS = [
 ];
 
 let installed = false;
+const defaultSessionTabManagers = new Set<TabManager>();
 
 function normalizeHostname(value: string): string {
   return value.trim().toLowerCase().replace(/\.$/, "");
@@ -112,6 +113,7 @@ function shouldBlockRequest(
 }
 
 export function installAdBlocking(tabManager: TabManager): void {
+  defaultSessionTabManagers.add(tabManager);
   if (installed) return;
   installed = true;
 
@@ -123,13 +125,20 @@ export function installAdBlocking(tabManager: TabManager): void {
       return;
     }
 
-    if (!tabManager.isAdBlockingEnabledForWebContents(webContentsId)) {
+    const manager = [...defaultSessionTabManagers].find((candidate) =>
+      candidate.findTabByWebContentsId(webContentsId),
+    );
+    if (!manager?.isAdBlockingEnabledForWebContents(webContentsId)) {
       callback({});
       return;
     }
 
     callback({ cancel: shouldBlockRequest(details) });
   });
+}
+
+export function unregisterAdBlockingTabManager(tabManager: TabManager): void {
+  defaultSessionTabManagers.delete(tabManager);
 }
 
 /**

@@ -137,6 +137,8 @@ export class Tab {
       isReaderMode: false,
       adBlockingEnabled: options?.adBlockingEnabled ?? true,
       isPinned: false,
+      isAudible: false,
+      isMuted: false,
       role: options?.role,
     };
 
@@ -297,6 +299,21 @@ export class Tab {
     wc.on("page-favicon-updated", (_, favicons) => {
       this._state.favicon = favicons[0] || "";
       this.onChange();
+    });
+
+    wc.on("media-started-playing", () => {
+      this._state.isAudible = true;
+      this._state.isMuted = wc.isAudioMuted();
+      this.onChange();
+    });
+
+    wc.on("media-paused", () => {
+      setTimeout(() => {
+        if (wc.isDestroyed()) return;
+        this._state.isAudible = wc.isCurrentlyAudible();
+        this._state.isMuted = wc.isAudioMuted();
+        this.onChange();
+      }, 250);
     });
 
     // Right-click context menu with highlight mode toggle + highlight management
@@ -524,6 +541,25 @@ export class Tab {
     if (this._state.isPinned === pinned) return;
     this._state.isPinned = pinned;
     this.onChange();
+  }
+
+  setGroup(groupId: string | undefined): void {
+    if (this._state.groupId === groupId) return;
+    this._state.groupId = groupId;
+    this.onChange();
+  }
+
+  setMuted(muted: boolean): void {
+    const wc = this.view.webContents;
+    wc.setAudioMuted(muted);
+    this._state.isMuted = wc.isAudioMuted();
+    this._state.isAudible = wc.isCurrentlyAudible();
+    this.onChange();
+  }
+
+  toggleMuted(): boolean {
+    this.setMuted(!this._state.isMuted);
+    return this._state.isMuted;
   }
 
   get highlightModeActive(): boolean {
