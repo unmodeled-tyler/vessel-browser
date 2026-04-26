@@ -22,7 +22,7 @@ import { destroySession } from "../devtools/manager";
 export type { HighlightCaptureResult };
 
 const logger = createLogger("TabManager");
-interface TabGroup {
+export interface TabGroup {
   id: string;
   name: string;
   color: TabGroupColor;
@@ -238,15 +238,22 @@ export class TabManager {
     this.broadcastState();
   }
 
-  createGroupFromTab(id: string): string | null {
+  createGroupFromTab(
+    id: string,
+    options?: { name?: string; color?: TabGroupColor },
+  ): string | null {
     const tab = this.tabs.get(id);
     if (!tab) return null;
     const previousGroupId = tab.state.groupId;
     const groupId = randomUUID();
-    const color = TAB_GROUP_COLORS[this.tabGroups.size % TAB_GROUP_COLORS.length];
+    const color =
+      options?.color && TAB_GROUP_COLORS.includes(options.color)
+        ? options.color
+        : TAB_GROUP_COLORS[this.tabGroups.size % TAB_GROUP_COLORS.length];
     this.tabGroups.set(groupId, {
       id: groupId,
-      name: `Group ${this.tabGroups.size + 1}`,
+      name:
+        options?.name?.trim() || `Group ${this.tabGroups.size + 1}`,
       color,
       collapsed: false,
     });
@@ -330,6 +337,10 @@ export class TabManager {
 
   getAllStates(): TabState[] {
     return this.order.map((id) => this.withGroupState(this.tabs.get(id)!.state));
+  }
+
+  getGroups(): TabGroup[] {
+    return Array.from(this.tabGroups.values());
   }
 
   findTabByWebContentsId(webContentsId: number): Tab | undefined {

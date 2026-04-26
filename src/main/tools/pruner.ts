@@ -262,6 +262,12 @@ function shouldIncludeTool(
     case "switch_tab":
     case "create_tab":
     case "set_ad_blocking":
+    case "list_groups":
+    case "create_group":
+    case "assign_to_group":
+    case "remove_from_group":
+    case "toggle_group":
+    case "set_group_color":
       return intents.has("tabs") || intents.has("debug");
     case "save_session":
     case "load_session":

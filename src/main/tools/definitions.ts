@@ -63,6 +63,78 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     },
     tier: 2,
   },
+  {
+    name: "list_groups",
+    title: "List Tab Groups",
+    description:
+      "List all tab groups with their IDs, names, colors, collapsed state, and member tab count.",
+    tier: 2,
+  },
+  {
+    name: "create_group",
+    title: "Create Tab Group",
+    description:
+      "Create a new tab group from the active tab or a specified tab. Optionally provide a name and color.",
+    inputSchema: {
+      tabId: z
+        .string()
+        .optional()
+        .describe("Tab ID to group (defaults to active tab)"),
+      name: z.string().optional().describe("Optional group name"),
+      color: z
+        .enum(["blue", "green", "yellow", "orange", "red", "purple", "gray"])
+        .optional()
+        .describe("Optional group color"),
+    },
+    tier: 2,
+  },
+  {
+    name: "assign_to_group",
+    title: "Assign Tab to Group",
+    description:
+      "Move a tab into an existing group by ID. Defaults to the active tab.",
+    inputSchema: {
+      groupId: z.string().describe("Group ID to assign the tab to"),
+      tabId: z
+        .string()
+        .optional()
+        .describe("Tab ID to move (defaults to active tab)"),
+    },
+    tier: 2,
+  },
+  {
+    name: "remove_from_group",
+    title: "Remove Tab from Group",
+    description: "Ungroup a tab. Defaults to the active tab.",
+    inputSchema: {
+      tabId: z
+        .string()
+        .optional()
+        .describe("Tab ID to ungroup (defaults to active tab)"),
+    },
+    tier: 2,
+  },
+  {
+    name: "toggle_group",
+    title: "Toggle Group Collapsed",
+    description: "Collapse or expand a tab group.",
+    inputSchema: {
+      groupId: z.string().describe("Group ID to toggle"),
+    },
+    tier: 2,
+  },
+  {
+    name: "set_group_color",
+    title: "Set Group Color",
+    description: "Change the color of a tab group.",
+    inputSchema: {
+      groupId: z.string().describe("Group ID"),
+      color: z
+        .enum(["blue", "green", "yellow", "orange", "red", "purple", "gray"])
+        .describe("New color"),
+    },
+    tier: 2,
+  },
 
   // --- Navigation ---
   {
