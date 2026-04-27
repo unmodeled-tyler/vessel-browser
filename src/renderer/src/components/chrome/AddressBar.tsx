@@ -9,6 +9,8 @@ import {
   type Component,
 } from "solid-js";
 import { useTabs } from "../../stores/tabs";
+import { useSecurity } from "../../stores/security";
+import SecurityPopup from "./SecurityPopup";
 import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
@@ -40,12 +42,19 @@ const AddressBar: Component = () => {
   const isPrivateWindow = new URLSearchParams(window.location.search).get("private") === "1";
   const { historyState } = useHistory();
   const { bookmarksState } = useBookmarks();
+  const { getSecurityState } = useSecurity();
   const [inputValue, setInputValue] = createSignal("");
   const [showSuggestions, setShowSuggestions] = createSignal(false);
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [searchEngine, setSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
+  const [showSecurityPopup, setShowSecurityPopup] = createSignal(false);
   const now = useNow();
   let inputRef: HTMLInputElement | undefined;
+
+  const securityState = createMemo(() => {
+    const tabId = activeTabId();
+    return tabId ? getSecurityState(tabId) : undefined;
+  });
 
   const agentPresence = createMemo(() =>
     getAgentPresence(runtimeState(), now()),
@@ -367,6 +376,44 @@ const AddressBar: Component = () => {
             <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM5.5 7a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm3.5 3.5c0-1-1.5-2-2.5-2s-2.5 1-2.5 2" />
           </svg>
           <span>Private</span>
+        </div>
+      </Show>
+
+      <Show when={securityState()?.status && securityState()?.status !== "none"}>
+        <div class="security-indicator-wrapper">
+          <button
+            class={`security-indicator ${securityState()?.status}`}
+            onClick={() => setShowSecurityPopup((prev) => !prev)}
+            title={
+              securityState()?.status === "secure"
+                ? "Secure connection"
+                : securityState()?.status === "insecure"
+                  ? "Connection not secure"
+                  : "Certificate error"
+            }
+          >
+            {securityState()?.status === "secure" ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z" />
+              </svg>
+            ) : securityState()?.status === "insecure" ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z" />
+                <line x1="2" y1="12" x2="12" y2="2" stroke="currentColor" stroke-width="1.5" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z" />
+                <circle cx="7" cy="8" r="0.8" fill="white" />
+              </svg>
+            )}
+          </button>
+          <Show when={showSecurityPopup()}>
+            <SecurityPopup
+              state={securityState()!}
+              onClose={() => setShowSecurityPopup(false)}
+            />
+          </Show>
         </div>
       </Show>
 
