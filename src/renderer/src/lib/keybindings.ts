@@ -16,6 +16,8 @@ interface KeyBindingHandlers {
   printToPdf?: () => void;
   toggleDevTools?: () => void;
   toggleKeyboardHelp?: () => void;
+  togglePip?: () => void;
+  clearBrowsingData?: () => void;
 }
 
 export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
@@ -83,6 +85,20 @@ export function setupKeybindings(handlers: KeyBindingHandlers): () => void {
     if (ctrl && key === 'p' && e.shiftKey) {
       e.preventDefault();
       handlers.printToPdf?.();
+      return;
+    }
+
+    // Ctrl+Shift+I — toggle PiP
+    if (ctrl && key === 'i' && e.shiftKey) {
+      e.preventDefault();
+      handlers.togglePip?.();
+      return;
+    }
+
+    // Ctrl+Shift+Delete — clear browsing data
+    if (ctrl && e.shiftKey && e.key === 'Delete') {
+      e.preventDefault();
+      handlers.clearBrowsingData?.();
       return;
     }
 

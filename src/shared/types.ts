@@ -705,3 +705,23 @@ export interface VaultAuditEntry {
   sessionId?: string;
   approved: boolean;
 }
+
+// --- Clear Browsing Data ---
+
+export type ClearDataTimeRange = "hour" | "day" | "week" | "month" | "all";
+
+export interface ClearDataOptions {
+  cache: boolean;
+  cookies: boolean;
+  history: boolean;
+  localStorage: boolean;
+  timeRange: ClearDataTimeRange;
+}
+
+// --- Import result ---
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: number;
+}

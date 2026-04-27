@@ -23,6 +23,8 @@ const SHORTCUTS = [
   { keys: "Ctrl+Shift+N", action: "New Private Window" },
   { keys: "Ctrl+P", action: "Print Page" },
   { keys: "Ctrl+Shift+P", action: "Save Page as PDF" },
+  { keys: "Ctrl+Shift+I", action: "Toggle Picture-in-Picture", privateMode: false },
+  { keys: "Ctrl+Shift+Delete", action: "Clear Browsing Data", privateMode: false },
   { keys: "Ctrl+,", action: "Settings", privateMode: false },
   { keys: "Ctrl+H", action: "Capture Highlight", privateMode: false },
   { keys: "?", action: "This help overlay" },

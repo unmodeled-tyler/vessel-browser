@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, Menu, MenuItem } from "electron";
+import { app, dialog, ipcMain, Menu, MenuItem, session } from "electron";
 import { promises as fs } from "fs";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
@@ -44,6 +44,7 @@ import type {
   SessionSnapshot,
   TabGroupColor,
   VesselSettings,
+  type ClearDataOptions,
 } from "../../shared/types";
 import { TAB_GROUP_COLOR_LABELS, TAB_GROUP_COLORS } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
@@ -90,6 +91,38 @@ const logger = createLogger("IPC");
 
 const VALID_APPROVAL_MODES = ["auto", "confirm-dangerous", "manual"] as const;
 type ValidApprovalMode = typeof VALID_APPROVAL_MODES[number];
+
+export async function togglePictureInPicture(
+  tabManager: WindowState["tabManager"],
+): Promise<boolean> {
+  const activeTab = tabManager.getActiveTab();
+  if (!activeTab) return false;
+  const wc = activeTab.view.webContents;
+  if (wc.isDestroyed()) return false;
+  try {
+    return await wc.executeJavaScript(`
+      (async function() {
+        const video = document.querySelector('video');
+        if (!video) return false;
+        if (!document.pictureInPictureEnabled || typeof video.requestPictureInPicture !== 'function') {
+          return false;
+        }
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+          return false;
+        }
+        try {
+          await video.requestPictureInPicture();
+          return true;
+        } catch {
+          return false;
+        }
+      })()
+    `);
+  } catch {
+    return false;
+  }
+}
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -946,6 +979,34 @@ export function registerIpcHandlers(
     };
   });
 
+  ipcMain.handle(Channels.BOOKMARKS_IMPORT_HTML, async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "Import Bookmarks",
+      filters: [
+        { name: "Bookmark Files", extensions: ["html", "htm"] },
+      ],
+      properties: ["openFile"],
+    });
+    if (canceled || filePaths.length === 0) return null;
+    const content = await fs.readFile(filePaths[0], "utf-8");
+    trackBookmarkAction("import");
+    return bookmarkManager.importBookmarksFromHtml(content);
+  });
+
+  ipcMain.handle(Channels.BOOKMARKS_IMPORT_JSON, async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "Import Bookmarks",
+      filters: [
+        { name: "Vessel Bookmark Archive", extensions: ["json"] },
+      ],
+      properties: ["openFile"],
+    });
+    if (canceled || filePaths.length === 0) return null;
+    const content = await fs.readFile(filePaths[0], "utf-8");
+    trackBookmarkAction("import");
+    return bookmarkManager.importBookmarksFromJson(content);
+  });
+
   ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string, deleteContents?: boolean) => {
     trackBookmarkAction("folder_remove");
     return bookmarkManager.removeFolder(id, deleteContents ?? false);
@@ -1143,6 +1204,47 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.HISTORY_CLEAR, () => {
     historyManager.clearAll();
+  });
+
+  ipcMain.handle(Channels.HISTORY_EXPORT_HTML, async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Export History",
+      defaultPath: "vessel-history.html",
+      filters: [{ name: "HTML", extensions: ["html"] }],
+    });
+    if (canceled || !filePath) return null;
+    const content = historyManager.exportHistoryHtml();
+    await fs.writeFile(filePath, content, "utf-8");
+    return { filePath, count: historyManager.getState().entries.length };
+  });
+
+  ipcMain.handle(Channels.HISTORY_EXPORT_JSON, async () => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: "Export History",
+      defaultPath: "vessel-history.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (canceled || !filePath) return null;
+    const content = historyManager.exportHistoryJson();
+    await fs.writeFile(filePath, content, "utf-8");
+    return { filePath, count: historyManager.getState().entries.length };
+  });
+
+  ipcMain.handle(Channels.HISTORY_IMPORT, async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "Import History",
+      filters: [
+        { name: "History Files", extensions: ["html", "json"] },
+      ],
+      properties: ["openFile"],
+    });
+    if (canceled || filePaths.length === 0) return null;
+    const filePath = filePaths[0];
+    const content = await fs.readFile(filePath, "utf-8");
+    const result = filePath.endsWith(".json")
+      ? historyManager.importHistoryFromJson(content)
+      : historyManager.importHistoryFromHtml(content);
+    return result;
   });
 
   // --- DevTools panel ---
@@ -1364,4 +1466,32 @@ export function registerIpcHandlers(
 
   registerAutofillHandlers(windowState);
   registerPageDiffHandlers(windowState, sendToRendererViews);
+
+  // --- Clear browsing data ---
+
+  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (_, options: ClearDataOptions) => {
+    const { cache, cookies, history, localStorage: clearLs, timeRange } = options;
+
+    if (cache) {
+      await session.defaultSession.clearCache();
+    }
+
+    const storages: Array<"cookies" | "localstorage"> = [];
+    if (cookies) storages.push("cookies");
+    if (clearLs) storages.push("localstorage");
+
+    if (storages.length > 0) {
+      await session.defaultSession.clearStorageData({ storages });
+    }
+
+    if (history) {
+      historyManager.clearByTimeRange(timeRange);
+    }
+  });
+
+  // --- Picture-in-Picture ---
+
+  ipcMain.handle(Channels.TAB_TOGGLE_PIP, async () => {
+    return togglePictureInPicture(tabManager);
+  });
 }

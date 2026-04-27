@@ -24,6 +24,7 @@ import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
 } from "../../../../shared/types";
+import { Trash2 } from "lucide-solid";
 import {
   getAgentPresence,
   getLatestAgentStatusMessage,
@@ -37,7 +38,9 @@ interface AutocompleteItem {
   source: "history" | "bookmark" | "search";
 }
 
-const AddressBar: Component = () => {
+const AddressBar: Component<{
+  onClearData?: () => void;
+}> = (props) => {
   const { activeTab, activeTabId, navigate, goBack, goForward, reload, toggleAdBlock } = useTabs();
   const { runtimeState } = useRuntime();
   const { toggleSidebar, openSettings, toggleDevTools, devtoolsPanelOpen } = useUI();
@@ -796,6 +799,13 @@ const AddressBar: Component = () => {
           </button>
         </Show>
         <Show when={!isPrivateWindow}>
+          <button
+            class="nav-btn"
+            onClick={props.onClearData}
+            data-tooltip="Clear Data"
+          >
+            <Trash2 size={14} />
+          </button>
           <button
             class="nav-btn"
             onClick={openSettings}

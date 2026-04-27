@@ -64,6 +64,8 @@ export const Channels = {
   BOOKMARK_REMOVE: "bookmarks:remove",
   BOOKMARKS_EXPORT_HTML: "bookmarks:export-html",
   BOOKMARKS_EXPORT_JSON: "bookmarks:export-json",
+  BOOKMARKS_IMPORT_HTML: "bookmarks:import-html",
+  BOOKMARKS_IMPORT_JSON: "bookmarks:import-json",
   BOOKMARK_ADD_CONTEXT_TO_CHAT: "bookmarks:add-context-to-chat",
   FOLDER_CREATE: "bookmarks:folder-create",
   FOLDER_REMOVE: "bookmarks:folder-remove",
@@ -141,6 +143,9 @@ export const Channels = {
   HISTORY_SEARCH: "history:search",
   HISTORY_CLEAR: "history:clear",
   HISTORY_UPDATE: "history:update",
+  HISTORY_EXPORT_HTML: "history:export-html",
+  HISTORY_EXPORT_JSON: "history:export-json",
+  HISTORY_IMPORT: "history:import",
 
   // Downloads
   DOWNLOAD_STARTED: "download:started",
@@ -200,4 +205,11 @@ export const Channels = {
   PAGE_DIFF_GET: "page:diff-get",
   PAGE_DIFF_HISTORY: "page:diff-history",
   PAGE_DIFF_DIRTY: "page:diff-dirty",
+
+  // Clear browsing data
+  CLEAR_BROWSING_DATA: "browsing-data:clear",
+  CLEAR_BROWSING_DATA_OPEN: "browsing-data:open",
+
+  // Picture-in-Picture
+  TAB_TOGGLE_PIP: "tab:toggle-pip",
 } as const;

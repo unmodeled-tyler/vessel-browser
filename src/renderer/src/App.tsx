@@ -13,6 +13,7 @@ import Sidebar from "./components/ai/Sidebar";
 import DevToolsPanel from "./components/devtools/DevToolsPanel";
 import Settings from "./components/shared/Settings";
 import KeyboardHelp from "./components/shared/KeyboardHelp";
+import ClearBrowsingData from "./components/chrome/ClearBrowsingData";
 import { useUI } from "./stores/ui";
 import { useTabs } from "./stores/tabs";
 import { initSecurityStore } from "./stores/security";
@@ -57,6 +58,7 @@ const App: Component = () => {
     message: string;
   } | null>(null);
   const [keyboardHelpOpen, setKeyboardHelpOpen] = createSignal(false);
+  const [clearDataOpen, setClearDataOpen] = createSignal(false);
   const loadingPresence = useAnimatedPresence(() => !!activeTab()?.isLoading, 300);
 
   const showHighlightResult = (result: {
@@ -157,16 +159,25 @@ const App: Component = () => {
             window.vessel.devtoolsPanel.toggle();
           },
       toggleKeyboardHelp: () => setKeyboardHelpOpen((v) => !v),
+      togglePip: isChromeOnlyWindow ? undefined : () => {
+        void window.vessel.pip.toggle();
+      },
+      clearBrowsingData: isChromeOnlyWindow ? undefined : () => {
+        setClearDataOpen(true);
+      },
     });
 
     // Listen for Ctrl+H captures triggered from the page view
     const cleanupCapture = window.vessel.highlights.onCaptureResult(
       showHighlightResult,
     );
+    const cleanupClearData =
+      window.vessel.browsingData.onOpenDialog(() => setClearDataOpen(true));
 
     onCleanup(() => {
       cleanupKeys();
       cleanupCapture();
+      cleanupClearData();
     });
   });
 
@@ -193,7 +204,7 @@ const App: Component = () => {
       <div class="chrome">
         <TitleBar />
         <TabBar />
-        <AddressBar />
+        <AddressBar onClearData={() => setClearDataOpen(true)} />
         <Show when={loadingPresence.visible()}>
           <div class="loading-bar" classList={{ closing: loadingPresence.closing() }} />
         </Show>
@@ -202,6 +213,10 @@ const App: Component = () => {
         <CommandBar />
         <Settings />
       </Show>
+      <ClearBrowsingData
+        open={clearDataOpen()}
+        onClose={() => setClearDataOpen(false)}
+      />
       <KeyboardHelp
         open={keyboardHelpOpen()}
         onClose={() => setKeyboardHelpOpen(false)}

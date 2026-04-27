@@ -6,6 +6,7 @@ import type {
   BookmarkHtmlExportOptions,
   BookmarkFolder,
   BookmarksState,
+  ImportResult,
 } from "../../shared/types";
 import {
   getBookmarkSearchMatch,
@@ -587,4 +588,146 @@ export function renameFolder(
 
 export function flushPersist(): Promise<void> {
   return getPersistence().flush();
+}
+
+export function importBookmarksFromHtml(content: string): ImportResult {
+  let imported = 0;
+  let skipped = 0;
+  let errors = 0;
+  load();
+
+  const existingUrls = new Set(state!.bookmarks.map((b) => b.url));
+  let currentFolderId = UNSORTED_ID;
+  let currentFolderName = "Imported";
+
+  const lines = content.split("\n");
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const folderMatch = line.match(/<DT><H3[^>]*>([^<]+)<\/H3>/i);
+    if (folderMatch) {
+      currentFolderName = folderMatch[1].trim();
+      const existing = state!.folders.find(
+        (f) => f.name.toLowerCase() === currentFolderName.toLowerCase(),
+      );
+      if (existing) {
+        currentFolderId = existing.id;
+      } else {
+        const folder: BookmarkFolder = {
+          id: randomUUID(),
+          name: currentFolderName,
+          createdAt: new Date().toISOString(),
+        };
+        state!.folders.push(folder);
+        currentFolderId = folder.id;
+      }
+      continue;
+    }
+
+    if (line.match(/<\/DL>/i)) {
+      currentFolderId = UNSORTED_ID;
+      currentFolderName = "Imported";
+      continue;
+    }
+
+    const bookmarkMatch = line.match(
+      /<DT><A\s+[^>]*HREF="([^"]+)"[^>]*>([^<]*)<\/A>/i,
+    );
+    if (bookmarkMatch) {
+      const url = bookmarkMatch[1].trim();
+      const title = bookmarkMatch[2].trim() || url;
+      if (!url || existingUrls.has(url)) {
+        if (url) skipped++;
+        else errors++;
+        continue;
+      }
+      state!.bookmarks.push({
+        id: randomUUID(),
+        url,
+        title,
+        folderId: currentFolderId,
+        savedAt: new Date().toISOString(),
+      });
+      existingUrls.add(url);
+      imported++;
+    }
+  }
+
+  if (imported > 0) {
+    save();
+    emit();
+  }
+  return { imported, skipped, errors };
+}
+
+export function importBookmarksFromJson(content: string): ImportResult {
+  let imported = 0;
+  let skipped = 0;
+  let errors = 0;
+  try {
+    const parsed = JSON.parse(content) as Partial<BookmarksState>;
+    const incomingFolders = Array.isArray(parsed?.folders)
+      ? parsed.folders
+      : [];
+    const incomingBookmarks = Array.isArray(parsed?.bookmarks)
+      ? parsed.bookmarks
+      : [];
+
+    load();
+    const existingUrls = new Set(state!.bookmarks.map((b) => b.url));
+    const folderIdMap = new Map<string, string>();
+
+    for (const folder of incomingFolders) {
+      if (!folder?.id || !folder?.name) {
+        errors++;
+        continue;
+      }
+      const existing = state!.folders.find(
+        (f) => f.name.toLowerCase() === folder.name.toLowerCase(),
+      );
+      if (existing) {
+        folderIdMap.set(folder.id, existing.id);
+      } else {
+        const newFolder: BookmarkFolder = {
+          id: randomUUID(),
+          name: folder.name.trim(),
+          summary: folder.summary?.trim() || undefined,
+          createdAt: folder.createdAt || new Date().toISOString(),
+        };
+        state!.folders.push(newFolder);
+        folderIdMap.set(folder.id, newFolder.id);
+      }
+    }
+
+    for (const bookmark of incomingBookmarks) {
+      if (!bookmark?.url || typeof bookmark.url !== "string") {
+        errors++;
+        continue;
+      }
+      if (existingUrls.has(bookmark.url)) {
+        skipped++;
+        continue;
+      }
+      const mappedFolderId = bookmark.folderId
+        ? folderIdMap.get(bookmark.folderId) ?? UNSORTED_ID
+        : UNSORTED_ID;
+      state!.bookmarks.push({
+        id: randomUUID(),
+        url: bookmark.url.trim(),
+        title: typeof bookmark.title === "string" ? bookmark.title.trim() : bookmark.url,
+        note: bookmark.note?.trim() || undefined,
+        folderId: mappedFolderId,
+        savedAt: bookmark.savedAt || new Date().toISOString(),
+      });
+      existingUrls.add(bookmark.url);
+      imported++;
+    }
+
+    if (imported > 0 || errors > 0) {
+      save();
+      emit();
+    }
+  } catch {
+    errors++;
+  }
+  return { imported, skipped, errors };
 }

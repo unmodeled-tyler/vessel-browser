@@ -8,6 +8,8 @@ interface AppMenuHandlers {
   zoomReset: () => void;
   viewPageSource: () => void;
   savePageAs: () => void;
+  clearBrowsingData: () => void;
+  togglePictureInPicture: () => void;
 }
 
 /** Builds and sets the application menu. */
@@ -25,6 +27,11 @@ export function setupAppMenu(handlers: AppMenuHandlers): void {
           label: "Save Page As...",
           accelerator: "CommandOrControl+S",
           click: handlers.savePageAs,
+        },
+        {
+          label: "Clear Browsing Data...",
+          accelerator: "CommandOrControl+Shift+Delete",
+          click: handlers.clearBrowsingData,
         },
         {
           label: "Reopen Closed Tab",
@@ -68,6 +75,11 @@ export function setupAppMenu(handlers: AppMenuHandlers): void {
           label: "View Page Source",
           accelerator: "CommandOrControl+U",
           click: handlers.viewPageSource,
+        },
+        {
+          label: "Toggle Picture-in-Picture",
+          accelerator: "CommandOrControl+Shift+I",
+          click: handlers.togglePictureInPicture,
         },
       ],
     },

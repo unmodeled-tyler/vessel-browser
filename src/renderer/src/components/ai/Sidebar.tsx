@@ -380,6 +380,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const [bookmarkSearchQuery, setBookmarkSearchQuery] = createSignal("");
   const [bookmarkExportMessage, setBookmarkExportMessage] = createSignal("");
   const [bookmarkExporting, setBookmarkExporting] = createSignal(false);
+  const [bookmarkImportExpanded, setBookmarkImportExpanded] = createSignal(false);
+  const [bookmarkImporting, setBookmarkImporting] = createSignal(false);
+  const [bookmarkImportMessage, setBookmarkImportMessage] = createSignal("");
   const [editingFolderId, setEditingFolderId] = createSignal<string | null>(
     null,
   );
@@ -795,6 +798,30 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     }
   };
 
+  const handleImportBookmarks = async (format: "html" | "json") => {
+    setBookmarkImporting(true);
+    setBookmarkImportMessage("");
+    try {
+      const result =
+        format === "json"
+          ? await window.vessel.bookmarks.importJson()
+          : await window.vessel.bookmarks.importHtml();
+      if (!result) {
+        setBookmarkImportMessage("Import canceled.");
+        return;
+      }
+      setBookmarkImportMessage(
+        `Imported ${result.imported} bookmarks (${result.skipped} duplicates skipped, ${result.errors} errors)`,
+      );
+    } catch (error) {
+      setBookmarkImportMessage(
+        error instanceof Error ? error.message : "Could not import bookmarks.",
+      );
+    } finally {
+      setBookmarkImporting(false);
+    }
+  };
+
   const toggleFolderExpanded = (folderId: string) => {
     setExpandedFolderIds((current) =>
       current.includes(folderId)
@@ -1167,6 +1194,57 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                 <Show when={bookmarkExportMessage()}>
                   <div class="bookmark-export-message">
                     {bookmarkExportMessage()}
+                  </div>
+                </Show>
+              </div>
+
+              <div class="bookmark-import-shell">
+                <button
+                  class="bookmark-save-toggle"
+                  type="button"
+                  onClick={() => setBookmarkImportExpanded((current) => !current)}
+                >
+                  <span class="bookmark-save-toggle-copy">
+                    <span class="bookmark-save-toggle-title">
+                      Import Bookmarks
+                    </span>
+                    <span class="bookmark-save-toggle-subtitle">
+                      Import from HTML or Vessel JSON
+                    </span>
+                  </span>
+                  <span
+                    class="bookmark-save-toggle-caret"
+                    classList={{ expanded: bookmarkImportExpanded() }}
+                    aria-hidden="true"
+                  >
+                    ▾
+                  </span>
+                </button>
+                <Show when={bookmarkImportExpanded()}>
+                  <div class="bookmark-save-body">
+                    <div class="bookmark-export-actions">
+                      <button
+                        class="bookmark-secondary-button"
+                        type="button"
+                        disabled={bookmarkImporting()}
+                        onClick={() => void handleImportBookmarks("html")}
+                      >
+                        Import HTML
+                      </button>
+                      <button
+                        class="bookmark-secondary-button"
+                        type="button"
+                        disabled={bookmarkImporting()}
+                        onClick={() => void handleImportBookmarks("json")}
+                      >
+                        Import JSON
+                      </button>
+                    </div>
+                    <Show when={bookmarkImportMessage()}>
+                      <div class="bookmark-export-message">
+                        {bookmarkImportMessage()}
+                      </div>
+                    </Show>
                   </div>
                 </Show>
               </div>
@@ -1791,14 +1869,43 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             <div class="history-panel">
               <div class="history-panel-header">
                 <span class="history-panel-title">Browsing History</span>
-                <button
-                  class="history-clear-btn"
-                  onClick={async () => {
-                    await history.clear();
-                  }}
-                >
-                  Clear
-                </button>
+                <div class="history-panel-actions">
+                  <button
+                    class="history-clear-btn"
+                    onClick={async () => {
+                      await history.clear();
+                    }}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    class="history-clear-btn"
+                    onClick={async () => {
+                      const result = await window.vessel.history.exportHtml();
+                      if (!result) return;
+                    }}
+                  >
+                    Export HTML
+                  </button>
+                  <button
+                    class="history-clear-btn"
+                    onClick={async () => {
+                      const result = await window.vessel.history.exportJson();
+                      if (!result) return;
+                    }}
+                  >
+                    Export JSON
+                  </button>
+                  <button
+                    class="history-clear-btn"
+                    onClick={async () => {
+                      const result = await window.vessel.history.importFile();
+                      if (!result) return;
+                    }}
+                  >
+                    Import
+                  </button>
+                </div>
               </div>
               <div class="history-list">
                 <For each={history.historyState().entries}>

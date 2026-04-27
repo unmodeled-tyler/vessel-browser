@@ -3032,6 +3032,13 @@
     border-bottom: 1px solid var(--border-subtle);
 }
 
+.history-panel-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .history-panel-title {
     font-size: 12px;
     font-weight: 600;
