@@ -23,6 +23,10 @@ const logger = createLogger("Tab");
 const sessionCertExceptions = new WeakMap<Electron.Session, Set<string>>();
 const sessionsWithVerifyProc = new WeakSet<Electron.Session>();
 
+// Electron certificate verification callback result codes.
+const CERT_VERIFY_TRUST = 0;    // Trust the certificate
+const CERT_VERIFY_DEFAULT = -3;  // Use Chromium's default verification
+
 function setupCertificateVerifyProc(s: Electron.Session): Set<string> {
   let exceptions = sessionCertExceptions.get(s);
   if (!exceptions) {
@@ -32,9 +36,9 @@ function setupCertificateVerifyProc(s: Electron.Session): Set<string> {
   if (!sessionsWithVerifyProc.has(s)) {
     s.setCertificateVerifyProc((request, callback) => {
       if (exceptions!.has(request.hostname)) {
-        callback(0); // trust
+        callback(CERT_VERIFY_TRUST);
       } else {
-        callback(-3); // default verification
+        callback(CERT_VERIFY_DEFAULT);
       }
     });
     sessionsWithVerifyProc.add(s);
@@ -517,7 +521,9 @@ export class Tab {
       const hostname = new URL(url).hostname;
       this._certExceptions.add(hostname);
     } catch {
-      // Invalid URL — can't extract hostname
+      // Invalid URL — can't add an exception, navigating to safety instead
+      this.goBackToSafety();
+      return;
     }
     this._securityState = { status: "none", url: "" };
     this.onChange();
@@ -526,8 +532,8 @@ export class Tab {
 
   goBackToSafety(): void {
     this._securityState = { status: "none", url: "" };
-    this.view.webContents.loadURL("about:blank");
     this.onChange();
+    void this.view.webContents.loadURL("about:blank");
   }
 
   navigate(

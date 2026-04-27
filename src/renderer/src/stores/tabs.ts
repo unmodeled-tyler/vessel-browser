@@ -1,6 +1,7 @@
 import { createSignal } from 'solid-js';
 import type { TabGroupColor, TabState } from '../../../shared/types';
 import { createLogger } from '../../../shared/logger';
+import { pruneSecurityStates } from './security';
 
 const logger = createLogger("TabsStore");
 
@@ -21,6 +22,7 @@ async function doInit(): Promise<void> {
       (newTabs: TabState[], newActiveId: string) => {
         setTabs(newTabs);
         setActiveTabId(newActiveId);
+        pruneSecurityStates(new Set(newTabs.map((t) => t.id)));
       },
     );
     const initialState = await window.vessel.tabs.getState();

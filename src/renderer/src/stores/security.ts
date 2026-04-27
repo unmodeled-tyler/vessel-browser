@@ -12,6 +12,24 @@ export function initSecurityStore(): void {
   });
 }
 
+/** Remove entries for tab IDs no longer in the given set (e.g. closed tabs). */
+export function pruneSecurityStates(activeTabIds: Set<string>): void {
+  setSecurityStates((prev) => {
+    const keys = Object.keys(prev);
+    if (keys.length === 0) return prev;
+    let changed = false;
+    const next: Record<string, SecurityState> = {};
+    for (const key of keys) {
+      if (activeTabIds.has(key)) {
+        next[key] = prev[key];
+      } else {
+        changed = true;
+      }
+    }
+    return changed ? next : prev;
+  });
+}
+
 export function useSecurity() {
   return {
     securityStates,

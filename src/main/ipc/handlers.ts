@@ -1475,6 +1475,8 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (_, options: ClearDataOptions) => {
     const { cache, cookies, history, localStorage: clearLs, timeRange } = options;
 
+    // Note: cache and cookies/storage clearing ignore timeRange — Electron's
+    // APIs don't support time-range filtering for these. Only history respects it.
     if (cache) {
       await session.defaultSession.clearCache();
     }
