@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import type {
   HighlightColor,
+  SecurityState,
   SessionSnapshot,
   TabGroupColor,
   TabState,
@@ -60,6 +61,7 @@ export class TabManager {
     | ((result: HighlightCaptureResult) => void)
     | null = null;
   private pageLoadCallback: ((url: string, wc: WebContents) => void) | null = null;
+  private securityStateCallback: ((tabId: string, state: SecurityState) => void) | null = null;
   private closedTabs: { url: string; title: string; adBlockingEnabled: boolean }[] = [];
   private readonly MAX_CLOSED_TABS = 20;
   readonly isPrivate: boolean;
@@ -79,6 +81,10 @@ export class TabManager {
 
   onPageLoad(cb: (url: string, wc: WebContents) => void): void {
     this.pageLoadCallback = cb;
+  }
+
+  onSecurityStateChange(cb: ((tabId: string, state: SecurityState) => void) | null): void {
+    this.securityStateCallback = cb;
   }
 
   createTab(
@@ -672,5 +678,9 @@ export class TabManager {
   private broadcastState(): void {
     const states = this.getAllStates();
     this.onStateChange(states, this.activeTabId || "");
+    const activeTab = this.getActiveTab();
+    if (activeTab && this.securityStateCallback) {
+      this.securityStateCallback(this.activeTabId!, activeTab.securityState);
+    }
   }
 }
