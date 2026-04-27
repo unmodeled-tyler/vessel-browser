@@ -209,6 +209,16 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers(windowState, runtime);
 
+  // Wire security state updates to renderer views
+  tabManager.onSecurityStateChange((tabId, state) => {
+    if (!chromeView.webContents.isDestroyed()) {
+      chromeView.webContents.send(Channels.SECURITY_STATE_UPDATE, { tabId, state });
+    }
+    if (!sidebarView.webContents.isDestroyed()) {
+      sidebarView.webContents.send(Channels.SECURITY_STATE_UPDATE, { tabId, state });
+    }
+  });
+
   // Register Ctrl+H highlight capture shortcut
   registerHighlightShortcut(windowState.mainWindow, tabManager);
 
