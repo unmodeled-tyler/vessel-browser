@@ -18,6 +18,7 @@ import type {
   ProviderModelsResult,
   RuntimeHealthState,
   ScheduledJob,
+  SecurityState,
   SessionSnapshot,
   TabGroupColor,
   TabState,
@@ -556,6 +557,19 @@ const api = {
       ipcRenderer.invoke(Channels.PAGE_DIFF_GET),
     getHistory: (): Promise<PageDiffHistoryItem[] | { error: string }> =>
       ipcRenderer.invoke(Channels.PAGE_DIFF_HISTORY),
+  },
+  security: {
+    onStateUpdate: (
+      cb: (tabId: string, state: SecurityState) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, data: { tabId: string; state: SecurityState }) =>
+        cb(data.tabId, data.state);
+      ipcRenderer.on(Channels.SECURITY_STATE_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.SECURITY_STATE_UPDATE, handler);
+    },
+    showDetails: (state: SecurityState): Promise<void> =>
+      ipcRenderer.invoke(Channels.SECURITY_SHOW_DETAILS, state),
   },
 };
 

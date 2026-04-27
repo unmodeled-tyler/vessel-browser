@@ -15,6 +15,7 @@ import Settings from "./components/shared/Settings";
 import KeyboardHelp from "./components/shared/KeyboardHelp";
 import { useUI } from "./stores/ui";
 import { useTabs } from "./stores/tabs";
+import { initSecurityStore } from "./stores/security";
 import { setupKeybindings } from "./lib/keybindings";
 import { useAnimatedPresence } from "./lib/useAnimatedPresence";
 
@@ -101,6 +102,7 @@ const App: Component = () => {
   };
 
   onMount(() => {
+    initSecurityStore();
     void loadAndApplyTheme();
 
     window.vessel.ui.rendererReady(view as "chrome" | "sidebar" | "devtools");
