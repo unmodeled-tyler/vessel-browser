@@ -40,6 +40,7 @@ import type {
   AIMessage,
   ApprovalMode,
   AgentRuntimeState,
+  SecurityState,
   SessionSnapshot,
   TabGroupColor,
   VesselSettings,
@@ -1157,6 +1158,61 @@ export function registerIpcHandlers(
     windowState.uiState.devtoolsPanelHeight = clamped;
     layoutViews(windowState);
     return clamped;
+  });
+
+  // --- Security indicator ---
+
+  ipcMain.handle(Channels.SECURITY_SHOW_DETAILS, async (_event, state: SecurityState) => {
+    const { BrowserWindow } = await import("electron");
+    const url = state.url;
+    const domain = (() => {
+      try {
+        return new URL(url).hostname || url;
+      } catch {
+        return url;
+      }
+    })();
+
+    const statusText =
+      state.status === "secure"
+        ? "This site uses a valid TLS certificate."
+        : state.status === "insecure"
+          ? "This site does not use HTTPS. Data sent to this site is not encrypted."
+          : `Certificate error: ${state.errorMessage || "Unknown error"}`;
+
+    const content = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Certificate info for ${domain}</title>
+  <style>
+    body { background: #1a1a1e; color: #e0e0e0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.6; padding: 20px; margin: 0; }
+    h1 { font-size: 14px; color: #ffffff; margin: 0 0 12px; }
+    .row { margin-bottom: 8px; }
+    .label { color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <h1>Certificate info for ${domain}</h1>
+  <div class="row"><span class="label">URL:</span> ${url}</div>
+  <div class="row"><span class="label">Status:</span> ${state.status}</div>
+  <div class="row"><span class="label">Details:</span> ${statusText}</div>
+</body>
+</html>`;
+
+    const win = new BrowserWindow({
+      width: 600,
+      height: 400,
+      title: `Certificate info for ${domain}`,
+      backgroundColor: "#1a1a1e",
+      webPreferences: {
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        spellcheck: false,
+      },
+    });
+    void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
   });
 
   // --- Premium subscription ---
