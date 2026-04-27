@@ -48,6 +48,14 @@ export interface TabState {
   role?: TabRole;
 }
 
+export type SecurityStatus = "secure" | "insecure" | "error" | "none";
+
+export interface SecurityState {
+  status: SecurityStatus;
+  url: string;
+  errorMessage?: string;
+}
+
 export interface SelectOption {
   label: string;
   value: string;

@@ -93,6 +93,10 @@ export const Channels = {
   TAB_ZOOM_OUT: "tab:zoom-out",
   TAB_ZOOM_RESET: "tab:zoom-reset",
 
+  // Security indicator
+  SECURITY_STATE_UPDATE: "security:state-update",
+  SECURITY_SHOW_DETAILS: "security:show-details",
+
   // Closed tabs / duplication
   TAB_REOPEN_CLOSED: "tab:reopen-closed",
   TAB_DUPLICATE: "tab:duplicate",
