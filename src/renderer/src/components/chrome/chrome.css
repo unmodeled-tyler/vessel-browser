@@ -1654,3 +1654,84 @@
     background: var(--status-warning-bg);
     color: var(--status-warning);
 }
+
+/* ═══════════════════════════════════════
+   Security indicator
+   ═══════════════════════════════════════ */
+
+.security-indicator-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.security-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.security-indicator:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.security-indicator.secure {
+    color: #4ade80;
+}
+
+.security-indicator.insecure {
+    color: #9ca3af;
+}
+
+.security-indicator.error {
+    color: #f87171;
+}
+
+.security-popup {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    background: #1e1e24;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 220px;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.security-popup-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.security-popup-text {
+    font-size: 12px;
+    color: #e0e0e0;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.security-popup-link {
+    font-size: 12px;
+    color: #60a5fa;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+    text-decoration: underline;
+}
+
+.security-popup-link:hover {
+    color: #93c5fd;
+}
