@@ -9,7 +9,7 @@ import {
   type WebContents,
 } from "electron";
 import path from "path";
-import type { HighlightColor, TabRole, TabState } from "../../shared/types";
+import type { HighlightColor, SecurityState, SecurityStatus, TabRole, TabState } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import { checkDomainPolicy } from "../network/domain-policy";
 import { assertSafeURL } from "../network/url-safety";
@@ -42,6 +42,7 @@ export class Tab {
   private onSavePage?: () => void;
   private _highlightModeActive = false;
   private _readerOriginalUrl: string | null = null;
+  private _securityState: SecurityState = { status: "none", url: "" };
 
   // Fully custom URL history — we never rely on Chromium's native back/forward
   // because loadURL() calls (used for anchor clicks, form GETs, etc.) pollute
@@ -235,6 +236,20 @@ export class Tab {
       this.onChange();
     };
 
+    const updateSecurityState = () => {
+      const url = wc.getURL();
+      let status: SecurityStatus = "none";
+      if (url.startsWith("https:")) {
+        status = "secure";
+      } else if (url.startsWith("http:")) {
+        status = "insecure";
+      }
+      if (this._securityState.status !== status || this._securityState.url !== url) {
+        this._securityState = { status, url };
+        this.onChange();
+      }
+    };
+
     const recordNavigation = (url: string) => {
       if (this.navigatingViaHistory) {
         // Back/forward already managed the stacks — just update committed URL
@@ -262,6 +277,7 @@ export class Tab {
     // Track URL changes for custom history
     wc.on("did-navigate", (_event, url) => {
       recordNavigation(url);
+      updateSecurityState();
     });
 
     wc.on("page-title-updated", (_, title) => {
@@ -283,6 +299,12 @@ export class Tab {
       if (!isMainFrame) return;
       recordNavigation(url);
       this.onPageLoad?.(wc.getURL(), wc);
+      updateSecurityState();
+    });
+
+    wc.on("certificate-error", (_event, url, error) => {
+      this._securityState = { status: "error", url, errorMessage: error };
+      this.onChange();
     });
 
     wc.on("did-finish-load", () => {
@@ -456,6 +478,10 @@ export class Tab {
 
   get state(): TabState {
     return { ...this._state };
+  }
+
+  get securityState(): SecurityState {
+    return { ...this._securityState };
   }
 
   navigate(
