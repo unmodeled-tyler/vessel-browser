@@ -1,8 +1,7 @@
-import { BaseWindow, Menu, MenuItem, session, WebContentsView } from "electron";
+import { BaseWindow, session, WebContentsView } from "electron";
 import path from "path";
 import { Channels } from "../../shared/channels";
 import type { TabGroupColor } from "../../shared/types";
-import { TAB_GROUP_COLOR_LABELS, TAB_GROUP_COLORS } from "../../shared/types";
 import { loadSettings } from "../config/settings";
 import {
   installAdBlocking,
@@ -15,6 +14,8 @@ import {
 import { TabManager } from "../tabs/tab-manager";
 import { CHROME_HEIGHT } from "../window";
 import { resolveRendererFile } from "../startup/renderer";
+import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
+import { createFindInPageBridge } from "../tabs/find-bridge";
 
 interface SecondaryWindowState {
   window: BaseWindow;
@@ -56,166 +57,10 @@ function loadSecondaryRenderer(chromeView: WebContentsView): void {
   }
 }
 
-function showTabContextMenu(state: SecondaryWindowState, id: string): void {
-  const { tabManager } = state;
-  const tab = tabManager.getTab(id);
-  const isPinned = tab?.state.isPinned ?? false;
-  const groupId = tab?.state.groupId;
-  const isMuted = tab?.state.isMuted ?? false;
-  const groups = tabManager
-    .getAllStates()
-    .filter((state) => state.groupId && state.groupId !== groupId)
-    .reduce(
-      (map, state) =>
-        map.set(state.groupId!, {
-          id: state.groupId!,
-          name: state.groupName || "Group",
-        }),
-      new Map<string, { id: string; name: string }>(),
-    );
-  const menu = new Menu();
-
-  menu.append(
-    new MenuItem({
-      label: isPinned ? "Unpin Tab" : "Pin Tab",
-      click: () => (isPinned ? tabManager.unpinTab(id) : tabManager.pinTab(id)),
-    }),
-  );
-  menu.append(
-    new MenuItem({
-      label: "Duplicate Tab",
-      click: () => {
-        const newId = tabManager.duplicateTab(id);
-        if (newId) layoutSecondaryViews(state);
-      },
-    }),
-  );
-  menu.append(
-    new MenuItem({
-      label: "Add to New Group",
-      click: () => {
-        tabManager.createGroupFromTab(id);
-      },
-    }),
-  );
-  if (groups.size > 0) {
-    menu.append(
-      new MenuItem({
-        label: "Add to Group",
-        submenu: [...groups.values()].map(
-          (group) =>
-            new MenuItem({
-              label: group.name,
-              click: () => tabManager.assignTabToGroup(id, group.id),
-            }),
-        ),
-      }),
-    );
-  }
-  if (groupId) {
-    menu.append(
-      new MenuItem({
-        label: "Remove from Group",
-        click: () => tabManager.removeTabFromGroup(id),
-      }),
-    );
-  }
-  menu.append(
-    new MenuItem({
-      label: isMuted ? "Unmute Tab" : "Mute Tab",
-      click: () => tabManager.toggleMuted(id),
-    }),
-  );
-  menu.append(new MenuItem({ type: "separator" }));
-  menu.append(
-    new MenuItem({ label: "Print Page", click: () => tabManager.printTab(id) }),
-  );
-  menu.append(
-    new MenuItem({
-      label: "Save Page as PDF",
-      click: () => void tabManager.saveTabAsPdf(id),
-    }),
-  );
-  if (!isPinned) {
-    menu.append(new MenuItem({ type: "separator" }));
-    menu.append(
-      new MenuItem({
-        label: "Close Tab",
-        click: () => {
-          tabManager.closeTab(id);
-          layoutSecondaryViews(state);
-        },
-      }),
-    );
-  }
-  menu.popup({ window: state.window });
-}
-
-function showGroupContextMenu(
-  state: SecondaryWindowState,
-  groupId: string,
-): void {
-  const { tabManager } = state;
-  const firstTab = tabManager.getAllStates().find((tab) => tab.groupId === groupId);
-  if (!firstTab) return;
-  const menu = new Menu();
-  menu.append(
-    new MenuItem({
-      label: firstTab.groupCollapsed ? "Expand Group" : "Collapse Group",
-      click: () => tabManager.toggleGroupCollapsed(groupId),
-    }),
-  );
-  menu.append(
-    new MenuItem({
-      label: "Group Color",
-      submenu: TAB_GROUP_COLORS.map(
-        (color) =>
-          new MenuItem({
-            label: TAB_GROUP_COLOR_LABELS[color],
-            type: "radio",
-            checked: firstTab.groupColor === color,
-            click: () => tabManager.setGroupColor(groupId, color),
-          }),
-      ),
-    }),
-  );
-  menu.popup({ window: state.window });
-}
-
 function registerSecondaryIpcHandlers(state: SecondaryWindowState): void {
   const { chromeView, tabManager } = state;
   const ipc = chromeView.webContents.ipc;
-  let findResultListener:
-    | ((event: Electron.Event, result: Electron.Result) => void)
-    | null = null;
-  let findWiredWcId: number | null = null;
-
-  const wireFindEvents = (wc: Electron.WebContents) => {
-    if (findWiredWcId === wc.id && findResultListener) return;
-    if (findWiredWcId && findResultListener) {
-      const previous = tabManager.findTabByWebContentsId(findWiredWcId);
-      previous?.view.webContents.removeListener(
-        "found-in-page",
-        findResultListener,
-      );
-    }
-    findWiredWcId = wc.id;
-    if (wc.isDestroyed()) return;
-    const listener = (_event: Electron.Event, result: Electron.Result) => {
-      if (!chromeView.webContents.isDestroyed()) {
-        chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
-      }
-    };
-    findResultListener = listener;
-    wc.on("found-in-page", listener);
-    const capturedWcId = wc.id;
-    wc.once("destroyed", () => {
-      if (findWiredWcId === capturedWcId) {
-        findWiredWcId = null;
-        findResultListener = null;
-      }
-    });
-  };
+  const findBridge = createFindInPageBridge(tabManager, chromeView);
 
   ipc.handle(Channels.TAB_CREATE, (_e, url?: string) => {
     return tabManager.createTab(url || loadSettings().defaultUrl);
@@ -285,10 +130,10 @@ function registerSecondaryIpcHandlers(state: SecondaryWindowState): void {
     activeId: tabManager.getActiveTabId() || "",
   }));
   ipc.on(Channels.TAB_CONTEXT_MENU, (_e, id: string) =>
-    showTabContextMenu(state, id),
+    showTabContextMenu(state.tabManager, id, state.window, () => layoutSecondaryViews(state)),
   );
   ipc.on(Channels.TAB_GROUP_CONTEXT_MENU, (_e, groupId: string) =>
-    showGroupContextMenu(state, groupId),
+    showGroupContextMenu(state.tabManager, groupId, state.window),
   );
 
   ipc.handle(Channels.OPEN_NEW_WINDOW, () => createSecondaryWindow());
@@ -311,38 +156,17 @@ function registerSecondaryIpcHandlers(state: SecondaryWindowState): void {
 
   ipc.handle(
     Channels.FIND_IN_PAGE_START,
-    (
-      _e,
-      text: string,
-      options?: { forward?: boolean; findNext?: boolean },
-    ) => {
-      const tab = tabManager.getActiveTab();
-      if (!tab) return null;
-      const wc = tab.view.webContents;
-      if (wc.isDestroyed()) return null;
-      wireFindEvents(wc);
-      return wc.findInPage(text, {
-        forward: options?.forward ?? true,
-        findNext: options?.findNext ?? false,
-      });
+    (_e, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+      return findBridge.start(text, options);
     },
   );
   ipc.handle(Channels.FIND_IN_PAGE_NEXT, (_e, forward?: boolean) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return null;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return null;
-    wireFindEvents(wc);
-    return wc.findInPage("", { forward: forward ?? true, findNext: true });
+    return findBridge.next(forward);
   });
   ipc.handle(
     Channels.FIND_IN_PAGE_STOP,
     (_e, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
-      const tab = tabManager.getActiveTab();
-      if (!tab) return;
-      const wc = tab.view.webContents;
-      if (wc.isDestroyed()) return;
-      wc.stopFindInPage(action ?? "clearSelection");
+      findBridge.stop(action);
     },
   );
 }

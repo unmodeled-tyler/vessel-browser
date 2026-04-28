@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, Menu, MenuItem, session } from "electron";
+import { app, dialog, ipcMain, session } from "electron";
 import { promises as fs } from "fs";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
@@ -46,7 +46,6 @@ import type {
   VesselSettings,
   type ClearDataOptions,
 } from "../../shared/types";
-import { TAB_GROUP_COLOR_LABELS, TAB_GROUP_COLORS } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
@@ -70,6 +69,7 @@ import { registerScheduleHandlers, getScheduledKitIds } from "../automation/sche
 import {
   assertNumber,
   assertString,
+  getActiveTabInfo,
   isValidEmail,
   type SendToRendererViews,
 } from "./common";
@@ -87,6 +87,8 @@ import { registerWindowControlHandlers } from "./window-controls";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { createPrivateWindow } from "../private/window";
 import { createSecondaryWindow } from "../secondary/window";
+import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
+import { createFindInPageBridge } from "../tabs/find-bridge";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -97,10 +99,9 @@ type ValidApprovalMode = typeof VALID_APPROVAL_MODES[number];
 export async function togglePictureInPicture(
   tabManager: WindowState["tabManager"],
 ): Promise<boolean> {
-  const activeTab = tabManager.getActiveTab();
-  if (!activeTab) return false;
-  const wc = activeTab.view.webContents;
-  if (wc.isDestroyed()) return false;
+  const info = getActiveTabInfo(tabManager);
+  if (!info) return false;
+  const { wc } = info;
   try {
     return await wc.executeJavaScript(`
       (async function() {
@@ -298,12 +299,10 @@ export function registerIpcHandlers(
   };
 
   const getActiveHighlightCountSafe = async (): Promise<number> => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return 0;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return 0;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return 0;
     try {
-      return (await getHighlightCount(wc)) ?? 0;
+      return (await getHighlightCount(info.wc)) ?? 0;
     } catch (err) {
       logger.warn("Failed to get active highlight count:", err);
       return 0;
@@ -460,148 +459,12 @@ export function registerIpcHandlers(
 
   ipcMain.on(Channels.TAB_CONTEXT_MENU, (_event, id: string) => {
     assertString(id, "id");
-    const tab = tabManager.getTab(id);
-    const isPinned = tab?.state.isPinned ?? false;
-    const groupId = tab?.state.groupId;
-    const isMuted = tab?.state.isMuted ?? false;
-    const groups = tabManager
-      .getAllStates()
-      .filter((state) => state.groupId && state.groupId !== groupId)
-      .reduce(
-        (map, state) =>
-          map.set(state.groupId!, {
-            id: state.groupId!,
-            name: state.groupName || "Group",
-          }),
-        new Map<string, { id: string; name: string }>(),
-      );
-    const menu = new Menu();
-    menu.append(
-      new MenuItem({
-        label: isPinned ? "Unpin Tab" : "Pin Tab",
-        click: () => {
-          if (isPinned) {
-            tabManager.unpinTab(id);
-          } else {
-            tabManager.pinTab(id);
-          }
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Duplicate Tab",
-        click: () => {
-          const newId = tabManager.duplicateTab(id);
-          if (newId) layoutViews(windowState);
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Add to New Group",
-        click: () => {
-          tabManager.createGroupFromTab(id);
-        },
-      }),
-    );
-    if (groups.size > 0) {
-      menu.append(
-        new MenuItem({
-          label: "Add to Group",
-          submenu: [...groups.values()].map(
-            (group) =>
-              new MenuItem({
-                label: group.name,
-                click: () => tabManager.assignTabToGroup(id, group.id),
-              }),
-          ),
-        }),
-      );
-    }
-    if (groupId) {
-      menu.append(
-        new MenuItem({
-          label: "Remove from Group",
-          click: () => {
-            tabManager.removeTabFromGroup(id);
-          },
-        }),
-      );
-    }
-    menu.append(
-      new MenuItem({
-        label: isMuted ? "Unmute Tab" : "Mute Tab",
-        click: () => {
-          tabManager.toggleMuted(id);
-        },
-      }),
-    );
-    menu.append(new MenuItem({ type: "separator" }));
-    menu.append(
-      new MenuItem({
-        label: "Print Page",
-        click: () => {
-          tabManager.printTab(id);
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Save Page as PDF",
-        click: () => {
-          void tabManager.saveTabAsPdf(id).catch((error) => {
-            logger.warn("Failed to save page as PDF:", error);
-          });
-        },
-      }),
-    );
-    if (!isPinned) {
-      menu.append(new MenuItem({ type: "separator" }));
-      menu.append(
-        new MenuItem({
-          label: "Close Tab",
-          click: () => {
-            tabManager.closeTab(id);
-            layoutViews(windowState);
-          },
-        }),
-      );
-    }
-    menu.popup({ window: mainWindow });
+    showTabContextMenu(tabManager, id, mainWindow, () => layoutViews(windowState));
   });
 
   ipcMain.on(Channels.TAB_GROUP_CONTEXT_MENU, (_event, groupId: string) => {
     assertString(groupId, "groupId");
-    const firstTab = tabManager
-      .getAllStates()
-      .find((tab) => tab.groupId === groupId);
-    if (!firstTab) return;
-
-    const menu = new Menu();
-    menu.append(
-      new MenuItem({
-        label: firstTab.groupCollapsed ? "Expand Group" : "Collapse Group",
-        click: () => {
-          tabManager.toggleGroupCollapsed(groupId);
-        },
-      }),
-    );
-    menu.append(
-      new MenuItem({
-        label: "Group Color",
-        submenu: TAB_GROUP_COLORS.map(
-          (color) =>
-            new MenuItem({
-              label: TAB_GROUP_COLOR_LABELS[color],
-              type: "radio",
-              checked: firstTab.groupColor === color,
-              click: () => tabManager.setGroupColor(groupId, color),
-            }),
-        ),
-      }),
-    );
-    menu.popup({ window: mainWindow });
+    showGroupContextMenu(tabManager, groupId, mainWindow);
   });
 
   ipcMain.handle(Channels.TAB_STATE_GET, () => ({
@@ -1083,12 +946,10 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (_, index: number) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return false;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return false;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return false;
     try {
-      return scrollToHighlight(wc, index);
+      return scrollToHighlight(info.wc, index);
     } catch (err) {
       logger.warn("Failed to scroll to highlight:", err);
       return false;
@@ -1096,12 +957,10 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (_, index: number) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return false;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return false;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return false;
     try {
-      const removed = await removeHighlightAtIndex(wc, index);
+      const removed = await removeHighlightAtIndex(info.wc, index);
       if (removed) {
         await emitHighlightCount();
       }
@@ -1113,10 +972,8 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, async () => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return false;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return false;
+    const info = getActiveTabInfo(tabManager);
+    if (!info) return false;
     try {
       const cleared = await clearAllHighlightElements(wc);
       if (cleared) {
@@ -1131,67 +988,18 @@ export function registerIpcHandlers(
 
   // --- Find in page ---
 
-  let findWiredWcId: number | null = null;
-  let findResultListener:
-    | ((event: Electron.Event, result: Electron.Result) => void)
-    | null = null;
-
-  function wireFindEvents(wc: Electron.WebContents): void {
-    if (findWiredWcId === wc.id) return;
-    if (findWiredWcId !== null && findResultListener) {
-      const prev = tabManager.findTabByWebContentsId(findWiredWcId);
-      const prevWc = prev?.view.webContents;
-      if (prevWc && !prevWc.isDestroyed()) {
-        prevWc.removeListener("found-in-page", findResultListener);
-      }
-    }
-    findWiredWcId = wc.id;
-    if (wc.isDestroyed()) return;
-
-    const listener = (_event: Electron.Event, result: Electron.Result) => {
-      if (!chromeView.webContents.isDestroyed()) {
-        chromeView.webContents.send(Channels.FIND_IN_PAGE_RESULT, result);
-      }
-    };
-    findResultListener = listener;
-    wc.on("found-in-page", listener);
-    // Capture wcId to avoid accessing destroyed wc.id in the handler
-    const capturedWcId = wc.id;
-    wc.once("destroyed", () => {
-      if (findWiredWcId === capturedWcId) {
-        findWiredWcId = null;
-        findResultListener = null;
-      }
-    });
-  }
+  const findBridge = createFindInPageBridge(tabManager, chromeView);
 
   ipcMain.handle(Channels.FIND_IN_PAGE_START, (_, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return null;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return null;
-    wireFindEvents(wc);
-    return wc.findInPage(text, {
-      forward: options?.forward ?? true,
-      findNext: options?.findNext ?? false,
-    });
+    return findBridge.start(text, options);
   });
 
   ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (_, forward?: boolean) => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return null;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return null;
-    wireFindEvents(wc);
-    return wc.findInPage("", { forward: forward ?? true, findNext: true });
+    return findBridge.next(forward);
   });
 
   ipcMain.handle(Channels.FIND_IN_PAGE_STOP, (_, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
-    const tab = tabManager.getActiveTab();
-    if (!tab) return;
-    const wc = tab.view.webContents;
-    if (wc.isDestroyed()) return;
-    wc.stopFindInPage(action ?? "clearSelection");
+    findBridge.stop(action);
   });
 
   // --- Browsing history ---
