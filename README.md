@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/unmodeled-tyler-vessel-browser-badge.png)](https://mseep.ai/app/unmodeled-tyler-vessel-browser)
+
 <div align="center">
   
 ![quanta-intellect-logo-transparent](https://cdn-uploads.huggingface.co/production/uploads/686c460ba3fc457ad14ab6f8/gB6J60f9Yeyb3Thop2dUa.png)
