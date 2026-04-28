@@ -18,10 +18,6 @@ export function isDomainTrustedForSession(domain: string): boolean {
   return sessionTrustedDomains.has(domain.toLowerCase());
 }
 
-export function clearSessionTrust(): void {
-  sessionTrustedDomains.clear();
-}
-
 /**
  * Show a consent dialog before the agent uses stored credentials.
  * Returns whether the user approved, and whether to trust this domain for the session.

@@ -1,6 +1,5 @@
 import { BaseWindow, session, WebContentsView, type Session } from "electron";
 import { randomUUID } from "crypto";
-import { accessSync } from "fs";
 import path from "path";
 import { TabManager } from "../tabs/tab-manager";
 import { Channels } from "../../shared/channels";
@@ -9,10 +8,10 @@ import { installDownloadHandlerForSession } from "../network/downloads";
 import { createLogger } from "../../shared/logger";
 import type { TabGroupColor } from "../../shared/types";
 import { TAB_GROUP_COLOR_LABELS, TAB_GROUP_COLORS } from "../../shared/types";
+import { CHROME_HEIGHT } from "../window";
+import { resolveRendererFile } from "../startup/renderer";
 
 const logger = createLogger("PrivateWindow");
-
-const CHROME_HEIGHT = 110;
 
 export interface PrivateWindowState {
   window: BaseWindow;
@@ -23,22 +22,6 @@ export interface PrivateWindowState {
 }
 
 const privateWindows = new Set<PrivateWindowState>();
-
-function resolveRendererFile(): string {
-  const candidates = [
-    path.join(__dirname, "../../out/renderer/index.html"),
-    path.join(__dirname, "../../../out/renderer/index.html"),
-  ];
-  for (const c of candidates) {
-    try {
-      accessSync(c);
-      return c;
-    } catch {
-      // continue
-    }
-  }
-  return path.join(__dirname, "../../out/renderer/index.html");
-}
 
 function layoutPrivateViews(state: PrivateWindowState): void {
   const { window: win, chromeView, tabManager } = state;

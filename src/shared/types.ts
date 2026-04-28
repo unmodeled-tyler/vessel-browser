@@ -457,11 +457,6 @@ export interface ProviderMeta {
   apiKeyHint: string;
 }
 
-export interface ProviderUpdateResult {
-  ok: boolean;
-  error?: string;
-}
-
 export interface ProviderModelsResult {
   ok: boolean;
   models: string[];

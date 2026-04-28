@@ -1,5 +1,4 @@
 import { BaseWindow, Menu, MenuItem, session, WebContentsView } from "electron";
-import { accessSync } from "fs";
 import path from "path";
 import { Channels } from "../../shared/channels";
 import type { TabGroupColor } from "../../shared/types";
@@ -14,8 +13,8 @@ import {
   unregisterDownloadHandler,
 } from "../network/downloads";
 import { TabManager } from "../tabs/tab-manager";
-
-const CHROME_HEIGHT = 110;
+import { CHROME_HEIGHT } from "../window";
+import { resolveRendererFile } from "../startup/renderer";
 
 interface SecondaryWindowState {
   window: BaseWindow;
@@ -24,22 +23,6 @@ interface SecondaryWindowState {
 }
 
 const secondaryWindows = new Set<SecondaryWindowState>();
-
-function resolveRendererFile(): string {
-  const candidates = [
-    path.join(__dirname, "../../out/renderer/index.html"),
-    path.join(__dirname, "../../../out/renderer/index.html"),
-  ];
-  for (const candidate of candidates) {
-    try {
-      accessSync(candidate);
-      return candidate;
-    } catch {
-      // continue
-    }
-  }
-  return path.join(__dirname, "../../out/renderer/index.html");
-}
 
 function layoutSecondaryViews(state: SecondaryWindowState): void {
   const { window: win, chromeView, tabManager } = state;

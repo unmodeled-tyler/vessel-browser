@@ -34,7 +34,7 @@ function enableClipboardShortcuts(view: WebContentsView): void {
   });
 }
 
-const CHROME_HEIGHT = 110; // title(32) + tabs(36+1border) + address(40+1border)
+export const CHROME_HEIGHT = 110; // title(32) + tabs(36+1border) + address(40+1border)
 
 const DEFAULT_DEVTOOLS_PANEL_HEIGHT = 250;
 const MIN_DEVTOOLS_PANEL = 120;

@@ -47,14 +47,3 @@ export function readAuditLog(limit = 100): VaultAuditEntry[] {
     return [];
   }
 }
-
-export function clearAuditLog(): void {
-  try {
-    const auditPath = getAuditPath();
-    if (fs.existsSync(auditPath)) {
-      fs.unlinkSync(auditPath);
-    }
-  } catch (err) {
-    logger.error("Failed to clear audit log:", err);
-  }
-}

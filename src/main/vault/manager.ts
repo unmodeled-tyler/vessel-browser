@@ -125,6 +125,3 @@ export function getTotpSecret(id: string): string | null {
 
 /** Generate a TOTP code from a base32 secret. */
 export { generateTotpCode };
-
-/** Reset in-memory cache (for testing or settings reset). */
-export { resetCache };

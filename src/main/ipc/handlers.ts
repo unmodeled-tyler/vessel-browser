@@ -70,6 +70,7 @@ import { registerScheduleHandlers, getScheduledKitIds } from "../automation/sche
 import {
   assertNumber,
   assertString,
+  isValidEmail,
   type SendToRendererViews,
 } from "./common";
 import { registerAutofillHandlers } from "./autofill";
@@ -1339,7 +1340,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.PREMIUM_ACTIVATION_START, async (_, email: string) => {
     assertString(email, "email");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    if (!isValidEmail(email)) {
       return errorResult("Invalid email format");
     }
     trackPremiumFunnel("activation_attempted");
@@ -1356,7 +1357,7 @@ export function registerIpcHandlers(
       assertString(email, "email");
       assertString(code, "code");
       assertString(challengeToken, "challengeToken");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      if (!isValidEmail(email)) {
         return errorResult("Invalid email format", {
           state: getPremiumState(),
         });

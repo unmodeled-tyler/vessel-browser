@@ -216,6 +216,3 @@ export { generateTotpCode };
 export function readAuditLog(limit = 100): HumanVaultAuditEntry[] {
   return auditLog.readAuditLog(limit);
 }
-
-/** Reset in-memory cache. */
-export { resetCache };

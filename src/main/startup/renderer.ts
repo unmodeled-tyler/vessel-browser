@@ -15,7 +15,7 @@ function rendererUrlFor(
   return url.toString();
 }
 
-function resolveRendererFile(): string {
+export function resolveRendererFile(): string {
   const candidates = [
     path.join(__dirname, "../renderer/index.html"),
     path.join(__dirname, "../../out/renderer/index.html"),
