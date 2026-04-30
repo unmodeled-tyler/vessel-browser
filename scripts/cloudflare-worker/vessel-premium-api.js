@@ -319,14 +319,34 @@ async function handleCheckout(request, env) {
   const url = new URL(request.url);
   const email = url.searchParams.get("email") || undefined;
 
+  // Payment methods for subscription checkout.
+  // Stripe automatically filters out methods unavailable for the
+  // customer's region or incompatible with subscription mode.
+  // Note: apple_pay/google_pay are automatic via card — not listed here.
+  // Note: bank-redirect methods (bancontact, eps, blik) require SEPA debit
+  // activation for subscriptions. Add them after enabling SEPA in Stripe.
+  // Note: crypto/pix are one-time only — no subscription support.
+  const paymentMethods = [
+    "card",
+    "link",
+    "amazon_pay",
+    "cashapp",
+    "klarna",
+  ];
+
   const params = {
     mode: "subscription",
     "line_items[0][price]": env.STRIPE_PRICE_ID,
     "line_items[0][quantity]": "1",
     success_url: `${url.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${url.origin}/canceled`,
-    "subscription_data[trial_period_days]": "5",
+    "subscription_data[trial_period_days]": "7",
   };
+
+  // Attach all enabled payment method types
+  for (let i = 0; i < paymentMethods.length; i++) {
+    params[`payment_method_types[${i}]`] = paymentMethods[i];
+  }
   if (email) {
     params.customer_email = email;
   }
@@ -572,27 +592,40 @@ function handleSuccess(request) {
   <style>
     body { font-family: -apple-system, system-ui, sans-serif; background: #0a0a0e; color: #e4e4e7; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
     .card { text-align: center; max-width: 480px; padding: 48px; }
-    h1 { color: #f0c636; font-size: 28px; margin-bottom: 16px; }
+    h1 { color: #c8956c; font-size: 28px; margin-bottom: 16px; }
+    .subtitle { color: #e4e4e7; font-size: 18px; font-weight: 600; margin-bottom: 8px; }
     p { color: #a1a1aa; line-height: 1.6; font-size: 16px; }
-    .steps { text-align: left; margin-top: 24px; background: #18181b; border-radius: 8px; padding: 24px; }
-    .steps li { margin-bottom: 12px; color: #d4d4d8; }
-    code { background: #27272a; padding: 2px 6px; border-radius: 4px; color: #f0c636; }
+    .primary-path { text-align: left; margin-top: 24px; background: #18181b; border-radius: 8px; padding: 20px 24px; border-left: 3px solid #c8956c; }
+    .primary-path h3 { color: #e4e4e7; font-size: 14px; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.05em; }
+    .primary-path ol { margin: 0; padding-left: 20px; }
+    .primary-path li { margin-bottom: 8px; color: #d4d4d8; font-size: 15px; }
+    .primary-path li:last-child { margin-bottom: 0; }
+    code { background: #27272a; padding: 2px 6px; border-radius: 4px; color: #c8956c; font-size: 14px; }
+    .fallback { margin-top: 20px; padding: 16px 20px; background: #111114; border-radius: 8px; border: 1px solid #27272a; }
+    .fallback p { font-size: 14px; color: #71717a; margin: 0; }
+    .fallback strong { color: #a1a1aa; }
+    .success-icon { font-size: 48px; margin-bottom: 16px; }
   </style>
 </head>
 <body>
   <div class="card">
+    <div class="success-icon">&#10003;</div>
     <h1>Welcome to Vessel Premium!</h1>
-    <p>Your subscription is active.</p>
-    <p>If you started checkout from inside Vessel, the app should unlock automatically in a few seconds.</p>
-    <ol class="steps">
-      <li>Return to <strong>Vessel</strong></li>
-      <li>Wait a few seconds for automatic activation</li>
-      <li>If Premium is still locked, open <strong>Settings</strong> (Ctrl+,)</li>
-      <li>Scroll to the <strong>Premium</strong> section</li>
-      <li>Enter the <strong>subscription email</strong> you used at checkout</li>
-      <li>Request a short verification code and enter it in Vessel</li>
-    </ol>
-    <p>The code fallback is only needed when the original checkout session is no longer available on this device.</p>
+    <p class="subtitle">Your 7-day free trial is now active.</p>
+    <p>You won't be charged until the trial ends.</p>
+
+    <div class="primary-path">
+      <h3>Next Step — Activate in Vessel</h3>
+      <ol>
+        <li>Return to <strong>Vessel</strong> — Premium should unlock automatically</li>
+        <li>If not, open <strong>Settings</strong> (<code>Ctrl+,</code>) and go to the <strong>Premium</strong> section</li>
+        <li>Enter the <strong>email</strong> you used at checkout and verify with the code we sent</li>
+      </ol>
+    </div>
+
+    <div class="fallback">
+      <p><strong>Didn't get a code?</strong> Check your spam folder, or reach out to <strong>hello@quantaintellect.com</strong> and we'll get you sorted.</p>
+    </div>
   </div>
 </body>
 </html>`,

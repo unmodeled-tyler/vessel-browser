@@ -13,6 +13,7 @@ MCP_STDIO_SNIPPET_PATH="$CONFIG_DIR/mcp-stdio-snippet.json"
 MCP_SNIPPET_PATH="$CONFIG_DIR/mcp-http-snippet.json"
 HERMES_SNIPPET_PATH="$CONFIG_DIR/mcp-hermes-snippet.yaml"
 MCP_PORT="${VESSEL_MCP_PORT:-3100}"
+REQUIRED_NODE_VERSION="22.12.0"
 
 info() {
   printf '\033[1;34m==>\033[0m %s\n' "$1"
@@ -31,6 +32,24 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
+require_node_version() {
+  local current
+  current="$(node -p 'process.versions.node')"
+  node - "$REQUIRED_NODE_VERSION" <<'NODE' || fail "Node.js >=${REQUIRED_NODE_VERSION} is required. Current version: ${current}. Install Node 22 and try again."
+const [required] = process.argv.slice(2);
+const current = process.versions.node;
+const parse = (version) => version.split(".").map((part) => Number(part));
+const [currentMajor, currentMinor, currentPatch] = parse(current);
+const [requiredMajor, requiredMinor, requiredPatch] = parse(required);
+const ok =
+  currentMajor > requiredMajor ||
+  (currentMajor === requiredMajor &&
+    (currentMinor > requiredMinor ||
+      (currentMinor === requiredMinor && currentPatch >= requiredPatch)));
+process.exit(ok ? 0 : 1);
+NODE
+}
+
 if [[ "$(uname -s)" != "Linux" ]]; then
   fail "Vessel currently supports Linux installs only."
 fi
@@ -38,6 +57,7 @@ fi
 require_cmd git
 require_cmd node
 require_cmd npm
+require_node_version
 
 mkdir -p "$BIN_DIR" "$DESKTOP_DIR" "$CONFIG_DIR"
 
