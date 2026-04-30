@@ -11,7 +11,10 @@ Vessel is an agent-first browser runtime in active development. Contributions ar
 
 ## Local Setup
 
+Vessel development uses Node.js 22. If you use `fnm`, run `fnm use` from the repo root to pick up `.node-version`.
+
 ```bash
+fnm use
 npm install
 npm run dev
 ```

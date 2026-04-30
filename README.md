@@ -61,6 +61,8 @@ curl -fsSL https://raw.githubusercontent.com/unmodeled-tyler/quanta-vessel-brows
 
 ### Development From Source
 
+Vessel development uses Node.js 22. If you use `fnm`, run `fnm use` from the repo root to pick up `.node-version`.
+
 ```bash
 npm install
 npm run dev
@@ -189,6 +191,9 @@ vessel-browser
 ```
 
 ```bash
+# Use the pinned Node.js 22 runtime
+fnm use
+
 # Install dependencies
 npm install
 
