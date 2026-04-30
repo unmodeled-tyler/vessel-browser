@@ -60,3 +60,7 @@ navigation-regression.ts
 hf-space/
 tests/input-coercion.test.ts
 .webui_secret_key
+scripts/cloudflare-worker/wrangler.toml
+scripts/cloudflare-worker/vessel-premium-api.js
+scripts/cloudflare-worker/vessel-premium-api.js
+package-lock.json

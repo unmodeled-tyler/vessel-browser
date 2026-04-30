@@ -30,7 +30,12 @@ vessel-browser
 
 ## Local Development
 
+Vessel development uses Node.js 22. If you use `fnm`, run `fnm use` from the repo root to pick up `.node-version`.
+
 ```bash
+# Use the pinned Node.js 22 runtime
+fnm use
+
 # Install dependencies
 npm install
 
