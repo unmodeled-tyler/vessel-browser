@@ -1,0 +1,89 @@
+import { createSignal } from "solid-js";
+import type { ResearchState } from "../../../shared/research-types";
+
+const initialState: ResearchState = {
+  phase: "idle",
+  supervisionMode: "interactive",
+  includeTraces: false,
+  objectives: null,
+  threads: [],
+  threadFindings: [],
+  report: null,
+  subAgentTraces: [],
+  error: null,
+  startedAt: null,
+};
+
+const [researchState, setResearchState] = createSignal<ResearchState>(initialState);
+const [isResearchPremium, setIsResearchPremium] = createSignal(false);
+
+let initialized = false;
+let cleanup: (() => void) | null = null;
+
+function init(): void {
+  if (initialized) return;
+  initialized = true;
+
+  // Check premium status
+  window.vessel.premium.getState().then((premium) => {
+    setIsResearchPremium(premium.status === "active");
+  });
+
+  // Fetch initial state
+  window.vessel.research.getState().then((state) => {
+    setResearchState(state);
+  });
+
+  // Listen for state updates
+  cleanup = window.vessel.research.onStateUpdate((state) => {
+    setResearchState(state);
+  });
+}
+
+export function useResearch() {
+  init();
+
+  return {
+    state: researchState,
+    isPremium: isResearchPremium,
+
+    startBrief(query: string) {
+      return window.vessel.research.startBrief(query);
+    },
+
+    confirmBrief() {
+      return window.vessel.research.confirmBrief();
+    },
+
+    approveObjectives(options?: {
+      supervisionMode?: "walk-away" | "interactive";
+      includeTraces?: boolean;
+    }) {
+      return window.vessel.research.approveObjectives(options);
+    },
+
+    setMode(mode: "walk-away" | "interactive") {
+      return window.vessel.research.setMode(mode);
+    },
+
+    setTraces(include: boolean) {
+      return window.vessel.research.setTraces(include);
+    },
+
+    cancel() {
+      return window.vessel.research.cancel();
+    },
+
+    exportReport() {
+      return window.vessel.research.exportReport();
+    },
+
+    destroy() {
+      if (cleanup) {
+        cleanup();
+        cleanup = null;
+      }
+      initialized = false;
+    },
+  };
+}
