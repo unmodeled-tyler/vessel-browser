@@ -90,7 +90,6 @@ export const PREMIUM_TOOLS = new Set([
   "human_vault_list",
   "human_vault_fill",
   "human_vault_remove",
-  "research_start",
   "research_confirm_brief",
   "research_approve_objectives",
   "research_export_report",

@@ -155,36 +155,49 @@ export class ResearchOrchestrator {
         return false;
       }
 
-      const threads: ResearchThread[] = parsed.threads.map((t: unknown, i: number) => {
-        const obj = t as Record<string, unknown>;
-        return {
-          label: String(obj.label || `Thread ${i + 1}`),
-          question: String(obj.question || ""),
-          searchQueries: Array.isArray(obj.searchQueries)
-            ? obj.searchQueries.map((q) => String(q))
-            : [],
-          preferredDomains: Array.isArray(obj.preferredDomains)
-            ? obj.preferredDomains.map((d) => String(d))
-            : [],
-          blockedDomains: Array.isArray(obj.blockedDomains)
-            ? obj.blockedDomains.map((d) => String(d))
-            : [],
-          sourceBudget:
-            typeof obj.sourceBudget === "number" ? obj.sourceBudget : 5,
-        };
-      });
+      const threads: ResearchThread[] = parsed.threads
+        .map((t: unknown, i: number) => {
+          const obj = t as Record<string, unknown>;
+          const question = String(obj.question || "").trim();
+          const searchQueries = Array.isArray(obj.searchQueries)
+            ? obj.searchQueries
+                .map((q) => String(q).trim())
+                .filter(Boolean)
+            : [];
+          const sourceBudget =
+            typeof obj.sourceBudget === "number" &&
+            Number.isFinite(obj.sourceBudget)
+              ? Math.max(1, Math.floor(obj.sourceBudget))
+              : 5;
+          return {
+            label: String(obj.label || `Thread ${i + 1}`),
+            question,
+            searchQueries,
+            preferredDomains: Array.isArray(obj.preferredDomains)
+              ? obj.preferredDomains.map((d) => String(d).trim()).filter(Boolean)
+              : [],
+            blockedDomains: Array.isArray(obj.blockedDomains)
+              ? obj.blockedDomains.map((d) => String(d).trim()).filter(Boolean)
+              : [],
+            sourceBudget,
+          };
+        })
+        .filter((thread) => thread.question && thread.searchQueries.length > 0)
+        .slice(0, MAX_THREADS);
+
+      if (threads.length === 0) {
+        logger.warn("Objectives JSON did not contain any valid research threads");
+        return false;
+      }
 
       const objectives: ResearchObjectives = {
-        researchQuestion: String(parsed.researchQuestion),
-        threads: threads.slice(0, MAX_THREADS),
-        audience: String(parsed.audience || "general"),
+        researchQuestion: String(parsed.researchQuestion).trim(),
+        threads,
+        audience: String(parsed.audience || "general").trim(),
         reportOutline: Array.isArray(parsed.reportOutline)
-          ? parsed.reportOutline.map((s) => String(s))
+          ? parsed.reportOutline.map((s) => String(s).trim()).filter(Boolean)
           : [],
-        totalSourceBudget:
-          typeof parsed.totalSourceBudget === "number"
-            ? parsed.totalSourceBudget
-            : threads.reduce((sum, t) => sum + t.sourceBudget, 0),
+        totalSourceBudget: threads.reduce((sum, t) => sum + t.sourceBudget, 0),
       };
 
       this.setObjectives(objectives);
@@ -217,10 +230,13 @@ export class ResearchOrchestrator {
 
     // Run sub-agents sequentially to avoid tab-switching race conditions
     for (const thread of this.state.threads) {
+      if (this.state.phase !== "executing") return;
       try {
         const result = await this.runSubAgent(thread);
+        if (this.state.phase !== "executing") return;
         findings.push(result);
       } catch (err) {
+        if (this.state.phase !== "executing") return;
         logger.error(`Sub-agent "${thread.label}" failed`, err);
         findings.push({
           threadLabel: thread.label,
@@ -232,6 +248,7 @@ export class ResearchOrchestrator {
       }
     }
 
+    if (this.state.phase !== "executing") return;
     this.state.threadFindings = findings;
     this.setPhase("synthesizing");
 
@@ -256,9 +273,9 @@ export class ResearchOrchestrator {
       finishedAt: "",
     };
 
+    const saveActiveId = this.tabManager.getActiveTabId();
     // Create a dedicated tab for this sub-agent
     const tabId = this.tabManager.createTab();
-    const saveActiveId = this.tabManager.getActiveTabId();
 
     // Switch to the sub-agent's tab so all tool calls target it
     if (tabId) this.tabManager.switchTab(tabId);
@@ -419,16 +436,24 @@ ${transcript.slice(0, 32000)}`;
     }
 
     try {
-      const raw = JSON.parse(json) as Array<Record<string, unknown>>;
-      return raw.map((c) => ({
-        claim: String(c.claim || ""),
-        sourceUrl: String(c.sourceUrl || ""),
-        sourceTitle: String(c.sourceTitle || c.sourceUrl || "Unknown"),
-        extractedQuote: String(c.extractedQuote || ""),
-        extractedAt: new Date().toISOString(),
-        threadLabel: thread.label,
-        relevanceNote: String(c.relevanceNote || ""),
-      }));
+      const raw = JSON.parse(json);
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map((item: unknown) => {
+          const c = item as Record<string, unknown>;
+          return {
+            claim: String(c.claim || "").trim(),
+            sourceUrl: String(c.sourceUrl || "").trim(),
+            sourceTitle: String(c.sourceTitle || c.sourceUrl || "Unknown").trim(),
+            extractedQuote: String(c.extractedQuote || "").trim(),
+            extractedAt: new Date().toISOString(),
+            threadLabel: thread.label,
+            relevanceNote: String(c.relevanceNote || "").trim(),
+          };
+        })
+        .filter(
+          (claim) => claim.claim && claim.sourceUrl && claim.extractedQuote,
+        );
     } catch {
       logger.warn(`Failed to parse claims JSON for "${thread.label}"`);
       return [];

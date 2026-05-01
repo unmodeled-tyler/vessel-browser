@@ -17,7 +17,10 @@ ${f.claims
     (c, i) =>
       `${i + 1}. ${c.claim}
    Source: ${c.sourceUrl}
-   Quote: "${c.extractedQuote}"`,
+   Title: ${c.sourceTitle}
+   Accessed: ${c.extractedAt}
+   Quote: "${c.extractedQuote}"
+   Relevance: ${c.relevanceNote}`,
   )
   .join("\n")}
 
@@ -39,7 +42,7 @@ INSTRUCTIONS:
 1. Write an executive summary (2-3 paragraphs).
 2. Write one section per thread, using the claims above.
 3. Every factual claim MUST cite its source using the numbered index format [1], [2], etc.
-4. Create a numbered Source Index at the end with URLs, titles, and supporting quotes.
+4. Create a numbered Source Index at the end with URLs, titles, access timestamps, and supporting quotes from the claim metadata.
 5. Explicitly flag any contradictions between sources.
 6. Explicitly flag any gaps — things the research did not answer.
 7. Do not invent anything. Only use claims from the findings above.

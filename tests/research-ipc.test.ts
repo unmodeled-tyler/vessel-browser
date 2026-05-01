@@ -1,8 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import type { ResearchState } from "../src/shared/research-types";
+import { PREMIUM_TOOLS } from "../src/main/premium/manager";
 
 describe("Research IPC handler contracts", () => {
+  it("allows free users to start the brief before premium-gated execution", () => {
+    assert.equal(PREMIUM_TOOLS.has("research_start"), false);
+    assert.equal(PREMIUM_TOOLS.has("research_confirm_brief"), true);
+    assert.equal(PREMIUM_TOOLS.has("research_approve_objectives"), true);
+  });
+
   it("RESEARCH_START_BRIEF returns accepted:true when idle", async () => {
     // Simulate what the IPC handler does — check phase === idle
     const state: ResearchState = {

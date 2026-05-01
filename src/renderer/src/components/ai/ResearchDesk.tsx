@@ -12,31 +12,16 @@ export const ResearchDesk: Component = () => {
           <div class="research-idle">
             <h3>Research Desk</h3>
             <p>Deep research with parallel sub-agents. I'll interview you to refine your question, then spawn agents to investigate multiple angles simultaneously. Every claim in the final report is source-anchored.</p>
-            <Show
-              when={research.isPremium()}
-              fallback={
-                <div class="premium-upsell">
-                  <p>Research Desk is a Premium feature.</p>
-                  <button onClick={() => window.vessel.premium.checkout()}>
-                    Upgrade to Premium
-                  </button>
-                </div>
-              }
+            <button
+              class="research-start-btn"
+              onClick={async () => {
+                await research.startBrief(
+                  prompt("What would you like to research?") ?? "",
+                );
+              }}
             >
-              <button
-                class="research-start-btn"
-                onClick={async () => {
-                  const result = await research.startBrief(
-                    prompt("What would you like to research?") ?? "",
-                  );
-                  if (!result.accepted && result.reason === "premium") {
-                    // show premium upsell
-                  }
-                }}
-              >
-                Start Research
-              </button>
-            </Show>
+              Start Research
+            </button>
           </div>
         </Match>
 
@@ -45,7 +30,14 @@ export const ResearchDesk: Component = () => {
             <h3>Briefing</h3>
             <p>Answer the questions in the Chat tab to refine your research question.</p>
             <div class="phase-controls">
-              <button onClick={() => research.confirmBrief()}>
+              <button
+                onClick={async () => {
+                  const result = await research.confirmBrief();
+                  if (!result.accepted && result.reason === "premium") {
+                    void window.vessel.premium.checkout();
+                  }
+                }}
+              >
                 Confirm Brief
               </button>
               <button class="secondary" onClick={() => research.cancel()}>

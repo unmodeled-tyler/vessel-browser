@@ -1476,12 +1476,11 @@ if (researchState && (researchState.phase === "briefing" || researchState.phase 
     (researchState.phase === "planning"
       ? "Now produce the Research Objectives based on the brief conversation above."
       : "Continue the briefing interview. Ask one question at a time.");
-  
+
   // Use streamAgentQuery with the orchestrator prompt
   // ... (rest of the streaming logic)
 }
 ```
-
 This is a refinement step — the exact integration point depends on how `handleAIQuery` is currently called from handlers.ts.
 
 - [ ] **Step 2: Run typecheck**
@@ -1721,4 +1720,3 @@ Expected: PASS across all files
 git add tests/research-smoke.test.ts
 git commit -m "test(research): add smoke tests for report export"
 ```
-

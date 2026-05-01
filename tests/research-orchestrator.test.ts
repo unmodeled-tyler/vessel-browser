@@ -7,25 +7,68 @@ import type {
 } from "../src/shared/research-types";
 import { ResearchOrchestrator } from "../src/main/agent/research/orchestrator";
 import type { AIProvider } from "../src/main/ai/provider";
-import type { TabManager } from "../src/tabs/tab-manager";
-import type { AgentRuntime } from "../src/agent/runtime";
+import type { AgentRuntime } from "../src/main/agent/runtime";
+import type { TabManager } from "../src/main/tabs/tab-manager";
 
 function makeMockProvider(): AIProvider {
   return {
     agentToolProfile: "default",
-    streamQuery: async () => {},
+    streamQuery: async (
+      systemPrompt,
+      _userMessage,
+      onChunk,
+      onEnd,
+    ) => {
+      if (systemPrompt.includes("claim extractor")) {
+        onChunk("[]");
+      } else {
+        onChunk(`# Test Report
+
+## Executive Summary
+Completed test synthesis.
+
+## Hardware
+No claims were found.
+
+## Source Index
+`);
+      }
+      onEnd();
+    },
+    streamAgentQuery: async (
+      _systemPrompt,
+      _userMessage,
+      _tools,
+      onChunk,
+      _onToolCall,
+      onEnd,
+    ) => {
+      onChunk("Visited no pages.");
+      onEnd();
+    },
     cancel: () => {},
   };
 }
 
-function makeMockTabManager(): TabManager {
+function makeMockTabManager(): TabManager & { activeId: string } {
+  let activeId = "tab-1";
+  let nextId = 1;
   return {
-    createTab: () => "",
-    switchTab: () => {},
-    getActiveTabId: () => "tab-1",
+    get activeId() {
+      return activeId;
+    },
+    createTab: () => {
+      nextId += 1;
+      activeId = `tab-${nextId}`;
+      return activeId;
+    },
+    switchTab: (id: string) => {
+      activeId = id;
+    },
+    getActiveTabId: () => activeId,
     getActiveTab: () => null,
     getAllStates: () => [],
-  } as unknown as TabManager;
+  } as unknown as TabManager & { activeId: string };
 }
 
 function makeMockRuntime(): AgentRuntime {
@@ -183,5 +226,155 @@ describe("ResearchState transitions", () => {
       orch.getState().objectives!.researchQuestion,
       "What is quantum supremacy?",
     );
+  });
+
+  it("parseAndSetObjectives rejects threads without questions or searches", async () => {
+    const orch = new ResearchOrchestrator(
+      makeMockProvider(),
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+    await orch.startBrief("test");
+    orch.confirmBrief();
+
+    const result = orch.parseAndSetObjectives(
+      JSON.stringify({
+        researchQuestion: "What should we research?",
+        threads: [
+          { label: "Missing question", searchQueries: ["topic"] },
+          { label: "Missing search", question: "What happened?" },
+        ],
+      }),
+    );
+
+    assert.strictEqual(result, false);
+    assert.strictEqual(orch.getState().phase, "planning");
+  });
+
+  it("parseAndSetObjectives clamps threads and recomputes source budget", async () => {
+    const orch = new ResearchOrchestrator(
+      makeMockProvider(),
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+    await orch.startBrief("test");
+    orch.confirmBrief();
+
+    const result = orch.parseAndSetObjectives(
+      JSON.stringify({
+        researchQuestion: "What should we research?",
+        threads: Array.from({ length: 6 }, (_, index) => ({
+          label: `Thread ${index + 1}`,
+          question: `Question ${index + 1}?`,
+          searchQueries: [`query ${index + 1}`],
+          sourceBudget: index === 0 ? -10 : 2,
+        })),
+        totalSourceBudget: 999,
+      }),
+    );
+
+    const state = orch.getState();
+    assert.strictEqual(result, true);
+    assert.strictEqual(state.objectives?.threads.length, 5);
+    assert.strictEqual(state.objectives?.threads[0].sourceBudget, 1);
+    assert.strictEqual(state.objectives?.totalSourceBudget, 9);
+  });
+
+  it("executeSubAgents restores the originally active tab", async () => {
+    const tabManager = makeMockTabManager();
+    const orch = new ResearchOrchestrator(
+      makeMockProvider(),
+      tabManager,
+      makeMockRuntime(),
+    );
+    await orch.startBrief("test");
+    orch.confirmBrief();
+    orch.setObjectives({
+      researchQuestion: "What should we research?",
+      threads: [
+        {
+          label: "Hardware",
+          question: "Who leads quantum hardware?",
+          searchQueries: ["quantum hardware"],
+          preferredDomains: [],
+          blockedDomains: [],
+          sourceBudget: 1,
+        },
+      ],
+      audience: "general",
+      reportOutline: ["Hardware"],
+      totalSourceBudget: 1,
+    });
+    orch.approveObjectives();
+
+    await orch.executeSubAgents();
+
+    assert.strictEqual(tabManager.activeId, "tab-1");
+    assert.strictEqual(orch.getState().phase, "delivered");
+    assert.ok(orch.getState().report);
+  });
+
+  it("does not deliver a report after cancellation during execution", async () => {
+    let releaseAgent!: () => void;
+    let synthesisCalled = false;
+    const provider: AIProvider = {
+      agentToolProfile: "default",
+      streamQuery: async (systemPrompt, _userMessage, onChunk, onEnd) => {
+        if (!systemPrompt.includes("claim extractor")) {
+          synthesisCalled = true;
+        }
+        onChunk("[]");
+        onEnd();
+      },
+      streamAgentQuery: async (
+        _systemPrompt,
+        _userMessage,
+        _tools,
+        onChunk,
+        _onToolCall,
+        onEnd,
+      ) => {
+        onChunk("Research in progress.");
+        await new Promise<void>((resolve) => {
+          releaseAgent = resolve;
+        });
+        onEnd();
+      },
+      cancel: () => {},
+    };
+    const orch = new ResearchOrchestrator(
+      provider,
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+    await orch.startBrief("test");
+    orch.confirmBrief();
+    orch.setObjectives({
+      researchQuestion: "What should we research?",
+      threads: [
+        {
+          label: "Hardware",
+          question: "Who leads quantum hardware?",
+          searchQueries: ["quantum hardware"],
+          preferredDomains: [],
+          blockedDomains: [],
+          sourceBudget: 1,
+        },
+      ],
+      audience: "general",
+      reportOutline: ["Hardware"],
+      totalSourceBudget: 1,
+    });
+    orch.approveObjectives();
+
+    const execution = orch.executeSubAgents();
+    await Promise.resolve();
+    orch.cancel();
+    releaseAgent();
+    await execution;
+
+    assert.strictEqual(orch.getState().phase, "idle");
+    assert.strictEqual(orch.getState().report, null);
+    assert.strictEqual(synthesisCalled, false);
   });
 });

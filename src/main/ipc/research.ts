@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
 import { createLogger } from "../../shared/logger";
 import type { ResearchOrchestrator } from "../agent/research/orchestrator";
+import { renderReportAsMarkdown } from "../agent/research/export";
 import { isToolGated } from "../premium/manager";
 
 const logger = createLogger("ResearchIPC");
@@ -17,8 +18,8 @@ export function registerResearchHandlers(
     Channels.RESEARCH_START_BRIEF,
     async (_event, query: string) => {
       try {
-        if (isToolGated("research_start")) {
-          return { accepted: false, reason: "premium" as const };
+        if (getOrchestrator().getState().phase !== "idle") {
+          return { accepted: false, reason: "busy" as const };
         }
         await getOrchestrator().startBrief(query);
         return { accepted: true };
@@ -30,7 +31,11 @@ export function registerResearchHandlers(
   );
 
   ipcMain.handle(Channels.RESEARCH_CONFIRM_BRIEF, () => {
+    if (isToolGated("research_confirm_brief")) {
+      return { accepted: false, reason: "premium" as const };
+    }
     getOrchestrator().confirmBrief();
+    return { accepted: true };
   });
 
   ipcMain.handle(
@@ -88,7 +93,12 @@ export function registerResearchHandlers(
       const state = getOrchestrator().getState();
       return {
         accepted: true,
-        report: state.report,
+        report: state.report
+          ? renderReportAsMarkdown(
+              state.report,
+              state.includeTraces ? state.subAgentTraces : undefined,
+            )
+          : null,
         format: "markdown" as const,
       };
     } catch (err) {

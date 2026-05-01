@@ -32,7 +32,7 @@ import type {
   PageDiffHistoryItem,
 } from "../shared/page-diff-types";
 import type { DevToolsPanelState } from "../main/devtools/types";
-import type { ResearchReport, ResearchState } from "../shared/research-types";
+import type { ResearchState } from "../shared/research-types";
 
 const api = {
   tabs: {
@@ -212,10 +212,12 @@ const api = {
     },
     startBrief: (query: string) =>
       ipcRenderer.invoke<
-        { accepted: true } | { accepted: false; reason: "premium" | "error" }
+        { accepted: true } | { accepted: false; reason: "busy" | "error" }
       >(Channels.RESEARCH_START_BRIEF, query),
     confirmBrief: () =>
-      ipcRenderer.invoke(Channels.RESEARCH_CONFIRM_BRIEF),
+      ipcRenderer.invoke<
+        { accepted: true } | { accepted: false; reason: "premium" }
+      >(Channels.RESEARCH_CONFIRM_BRIEF),
     approveObjectives: (options?: {
       supervisionMode?: "walk-away" | "interactive";
       includeTraces?: boolean;
@@ -230,7 +232,7 @@ const api = {
     cancel: () => ipcRenderer.invoke(Channels.RESEARCH_CANCEL),
     exportReport: () =>
       ipcRenderer.invoke<
-        | { accepted: true; report: ResearchReport | null; format: "markdown" }
+        | { accepted: true; report: string | null; format: "markdown" }
         | { accepted: false; reason: "premium" | "error" }
       >(Channels.RESEARCH_EXPORT_REPORT),
   },

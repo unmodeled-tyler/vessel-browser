@@ -1,7 +1,7 @@
 # Research Desk — Design Spec
 
 **Date:** 2026-05-01
-**Status:** Design approved, awaiting implementation plan
+**Status:** Design approved, implementation plan drafted
 
 ## Overview
 

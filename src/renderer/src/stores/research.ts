@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { ResearchState } from "../../../shared/research-types";
+import { isPremiumStatus } from "../lib/premium";
 
 const initialState: ResearchState = {
   phase: "idle",
@@ -26,7 +27,7 @@ function init(): void {
 
   // Check premium status
   window.vessel.premium.getState().then((premium) => {
-    setIsResearchPremium(premium.status === "active");
+    setIsResearchPremium(isPremiumStatus(premium.status));
   });
 
   // Fetch initial state
