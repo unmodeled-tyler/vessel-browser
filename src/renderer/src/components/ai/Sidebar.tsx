@@ -30,6 +30,7 @@ import type {
 import { useScrollFade } from "../../lib/useScrollFade";
 import DropdownSelect from "../shared/DropdownSelect";
 import AutomationTab from "./AutomationTab";
+import { ResearchDesk } from "./ResearchDesk";
 import PageDiffTimeline from "./PageDiffTimeline";
 import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
@@ -965,6 +966,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
           >
             Changes
           </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "research" }}
+            role="tab"
+            aria-selected={sidebarTab() === "research"}
+            onClick={() => setSidebarTab("research")}
+          >
+            Research
+          </button>
         </div>
 
         <div
@@ -1863,6 +1873,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
           <Show when={sidebarTab() === "automation"}>
             <AutomationTab onRun={() => setSidebarTab("supervisor")} />
+          </Show>
+
+          <Show when={sidebarTab() === "research"}>
+            <ResearchDesk />
           </Show>
 
           <Show when={sidebarTab() === "history"}>
