@@ -749,3 +749,17 @@ export interface ImportResult {
   skipped: number;
   errors: number;
 }
+
+// --- Research Desk ---
+
+export type {
+  ResearchPhase,
+  SupervisionMode,
+  ResearchThread,
+  ResearchObjectives,
+  SourcedClaim,
+  ThreadFindings,
+  ResearchReport,
+  SubAgentTrace,
+  ResearchState,
+} from "./research-types";
