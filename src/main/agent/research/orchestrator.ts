@@ -22,7 +22,7 @@ const logger = createLogger("ResearchOrchestrator");
 const MAX_THREADS = 5;
 
 function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value);
 }
 
 export class ResearchOrchestrator {
@@ -81,8 +81,7 @@ export class ResearchOrchestrator {
   }
 
   cancel(): void {
-    this.state = this.initialState();
-    this.emit();
+    this.reset();
   }
 
   async startBrief(userQuery: string): Promise<void> {
@@ -149,7 +148,7 @@ export class ResearchOrchestrator {
   }
 
   private async runSubAgent(thread: ResearchThread): Promise<ThreadFindings> {
-    const tabId = randomUUID();
+    const _tabId = randomUUID(); // Wire into sub-agent loop in Task 14
     const traces: SubAgentTrace = {
       threadLabel: thread.label,
       toolCalls: [],
@@ -164,7 +163,7 @@ export class ResearchOrchestrator {
     try {
       // Create a new tab for this sub-agent
       await this.tabManager.createTab();
-      const systemPrompt = buildSubAgentSystemPrompt(thread);
+      const _systemPrompt = buildSubAgentSystemPrompt(thread); // Wire into sub-agent loop in Task 14
 
       // The sub-agent queries are driven by the orchestrator calling the AI
       // with tools available. The orchestrator manages the conversation loop
