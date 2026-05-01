@@ -36,16 +36,36 @@ export async function handleAIQuery(
   if (researchOrchestrator) {
     const researchState = researchOrchestrator.getState();
     if (researchState.phase === "briefing" || researchState.phase === "planning") {
-      const phaseInstruction =
-        researchState.phase === "planning"
-          ? "\n\nNow produce the Research Objectives based on the brief conversation above."
-          : "\n\nContinue the briefing interview. Ask one question at a time.";
+      const isPlanning = researchState.phase === "planning";
+      const phaseInstruction = isPlanning
+        ? "\n\nNow produce the Research Objectives based on the brief conversation above. Output them as a JSON object with researchQuestion, threads (array of {label, question, searchQueries, sourceBudget}), audience, reportOutline, and totalSourceBudget fields."
+        : "\n\nContinue the briefing interview. Ask one question at a time.";
+
+      let fullResponse = "";
+      const wrappedOnChunk = (text: string) => {
+        fullResponse += text;
+        onChunk(text);
+      };
+
+      const wrappedOnEnd = () => {
+        // In planning phase, try to parse objectives from the response
+        if (isPlanning) {
+          const parsed = researchOrchestrator.parseAndSetObjectives(fullResponse);
+          if (!parsed) {
+            // Parsing failed — the LLM didn't produce valid JSON
+            onChunk(
+              "\n\n[Failed to parse objectives. Please try confirming the brief again or refine your research question.]",
+            );
+          }
+        }
+        onEnd();
+      };
 
       await provider.streamQuery(
         buildOrchestratorSystemPrompt() + phaseInstruction,
         query,
-        onChunk,
-        onEnd,
+        wrappedOnChunk,
+        wrappedOnEnd,
         history,
       );
       return;

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { createLogger } from "../../../shared/logger";
 import type {
   ResearchState,
@@ -13,8 +12,10 @@ import type {
 } from "../../../shared/research-types";
 import { buildOrchestratorSystemPrompt } from "./orchestrator-prompt";
 import { buildSubAgentSystemPrompt } from "./sub-agent-prompt";
+import { buildSynthesisPrompt } from "./synthesis-prompt";
 import type { AIProvider } from "../../ai/provider";
 import { AGENT_TOOLS } from "../../ai/tools";
+import { executeAction, type ActionContext } from "../../ai/page-actions";
 import type { TabManager } from "../../tabs/tab-manager";
 import type { AgentRuntime } from "../runtime";
 
@@ -36,6 +37,8 @@ export class ResearchOrchestrator {
   ) {
     this.state = this.initialState();
   }
+
+  // ── state access ──────────────────────────────────────────────
 
   private initialState(): ResearchState {
     return {
@@ -70,6 +73,8 @@ export class ResearchOrchestrator {
     this.emit();
   }
 
+  // ── supervision / config ──────────────────────────────────────
+
   setSupervisionMode(mode: SupervisionMode): void {
     this.state.supervisionMode = mode;
     this.emit();
@@ -84,22 +89,19 @@ export class ResearchOrchestrator {
     this.reset();
   }
 
+  // ── phase: idle → briefing ────────────────────────────────────
+
   async startBrief(userQuery: string): Promise<void> {
     if (this.state.phase !== "idle") {
       logger.warn("Research already in progress, ignoring startBrief");
       return;
     }
-
     this.state.startedAt = new Date().toISOString();
     this.setPhase("briefing");
-
-    // The brief runs as a chat conversation. The initial message primes the
-    // orchestrator with the user's query and asks the first clarifying question.
-    // We use the chat's streamAgentQuery path for this.
-    // For now, this method just transitions state; the actual chat interaction
-    // is driven through the IPC handler (Task 7).
     logger.info(`Brief started for query: ${userQuery.slice(0, 120)}`);
   }
+
+  // ── phase: briefing → planning ─────────────────────────────────
 
   confirmBrief(): void {
     if (this.state.phase !== "briefing") {
@@ -108,6 +110,8 @@ export class ResearchOrchestrator {
     }
     this.setPhase("planning");
   }
+
+  // ── phase: planning → awaiting_approval ────────────────────────
 
   setObjectives(objectives: ResearchObjectives): void {
     if (this.state.phase !== "planning") {
@@ -119,6 +123,81 @@ export class ResearchOrchestrator {
     this.setPhase("awaiting_approval");
   }
 
+  /**
+   * Parse a planning-phase LLM response into ResearchObjectives.
+   * Expects JSON (optionally wrapped in ```json fences).
+   * Returns true if parsing succeeded and objectives were set.
+   */
+  parseAndSetObjectives(text: string): boolean {
+    if (this.state.phase !== "planning") return false;
+
+    // Extract JSON from markdown fences if present
+    let json = text;
+    const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (fenceMatch) {
+      json = fenceMatch[1].trim();
+    } else {
+      // Try to find a JSON object starting with { and ending with }
+      const objMatch = text.match(/\{[\s\S]*\}/);
+      if (objMatch) json = objMatch[0];
+    }
+
+    try {
+      const parsed = JSON.parse(json) as Record<string, unknown>;
+
+      // Validate required fields
+      if (typeof parsed.researchQuestion !== "string" || !parsed.researchQuestion.trim()) {
+        logger.warn("Missing researchQuestion in objectives JSON");
+        return false;
+      }
+      if (!Array.isArray(parsed.threads) || parsed.threads.length === 0) {
+        logger.warn("Missing or empty threads array in objectives JSON");
+        return false;
+      }
+
+      const threads: ResearchThread[] = parsed.threads.map((t: unknown, i: number) => {
+        const obj = t as Record<string, unknown>;
+        return {
+          label: String(obj.label || `Thread ${i + 1}`),
+          question: String(obj.question || ""),
+          searchQueries: Array.isArray(obj.searchQueries)
+            ? obj.searchQueries.map((q) => String(q))
+            : [],
+          preferredDomains: Array.isArray(obj.preferredDomains)
+            ? obj.preferredDomains.map((d) => String(d))
+            : [],
+          blockedDomains: Array.isArray(obj.blockedDomains)
+            ? obj.blockedDomains.map((d) => String(d))
+            : [],
+          sourceBudget:
+            typeof obj.sourceBudget === "number" ? obj.sourceBudget : 5,
+        };
+      });
+
+      const objectives: ResearchObjectives = {
+        researchQuestion: String(parsed.researchQuestion),
+        threads: threads.slice(0, MAX_THREADS),
+        audience: String(parsed.audience || "general"),
+        reportOutline: Array.isArray(parsed.reportOutline)
+          ? parsed.reportOutline.map((s) => String(s))
+          : [],
+        totalSourceBudget:
+          typeof parsed.totalSourceBudget === "number"
+            ? parsed.totalSourceBudget
+            : threads.reduce((sum, t) => sum + t.sourceBudget, 0),
+      };
+
+      this.setObjectives(objectives);
+      logger.info(`Parsed ${objectives.threads.length} threads from objectives`);
+      return true;
+    } catch (err) {
+      logger.warn("Failed to parse objectives JSON", err);
+      return false;
+    }
+  }
+
+  // ── phase: awaiting_approval → executing ───────────────────────
+
   approveObjectives(mode?: SupervisionMode, includeTraces?: boolean): void {
     if (this.state.phase !== "awaiting_approval") {
       logger.warn("Not awaiting approval, ignoring approveObjectives");
@@ -129,27 +208,47 @@ export class ResearchOrchestrator {
     this.setPhase("executing");
   }
 
+  // ── phase: executing → synthesizing ────────────────────────────
+
   async executeSubAgents(): Promise<void> {
     if (this.state.phase !== "executing" || !this.state.objectives) return;
 
-    const promises = this.state.threads.map((thread) =>
-      this.runSubAgent(thread),
-    );
+    const findings: ThreadFindings[] = [];
 
-    try {
-      const findings = await Promise.all(promises);
-      this.state.threadFindings = findings;
-    } catch (err) {
-      logger.error("Sub-agent execution failed", err);
-      this.state.error = `Sub-agent execution failed: ${String(err)}`;
+    // Run sub-agents sequentially to avoid tab-switching race conditions
+    for (const thread of this.state.threads) {
+      try {
+        const result = await this.runSubAgent(thread);
+        findings.push(result);
+      } catch (err) {
+        logger.error(`Sub-agent "${thread.label}" failed`, err);
+        findings.push({
+          threadLabel: thread.label,
+          threadQuestion: thread.question,
+          claims: [],
+          discardedSources: [],
+          executionSummary: `Failed: ${String(err)}`,
+        });
+      }
     }
 
+    this.state.threadFindings = findings;
     this.setPhase("synthesizing");
+
+    // Auto-start synthesis
+    try {
+      await this.synthesizeReport();
+    } catch (err) {
+      logger.error("Auto-synthesis failed", err);
+      this.state.error = `Synthesis failed: ${String(err)}`;
+      this.setPhase("delivered");
+    }
   }
 
+  // ── sub-agent loop ─────────────────────────────────────────────
+
   private async runSubAgent(thread: ResearchThread): Promise<ThreadFindings> {
-    const _tabId = randomUUID(); // Wire into sub-agent loop in Task 14
-    const traces: SubAgentTrace = {
+    const trace: SubAgentTrace = {
       threadLabel: thread.label,
       toolCalls: [],
       errors: [],
@@ -157,63 +256,335 @@ export class ResearchOrchestrator {
       finishedAt: "",
     };
 
-    const claims: SourcedClaim[] = [];
+    // Create a dedicated tab for this sub-agent
+    const tabId = this.tabManager.createTab();
+    const saveActiveId = this.tabManager.getActiveTabId();
+
+    // Switch to the sub-agent's tab so all tool calls target it
+    if (tabId) this.tabManager.switchTab(tabId);
+
     const discardedSources: ThreadFindings["discardedSources"] = [];
+    let transcript = "";
 
     try {
-      // Create a new tab for this sub-agent
-      await this.tabManager.createTab();
-      const _systemPrompt = buildSubAgentSystemPrompt(thread); // Wire into sub-agent loop in Task 14
+      if (!this.provider.streamAgentQuery) {
+        throw new Error("Provider does not support agent tool loops");
+      }
 
-      // The sub-agent queries are driven by the orchestrator calling the AI
-      // with tools available. The orchestrator manages the conversation loop
-      // for each sub-agent, collecting tool outputs and feeding them back.
-      // For the initial implementation, the sub-agent uses 3 iterative rounds:
-      // 1. Search/navigate to a source
-      // 2. Extract content
-      // 3. Navigate to next source or refine
+      const systemPrompt = buildSubAgentSystemPrompt(thread);
+      const userMessage = `Begin researching: ${thread.question}\n\nStart by searching for: ${thread.searchQueries.join(" or ")}`;
 
-      traces.finishedAt = new Date().toISOString();
+      const actionCtx: ActionContext = {
+        tabManager: this.tabManager,
+        runtime: this.runtime,
+        toolProfile: this.provider.agentToolProfile,
+      };
+
+      await this.provider.streamAgentQuery(
+        systemPrompt,
+        userMessage,
+        AGENT_TOOLS,
+        (chunk) => {
+          transcript += chunk;
+        },
+        async (name, args) => {
+          const t0 = Date.now();
+          try {
+            const output = await executeAction(name, args, actionCtx);
+            trace.toolCalls.push({
+              tool: name,
+              args,
+              result: output,
+              timestamp: new Date().toISOString(),
+              durationMs: Date.now() - t0,
+            });
+            return output;
+          } catch (err) {
+            // Check if it's a page access issue to track as discarded
+            const msg = err instanceof Error ? err.message : String(err);
+            if (msg.includes("paywall") || msg.includes("login required") || msg.includes("403")) {
+              discardedSources.push({
+                url: String(args.url || ""),
+                title: String(args.url || "unknown"),
+                reason: msg,
+              });
+            }
+            trace.errors.push({
+              message: msg,
+              timestamp: new Date().toISOString(),
+            });
+            trace.toolCalls.push({
+              tool: name,
+              args,
+              result: `Error: ${msg}`,
+              timestamp: new Date().toISOString(),
+              durationMs: Date.now() - t0,
+            });
+            return `Error: ${msg}`;
+          }
+        },
+        () => {
+          // onEnd — no-op; the streamAgentQuery Promise resolves after this
+        },
+      );
     } catch (err) {
-      traces.errors.push({
+      trace.errors.push({
         message: String(err),
         timestamp: new Date().toISOString(),
       });
-      traces.finishedAt = new Date().toISOString();
+    } finally {
+      // Restore the original active tab
+      if (saveActiveId) this.tabManager.switchTab(saveActiveId);
+      trace.finishedAt = new Date().toISOString();
+    }
+
+    // Extract claims from the research transcript
+    let claims: SourcedClaim[] = [];
+    try {
+      claims = await this.extractClaimsFromTranscript(thread, transcript);
+    } catch (err) {
+      logger.warn(`Claim extraction failed for "${thread.label}"`, err);
     }
 
     if (this.state.includeTraces) {
-      this.state.subAgentTraces.push(traces);
+      this.state.subAgentTraces.push(trace);
     }
+
+    const pagesVisited = trace.toolCalls.filter((t) =>
+      ["navigate", "read_page", "search"].includes(t.tool),
+    ).length;
 
     return {
       threadLabel: thread.label,
       threadQuestion: thread.question,
       claims,
       discardedSources,
-      executionSummary: `Visited ${claims.length + discardedSources.length} pages. ${claims.length} claims extracted. ${discardedSources.length} sources discarded.${traces.errors.length > 0 ? ` ${traces.errors.length} errors.` : ""}`,
+      executionSummary: `Visited ${pagesVisited} pages (${trace.toolCalls.length} tool calls). ${claims.length} claims extracted. ${discardedSources.length} sources discarded.${trace.errors.length > 0 ? ` ${trace.errors.length} errors.` : ""}`,
     };
   }
+
+  /**
+   * Extract structured claims from the sub-agent's research transcript.
+   * Makes a follow-up LLM call asking it to parse claims with source URLs and quotes.
+   */
+  private async extractClaimsFromTranscript(
+    thread: ResearchThread,
+    transcript: string,
+  ): Promise<SourcedClaim[]> {
+    if (!transcript.trim()) return [];
+
+    const prompt = `You are a claim extractor. Given a research transcript, extract every factual claim along with its source URL and the exact supporting quote from the page.
+
+CRITICAL RULES:
+- Only extract claims that are explicitly supported by a source URL AND a verbatim quote in the transcript.
+- If a claim has no source URL or no extracted quote, do NOT include it.
+- Do not fabricate claims. Only use what is explicitly stated in the transcript.
+- Return ONLY valid JSON — a JSON array of claim objects.
+
+Each claim object must have these fields:
+- claim: the factual claim text
+- sourceUrl: the URL of the source page
+- sourceTitle: the title of the source page (or "Unknown" if not mentioned)
+- extractedQuote: the verbatim quote from the page that supports this claim
+- relevanceNote: a one-sentence note on why this claim matters to the research question
+
+Return format:
+\`\`\`json
+[{"claim": "...", "sourceUrl": "...", "sourceTitle": "...", "extractedQuote": "...", "relevanceNote": "..."}]
+\`\`\`
+
+RESEARCH QUESTION: ${thread.question}
+THREAD LABEL: ${thread.label}
+
+TRANSCRIPT:
+${transcript.slice(0, 32000)}`;
+
+    let response = "";
+    await this.provider.streamQuery(
+      prompt,
+      "Extract the claims.",
+      (chunk) => {
+        response += chunk;
+      },
+      () => {},
+    );
+
+    // Parse JSON from response
+    let json = response;
+    const fenceMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (fenceMatch) json = fenceMatch[1].trim();
+    else {
+      const arrMatch = response.match(/\[[\s\S]*\]/);
+      if (arrMatch) json = arrMatch[0];
+    }
+
+    try {
+      const raw = JSON.parse(json) as Array<Record<string, unknown>>;
+      return raw.map((c) => ({
+        claim: String(c.claim || ""),
+        sourceUrl: String(c.sourceUrl || ""),
+        sourceTitle: String(c.sourceTitle || c.sourceUrl || "Unknown"),
+        extractedQuote: String(c.extractedQuote || ""),
+        extractedAt: new Date().toISOString(),
+        threadLabel: thread.label,
+        relevanceNote: String(c.relevanceNote || ""),
+      }));
+    } catch {
+      logger.warn(`Failed to parse claims JSON for "${thread.label}"`);
+      return [];
+    }
+  }
+
+  // ── phase: synthesizing → delivered ───────────────────────────
 
   async synthesizeReport(): Promise<ResearchReport | null> {
     if (this.state.phase !== "synthesizing" || !this.state.objectives) {
       return null;
     }
 
-    // The orchestrator model synthesizes thread findings into a report.
-    // This is driven through the chat path — the orchestrator receives all
-    // ThreadFindings and produces the final report via a structured prompt.
-    // For now, return a placeholder that the IPC handler will fill in
-    // by calling the AI provider with a synthesis prompt.
+    const objectives = this.state.objectives;
+    const findings = this.state.threadFindings;
 
+    const synthesisPrompt = buildSynthesisPrompt(objectives, findings);
+
+    let response = "";
+    await this.provider.streamQuery(
+      synthesisPrompt,
+      "Produce the final research report now.",
+      (chunk) => {
+        response += chunk;
+      },
+      () => {},
+    );
+
+    // Parse the markdown response into a ResearchReport
+    const report = this.parseReportFromMarkdown(response, objectives);
+    this.setReport(report);
     this.setPhase("delivered");
-    return this.state.report;
+    return report;
   }
+
+  /**
+   * Parse the LLM's markdown synthesis response into a structured ResearchReport.
+   * Extracts sections by markdown headers and builds the source index.
+   */
+  private parseReportFromMarkdown(
+    markdown: string,
+    objectives: ResearchObjectives,
+  ): ResearchReport {
+    // Extract title from first h1
+    const titleMatch = markdown.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1].trim() : objectives.researchQuestion;
+
+    // Extract executive summary (between "Executive Summary" header and next h2)
+    const execMatch = markdown.match(
+      /##\s+Executive\s+Summary\s*\n([\s\S]*?)(?=\n##\s|\n---|\n$)/i,
+    );
+    const executiveSummary = execMatch ? execMatch[1].trim() : "";
+
+    // Extract per-thread sections
+    const findingsByThread: ResearchReport["findingsByThread"] = [];
+    for (const thread of objectives.threads) {
+      const escaped = thread.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const sectionRegex = new RegExp(
+        `##\\s+${escaped}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|\\n---|\\n#|\\n$)`,
+        "i",
+      );
+      const sectionMatch = markdown.match(sectionRegex);
+      if (sectionMatch) {
+        findingsByThread.push({
+          threadLabel: thread.label,
+          content: sectionMatch[1].trim(),
+        });
+      }
+    }
+
+    // Extract contradictions
+    const contradictions: ResearchReport["contradictions"] = [];
+    const contraMatch = markdown.match(
+      /##\s+Contradictions\s+&?\s*Discrepancies\s*\n([\s\S]*?)(?=\n##\s|\n---|\n$)/i,
+    );
+    if (contraMatch) {
+      const lines = contraMatch[1].split("\n");
+      let current: Partial<ResearchReport["contradictions"][number]> = {};
+      for (const line of lines) {
+        const claimMatch = line.match(/^\-\s+\*\*Claim:\*\*\s+(.+)/);
+        const aMatch = line.match(/Source\s+A:\s+\[(.+?)\]\((.+?)\)\s+—\s+"(.+)"/);
+        const bMatch = line.match(/Source\s+B:\s+\[(.+?)\]\((.+?)\)\s+—\s+"(.+)"/);
+        const resMatch = line.match(/\*\*Resolution:\*\*\s+(.+)/);
+
+        if (claimMatch) current.claim = claimMatch[1].trim();
+        if (aMatch)
+          current.sourceA = { url: aMatch[2], claim: aMatch[3] };
+        if (bMatch)
+          current.sourceB = { url: bMatch[2], claim: bMatch[3] };
+        if (resMatch) {
+          current.resolution = resMatch[1].trim();
+          if (current.claim && current.sourceA && current.sourceB && current.resolution) {
+            contradictions.push(current as ResearchReport["contradictions"][number]);
+          }
+          current = {};
+        }
+      }
+    }
+
+    // Extract gaps
+    const gaps: string[] = [];
+    const gapsMatch = markdown.match(
+      /##\s+Gaps\s+&?\s*Unanswered\s+Questions\s*\n([\s\S]*?)(?=\n##\s|\n---|\n$)/i,
+    );
+    if (gapsMatch) {
+      for (const line of gapsMatch[1].split("\n")) {
+        const gap = line.match(/^\-\s+(.+)/);
+        if (gap) gaps.push(gap[1].trim());
+      }
+    }
+
+    // Extract source index
+    const sourceIndex: ResearchReport["sourceIndex"] = [];
+    const sourcesMatch = markdown.match(
+      /##\s+Source\s+Index\s*\n([\s\S]*?)(?=\n---|\n##\s|\n#\s|\n$)/i,
+    );
+    if (sourcesMatch) {
+      for (const line of sourcesMatch[1].split("\n")) {
+        const srcMatch = line.match(
+          /^(\d+)\.\s+\[(.+?)\]\((.+?)\)\s+—\s+accessed\s+(.+)/,
+        );
+        const quoteMatch = line.match(/^\s*>\s*"(.+)"/);
+        if (srcMatch) {
+          sourceIndex.push({
+            index: parseInt(srcMatch[1], 10),
+            title: srcMatch[2],
+            url: srcMatch[3],
+            accessedAt: srcMatch[4],
+            supportingQuote: "",
+          });
+        } else if (quoteMatch && sourceIndex.length > 0) {
+          sourceIndex[sourceIndex.length - 1].supportingQuote = quoteMatch[1];
+        }
+      }
+    }
+
+    return {
+      title,
+      executiveSummary,
+      findingsByThread,
+      contradictions,
+      gaps,
+      sourceIndex,
+      generatedAt: new Date().toISOString(),
+      objectives,
+    };
+  }
+
+  // ── report management ──────────────────────────────────────────
 
   setReport(report: ResearchReport): void {
     this.state.report = report;
     this.emit();
   }
+
+  // ── reset ──────────────────────────────────────────────────────
 
   reset(): void {
     this.state = this.initialState();
