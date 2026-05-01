@@ -1,3 +1,12 @@
+/**
+ * Type definitions for the Research Desk feature.
+ *
+ * Data flow:
+ *   ResearchThread -> ResearchObjectives -> SourcedClaim[] -> ThreadFindings[] -> ResearchReport
+ *   SubAgentTrace mirrors the execution path for each thread.
+ *   ResearchState is the top-level state container for the research UI.
+ */
+
 export type ResearchPhase =
   | "idle"
   | "briefing"
