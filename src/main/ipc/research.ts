@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { ipcMain, dialog } from "electron";
+import { writeFile } from "fs/promises";
 import { Channels } from "../../shared/channels";
 import { createLogger } from "../../shared/logger";
 import type { ResearchOrchestrator } from "../agent/research/orchestrator";
@@ -85,22 +86,36 @@ export function registerResearchHandlers(
     getOrchestrator().cancel();
   });
 
-  ipcMain.handle(Channels.RESEARCH_EXPORT_REPORT, () => {
+  ipcMain.handle(Channels.RESEARCH_EXPORT_REPORT, async () => {
     try {
       if (isToolGated("research_export_report")) {
         return { accepted: false, reason: "premium" as const };
       }
       const state = getOrchestrator().getState();
-      return {
-        accepted: true,
-        report: state.report
-          ? renderReportAsMarkdown(
-              state.report,
-              state.includeTraces ? state.subAgentTraces : undefined,
-            )
-          : null,
-        format: "markdown" as const,
-      };
+      if (!state.report) {
+        return { accepted: false, reason: "error" as const, error: "No report to export" };
+      }
+
+      const markdown = renderReportAsMarkdown(
+        state.report,
+        state.includeTraces ? state.subAgentTraces : undefined,
+      );
+
+      const { filePath, canceled } = await dialog.showSaveDialog({
+        title: "Export Research Report",
+        defaultPath: `${state.report.title.replace(/[^a-zA-Z0-9 _-]/g, "")}.md`,
+        filters: [
+          { name: "Markdown", extensions: ["md"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+
+      if (canceled || !filePath) {
+        return { accepted: false, reason: "cancelled" as const };
+      }
+
+      await writeFile(filePath, markdown, "utf-8");
+      return { accepted: true, savedPath: filePath };
     } catch (err) {
       logger.error("RESEARCH_EXPORT_REPORT failed", err);
       return { accepted: false, reason: "error" as const };

@@ -153,7 +153,14 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     renameFolder,
   } = useBookmarks();
   const [sidebarTab, setSidebarTab] = createSignal<
-    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation" | "history" | "diff"
+    | "supervisor"
+    | "bookmarks"
+    | "checkpoints"
+    | "chat"
+    | "automation"
+    | "history"
+    | "diff"
+    | "research"
   >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
