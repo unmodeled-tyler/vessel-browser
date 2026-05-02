@@ -10,7 +10,6 @@ import type { PageContent, TabGroupColor } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
-import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import {
   buildStructuredContext,
   buildScopedContext,
@@ -38,11 +37,8 @@ import {
   getBookmarkMetadataFromArgs,
   getTabByMatch,
   hoverElement,
-  isAddToCartText,
   isDangerousAction,
-  isDuplicateCartClick,
   pressKeyDirect as pressKey,
-  recordCartClick,
   resolveBookmarkFolderTarget,
   scrollPage,
   selectOptionDirect as selectOption,
@@ -60,7 +56,6 @@ import {
   stringArrayLikeSchema,
 } from "../tools/input-coercion";
 import {
-  sleep,
   waitForLoad,
   waitForPotentialNavigation,
 } from "../utils/webcontents-utils";
@@ -86,7 +81,6 @@ import { setMcpHealth } from "../health/runtime-health";
 import { MAX_MCP_NAV_CONTENT_LENGTH } from "../ai/content-limits";
 import { registerDevTools } from "../devtools/tools";
 import {
-  assertPermittedNavigationURL,
   assertSafeURL,
 } from "../network/url-safety";
 import { captureScreenshot } from "../content/screenshot";

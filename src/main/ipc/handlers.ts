@@ -34,7 +34,6 @@ import type {
 import { createLogger } from "../../shared/logger";
 import { getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
-import * as highlightsManager from "../highlights/manager";
 import {
   highlightOnPage,
   getHighlightCount,
@@ -541,6 +540,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.SETTINGS_VISIBILITY, (_, open: boolean) => {
     windowState.uiState.settingsOpen = open;
+    if (open) {
+      windowState.uiState.sidebarOpen = false;
+    }
     layoutViews(windowState);
     return windowState.uiState.settingsOpen;
   });

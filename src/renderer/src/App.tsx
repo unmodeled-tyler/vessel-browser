@@ -1,4 +1,4 @@
-import { onMount, onCleanup, Show, createSignal, createEffect, type Component } from "solid-js";
+import { onMount, onCleanup, Show, createSignal, type Component } from "solid-js";
 import TitleBar from "./components/chrome/TitleBar";
 import TabBar from "./components/chrome/TabBar";
 import AddressBar from "./components/chrome/AddressBar";

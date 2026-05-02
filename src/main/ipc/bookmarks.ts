@@ -4,7 +4,6 @@ import { Channels } from "../../shared/channels";
 import * as bookmarkManager from "../bookmarks/manager";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { trackBookmarkAction } from "../telemetry/posthog";
-import { assertString } from "./common";
 
 export function registerBookmarkHandlers(): void {
   ipcMain.handle(Channels.BOOKMARKS_GET, () => {

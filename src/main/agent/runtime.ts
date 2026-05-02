@@ -12,7 +12,6 @@ import type {
   AgentRuntimeState,
   ApprovalMode,
   FlowState,
-  FlowStep,
   FlowStepStatus,
   PendingApproval,
   SessionSnapshot,

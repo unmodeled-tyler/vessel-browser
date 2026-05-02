@@ -1,3 +1,6 @@
+# Worktrees
+.worktrees/
+
 # Build output
 node_modules/
 out/

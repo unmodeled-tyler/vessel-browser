@@ -1,4 +1,4 @@
-import { BaseWindow, session, WebContentsView } from "electron";
+import { BaseWindow, WebContentsView } from "electron";
 import path from "path";
 import { Channels } from "../../shared/channels";
 import type { TabGroupColor } from "../../shared/types";

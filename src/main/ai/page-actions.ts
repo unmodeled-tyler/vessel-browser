@@ -41,7 +41,7 @@ import {
   looksLikeCurrentSiteNameQuery,
   shouldBlockOffGoalDomainNavigation,
 } from "./tool-guardrails";
-import { isToolGated, isFeatureGated } from "../premium/manager";
+import { isToolGated } from "../premium/manager";
 import { trackToolCall } from "../telemetry/posthog";
 import * as namedSessionManager from "../sessions/manager";
 import type { TabManager } from "../tabs/tab-manager";
