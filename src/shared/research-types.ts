@@ -131,4 +131,5 @@ export interface ResearchState {
   subAgentTraces: SubAgentTrace[];
   error: string | null;
   startedAt: string | null;
+  originalQuery: string | null;
 }

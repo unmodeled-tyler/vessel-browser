@@ -12,6 +12,12 @@ export const ResearchDesk: Component = () => {
           <div class="research-idle">
             <h3>Research Desk</h3>
             <p>Deep research with parallel sub-agents. I'll interview you to refine your question, then spawn agents to investigate multiple angles simultaneously. Every claim in the final report is source-anchored.</p>
+            <Show when={!research.isPremium()}>
+              <div class="research-premium-notice">
+                <span class="premium-badge">Premium</span>
+                {" "}Brief is free; full research and export require Vessel Premium.
+              </div>
+            </Show>
             <button
               class="research-start-btn"
               onClick={async () => {

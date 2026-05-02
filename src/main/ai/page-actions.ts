@@ -73,6 +73,20 @@ export interface ActionContext {
   tabManager: TabManager;
   runtime: AgentRuntime;
   toolProfile?: AgentToolProfile;
+  /** When set, executeAction switches to this tab before running the action */
+  tabId?: string;
+  /** Internal: serializes tab-switched actions across parallel callers */
+  _tabMutex?: TabMutex;
+}
+
+/** Simple async mutex — ensures serialized access to the active tab */
+export class TabMutex {
+  private queue = Promise.resolve();
+  enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.queue = this.queue.then(fn).then(resolve, reject);
+    });
+  }
 }
 
 const logger = createLogger("PageActions");
@@ -4045,6 +4059,22 @@ export async function executeAction(
   ctx: ActionContext,
 ): Promise<string> {
   name = normalizeToolAlias(name);
+
+  // When a sub-agent targets its own tab, serialize all browser access
+  // through a mutex so parallel sub-agents don't race on the active tab.
+  if (ctx.tabId && ctx._tabMutex) {
+    return ctx._tabMutex.enqueue(async () => {
+      const prevActiveId = ctx.tabManager.getActiveTabId();
+      if (prevActiveId !== ctx.tabId) ctx.tabManager.switchTab(ctx.tabId!);
+      try {
+        return await executeAction(name, args, { ...ctx, tabId: undefined, _tabMutex: undefined });
+      } finally {
+        if (prevActiveId && prevActiveId !== ctx.tabId) {
+          ctx.tabManager.switchTab(prevActiveId);
+        }
+      }
+    });
+  }
 
   // Detect concatenated tool names (e.g. "create_checkpointcurrent_tablist_tabs")
   // from models that don't properly support parallel tool calls

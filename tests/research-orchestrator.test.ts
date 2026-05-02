@@ -22,16 +22,12 @@ function makeMockProvider(): AIProvider {
       if (systemPrompt.includes("claim extractor")) {
         onChunk("[]");
       } else {
-        onChunk(`# Test Report
-
-## Executive Summary
-Completed test synthesis.
-
-## Hardware
-No claims were found.
-
-## Source Index
-`);
+        onChunk(JSON.stringify({
+          title: "Test Report",
+          executiveSummary: "Completed test synthesis.",
+          findingsByThread: [],
+          sourceIndex: [],
+        }));
       }
       onEnd();
     },
@@ -52,18 +48,28 @@ No claims were found.
 
 function makeMockTabManager(): TabManager & { activeId: string } {
   let activeId = "tab-1";
+  let prevActiveId = "tab-1";
   let nextId = 1;
   return {
     get activeId() {
       return activeId;
     },
     createTab: () => {
+      prevActiveId = activeId;
       nextId += 1;
       activeId = `tab-${nextId}`;
       return activeId;
     },
     switchTab: (id: string) => {
-      activeId = id;
+      if (activeId !== id) {
+        prevActiveId = activeId;
+        activeId = id;
+      }
+    },
+    closeTab: (id: string) => {
+      if (activeId === id) {
+        activeId = prevActiveId;
+      }
     },
     getActiveTabId: () => activeId,
     getActiveTab: () => null,
@@ -91,6 +97,7 @@ function makeInitialState(): ResearchState {
     subAgentTraces: [],
     error: null,
     startedAt: null,
+    originalQuery: null,
   };
 }
 

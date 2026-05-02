@@ -13,6 +13,7 @@ const initialState: ResearchState = {
   subAgentTraces: [],
   error: null,
   startedAt: null,
+  originalQuery: null,
 };
 
 const [researchState, setResearchState] = createSignal<ResearchState>(initialState);

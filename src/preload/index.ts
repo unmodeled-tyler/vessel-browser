@@ -232,8 +232,8 @@ const api = {
     cancel: () => ipcRenderer.invoke(Channels.RESEARCH_CANCEL),
     exportReport: () =>
       ipcRenderer.invoke<
-        | { accepted: true; report: string | null; format: "markdown" }
-        | { accepted: false; reason: "premium" | "error" }
+        | { accepted: true; savedPath: string }
+        | { accepted: false; reason: "premium" | "error" | "cancelled"; error?: string }
       >(Channels.RESEARCH_EXPORT_REPORT),
   },
   content: {
