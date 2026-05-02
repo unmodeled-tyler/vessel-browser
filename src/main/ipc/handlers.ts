@@ -8,7 +8,7 @@ import {
   setSetting,
   SETTABLE_KEYS,
 } from "../config/settings";
-import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
+import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, CHROME_HEIGHT, type WindowState } from "../window";
 import {
   getRuntimeHealth,
   onRuntimeHealthChange,
@@ -32,7 +32,7 @@ import type {
   type ClearDataOptions,
 } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
-import { getErrorMessage } from "../../shared/result";
+import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
 import {
   highlightOnPage,
@@ -69,6 +69,7 @@ import { registerHistoryHandlers } from "./history";
 import { registerPremiumHandlers } from "./premium";
 import { registerSessionHandlers } from "./sessions";
 import { registerSecurityHandlers } from "./security";
+import { clearByTimeRange } from "../history/manager";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -492,7 +493,7 @@ export function registerIpcHandlers(
     clearSidebarResizeRecoveryTimer();
     // Position sidebar below chrome bar (like normal layout) but expand width for pointer capture
     const [width, height] = windowState.mainWindow.getContentSize();
-    const chromeHeight = windowState.uiState.focusMode ? 0 : 110; // CHROME_HEIGHT
+    const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
     const sidebarWidth = windowState.uiState.sidebarWidth;
     const resizeHandleOverlap = 6;
     windowState.sidebarView.setBounds({
@@ -721,7 +722,7 @@ export function registerIpcHandlers(
     const info = getActiveTabInfo(tabManager);
     if (!info) return false;
     try {
-      const cleared = await clearAllHighlightElements(wc);
+      const cleared = await clearAllHighlightElements(info.wc);
       if (cleared) {
         await emitHighlightCount();
       }
@@ -825,7 +826,7 @@ export function registerIpcHandlers(
     }
 
     if (history) {
-      historyManager.clearByTimeRange(timeRange);
+      clearByTimeRange(timeRange);
     }
   });
 
