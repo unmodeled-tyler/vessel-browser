@@ -26,7 +26,13 @@ import SettingsAgent from "./SettingsAgent";
 import SettingsVaults from "./SettingsVaults";
 import SettingsPrivacy from "./SettingsPrivacy";
 import SettingsAccount from "./SettingsAccount";
-import type { SettingsCategoryId } from "./settingsTypes";
+import type {
+  SettingsCategoryId,
+  SessionSummary,
+  VaultListEntry,
+  HumanVaultEntry,
+  AutofillListEntry,
+} from "./settingsTypes";
 
 const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
   id: p.id,
@@ -82,7 +88,6 @@ const Settings: Component = () => {
   const [domainList, setDomainList] = createSignal("");
 
   // Named sessions
-  type SessionSummary = { name: string; createdAt: string; updatedAt: string; cookieCount: number; originCount: number; domains: string[] };
   const [sessionList, setSessionList] = createSignal<SessionSummary[]>([]);
   const [sessionSaveName, setSessionSaveName] = createSignal("");
 
@@ -96,7 +101,6 @@ const Settings: Component = () => {
   };
 
   // Agent Credential Vault
-  type VaultListEntry = { id: string; label: string; domainPattern: string; username: string; notes?: string; createdAt: string; lastUsedAt?: string; useCount: number };
   const [vaultEntries, setVaultEntries] = createSignal<VaultListEntry[]>([]);
   const [vaultExpanded, setVaultExpanded] = createSignal(false);
   const [vaultAdding, setVaultAdding] = createSignal(false);
@@ -109,7 +113,6 @@ const Settings: Component = () => {
   const [vaultMessage, setVaultMessage] = createSignal<{ kind: "success" | "error"; text: string } | null>(null);
 
   // Human Password Manager
-  type HumanVaultEntry = { id: string; title: string; url: string; domain: string; username: string; category: string; notes?: string; tags: string[]; createdAt: string; lastUsedAt?: string; useCount: number };
   const [humanEntries, setHumanEntries] = createSignal<HumanVaultEntry[]>([]);
   const [humanAdding, setHumanAdding] = createSignal(false);
   const [humanNewTitle, setHumanNewTitle] = createSignal("");
@@ -166,7 +169,6 @@ const Settings: Component = () => {
   };
 
   // Autofill Profiles
-  type AutofillListEntry = { id: string; label: string; firstName: string; lastName: string; email: string; phone: string; organization: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; country: string };
   const [autofillProfiles, setAutofillProfiles] = createSignal<AutofillListEntry[]>([]);
   const [autofillAdding, setAutofillAdding] = createSignal(false);
   const [autofillLabel, setAutofillLabel] = createSignal("");
