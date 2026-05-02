@@ -1,7 +1,6 @@
 import {
   createEffect,
   createSignal,
-  For,
   Show,
   onCleanup,
   onMount,
@@ -18,9 +17,16 @@ import type {
   RuntimeHealthState,
   SearchEngineId,
 } from "../../../../shared/types";
-import { SEARCH_ENGINE_PRESETS } from "../../../../shared/types";
+
 import { createLogger } from "../../../../shared/logger";
 import { PROVIDERS } from "../../../../shared/providers";
+import { Globe, Cpu, Shield, Lock, User } from "lucide-solid";
+import SettingsGeneral from "./SettingsGeneral";
+import SettingsAgent from "./SettingsAgent";
+import SettingsVaults from "./SettingsVaults";
+import SettingsPrivacy from "./SettingsPrivacy";
+import SettingsAccount from "./SettingsAccount";
+import type { SettingsCategoryId } from "./settingsTypes";
 
 const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
   id: p.id,
@@ -38,6 +44,16 @@ const logger = createLogger("Settings");
 const Settings: Component = () => {
   const { settingsOpen, closeSettings } = useUI();
   const { visible: settingsVisible, closing: settingsClosing } = useAnimatedPresence(settingsOpen, 200);
+  const [activeCategory, setActiveCategory] = createSignal<SettingsCategoryId>("general");
+  let settingsContentEl: HTMLDivElement | undefined;
+
+  const selectCategory = (category: SettingsCategoryId) => {
+    setActiveCategory(category);
+    queueMicrotask(() => {
+      settingsContentEl?.scrollTo({ top: 0 });
+    });
+  };
+
   const [autoRestoreSession, setAutoRestoreSession] = createSignal(true);
   const [clearBookmarksOnLaunch, setClearBookmarksOnLaunch] =
     createSignal(false);
@@ -132,8 +148,11 @@ const Settings: Component = () => {
       setHumanNewTitle(""); setHumanNewUrl(""); setHumanNewUsername("");
       setHumanNewPassword(""); setHumanNewNotes(""); setHumanNewCategory("login");
       loadHumanEntries();
-    } catch (err: any) {
-      setHumanMessage({ kind: "error", text: err?.message || "Failed to save." });
+    } catch (err) {
+      setHumanMessage({
+        kind: "error",
+        text: err instanceof Error ? err.message : "Failed to save.",
+      });
     }
   };
 
@@ -337,6 +356,12 @@ const Settings: Component = () => {
   const [providerModels, setProviderModels] = createSignal<string[]>([]);
   const [modelFetchState, setModelFetchState] = createSignal<"idle" | "loading" | "error">("idle");
   const [modelFetchWarning, setModelFetchWarning] = createSignal<string | null>(null);
+
+  const resetProviderModels = () => {
+    setProviderModels([]);
+    setModelFetchState("idle");
+    setModelFetchWarning(null);
+  };
 
   const doFetchModels = () => {
     const meta = chatProviderMeta();
@@ -580,63 +605,12 @@ const Settings: Component = () => {
         >
           <h2 class="settings-title">Runtime Settings</h2>
 
-          <Show when={showWelcome()}>
-            <div class="welcome-banner">
-              <div class="welcome-banner-header">
-                <span class="welcome-banner-title">Welcome to Vessel</span>
-                <button class="welcome-banner-dismiss" onClick={dismissWelcome}>&times;</button>
-              </div>
-              <p class="welcome-banner-text">Get started in three steps:</p>
-              <ol class="welcome-banner-steps">
-                <li classList={{ done: chatEnabled() }}>
-                  <strong>Configure a chat provider</strong> — scroll to Chat Assistant below and add an API key
-                </li>
-                <li>
-                  <strong>Connect your agent harness</strong> — point it at the MCP endpoint shown below
-                </li>
-                <li>
-                  <strong>Learn the shortcuts</strong> — press <kbd>?</kbd> anytime for a quick reference
-                </li>
-              </ol>
-              <Show when={!premiumActive()}>
-                <div class="welcome-banner-actions">
-                  <button
-                    class="premium-btn premium-btn-upgrade"
-                    onClick={() => {
-                      void trackPremiumContext("welcome_banner_clicked");
-                      startPremiumCheckout();
-                    }}
-                  >
-                    Try Premium free for 7 days — $5.99/mo after
-                  </button>
-                  <span class="welcome-banner-note">
-                    Best for screenshots, saved sessions, credential vault, and longer autonomous runs.
-                  </span>
-                </div>
-              </Show>
-            </div>
-          </Show>
-
-          <div class="settings-callout">
-            <div class="settings-callout-title">External Agent Control</div>
-            <p class="settings-callout-copy">
-              Vessel is configured to run under an external harness such as
-              Hermes Agent or OpenClaw. Provider and model selection are not
-              configured inside Vessel.
-            </p>
-          </div>
-
           <Show when={!premiumActive()}>
-            <div class="settings-callout settings-premium-callout">
-              <div class="settings-callout-title">
-                Start Vessel Premium with a 7-day free trial
-              </div>
-              <p class="settings-callout-copy">
-                Unlock screenshots, saved sessions, workflow tracking, table
-                extraction, the credential vault, and longer autonomous runs
-                without leaving the app.
-              </p>
-              <div class="settings-premium-callout-actions">
+            <div class="settings-compact-upsell">
+              <span class="settings-compact-upsell-text">
+                Premium: screenshots, saved sessions, credential vault, and longer autonomous runs.
+              </span>
+              <div class="settings-compact-upsell-actions">
                 <button
                   class="premium-btn premium-btn-upgrade"
                   onClick={() => {
@@ -644,1203 +618,242 @@ const Settings: Component = () => {
                     startPremiumCheckout();
                   }}
                 >
-                  Start 7-day free trial — $5.99/mo after
+                  Try free for 7 days
                 </button>
                 <button
                   class="premium-btn premium-btn-activate"
-                  onClick={() => {
-                    const premiumSection = document.querySelector(
-                      ".premium-section",
-                    );
-                    premiumSection?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "start",
-                    });
-                  }}
+                  onClick={() => selectCategory("account")}
                 >
-                  See activation steps
+                  Activate
                 </button>
               </div>
             </div>
           </Show>
 
-          <div class="settings-field">
-            <label class="settings-label" for="default-homepage">
-              Homepage
-            </label>
-            <input
-              id="default-homepage"
-              class="settings-input"
-              value={defaultUrl()}
-              onInput={(e) => setDefaultUrl(e.currentTarget.value)}
-              placeholder="https://start.duckduckgo.com"
-              spellcheck={false}
-            />
-            <p class="settings-hint">
-              The page that opens when you create a new tab or launch Vessel
-              without restoring a previous session.
-            </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="default-search-engine">
-              Default Search Engine
-            </label>
-            <select
-              id="default-search-engine"
-              class="settings-input"
-              value={defaultSearchEngine()}
-              onChange={(e) => setDefaultSearchEngine(e.currentTarget.value as SearchEngineId)}
-            >
-              <For each={Object.entries(SEARCH_ENGINE_PRESETS)}>
-                {([id, preset]) => (
-                  <option value={id}>{preset.label}</option>
-                )}
-              </For>
-              <option value="none">None (disabled)</option>
-            </select>
-            <p class="settings-hint">
-              The search engine used by the AI agent when it needs to search
-              the web. "None" disables the fallback and forces the agent to use
-              on-page search inputs only.
-            </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="download-path">
-              Download Location
-            </label>
-            <input
-              id="download-path"
-              class="settings-input"
-              value={downloadPath()}
-              onInput={(e) => setDownloadPath(e.currentTarget.value)}
-              placeholder="Default: ~/Downloads"
-              spellcheck={false}
-            />
-            <p class="settings-hint">
-              Directory for saved files. Leave blank to use the system default
-              Downloads folder.
-            </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="mcp-port">
-              MCP Port
-            </label>
-            <input
-              id="mcp-port"
-              class="settings-input"
-              value={mcpPort()}
-              onInput={(e) => setMcpPort(e.currentTarget.value)}
-              placeholder="3100"
-              spellcheck={false}
-            />
-            <p class="settings-hint">
-              External harnesses connect to Vessel at
-              {" "}
-              <code>http://127.0.0.1:&lt;port&gt;/mcp</code>. Changing this
-              value restarts the MCP server immediately.
-            </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="max-tool-iterations">
-              Max Tool Iterations
-            </label>
-            <Show
-              when={premiumActive()}
-              fallback={
-                <div
-                  class="settings-input settings-input-disabled"
-                  title="Upgrade to Vessel Premium for unlimited tool iterations"
-                >
-                  50
-                </div>
-              }
-            >
-              <input
-                id="max-tool-iterations"
-                class="settings-input"
-                type="number"
-                min="10"
-                max="1000"
-                value={maxToolIterations()}
-                onInput={(e) => setMaxToolIterations(e.currentTarget.value)}
-                placeholder="200"
-              />
-            </Show>
-            <p class="settings-hint">
-              <Show
-                when={premiumActive()}
-                fallback="Free tier: 50 tool calls per conversation turn. Upgrade to Vessel Premium to customize this limit (up to 1,000)."
-              >
-                Maximum number of tool calls the AI agent can make per
-                conversation turn before pausing. Higher values let the agent
-                complete longer multi-step workflows without stopping.
-                Range: 10–1000.
-              </Show>
-            </p>
-          </div>
-
-          <Show when={health()}>
-            {(currentHealth) => (
-              <div class="settings-health">
-                <div class="settings-callout-title">Runtime Health</div>
-                <p class="settings-hint">
-                  MCP status:{" "}
-                  <strong>{currentHealth().mcp.status}</strong>
-                  {" "}
-                  {currentHealth().mcp.message}
-                </p>
-                <Show when={currentHealth().mcp.endpoint}>
-                  {(endpoint) => (
-                    <p class="settings-hint">
-                      Active endpoint: <code>{endpoint()}</code>
-                    </p>
-                  )}
-                </Show>
-                <Show when={currentHealth().startupIssues.length > 0}>
-                  <div class="settings-health-issues">
-                    {currentHealth().startupIssues.map((issue) => (
-                      <div
-                        class="settings-health-issue"
-                        classList={{
-                          warning: issue.severity === "warning",
-                          error: issue.severity === "error",
-                        }}
-                      >
-                        <strong>{issue.title}</strong>
-                        <div>{issue.detail}</div>
-                        <Show when={issue.action}>
-                          {(action) => <div>{action()}</div>}
-                        </Show>
-                      </div>
-                    ))}
-                  </div>
-                </Show>
-              </div>
-            )}
-          </Show>
-
-          <div class="settings-field">
-            <label class="settings-label" for="obsidian-vault-path">
-              Obsidian Vault Path
-            </label>
-            <input
-              id="obsidian-vault-path"
-              class="settings-input"
-              value={obsidianVaultPath()}
-              onInput={(e) => setObsidianVaultPath(e.currentTarget.value)}
-              placeholder="/home/you/Documents/MyVault"
-              spellcheck={false}
-            />
-            <p class="settings-hint">
-              Optional. When set, Vessel memory tools can write markdown notes
-              into this vault for research breadcrumbs and summaries.
-            </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="agent-transcript-mode">
-              Agent Transcript Monitor
-            </label>
-            <select
-              id="agent-transcript-mode"
-              class="settings-input settings-select"
-              value={agentTranscriptMode()}
-              onChange={(e) =>
-                setAgentTranscriptMode(
-                  e.currentTarget.value as AgentTranscriptDisplayMode,
-                )
-              }
-            >
-              <option value="off">Off</option>
-              <option value="summary">Summary HUD</option>
-              <option value="full">Full transcript</option>
-            </select>
-            <p class="settings-hint">
-              Controls the in-browser transcript monitor when an external
-              harness publishes reasoning or status updates into Vessel via the
-              <code>vessel_publish_transcript</code> MCP tool. Summary HUD shows
-              a compact 2-line status surface; Full transcript shows the recent
-              entry list.
-            </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-toggle">
+          <div class="settings-layout">
+            <nav class="settings-sidebar" role="navigation" aria-label="Settings categories">
               <button
-                type="button"
-                class="toggle-switch"
-                classList={{ on: autoRestoreSession() }}
-                onClick={() => setAutoRestoreSession(!autoRestoreSession())}
-                role="switch"
-                aria-checked={autoRestoreSession()}
+                class="settings-nav-item"
+                classList={{ active: activeCategory() === "general" }}
+                onClick={() => selectCategory("general")}
+                aria-current={activeCategory() === "general" ? "page" : undefined}
               >
-                <span class="toggle-switch-thumb" />
+                <Globe size={16} />
+                <span>General</span>
               </button>
-              <span>Restore last browser session on launch</span>
-            </label>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-toggle">
               <button
-                type="button"
-                class="toggle-switch"
-                classList={{ on: clearBookmarksOnLaunch() }}
-                onClick={() => setClearBookmarksOnLaunch(!clearBookmarksOnLaunch())}
-                role="switch"
-                aria-checked={clearBookmarksOnLaunch()}
+                class="settings-nav-item"
+                classList={{ active: activeCategory() === "agent" }}
+                onClick={() => selectCategory("agent")}
+                aria-current={activeCategory() === "agent" ? "page" : undefined}
               >
-                <span class="toggle-switch-thumb" />
+                <Cpu size={16} />
+                <span>AI & Agent</span>
               </button>
-              <span>Start bookmarks fresh on launch</span>
-            </label>
-            <p class="settings-hint">
-              Off by default. When enabled, bookmark folders and saved pages are
-              cleared each time Vessel starts.
-            </p>
-          </div>
-
-          <div class="settings-section-divider" />
-
-          {/* --- Named Sessions --- */}
-          <div class="settings-field">
-            <label class="settings-label">Saved Sessions</label>
-            <p class="settings-hint" style="margin-bottom: 10px">
-              Save the current browser state (tabs, cookies, storage) as a named
-              session. Restore it later from this panel.
-            </p>
-            <div class="premium-activate-row" style="margin-bottom: 8px">
-              <input
-                class="settings-input premium-email-input"
-                placeholder="Session name"
-                value={sessionSaveName()}
-                onInput={(e) => setSessionSaveName(e.currentTarget.value)}
-                spellcheck={false}
-              />
               <button
-                class="premium-btn premium-btn-activate"
-                disabled={!sessionSaveName().trim()}
-                onClick={async () => {
-                  try {
-                    await window.vessel.sessions.save(sessionSaveName().trim());
-                    setSessionSaveName("");
-                    await loadSessionList();
-                    setStatus({ kind: "success", text: "Session saved." });
-                    setTimeout(() => setStatus(null), 3000);
-                  } catch (err) {
-                    setStatus({ kind: "error", text: String(err) });
-                  }
-                }}
+                class="settings-nav-item"
+                classList={{ active: activeCategory() === "vaults" }}
+                onClick={() => selectCategory("vaults")}
+                aria-current={activeCategory() === "vaults" ? "page" : undefined}
               >
-                Save Current
+                <Shield size={16} />
+                <span>Vaults</span>
               </button>
-            </div>
-            <Show when={sessionList().length > 0}>
-              <div class="vault-entries">
-                <For each={sessionList()}>
-                  {(s) => (
-                    <div class="vault-entry">
-                      <div class="vault-entry-info">
-                        <span class="vault-entry-label">{s.name}</span>
-                        <span class="vault-entry-detail">
-                          {new Date(s.updatedAt).toLocaleDateString()}
-                          {" "}&middot; {s.cookieCount} cookies
-                          {" "}&middot; {s.domains.length} domains
-                        </span>
-                      </div>
-                      <div style="display: flex; gap: 6px; align-items: center;">
-                        <button
-                          class="premium-btn premium-btn-activate"
-                          style="padding: 2px 10px; font-size: 12px;"
-                          onClick={async () => {
-                            try {
-                              await window.vessel.sessions.load(s.name);
-                              setStatus({ kind: "success", text: `Session "${s.name}" restored.` });
-                              setTimeout(() => setStatus(null), 3000);
-                            } catch (err) {
-                              setStatus({ kind: "error", text: String(err) });
-                            }
-                          }}
-                          title="Restore this session (replaces current tabs and cookies)"
-                        >
-                          Load
-                        </button>
-                        <button
-                          class="vault-entry-remove"
-                          onClick={async () => {
-                            await window.vessel.sessions.delete(s.name);
-                            await loadSessionList();
-                          }}
-                          title="Delete session"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
-
-          <div class="settings-section-divider" />
-
-          <div class="settings-field">
-            <label class="settings-toggle">
               <button
-                type="button"
-                class="toggle-switch"
-                classList={{ on: chatEnabled() }}
-                onClick={() => setChatEnabled(!chatEnabled())}
-                role="switch"
-                aria-checked={chatEnabled()}
+                class="settings-nav-item"
+                classList={{ active: activeCategory() === "privacy" }}
+                onClick={() => selectCategory("privacy")}
+                aria-current={activeCategory() === "privacy" ? "page" : undefined}
               >
-                <span class="toggle-switch-thumb" />
+                <Lock size={16} />
+                <span>Privacy</span>
               </button>
-              <span>Enable Chat Assistant</span>
-            </label>
-            <p class="settings-hint">
-              Adds a Chat tab to the sidebar for conversing with an AI provider of your choice.
-            </p>
-          </div>
-
-          <Show when={chatEnabled()}>
-            <div class="settings-field">
-              <label class="settings-label" for="chat-provider">Provider</label>
-              <select
-                id="chat-provider"
-                class="settings-input settings-select"
-                value={chatProviderId()}
-                onChange={(e) => {
-                  const id = e.currentTarget.value as ProviderId;
-                  setChatProviderId(id);
-                  setChatModel("");
-                  setChatBaseUrl("");
-                  setChatApiKey("");
-                  setChatHasStoredApiKey(false);
-                  setProviderModels([]);
-                  setModelFetchState("idle");
-                }}
+              <button
+                class="settings-nav-item"
+                classList={{ active: activeCategory() === "account" }}
+                onClick={() => selectCategory("account")}
+                aria-current={activeCategory() === "account" ? "page" : undefined}
               >
-                <For each={CHAT_PROVIDERS}>
-                  {(p) => <option value={p.id}>{p.name}</option>}
-                </For>
-              </select>
-            </div>
+                <User size={16} />
+                <span>Account</span>
+              </button>
+            </nav>
 
-            <Show when={chatProviderMeta().requiresKey || chatProviderId() === "custom"}>
-              <div class="settings-field">
-                <label class="settings-label" for="chat-api-key">
-                  API Key
-                  <Show when={!chatProviderMeta().requiresKey}>
-                    <span class="settings-label-optional"> (optional)</span>
-                  </Show>
-                </label>
-                <input
-                  id="chat-api-key"
-                  class="settings-input"
-                  type="password"
-                  value={chatApiKey()}
-                  onInput={(e) => {
-                    setChatApiKey(e.currentTarget.value);
-                    if (e.currentTarget.value.trim()) {
-                      setChatHasStoredApiKey(true);
-                    }
-                  }}
-                  placeholder={
-                    chatHasStoredApiKey() && !chatApiKey().trim()
-                      ? "Stored securely. Enter a new key to replace it."
-                      : chatProviderMeta().keyPlaceholder || "Bearer token or API key"
-                  }
-                  spellcheck={false}
+            <div class="settings-content" ref={settingsContentEl}>
+              <Show when={activeCategory() === "general"}>
+                <SettingsGeneral
+                  welcomeBanner={{ show: showWelcome, dismiss: dismissWelcome }}
+                  defaultUrl={defaultUrl}
+                  setDefaultUrl={setDefaultUrl}
+                  defaultSearchEngine={defaultSearchEngine}
+                  setDefaultSearchEngine={setDefaultSearchEngine}
+                  downloadPath={downloadPath}
+                  setDownloadPath={setDownloadPath}
+                  theme={theme}
+                  setTheme={setTheme}
+                  autoRestoreSession={autoRestoreSession}
+                  setAutoRestoreSession={setAutoRestoreSession}
+                  clearBookmarksOnLaunch={clearBookmarksOnLaunch}
+                  setClearBookmarksOnLaunch={setClearBookmarksOnLaunch}
+                  premiumActive={premiumActive}
+                  startPremiumCheckout={startPremiumCheckout}
                 />
-                <Show when={chatHasStoredApiKey() && !chatApiKey().trim()}>
-                  <p class="settings-hint">
-                    An API key is already stored securely for this provider. Leave this blank to keep it, or enter a new key to replace it.
-                  </p>
-                </Show>
-                <Show when={chatProviderId() === "custom"}>
-                  <p class="settings-hint">
-                    If your endpoint requires authentication, enter the API key or bearer token here.
-                  </p>
-                </Show>
-              </div>
-            </Show>
-
-            <div class="settings-field">
-              <label class="settings-label" for="chat-model">Model</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <Show
-                  when={providerModels().length > 0}
-                  fallback={
-                    <input
-                      id="chat-model"
-                      class="settings-input"
-                      style="flex:1"
-                      value={chatModel()}
-                      onInput={(e) => setChatModel(e.currentTarget.value)}
-                        placeholder={
-                          modelFetchState() === "loading"
-                            ? "Fetching models…"
-                          : chatProviderMeta().requiresKey &&
-                              !chatApiKey().trim() &&
-                              !chatHasStoredApiKey()
-                            ? "Enter API key to load models"
-                            : chatProviderMeta().defaultModel || "model name"
-                        }
-                      spellcheck={false}
-                    />
-                  }
-                >
-                  <select
-                    id="chat-model"
-                    class="settings-input settings-select"
-                    style="flex:1"
-                    value={chatModel()}
-                    onChange={(e) => setChatModel(e.currentTarget.value)}
-                  >
-                    <For each={providerModels()}>
-                      {(m) => <option value={m}>{m}</option>}
-                    </For>
-                  </select>
-                </Show>
-                <button
-                  type="button"
-                  class="settings-refresh-btn"
-                  title="Refresh model list"
-                  disabled={modelFetchState() === "loading"}
-                  onClick={doFetchModels}
-                >
-                  ↺
-                </button>
-              </div>
-              <Show when={modelFetchState() === "error"}>
-                <p class="settings-hint" style="color:var(--error)">
-                  Could not fetch models — check your API key and connection.
-                </p>
               </Show>
-              <Show when={modelFetchWarning()}>
-                {(warning) => (
-                  <p class="settings-hint" style="color:var(--accent-primary)">
-                    {warning()}
-                  </p>
-                )}
+              <Show when={activeCategory() === "agent"}>
+                <SettingsAgent
+                  chat={{
+                    enabled: chatEnabled,
+                    setEnabled: setChatEnabled,
+                    providerId: chatProviderId,
+                    setProviderId: setChatProviderId,
+                    apiKey: chatApiKey,
+                    setApiKey: setChatApiKey,
+                    hasStoredApiKey: chatHasStoredApiKey,
+                    setHasStoredApiKey: setChatHasStoredApiKey,
+                    model: chatModel,
+                    setModel: setChatModel,
+                    baseUrl: chatBaseUrl,
+                    setBaseUrl: setChatBaseUrl,
+                    providerModels,
+                    modelFetchState,
+                    modelFetchWarning,
+                    doFetchModels,
+                    resetProviderModels,
+                  }}
+                  mcpPort={mcpPort}
+                  setMcpPort={setMcpPort}
+                  maxToolIterations={maxToolIterations}
+                  setMaxToolIterations={setMaxToolIterations}
+                  agentTranscriptMode={agentTranscriptMode}
+                  setAgentTranscriptMode={setAgentTranscriptMode}
+                  obsidianVaultPath={obsidianVaultPath}
+                  setObsidianVaultPath={setObsidianVaultPath}
+                  health={health}
+                  premiumActive={premiumActive}
+                />
+              </Show>
+              <Show when={activeCategory() === "vaults"}>
+                <SettingsVaults
+                  premiumActive={premiumActive}
+                  vault={{
+                    entries: vaultEntries,
+                    expanded: vaultExpanded,
+                    setExpanded: setVaultExpanded,
+                    adding: vaultAdding,
+                    setAdding: setVaultAdding,
+                    newLabel: vaultNewLabel,
+                    setNewLabel: setVaultNewLabel,
+                    newDomain: vaultNewDomain,
+                    setNewDomain: setVaultNewDomain,
+                    newUsername: vaultNewUsername,
+                    setNewUsername: setVaultNewUsername,
+                    newPassword: vaultNewPassword,
+                    setNewPassword: setVaultNewPassword,
+                    newTotp: vaultNewTotp,
+                    setNewTotp: setVaultNewTotp,
+                    newNotes: vaultNewNotes,
+                    setNewNotes: setVaultNewNotes,
+                    message: vaultMessage,
+                    setMessage: setVaultMessage,
+                    handleAdd: handleVaultAdd,
+                    handleRemove: handleVaultRemove,
+                  }}
+                  humanVault={{
+                    entries: humanEntries,
+                    adding: humanAdding,
+                    setAdding: setHumanAdding,
+                    newTitle: humanNewTitle,
+                    setNewTitle: setHumanNewTitle,
+                    newUrl: humanNewUrl,
+                    setNewUrl: setHumanNewUrl,
+                    newUsername: humanNewUsername,
+                    setNewUsername: setHumanNewUsername,
+                    newPassword: humanNewPassword,
+                    setNewPassword: setHumanNewPassword,
+                    newCategory: humanNewCategory,
+                    setNewCategory: setHumanNewCategory,
+                    newNotes: humanNewNotes,
+                    setNewNotes: setHumanNewNotes,
+                    message: humanMessage,
+                    handleAdd: handleHumanAdd,
+                    handleRemove: handleHumanRemove,
+                  }}
+                  autofill={{
+                    profiles: autofillProfiles,
+                    adding: autofillAdding,
+                    setAdding: setAutofillAdding,
+                    label: autofillLabel,
+                    setLabel: setAutofillLabel,
+                    firstName: autofillFirstName,
+                    setFirstName: setAutofillFirstName,
+                    lastName: autofillLastName,
+                    setLastName: setAutofillLastName,
+                    email: autofillEmail,
+                    setEmail: setAutofillEmail,
+                    phone: autofillPhone,
+                    setPhone: setAutofillPhone,
+                    organization: autofillOrg,
+                    setOrganization: setAutofillOrg,
+                    addressLine1: autofillAddr1,
+                    setAddressLine1: setAutofillAddr1,
+                    addressLine2: autofillAddr2,
+                    setAddressLine2: setAutofillAddr2,
+                    city: autofillCity,
+                    setCity: setAutofillCity,
+                    state: autofillState,
+                    setState: setAutofillState,
+                    postalCode: autofillZip,
+                    setPostalCode: setAutofillZip,
+                    country: autofillCountry,
+                    setCountry: setAutofillCountry,
+                    message: autofillMessage,
+                    handleAdd: handleAutofillAdd,
+                    handleRemove: handleAutofillRemove,
+                    handleFill: handleAutofillFill,
+                  }}
+                />
+              </Show>
+              <Show when={activeCategory() === "privacy"}>
+                <SettingsPrivacy
+                  telemetryEnabled={telemetryEnabled}
+                  setTelemetryEnabled={setTelemetryEnabled}
+                  domainMode={domainMode}
+                  setDomainMode={setDomainMode}
+                  domainList={domainList}
+                  setDomainList={setDomainList}
+                />
+              </Show>
+              <Show when={activeCategory() === "account"}>
+                <SettingsAccount
+                  premium={{
+                    state: premiumState,
+                    setState: setPremiumState,
+                    email: premiumEmail,
+                    setEmail: setPremiumEmail,
+                    code: premiumCode,
+                    setCode: setPremiumCode,
+                    challengeToken: premiumChallengeToken,
+                    setChallengeToken: setPremiumChallengeToken,
+                    codeSent: premiumCodeSent,
+                    setCodeSent: setPremiumCodeSent,
+                    loading: premiumLoading,
+                    setLoading: setPremiumLoading,
+                    message: premiumMessage,
+                    setMessage: setPremiumMessage,
+                    active: premiumActive,
+                    startCheckout: startPremiumCheckout,
+                    resetFlow: resetPremiumActivationFlow,
+                  }}
+                  sessions={{
+                    list: sessionList,
+                    saveName: sessionSaveName,
+                    setSaveName: setSessionSaveName,
+                    loadList: loadSessionList,
+                  }}
+                  setStatus={setStatus}
+                />
               </Show>
             </div>
-
-            <Show when={chatProviderMeta().needsBaseUrl || chatProviderId() === "custom"}>
-              <div class="settings-field">
-                <label class="settings-label" for="chat-base-url">Base URL</label>
-                <input
-                  id="chat-base-url"
-                  class="settings-input"
-                  value={chatBaseUrl()}
-                  onInput={(e) => setChatBaseUrl(e.currentTarget.value)}
-                  placeholder={chatProviderMeta().defaultBaseUrl ?? "https://..."}
-                  spellcheck={false}
-                />
-              </div>
-            </Show>
-            <Show when={chatProviderId() === "llama_cpp"}>
-              <p class="settings-hint">
-                Vessel auto-detects the active model from your configured `llama-server` base URL.
-                For agent loops, run `llama-server` with `--ctx-size 16384` minimum and `32768`
-                recommended.
-              </p>
-            </Show>
-          </Show>
-
-          <div class="settings-section-divider" />
-
-          {/* --- Premium Subscription --- */}
-          <div class="settings-field">
-            <label class="settings-label">Vessel Premium</label>
-            <Show
-              when={premiumActive()}
-              fallback={
-                <div class="premium-section">
-                  <p class="premium-description">
-                    Unlock screenshot/vision analysis, session management,
-                    Obsidian integration, workflow tracking, DevTools tools,
-                    table extraction, Agent Credential Vault, and unlimited
-                    tool iterations.
-                  </p>
-                  <div class="premium-activate-row">
-                    <input
-                      class="settings-input premium-email-input"
-                      type="email"
-                      placeholder="Enter your subscription email"
-                      value={premiumEmail()}
-                      onInput={(e) => {
-                        const nextEmail = e.currentTarget.value;
-                        if (nextEmail.trim().toLowerCase() !== premiumEmail().trim().toLowerCase()) {
-                          resetPremiumActivationFlow();
-                          setPremiumMessage(null);
-                        }
-                        setPremiumEmail(nextEmail);
-                      }}
-                      spellcheck={false}
-                    />
-                    <button
-                      class="premium-btn premium-btn-activate"
-                      disabled={premiumLoading() || !premiumEmail().trim()}
-                      onClick={async () => {
-                        setPremiumLoading(true);
-                        setPremiumMessage(null);
-                        try {
-                          const result = await window.vessel.premium.requestCode(
-                            premiumEmail().trim(),
-                          );
-                          if (result.ok) {
-                            setPremiumChallengeToken(result.challengeToken ?? "");
-                            setPremiumCodeSent(true);
-                            setPremiumMessage({
-                              kind: "success",
-                              text:
-                                "If a matching premium subscription exists, we sent a 6-digit code to that email.",
-                            });
-                          } else {
-                            resetPremiumActivationFlow();
-                            setPremiumMessage({
-                              kind: "error",
-                              text: result.error || "Could not send code",
-                            });
-                          }
-                        } catch (err) {
-                          resetPremiumActivationFlow();
-                          setPremiumMessage({
-                            kind: "error",
-                            text:
-                              err instanceof Error
-                                ? err.message
-                                : "Could not send code",
-                          });
-                        } finally {
-                          setPremiumLoading(false);
-                        }
-                      }}
-                    >
-                      {premiumLoading()
-                        ? "Sending..."
-                        : premiumCodeSent()
-                          ? "Resend Code"
-                          : "Send Code"}
-                    </button>
-                  </div>
-                  <Show when={premiumCodeSent()}>
-                    <div class="premium-activate-row">
-                      <input
-                        class="settings-input premium-email-input"
-                        inputmode="numeric"
-                        maxLength={6}
-                        placeholder="Enter 6-digit code"
-                        value={premiumCode()}
-                        onInput={(e) => {
-                          const nextCode = e.currentTarget.value.replace(/\D+/g, "").slice(0, 6);
-                          setPremiumCode(nextCode);
-                          setPremiumMessage(null);
-                        }}
-                        spellcheck={false}
-                      />
-                      <button
-                        class="premium-btn premium-btn-activate"
-                        disabled={
-                          premiumLoading() ||
-                          !premiumEmail().trim() ||
-                          premiumCode().trim().length !== 6 ||
-                          !premiumChallengeToken()
-                        }
-                        onClick={async () => {
-                          setPremiumLoading(true);
-                          setPremiumMessage(null);
-                          try {
-                            const result = await window.vessel.premium.verifyCode(
-                              premiumEmail().trim(),
-                              premiumCode().trim(),
-                              premiumChallengeToken(),
-                            );
-                            setPremiumState(result.state);
-                            if (result.ok) {
-                              resetPremiumActivationFlow();
-                              setPremiumMessage({
-                                kind: "success",
-                                text: "Premium activated!",
-                              });
-                            } else {
-                              setPremiumMessage({
-                                kind: "error",
-                                text: result.error || "Verification failed",
-                              });
-                            }
-                          } catch (err) {
-                            setPremiumMessage({
-                              kind: "error",
-                              text:
-                                err instanceof Error
-                                  ? err.message
-                                  : "Verification failed",
-                            });
-                          } finally {
-                            setPremiumLoading(false);
-                          }
-                        }}
-                      >
-                        {premiumLoading() ? "Verifying..." : "Verify Code"}
-                      </button>
-                    </div>
-                  </Show>
-                  <button
-                    class="premium-btn premium-btn-upgrade"
-                    onClick={() => {
-                      startPremiumCheckout();
-                    }}
-                  >
-                    Subscribe to Premium — $5.99/mo after 7-day free trial
-                  </button>
-                  <Show when={premiumMessage()}>
-                    {(msg) => (
-                      <p
-                        class="settings-status"
-                        classList={{
-                          success: msg().kind === "success",
-                          error: msg().kind === "error",
-                        }}
-                      >
-                        {msg().text}
-                      </p>
-                    )}
-                  </Show>
-                  <Show when={premiumState().email || premiumEmail()}>
-                    <button
-                      class="premium-btn premium-btn-reset"
-                      onClick={async () => {
-                        const state = await window.vessel.premium.reset();
-                        setPremiumState(state);
-                        setPremiumEmail("");
-                        resetPremiumActivationFlow();
-                        setPremiumMessage(null);
-                      }}
-                    >
-                      Clear Saved Email
-                    </button>
-                  </Show>
-                </div>
-              }
-            >
-              <div class="premium-section">
-                <div class="premium-active-badge">
-                  Premium Active
-                  <Show when={premiumState().status === "trialing"}>
-                    {" "}(Trial)
-                  </Show>
-                </div>
-                <p class="premium-detail">
-                  {premiumState().email}
-                  <Show when={premiumState().expiresAt}>
-                    {" "}&middot; Renews{" "}
-                    {new Date(premiumState().expiresAt).toLocaleDateString()}
-                  </Show>
-                </p>
-                <div class="premium-actions-row">
-                  <button
-                    class="premium-btn premium-btn-manage"
-                    onClick={async () => {
-                      const result = await window.vessel.premium.portal();
-                      if (!result.ok) {
-                        setPremiumMessage({
-                          kind: "error",
-                          text: result.error || "Could not open billing portal.",
-                        });
-                        setTimeout(() => setPremiumMessage(null), 5000);
-                      }
-                    }}
-                  >
-                    Manage Subscription
-                  </button>
-                  <button
-                    class="premium-btn premium-btn-reset"
-                    onClick={async () => {
-                      const state = await window.vessel.premium.reset();
-                      setPremiumState(state);
-                      setPremiumEmail("");
-                      resetPremiumActivationFlow();
-                      setPremiumMessage(null);
-                    }}
-                  >
-                    Sign Out
-                  </button>
-                </div>
-                <Show when={premiumMessage()}>
-                  {(msg) => (
-                    <p
-                      class="settings-status"
-                      classList={{
-                        success: msg().kind === "success",
-                        error: msg().kind === "error",
-                      }}
-                    >
-                      {msg().text}
-                    </p>
-                  )}
-                </Show>
-              </div>
-            </Show>
-          </div>
-
-          <div class="settings-section-divider" />
-
-          {/* --- Agent Credential Vault --- */}
-          <div class="settings-field">
-            <label class="settings-label">
-              Agent Credential Vault
-              <Show when={!premiumActive()}>
-                <span class="vault-premium-badge">Premium</span>
-              </Show>
-            </label>
-            <Show
-              when={premiumActive()}
-              fallback={
-                <p class="settings-hint">
-                  Securely store credentials for agent-driven logins. Upgrade to Premium to unlock the Agent Credential Vault.
-                </p>
-              }
-            >
-              <p class="settings-hint" style="margin-bottom: 10px">
-                Store credentials for agent-driven logins. Credentials are encrypted at rest and never sent to AI providers — they are filled directly into login forms with your consent.
-              </p>
-
-              <Show when={vaultEntries().length > 0}>
-                <div class="vault-entries">
-                  <For each={vaultEntries()}>
-                    {(entry) => (
-                      <div class="vault-entry">
-                        <div class="vault-entry-info">
-                          <span class="vault-entry-label">{entry.label}</span>
-                          <span class="vault-entry-detail">
-                            {entry.username} &middot; {entry.domainPattern}
-                            <Show when={entry.useCount > 0}>
-                              {" "}&middot; Used {entry.useCount}x
-                            </Show>
-                          </span>
-                        </div>
-                        <button
-                          class="vault-entry-remove"
-                          onClick={() => handleVaultRemove(entry.id)}
-                          title="Remove credential"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              <Show when={!vaultAdding()}>
-                <button
-                  class="vault-add-btn"
-                  onClick={() => { setVaultAdding(true); setVaultMessage(null); }}
-                >
-                  + Add Credential
-                </button>
-              </Show>
-
-              <Show when={vaultAdding()}>
-                <div class="vault-add-form">
-                  <input
-                    class="settings-input"
-                    placeholder="Label (e.g. Work GitHub)"
-                    value={vaultNewLabel()}
-                    onInput={(e) => setVaultNewLabel(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <input
-                    class="settings-input"
-                    placeholder="Domain pattern (e.g. github.com, *.aws.amazon.com)"
-                    value={vaultNewDomain()}
-                    onInput={(e) => setVaultNewDomain(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <input
-                    class="settings-input"
-                    placeholder="Username / email"
-                    value={vaultNewUsername()}
-                    onInput={(e) => setVaultNewUsername(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <input
-                    class="settings-input"
-                    type="password"
-                    placeholder="Password"
-                    value={vaultNewPassword()}
-                    onInput={(e) => setVaultNewPassword(e.currentTarget.value)}
-                  />
-                  <input
-                    class="settings-input"
-                    placeholder="TOTP secret (optional, base32)"
-                    value={vaultNewTotp()}
-                    onInput={(e) => setVaultNewTotp(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <input
-                    class="settings-input"
-                    placeholder="Notes (optional)"
-                    value={vaultNewNotes()}
-                    onInput={(e) => setVaultNewNotes(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <div class="vault-add-actions">
-                    <button class="premium-btn premium-btn-activate" onClick={handleVaultAdd}>
-                      Save Credential
-                    </button>
-                    <button
-                      class="premium-btn premium-btn-reset"
-                      onClick={() => {
-                        setVaultAdding(false);
-                        setVaultNewLabel(""); setVaultNewDomain(""); setVaultNewUsername("");
-                        setVaultNewPassword(""); setVaultNewTotp(""); setVaultNewNotes("");
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </Show>
-
-              <Show when={vaultMessage()}>
-                {(msg) => (
-                  <p
-                    class="settings-status"
-                    classList={{
-                      success: msg().kind === "success",
-                      error: msg().kind === "error",
-                    }}
-                  >
-                    {msg().text}
-                  </p>
-                )}
-              </Show>
-            </Show>
-          </div>
-
-          <div class="settings-section-divider" />
-
-          {/* --- Human Passwords --- */}
-          <div class="settings-field">
-            <label class="settings-label">
-              Passwords
-              <Show when={!premiumActive()}>
-                <span class="vault-premium-badge">Premium</span>
-              </Show>
-            </label>
-            <Show
-              when={premiumActive()}
-              fallback={
-                <p class="settings-hint">
-                  Your personal password manager. Save, organize, and autofill login credentials. Upgrade to Premium to unlock Passwords.
-                </p>
-              }
-            >
-              <p class="settings-hint" style="margin-bottom: 10px">
-                Save login credentials for any website. Passwords are encrypted locally and filled directly into login forms. The agent can list and fill them with your consent, but passwords are never sent to AI providers.
-              </p>
-
-              <Show when={humanEntries().length > 0}>
-                <div class="vault-entries">
-                  <For each={humanEntries()}>
-                    {(entry) => (
-                      <div class="vault-entry">
-                        <div class="vault-entry-info">
-                          <span class="vault-entry-label">{entry.title}</span>
-                          <span class="vault-entry-detail">
-                            {entry.username} &middot; {entry.domain}
-                            <Show when={entry.category && entry.category !== "login"}>
-                              {" "}&middot; {entry.category}
-                            </Show>
-                            <Show when={entry.useCount > 0}>
-                              {" "}&middot; Used {entry.useCount}x
-                            </Show>
-                          </span>
-                        </div>
-                        <button
-                          class="vault-entry-remove"
-                          onClick={() => handleHumanRemove(entry.id)}
-                          title="Remove password"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              <Show when={!humanAdding()}>
-                <button
-                  class="vault-add-btn"
-                  onClick={() => { setHumanAdding(true); setHumanMessage(null); }}
-                >
-                  + Add Password
-                </button>
-              </Show>
-
-              <Show when={humanAdding()}>
-                <div class="vault-add-form">
-                  <input
-                    class="settings-input"
-                    placeholder="Title (e.g. GitHub Personal)"
-                    value={humanNewTitle()}
-                    onInput={(e) => setHumanNewTitle(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <input
-                    class="settings-input"
-                    placeholder="URL (e.g. https://github.com)"
-                    value={humanNewUrl()}
-                    onInput={(e) => setHumanNewUrl(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <input
-                    class="settings-input"
-                    placeholder="Username / email"
-                    value={humanNewUsername()}
-                    onInput={(e) => setHumanNewUsername(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <input
-                    class="settings-input"
-                    type="password"
-                    placeholder="Password"
-                    value={humanNewPassword()}
-                    onInput={(e) => setHumanNewPassword(e.currentTarget.value)}
-                  />
-                  <select
-                    class="settings-input"
-                    value={humanNewCategory()}
-                    onChange={(e) => setHumanNewCategory(e.currentTarget.value)}
-                  >
-                    <option value="login">Login</option>
-                    <option value="credit_card">Credit Card</option>
-                    <option value="identity">Identity</option>
-                    <option value="secure_note">Secure Note</option>
-                  </select>
-                  <input
-                    class="settings-input"
-                    placeholder="Notes (optional)"
-                    value={humanNewNotes()}
-                    onInput={(e) => setHumanNewNotes(e.currentTarget.value)}
-                    spellcheck={false}
-                  />
-                  <div class="vault-add-actions">
-                    <button class="premium-btn premium-btn-activate" onClick={handleHumanAdd}>
-                      Save Password
-                    </button>
-                    <button
-                      class="premium-btn premium-btn-reset"
-                      onClick={() => {
-                        setHumanAdding(false);
-                        setHumanNewTitle(""); setHumanNewUrl(""); setHumanNewUsername("");
-                        setHumanNewPassword(""); setHumanNewNotes(""); setHumanNewCategory("login");
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </Show>
-
-              <Show when={humanMessage()}>
-                {(msg) => (
-                  <p
-                    class="settings-status"
-                    classList={{
-                      success: msg().kind === "success",
-                      error: msg().kind === "error",
-                    }}
-                  >
-                    {msg().text}
-                  </p>
-                )}
-              </Show>
-            </Show>
-          </div>
-
-          <div class="settings-section-divider" />
-
-          {/* --- Form Autofill --- */}
-          <div class="settings-field">
-            <label class="settings-label">Form Autofill</label>
-            <p class="settings-hint" style="margin-bottom: 10px">
-              Store your info once. Vessel matches it to form fields on any site using labels, field names, and autocomplete hints.
-            </p>
-
-            <Show when={autofillProfiles().length > 0}>
-              <div class="vault-entries">
-                <For each={autofillProfiles()}>
-                  {(profile) => (
-                    <div class="vault-entry">
-                      <div class="vault-entry-info">
-                        <span class="vault-entry-label">{profile.label}</span>
-                        <span class="vault-entry-detail">
-                          {profile.firstName}{profile.lastName ? ` ${profile.lastName}` : ""}{profile.email ? ` · ${profile.email}` : ""}
-                        </span>
-                      </div>
-                      <div style="display: flex; gap: 6px; align-items: center;">
-                        <button
-                          class="premium-btn premium-btn-activate"
-                          style="padding: 2px 10px; font-size: 12px;"
-                          onClick={() => handleAutofillFill(profile.id)}
-                          title="Fill forms on current page with this profile"
-                        >
-                          Fill
-                        </button>
-                        <button
-                          class="vault-entry-remove"
-                          onClick={() => handleAutofillRemove(profile.id)}
-                          title="Remove profile"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-
-            <Show when={!autofillAdding()}>
-              <button
-                class="vault-add-btn"
-                onClick={() => { setAutofillAdding(true); setAutofillMessage(null); }}
-              >
-                + Add Profile
-              </button>
-            </Show>
-
-            <Show when={autofillAdding()}>
-              <div class="vault-add-form">
-                <input class="settings-input" placeholder="Profile name (e.g. Personal, Work)" value={autofillLabel()} onInput={(e) => setAutofillLabel(e.currentTarget.value)} spellcheck={false} />
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                  <input class="settings-input" placeholder="First name" value={autofillFirstName()} onInput={(e) => setAutofillFirstName(e.currentTarget.value)} />
-                  <input class="settings-input" placeholder="Last name" value={autofillLastName()} onInput={(e) => setAutofillLastName(e.currentTarget.value)} />
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                  <input class="settings-input" placeholder="Email" value={autofillEmail()} onInput={(e) => setAutofillEmail(e.currentTarget.value)} spellcheck={false} />
-                  <input class="settings-input" placeholder="Phone" value={autofillPhone()} onInput={(e) => setAutofillPhone(e.currentTarget.value)} />
-                </div>
-                <input class="settings-input" placeholder="Organization (optional)" value={autofillOrg()} onInput={(e) => setAutofillOrg(e.currentTarget.value)} />
-                <input class="settings-input" placeholder="Address line 1" value={autofillAddr1()} onInput={(e) => setAutofillAddr1(e.currentTarget.value)} />
-                <input class="settings-input" placeholder="Address line 2 (optional)" value={autofillAddr2()} onInput={(e) => setAutofillAddr2(e.currentTarget.value)} />
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
-                  <input class="settings-input" placeholder="City" value={autofillCity()} onInput={(e) => setAutofillCity(e.currentTarget.value)} />
-                  <input class="settings-input" placeholder="State" value={autofillState()} onInput={(e) => setAutofillState(e.currentTarget.value)} />
-                  <input class="settings-input" placeholder="ZIP / Postal" value={autofillZip()} onInput={(e) => setAutofillZip(e.currentTarget.value)} />
-                </div>
-                <input class="settings-input" placeholder="Country" value={autofillCountry()} onInput={(e) => setAutofillCountry(e.currentTarget.value)} />
-                <div class="vault-add-actions">
-                  <button class="premium-btn premium-btn-activate" onClick={handleAutofillAdd}>Save Profile</button>
-                  <button class="premium-btn premium-btn-reset" onClick={() => {
-                    setAutofillAdding(false);
-                    setAutofillLabel(""); setAutofillFirstName(""); setAutofillLastName("");
-                    setAutofillEmail(""); setAutofillPhone(""); setAutofillOrg("");
-                    setAutofillAddr1(""); setAutofillAddr2(""); setAutofillCity("");
-                    setAutofillState(""); setAutofillZip(""); setAutofillCountry("");
-                  }}>Cancel</button>
-                </div>
-              </div>
-            </Show>
-
-            <Show when={autofillMessage()}>
-              {(msg) => (
-                <p class="settings-status" classList={{ success: msg().kind === "success", error: msg().kind === "error" }}>
-                  {msg().text}
-                </p>
-              )}
-            </Show>
-          </div>
-
-          <div class="settings-section-divider" />
-
-          <div class="settings-field">
-            <label class="settings-toggle">
-              <button
-                type="button"
-                class="toggle-switch"
-                classList={{ on: telemetryEnabled() }}
-                onClick={() => setTelemetryEnabled(!telemetryEnabled())}
-                role="switch"
-                aria-checked={telemetryEnabled()}
-              >
-                <span class="toggle-switch-thumb" />
-              </button>
-              <span>Anonymous Usage Analytics</span>
-            </label>
-            <p class="settings-hint">
-              Help improve Vessel by sending anonymous usage data (tool popularity,
-              session duration, provider type). No URLs, page content, queries, or
-              personal data is ever collected.
-            </p>
-          </div>
-
-          <div class="settings-section-divider" />
-
-          <div class="settings-field">
-            <label class="settings-label" for="theme-select">
-              Theme
-            </label>
-            <select
-              id="theme-select"
-              class="settings-input settings-select"
-              value={theme()}
-              onChange={(e) => setTheme(e.currentTarget.value as "dark" | "light")}
-            >
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-            </select>
-            <p class="settings-hint">
-              Choose the application color scheme. Takes effect after saving.
-            </p>
-          </div>
-
-          <div class="settings-field">
-            <label class="settings-label" for="domain-policy-mode">
-              Domain Restrictions
-            </label>
-            <select
-              id="domain-policy-mode"
-              class="settings-input settings-select"
-              value={domainMode()}
-              onChange={(e) => setDomainMode(e.currentTarget.value as "none" | "allowlist" | "blocklist")}
-            >
-              <option value="none">No restrictions</option>
-              <option value="allowlist">Allowlist (only listed domains)</option>
-              <option value="blocklist">Blocklist (block listed domains)</option>
-            </select>
-            <Show when={domainMode() !== "none"}>
-              <textarea
-                class="settings-input settings-textarea"
-                rows={4}
-                value={domainList()}
-                onInput={(e) => setDomainList(e.currentTarget.value)}
-                placeholder={domainMode() === "allowlist" ? "example.com\napi.example.com" : "ads.example.com\ntracker.io"}
-                spellcheck={false}
-              />
-              <p class="settings-hint">
-                {domainMode() === "allowlist"
-                  ? "One domain per line. Subdomains of listed domains are also allowed."
-                  : "One domain per line. Subdomains of listed domains are also blocked."}
-              </p>
-            </Show>
-            <Show when={domainMode() === "none"}>
-              <p class="settings-hint">
-                Restrict which domains can be navigated to. Use allowlist mode for
-                kiosk or supervised browsing, blocklist to block specific sites.
-              </p>
-            </Show>
           </div>
 
           <div class="settings-actions">
@@ -1870,15 +883,16 @@ const Settings: Component = () => {
 
       <style>{`
         .settings-panel {
-          width: min(440px, calc(100vw - 32px));
+          width: min(820px, calc(100vw - 32px));
           max-height: calc(100vh - 48px);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
           background: var(--bg-elevated);
           border: 1px solid var(--border-visible);
           border-radius: 14px;
           padding: 28px 24px 24px;
-          overflow-y: auto;
           overscroll-behavior: contain;
-          scrollbar-gutter: stable;
           box-shadow:
             0 4px 24px var(--shadow-color),
             0 24px 64px var(--shadow-color-strong),
@@ -1894,7 +908,129 @@ const Settings: Component = () => {
           color: var(--text-primary);
           margin-bottom: 22px;
           letter-spacing: 0.01em;
+          flex-shrink: 0;
         }
+
+        /* Compact global upsell */
+        .settings-compact-upsell {
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 8px 14px;
+          margin-bottom: 16px;
+          border-radius: var(--radius-md);
+          background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+          border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, transparent);
+        }
+        .settings-compact-upsell-text {
+          font-size: 12px;
+          color: var(--text-secondary);
+          line-height: 1.4;
+        }
+        .settings-compact-upsell-actions {
+          display: flex;
+          gap: 8px;
+          flex-shrink: 0;
+        }
+        .settings-compact-upsell-actions .premium-btn {
+          font-size: 11px;
+          padding: 4px 12px;
+          height: auto;
+        }
+
+        /* Sidebar + Content layout */
+        .settings-layout {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          gap: 0;
+        }
+        .settings-sidebar {
+          width: 170px;
+          flex-shrink: 0;
+          border-right: 1px solid var(--border-subtle);
+          padding: 8px 8px 8px 0;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .settings-nav-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          padding: 8px 12px;
+          border-radius: var(--radius-md);
+          font-size: 12px;
+          color: var(--text-secondary);
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          transition: background var(--duration-fast), color var(--duration-fast);
+          text-align: left;
+        }
+        .settings-nav-item:hover {
+          background: var(--surface-hover);
+          color: var(--text-primary);
+        }
+        .settings-nav-item:focus-visible {
+          outline: 1px solid var(--accent-primary);
+          outline-offset: -1px;
+        }
+        .settings-nav-item.active {
+          background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+          color: var(--accent-primary);
+          font-weight: 500;
+        }
+        .settings-nav-item svg {
+          flex-shrink: 0;
+        }
+        .settings-content {
+          flex: 1;
+          min-width: 0;
+          overflow-y: auto;
+          padding: 0 0 0 20px;
+          overscroll-behavior: contain;
+          scrollbar-gutter: stable;
+        }
+        .settings-category-panel {
+          /* wrapper for each category's content */
+        }
+
+        /* Mobile: stack sidebar above content */
+        @media (max-width: 700px) {
+          .settings-panel {
+            width: min(440px, calc(100vw - 32px));
+          }
+          .settings-layout {
+            flex-direction: column;
+          }
+          .settings-sidebar {
+            flex-direction: row;
+            width: 100%;
+            border-right: none;
+            border-bottom: 1px solid var(--border-subtle);
+            padding: 0 0 8px 0;
+            margin-bottom: 12px;
+            overflow-x: auto;
+            gap: 2px;
+          }
+          .settings-nav-item {
+            flex-shrink: 0;
+            width: auto;
+            padding: 6px 10px;
+            font-size: 11px;
+          }
+          .settings-nav-item span {
+            display: none;
+          }
+          .settings-content {
+            padding-left: 0;
+          }
+        }
+
         .settings-callout {
           margin-bottom: 20px;
           padding: 14px;
@@ -1968,187 +1104,212 @@ const Settings: Component = () => {
           letter-spacing: 0.01em;
         }
         .settings-label-optional {
-          font-weight: 400;
-          opacity: 0.6;
+          font-size: 11px;
+          color: var(--text-muted);
+          font-style: italic;
         }
         .settings-input {
           width: 100%;
           height: 34px;
-          padding: 0 12px;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-subtle);
+          padding: 0 10px;
+          margin: 0;
           border-radius: var(--radius-md);
+          border: 1px solid var(--border-visible);
+          background: var(--surface-glass);
           color: var(--text-primary);
-          font-size: 13px;
-          font-family: var(--font-mono);
-          transition:
-            border-color var(--duration-normal) var(--ease-in-out),
-            box-shadow var(--duration-normal) var(--ease-in-out);
+          font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+          font-size: 12px;
+          line-height: 1;
+          box-sizing: border-box;
+          text-rendering: auto;
         }
         .settings-select {
           appearance: none;
+          padding-right: 30px;
+          background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 10px center;
         }
         .settings-textarea {
-          height: auto;
-          min-height: 70px;
-          padding: 8px 12px;
+          width: 100%;
+          padding: 8px 10px;
+          margin: 0;
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border-visible);
+          background: var(--surface-glass);
+          color: var(--text-primary);
+          font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+          font-size: 12px;
+          min-height: 120px;
           resize: vertical;
+          box-sizing: border-box;
           line-height: 1.5;
-          margin-top: 8px;
         }
-        .settings-input:focus {
-          border-color: var(--accent-primary);
-          box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 10%, transparent);
+        .settings-input:focus,
+        .settings-textarea:focus {
           outline: none;
+          border-color: var(--accent-primary);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent);
         }
         .settings-hint {
           font-size: 11px;
           color: var(--text-muted);
-          margin-top: 5px;
+          margin-top: 4px;
           line-height: 1.5;
         }
-        .settings-actions {
-          display: flex;
-          gap: 8px;
-          justify-content: flex-end;
-          margin-top: 24px;
+        .settings-hint code {
+          font-size: 11px;
+          background: var(--bg-tertiary);
+          padding: 1px 5px;
+          border-radius: 3px;
         }
         .settings-toggle {
           display: flex;
           align-items: center;
+          justify-content: space-between;
           gap: 12px;
-          color: var(--text-primary);
-          font-size: 13px;
+          font-size: 12px;
+          color: var(--text-secondary);
           cursor: pointer;
-          padding: 6px 0;
+          user-select: none;
         }
         .toggle-switch {
           position: relative;
+          display: inline-block;
           width: 36px;
           height: 20px;
-          border-radius: 999px;
-          background: var(--surface-hover);
-          border: 1px solid var(--border-glass);
-          padding: 0;
-          flex-shrink: 0;
+          border-radius: 10px;
+          background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+          border: none;
           cursor: pointer;
-          transition:
-            background var(--duration-normal) var(--ease-in-out),
-            border-color var(--duration-normal) var(--ease-in-out);
+          flex-shrink: 0;
+          transition: background var(--duration-fast);
         }
         .toggle-switch:hover {
-          background: var(--surface-active);
+          background: color-mix(in srgb, var(--text-muted) 60%, transparent);
         }
         .toggle-switch.on {
           background: var(--accent-primary);
-          border-color: transparent;
         }
         .toggle-switch.on:hover {
-          background: color-mix(in srgb, var(--accent-primary) 85%, white);
+          background: var(--button-primary-hover-bg);
         }
         .toggle-switch-thumb {
           position: absolute;
-          top: 2px;
-          left: 2px;
+          top: 3px;
+          left: 3px;
           width: 14px;
           height: 14px;
-          border-radius: 999px;
-          background: var(--text-primary);
-          box-shadow: 0 1px 3px var(--shadow-color-strong);
-          transition: transform var(--duration-normal) var(--ease-out-expo);
-          pointer-events: none;
+          border-radius: 7px;
+          background: #fff;
+          transition: transform var(--duration-fast);
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
         }
         .toggle-switch.on .toggle-switch-thumb {
           transform: translateX(16px);
         }
         .settings-status {
-          margin-top: 14px;
+          margin-top: 12px;
           font-size: 12px;
+          color: var(--text-secondary);
           line-height: 1.5;
         }
         .settings-status.success {
-          color: var(--status-success);
+          color: var(--status-success, #52c41a);
         }
         .settings-status.error {
-          color: var(--status-error);
+          color: var(--status-error, #f43f5e);
         }
-        .settings-save, .settings-close {
+        .settings-actions {
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+          margin-top: 20px;
+          flex-shrink: 0;
+        }
+        .settings-save {
           height: 34px;
           padding: 0 18px;
           border-radius: var(--radius-md);
+          border: none;
           font-size: 12px;
-          font-weight: 500;
-          transition:
-            background var(--duration-fast) var(--ease-in-out),
-            transform var(--duration-fast) var(--ease-out-expo);
-        }
-        .settings-save:active, .settings-close:active {
-          transform: scale(0.97);
-        }
-        .settings-save {
+          font-weight: 600;
           background: var(--accent-primary);
           color: var(--button-primary-fg);
+          cursor: pointer;
+          transition: background var(--duration-fast);
         }
-        .settings-save:hover { background: var(--button-primary-hover-bg); }
+        .settings-save:hover {
+          background: var(--button-primary-hover-bg);
+        }
         .settings-close {
-          background: var(--bg-tertiary);
+          height: 34px;
+          padding: 0 18px;
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border-visible);
+          font-size: 12px;
+          background: var(--surface-glass);
           color: var(--text-secondary);
+          cursor: pointer;
+          transition: background var(--duration-fast);
         }
-        .settings-close:hover { background: var(--border-visible); }
-        .settings-section-divider {
-          height: 1px;
-          background: var(--border-subtle);
-          margin: 22px 0 18px;
+        .settings-close:hover {
+          background: var(--surface-hover);
         }
         .settings-refresh-btn {
-          height: 34px;
-          width: 34px;
-          flex-shrink: 0;
-          background: var(--bg-tertiary);
-          border: 1px solid var(--border-subtle);
+          width: 32px;
+          height: 32px;
+          border: 1px solid var(--border-visible);
           border-radius: var(--radius-md);
+          background: var(--surface-glass);
           color: var(--text-secondary);
-          font-size: 16px;
           cursor: pointer;
-          transition: background var(--duration-fast), color var(--duration-fast);
-        }
-        .settings-refresh-btn:hover:not(:disabled) {
-          background: var(--border-visible);
-          color: var(--text-primary);
-        }
-        .settings-refresh-btn:disabled {
-          opacity: 0.4;
-          cursor: default;
-        }
-
-        .settings-input-disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-          user-select: none;
           display: flex;
           align-items: center;
+          justify-content: center;
+          transition: background var(--duration-fast);
+          flex-shrink: 0;
+        }
+        .settings-refresh-btn:hover {
+          background: var(--surface-hover);
+        }
+        .settings-refresh-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .settings-input-disabled {
+          display: flex;
+          align-items: center;
+          width: 100%;
+          height: 34px;
+          padding: 0 10px;
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border-subtle);
+          background: var(--bg-tertiary);
+          color: var(--text-muted);
+          font-size: 12px;
+          opacity: 0.7;
+          cursor: not-allowed;
         }
 
-        /* Premium section */
+        /* --- Premium section --- */
         .premium-section {
           display: flex;
           flex-direction: column;
-          gap: 10px;
         }
         .premium-description {
-          color: var(--text-secondary);
           font-size: 12px;
-          line-height: 1.5;
-          margin: 0;
+          line-height: 1.6;
+          color: var(--text-secondary);
+          margin: 0 0 12px;
         }
         .premium-activate-row {
           display: flex;
-          gap: 8px;
+          gap: 10px;
           align-items: center;
         }
         .premium-email-input {
           flex: 1;
-          min-width: 0;
         }
         .premium-btn {
           height: 34px;
@@ -2157,10 +1318,7 @@ const Settings: Component = () => {
           font-size: 12px;
           font-weight: 500;
           cursor: pointer;
-          border: none;
-          transition:
-            background var(--duration-fast) var(--ease-in-out),
-            transform var(--duration-fast) var(--ease-out-expo);
+          transition: background var(--duration-fast), transform var(--duration-fast);
           white-space: nowrap;
         }
         .premium-btn:active {
@@ -2168,67 +1326,65 @@ const Settings: Component = () => {
         }
         .premium-btn:disabled {
           opacity: 0.5;
-          cursor: default;
+          cursor: not-allowed;
         }
         .premium-btn-activate {
-          background: var(--bg-tertiary);
+          background: var(--surface-glass);
+          border: 1px solid var(--border-visible);
           color: var(--text-primary);
-          border: 1px solid var(--border-subtle);
         }
-        .premium-btn-activate:hover:not(:disabled) {
-          background: var(--border-visible);
+        .premium-btn-activate:hover {
+          background: var(--surface-hover);
         }
         .premium-btn-upgrade {
           background: var(--accent-primary);
+          border: none;
           color: var(--button-primary-fg);
-          width: 100%;
         }
         .premium-btn-upgrade:hover {
           background: var(--button-primary-hover-bg);
         }
         .premium-btn-manage {
-          background: var(--bg-tertiary);
-          color: var(--text-secondary);
-          border: 1px solid var(--border-subtle);
+          background: var(--surface-glass);
+          border: 1px solid var(--border-visible);
+          color: var(--text-primary);
           align-self: flex-start;
         }
         .premium-btn-manage:hover {
-          background: var(--border-visible);
-          color: var(--text-primary);
+          background: var(--surface-hover);
         }
         .premium-active-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
-          color: var(--accent-primary);
-          font-size: 12px;
+          display: inline-block;
+          font-size: 11px;
           font-weight: 600;
-          padding: 4px 12px;
-          border-radius: var(--radius-md);
-          align-self: flex-start;
+          color: var(--button-primary-fg);
+          background: var(--status-success, #52c41a);
+          padding: 2px 10px;
+          border-radius: 4px;
+          margin-bottom: 10px;
         }
         .premium-detail {
-          color: var(--text-secondary);
-          font-size: 12px;
-          margin: 0;
+          font-size: 11px;
+          color: var(--text-muted);
+          margin: 6px 0;
         }
         .premium-actions-row {
           display: flex;
-          gap: 8px;
-          align-items: center;
+          gap: 10px;
+          margin-top: 10px;
         }
         .premium-btn-reset {
+          height: 30px;
+          padding: 0 12px;
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border-subtle);
           background: transparent;
           color: var(--text-muted);
-          border: 1px solid var(--border-subtle);
           font-size: 11px;
-          padding: 0 12px;
-          height: 30px;
+          cursor: pointer;
         }
         .premium-btn-reset:hover {
-          color: var(--text-secondary);
-          background: var(--bg-tertiary);
+          background: var(--surface-hover);
         }
 
         /* Welcome banner */
@@ -2236,13 +1392,13 @@ const Settings: Component = () => {
           margin-bottom: 20px;
           padding: 16px;
           border-radius: var(--radius-md);
-          border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+          border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
           background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
         }
         .welcome-banner-header {
           display: flex;
-          justify-content: space-between;
           align-items: center;
+          justify-content: space-between;
           margin-bottom: 8px;
         }
         .welcome-banner-title {
@@ -2251,13 +1407,13 @@ const Settings: Component = () => {
           color: var(--accent-primary);
         }
         .welcome-banner-dismiss {
-          width: 22px;
-          height: 22px;
+          width: 24px;
+          height: 24px;
           border-radius: 4px;
           background: transparent;
           border: none;
           color: var(--text-muted);
-          font-size: 16px;
+          font-size: 18px;
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -2273,29 +1429,25 @@ const Settings: Component = () => {
           margin: 0 0 8px;
         }
         .welcome-banner-steps {
-          margin: 0;
-          padding-left: 20px;
+          margin: 8px 0 0 16px;
+          padding: 0;
           font-size: 12px;
-          line-height: 1.7;
           color: var(--text-secondary);
-        }
-        .welcome-banner-steps li {
-          margin-bottom: 2px;
+          line-height: 1.7;
         }
         .welcome-banner-steps li.done {
           color: var(--text-muted);
           text-decoration: line-through;
-          opacity: 0.6;
         }
         .welcome-banner-steps kbd {
           display: inline-block;
-          padding: 0 5px;
+          padding: 1px 5px;
           font-size: 11px;
-          font-family: var(--font-mono);
-          background: var(--kbd-bg);
-          border: 1px solid var(--kbd-border);
+          font-family: "JetBrains Mono", "SF Mono", monospace;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-subtle);
           border-radius: 3px;
-          color: var(--text-primary);
+          margin: 0 2px;
         }
         .welcome-banner-actions {
           margin-top: 14px;

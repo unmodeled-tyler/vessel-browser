@@ -540,6 +540,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.SETTINGS_VISIBILITY, (_, open: boolean) => {
     windowState.uiState.settingsOpen = open;
+    if (open) {
+      windowState.uiState.sidebarOpen = false;
+    }
     layoutViews(windowState);
     return windowState.uiState.settingsOpen;
   });
