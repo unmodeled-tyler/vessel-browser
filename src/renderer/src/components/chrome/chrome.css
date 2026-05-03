@@ -1441,8 +1441,8 @@
     top: calc(32px + var(--tab-height) + var(--address-bar-height) + 6px);
     left: 50%;
     transform: translateX(-50%);
-    width: min(400px, calc(100vw - 28px));
-    max-height: min(320px, calc(100vh - 120px));
+    width: min(460px, calc(100vw - 28px));
+    max-height: min(420px, calc(100vh - 120px));
     display: flex;
     flex-direction: column;
     border: 1px solid color-mix(in srgb, var(--accent-warm) 20%, transparent);
@@ -1479,7 +1479,7 @@
     padding: 10px 14px;
     border-bottom: 1px solid color-mix(in srgb, var(--accent-warm) 10%, transparent);
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.01em;
 }
@@ -1521,7 +1521,7 @@
 .page-diff-burst-history {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border-glass);
     background: var(--surface-glass);
@@ -1537,29 +1537,54 @@
 
 .page-diff-burst-row {
     display: grid;
-    grid-template-columns: 60px 1fr;
-    gap: 8px;
+    grid-template-columns: 72px 1fr;
+    gap: 10px;
     align-items: start;
+    padding: 7px 8px;
+    border-radius: var(--radius-md);
+}
+
+.page-diff-burst-row.latest {
+    background: color-mix(in srgb, var(--accent-warm) 10%, transparent);
 }
 
 .page-diff-burst-time {
     color: var(--text-muted);
     font-size: 11px;
+    font-weight: 700;
 }
 
 .page-diff-burst-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     color: var(--text-secondary);
     font-size: 11.5px;
     line-height: 1.4;
     word-break: break-word;
 }
 
+.page-diff-burst-summary-part {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.page-diff-burst-summary-section {
+    align-self: flex-start;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 .page-diff-item {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
-    padding: 12px 14px;
+    gap: 10px;
+    padding: 14px;
     border-bottom: 1px solid var(--border-glass);
 }
 
@@ -1570,24 +1595,40 @@
 .page-diff-item-header {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
 }
 
+.page-diff-badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.page-diff-kind,
 .page-diff-section {
     align-self: flex-start;
     padding: 2px 6px;
     border-radius: var(--radius-sm);
-    background: var(--surface-hover);
-    color: var(--text-muted);
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
 
-.page-diff-summary {
+.page-diff-kind {
+    background: var(--surface-elevated);
     color: var(--text-secondary);
-    font-size: 12px;
+}
+
+.page-diff-section {
+    background: var(--surface-hover);
+    color: var(--text-muted);
+}
+
+.page-diff-summary {
+    color: var(--text-primary);
+    font-size: 12.5px;
     line-height: 1.45;
     word-break: break-word;
 }
@@ -1601,9 +1642,10 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    padding: 8px 10px;
+    padding: 9px 10px;
     border-radius: var(--radius-md);
     background: var(--surface-glass);
+    border: 1px solid var(--border-glass);
 }
 
 .page-diff-snippet-label,
@@ -1618,7 +1660,8 @@
 .page-diff-snippet-text {
     color: var(--text-primary);
     font-size: 12px;
-    line-height: 1.45;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 
 .page-diff-list-group {

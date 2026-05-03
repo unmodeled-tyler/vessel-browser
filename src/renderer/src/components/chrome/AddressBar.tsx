@@ -20,6 +20,7 @@ import { useHistory } from "../../stores/history";
 import { useBookmarks } from "../../stores/bookmarks";
 import type { PageDiff } from "../../../../shared/page-diff-types";
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
+import { parseDiffSummaryParts } from "../../lib/pageDiffDisplay";
 import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
@@ -151,6 +152,13 @@ const AddressBar: Component<{
     const hours = Math.round(mins / 60);
     return `${hours}h`;
   };
+
+  const getChangeKindLabel = (kind: PageDiff["changes"][number]["kind"]) =>
+    kind === "added"
+      ? "Added"
+      : kind === "removed"
+        ? "Removed"
+        : "Changed";
 
   createEffect(() => {
     if (isPrivateWindow) return;
@@ -547,7 +555,10 @@ const AddressBar: Component<{
           <div class="page-diff-popup-header">
             <div class="page-diff-popup-header-copy">
               <span>
-                What changed since {formatRelativeTime(pageDiff()!.oldSnapshot.capturedAt)}
+                Compared with your last visit
+              </span>
+              <span class="page-diff-burst-meta">
+                Previous snapshot from {formatRelativeTime(pageDiff()!.oldSnapshot.capturedAt)}
               </span>
               <Show
                 when={
@@ -579,14 +590,30 @@ const AddressBar: Component<{
           </div>
           <Show when={pageDiff()!.recentBursts?.length && (pageDiff()!.recentBursts?.length || 0) > 1}>
             <div class="page-diff-burst-history">
-              <div class="page-diff-burst-history-label">Changed recently</div>
+              <div class="page-diff-burst-history-label">Recent detections</div>
               <For each={pageDiff()!.recentBursts}>
-                {(burst) => (
-                  <div class="page-diff-burst-row">
+                {(burst, i) => (
+                  <div
+                    class="page-diff-burst-row"
+                    classList={{ latest: i() === 0 }}
+                  >
                     <span class="page-diff-burst-time">
-                      {formatRelativeTime(burst.detectedAt)}
+                      {i() === 0 ? "Latest" : formatRelativeTime(burst.detectedAt)}
                     </span>
-                    <span class="page-diff-burst-summary">{burst.summary}</span>
+                    <span class="page-diff-burst-summary">
+                      <For each={parseDiffSummaryParts(burst.summary)}>
+                        {(part) => (
+                          <span class="page-diff-burst-summary-part">
+                            <Show when={part.section}>
+                              <span class="page-diff-burst-summary-section">
+                                {part.section}
+                              </span>
+                            </Show>
+                            <span>{part.text}</span>
+                          </span>
+                        )}
+                      </For>
+                    </span>
                   </div>
                 )}
               </For>
@@ -596,9 +623,14 @@ const AddressBar: Component<{
             {(change) => (
               <div class={`page-diff-item page-diff-${change.kind}`}>
                 <div class="page-diff-item-header">
-                  <span class="page-diff-section">
-                    {formatSectionLabel(change.section)}
-                  </span>
+                  <div class="page-diff-badges">
+                    <span class="page-diff-kind">
+                      {getChangeKindLabel(change.kind)}
+                    </span>
+                    <span class="page-diff-section">
+                      {formatSectionLabel(change.section)}
+                    </span>
+                  </div>
                   <span class="page-diff-summary">{change.summary}</span>
                 </div>
                 <Show when={change.before || change.after}>
