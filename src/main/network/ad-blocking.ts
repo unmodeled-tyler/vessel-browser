@@ -50,7 +50,8 @@ const THIRD_PARTY_PATH_PATTERNS = [
   /\/pixel/i,
 ];
 
-const EMPTY_BLOCKED_FRAME_URL = "data:text/html;charset=utf-8,";
+const EMPTY_BLOCKED_FRAME_URL =
+  "data:text/html;charset=utf-8,%3C!doctype%20html%3E%3Chtml%3E%3Cbody%3E%3C%2Fbody%3E%3C%2Fhtml%3E";
 
 let installed = false;
 const defaultSessionTabManagers = new Set<TabManager>();
@@ -122,7 +123,7 @@ function shouldBlockRequest(
 function getAdBlockDecision(
   details: OnBeforeRequestListenerDetails,
 ): AdBlockDecision {
-  if (!shouldBlockRequest(details)) return {};
+  if (!shouldBlockRequest(details)) return { cancel: false };
 
   if (details.resourceType === "subFrame") {
     return { redirectURL: EMPTY_BLOCKED_FRAME_URL };

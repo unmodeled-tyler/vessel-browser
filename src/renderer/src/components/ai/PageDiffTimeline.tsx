@@ -11,16 +11,23 @@ import type { PageDiffHistoryItem } from "../../../../shared/page-diff-types";
 import { parseDiffSummaryParts } from "../../lib/pageDiffDisplay";
 import { useTabs } from "../../stores/tabs";
 
-const formatChangeTime = (isoDate: string): string =>
-  new Date(isoDate).toLocaleString([], {
+const formatChangeTime = (isoDate: string): string => {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+
+  return date.toLocaleString([], {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+};
 
 const formatRelativeTime = (isoDate: string): string => {
-  const diff = Date.now() - new Date(isoDate).getTime();
+  const timestamp = new Date(isoDate).getTime();
+  if (Number.isNaN(timestamp)) return "recently";
+
+  const diff = Math.max(0, Date.now() - timestamp);
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -28,7 +35,7 @@ const formatRelativeTime = (isoDate: string): string => {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(isoDate).toLocaleDateString();
+  return new Date(timestamp).toLocaleDateString();
 };
 
 const PageDiffTimeline: Component = () => {
