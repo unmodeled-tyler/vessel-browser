@@ -1,8 +1,24 @@
-export function formatRelativeTime(isoDate: string): string {
+export type RelativeTimeOptions = {
+  now?: number | Date;
+};
+
+function resolveNow(options?: RelativeTimeOptions): number {
+  if (options?.now instanceof Date) return options.now.getTime();
+  if (typeof options?.now === "number") return options.now;
+  return Date.now();
+}
+
+export function formatRelativeTime(
+  isoDate: string,
+  options?: RelativeTimeOptions,
+): string {
   const timestamp = new Date(isoDate).getTime();
   if (Number.isNaN(timestamp)) return "recently";
 
-  const diff = Math.max(0, Date.now() - timestamp);
+  const now = resolveNow(options);
+  if (Number.isNaN(now)) return "recently";
+
+  const diff = Math.max(0, now - timestamp);
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;

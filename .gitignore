@@ -54,8 +54,12 @@ docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 
 # Tests (local overrides)
 tests/*
+!tests/ad-blocking-rules.test.ts
 !tests/page-diff-display.test.ts
 !tests/time-display.test.ts
+tests/local/
+tests/*.local.ts
+tests/*.scratch.ts
 navigation-regression.ts
 
 # Claude skills (local overrides)
