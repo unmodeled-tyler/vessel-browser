@@ -216,6 +216,47 @@ export function exportBookmarksHtml(
   return `${lines.join("\n")}\n`;
 }
 
+export function exportBookmarkFolderHtml(
+  folderId: string,
+  options: BookmarkHtmlExportOptions = {},
+): { content: string; count: number; folderName: string } | null {
+  const current = getState();
+  const folder = current.folders.find((item) => item.id === folderId);
+  if (!folder) return null;
+
+  const resolvedOptions: Required<BookmarkHtmlExportOptions> = {
+    includeNotes: options.includeNotes ?? false,
+  };
+  const now = Math.floor(Date.now() / 1000);
+  const items = current.bookmarks.filter(
+    (bookmark) => bookmark.folderId === folder.id,
+  );
+  const addDate = toNetscapeTimestamp(folder.createdAt) || now;
+  const lines = [
+    NETSCAPE_BOOKMARKS_DOCTYPE,
+    '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+    `<TITLE>${escapeBookmarkHtml(folder.name)}</TITLE>`,
+    `<H1>${escapeBookmarkHtml(folder.name)}</H1>`,
+    "<DL><p>",
+    `    <DT><H3 ADD_DATE="${addDate}" LAST_MODIFIED="${now}">${escapeBookmarkHtml(folder.name)}</H3>`,
+  ];
+
+  if (resolvedOptions.includeNotes && folder.summary) {
+    lines.push(`    <DD>${escapeBookmarkHtml(folder.summary)}`);
+  }
+  lines.push("    <DL><p>");
+  for (const bookmark of items) {
+    appendBookmarkHtml(lines, bookmark, resolvedOptions, "        ");
+  }
+  lines.push("    </DL><p>", "</DL><p>");
+
+  return {
+    content: `${lines.join("\n")}\n`,
+    count: items.length,
+    folderName: folder.name,
+  };
+}
+
 export function exportBookmarksJson(): string {
   return `${JSON.stringify(getState(), null, 2)}\n`;
 }

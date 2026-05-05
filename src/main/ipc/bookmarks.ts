@@ -5,6 +5,15 @@ import * as bookmarkManager from "../bookmarks/manager";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { trackBookmarkAction } from "../telemetry/posthog";
 
+function getSafeBookmarkExportName(name: string): string {
+  const safeName = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return safeName || "folder";
+}
+
 export function registerBookmarkHandlers(): void {
   ipcMain.handle(Channels.BOOKMARKS_GET, () => {
     return bookmarkManager.getState();
@@ -113,6 +122,33 @@ export function registerBookmarkHandlers(): void {
       count: bookmarkManager.getState().bookmarks.length,
     };
   });
+
+  ipcMain.handle(
+    Channels.FOLDER_EXPORT_HTML,
+    async (_, folderId: string, options?: { includeNotes?: boolean }) => {
+      const folder = bookmarkManager.getFolder(folderId);
+      if (!folder) return null;
+
+      const { canceled, filePath } = await dialog.showSaveDialog({
+        title: `Export ${folder.name}`,
+        defaultPath: `vessel-bookmarks-${getSafeBookmarkExportName(folder.name)}.html`,
+        filters: [{ name: "HTML Bookmarks", extensions: ["html"] }],
+      });
+      if (canceled || !filePath) return null;
+
+      const result = bookmarkManager.exportBookmarkFolderHtml(folderId, {
+        includeNotes: options?.includeNotes ?? true,
+      });
+      if (!result) return null;
+
+      await fs.writeFile(filePath, result.content, "utf-8");
+      trackBookmarkAction("export");
+      return {
+        filePath,
+        count: result.count,
+      };
+    },
+  );
 
   ipcMain.handle(Channels.BOOKMARKS_IMPORT_HTML, async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({

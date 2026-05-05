@@ -147,6 +147,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     removeBookmark,
     exportHtml,
     exportJson,
+    exportFolderHtml,
     createFolderWithSummary,
     removeFolder,
     renameFolder,
@@ -769,6 +770,29 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
       setEditingFolderId(null);
       setEditingFolderName("");
       setEditingFolderSummary("");
+    }
+  };
+
+  const handleExportFolder = async (folderId: string, folderName: string) => {
+    setBookmarkExporting(true);
+    setBookmarkExportMessage("");
+    try {
+      const result = await exportFolderHtml(folderId, { includeNotes: true });
+      if (!result) {
+        setBookmarkExportMessage("Export canceled.");
+        return;
+      }
+      setBookmarkExportMessage(
+        `Exported ${folderName} (${result.count} bookmarks) to ${result.filePath}`,
+      );
+    } catch (error) {
+      setBookmarkExportMessage(
+        error instanceof Error
+          ? error.message
+          : `Could not export ${folderName}.`,
+      );
+    } finally {
+      setBookmarkExporting(false);
     }
   };
 
@@ -1433,6 +1457,17 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                                 }}
                               >
                                 Rename
+                              </button>
+                              <button
+                                class="bookmark-ghost-button"
+                                type="button"
+                                disabled={bookmarkExporting()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleExportFolder(folder.id, folder.name);
+                                }}
+                              >
+                                Export
                               </button>
                               <button
                                 class="bookmark-ghost-button danger"

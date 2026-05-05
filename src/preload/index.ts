@@ -341,6 +341,11 @@ const api = {
       ipcRenderer.invoke(Channels.BOOKMARKS_EXPORT_HTML, options),
     exportJson: (): Promise<BookmarkExportResult | null> =>
       ipcRenderer.invoke(Channels.BOOKMARKS_EXPORT_JSON),
+    exportFolderHtml: (
+      folderId: string,
+      options?: BookmarkHtmlExportOptions,
+    ): Promise<BookmarkExportResult | null> =>
+      ipcRenderer.invoke(Channels.FOLDER_EXPORT_HTML, folderId, options),
     importHtml: (): Promise<ImportResult | null> =>
       ipcRenderer.invoke(Channels.BOOKMARKS_IMPORT_HTML),
     importJson: (): Promise<ImportResult | null> =>

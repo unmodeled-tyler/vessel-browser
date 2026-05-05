@@ -70,6 +70,7 @@ export const Channels = {
   FOLDER_CREATE: "bookmarks:folder-create",
   FOLDER_REMOVE: "bookmarks:folder-remove",
   FOLDER_RENAME: "bookmarks:folder-rename",
+  FOLDER_EXPORT_HTML: "bookmarks:folder-export-html",
 
   // Highlights
   HIGHLIGHT_CAPTURE: "highlights:capture",
