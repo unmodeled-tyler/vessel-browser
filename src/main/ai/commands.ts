@@ -18,6 +18,8 @@ import { executeAction, type ActionContext, clearCartState } from "./page-action
 import type { TabManager } from "../tabs/tab-manager";
 import type { WebContents } from "electron";
 import type { AgentRuntime } from "../agent/runtime";
+import { buildOrchestratorSystemPrompt } from "../agent/research/orchestrator-prompt";
+import type { ResearchOrchestrator } from "../agent/research/orchestrator";
 
 export async function handleAIQuery(
   query: string,
@@ -28,7 +30,48 @@ export async function handleAIQuery(
   tabManager?: TabManager,
   runtime?: AgentRuntime,
   history?: AIMessage[],
+  researchOrchestrator?: ResearchOrchestrator,
 ): Promise<void> {
+  // Research Desk: during briefing/planning, use the orchestrator's system prompt
+  if (researchOrchestrator) {
+    const researchState = researchOrchestrator.getState();
+    if (researchState.phase === "briefing" || researchState.phase === "planning") {
+      const isPlanning = researchState.phase === "planning";
+      const phaseInstruction = isPlanning
+        ? "\n\nNow produce the Research Objectives based on the brief conversation above. Output them as a JSON object with researchQuestion, threads (array of {label, question, searchQueries, sourceBudget}), audience, reportOutline, and totalSourceBudget fields."
+        : "\n\nContinue the briefing interview. Ask one question at a time.";
+
+      let fullResponse = "";
+      const wrappedOnChunk = (text: string) => {
+        fullResponse += text;
+        onChunk(text);
+      };
+
+      const wrappedOnEnd = () => {
+        // In planning phase, try to parse objectives from the response
+        if (isPlanning) {
+          const parsed = researchOrchestrator.parseAndSetObjectives(fullResponse);
+          if (!parsed) {
+            // Parsing failed — the LLM didn't produce valid JSON
+            onChunk(
+              "\n\n[Failed to parse objectives. Please try confirming the brief again or refine your research question.]",
+            );
+          }
+        }
+        onEnd();
+      };
+
+      await provider.streamQuery(
+        buildOrchestratorSystemPrompt() + phaseInstruction,
+        query,
+        wrappedOnChunk,
+        wrappedOnEnd,
+        history,
+      );
+      return;
+    }
+  }
+
   const lowerQuery = query.toLowerCase().trim();
 
   const isSummarize =

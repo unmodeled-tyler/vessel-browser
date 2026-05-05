@@ -90,6 +90,9 @@ export const PREMIUM_TOOLS = new Set([
   "human_vault_list",
   "human_vault_fill",
   "human_vault_remove",
+  "research_confirm_brief",
+  "research_approve_objectives",
+  "research_export_report",
 ]);
 
 /** Features gated behind premium (checked by name in UI/IPC) */
@@ -100,6 +103,7 @@ export const PREMIUM_FEATURES = new Set([
   "vault",
   "human_vault",
   "automation_kits",
+  "research",
 ]);
 
 // --- Status checks ---

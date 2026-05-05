@@ -32,6 +32,7 @@ import type {
   PageDiffHistoryItem,
 } from "../shared/page-diff-types";
 import type { DevToolsPanelState } from "../main/devtools/types";
+import type { ResearchState } from "../shared/research-types";
 
 const api = {
   tabs: {
@@ -199,6 +200,41 @@ const api = {
       snapshot?: SessionSnapshot | null,
     ): Promise<SessionSnapshot> =>
       ipcRenderer.invoke(Channels.AGENT_SESSION_RESTORE, snapshot),
+  },
+  research: {
+    getState: (): Promise<ResearchState> =>
+      ipcRenderer.invoke(Channels.RESEARCH_STATE_GET),
+    onStateUpdate: (cb: (state: ResearchState) => void): (() => void) => {
+      const handler = (_: unknown, state: ResearchState) => cb(state);
+      ipcRenderer.on(Channels.RESEARCH_STATE_UPDATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.RESEARCH_STATE_UPDATE, handler);
+    },
+    startBrief: (query: string) =>
+      ipcRenderer.invoke<
+        { accepted: true } | { accepted: false; reason: "busy" | "error" }
+      >(Channels.RESEARCH_START_BRIEF, query),
+    confirmBrief: () =>
+      ipcRenderer.invoke<
+        { accepted: true } | { accepted: false; reason: "premium" }
+      >(Channels.RESEARCH_CONFIRM_BRIEF),
+    approveObjectives: (options?: {
+      supervisionMode?: "walk-away" | "interactive";
+      includeTraces?: boolean;
+    }) =>
+      ipcRenderer.invoke<
+        { accepted: true } | { accepted: false; reason: "premium" | "error" }
+      >(Channels.RESEARCH_APPROVE_OBJECTIVES, options ?? {}),
+    setMode: (mode: "walk-away" | "interactive") =>
+      ipcRenderer.invoke(Channels.RESEARCH_SET_MODE, mode),
+    setTraces: (include: boolean) =>
+      ipcRenderer.invoke(Channels.RESEARCH_SET_TRACES, include),
+    cancel: () => ipcRenderer.invoke(Channels.RESEARCH_CANCEL),
+    exportReport: () =>
+      ipcRenderer.invoke<
+        | { accepted: true; savedPath: string }
+        | { accepted: false; reason: "premium" | "error" | "cancelled"; error?: string }
+      >(Channels.RESEARCH_EXPORT_REPORT),
   },
   content: {
     extract: () => ipcRenderer.invoke(Channels.CONTENT_EXTRACT),

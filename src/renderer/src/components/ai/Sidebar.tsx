@@ -30,6 +30,7 @@ import type {
 import { useScrollFade } from "../../lib/useScrollFade";
 import DropdownSelect from "../shared/DropdownSelect";
 import AutomationTab from "./AutomationTab";
+import { ResearchDesk } from "./ResearchDesk";
 import PageDiffTimeline from "./PageDiffTimeline";
 import vesselLogo from "../../assets/vessel-logo-transparent.png";
 import "./ai.css";
@@ -153,7 +154,14 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     renameFolder,
   } = useBookmarks();
   const [sidebarTab, setSidebarTab] = createSignal<
-    "supervisor" | "bookmarks" | "checkpoints" | "chat" | "automation" | "history" | "diff"
+    | "supervisor"
+    | "bookmarks"
+    | "checkpoints"
+    | "chat"
+    | "automation"
+    | "history"
+    | "diff"
+    | "research"
   >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
   const [highlightCount, setHighlightCount] = createSignal(0);
@@ -988,6 +996,15 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             onClick={() => setSidebarTab("diff")}
           >
             Changes
+          </button>
+          <button
+            class="sidebar-tab"
+            classList={{ active: sidebarTab() === "research" }}
+            role="tab"
+            aria-selected={sidebarTab() === "research"}
+            onClick={() => setSidebarTab("research")}
+          >
+            Research
           </button>
         </div>
 
@@ -1898,6 +1915,10 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
 
           <Show when={sidebarTab() === "automation"}>
             <AutomationTab onRun={() => setSidebarTab("supervisor")} />
+          </Show>
+
+          <Show when={sidebarTab() === "research"}>
+            <ResearchDesk />
           </Show>
 
           <Show when={sidebarTab() === "history"}>

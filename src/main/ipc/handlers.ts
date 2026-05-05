@@ -1,4 +1,4 @@
-import { app, ipcMain, session } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
@@ -57,6 +57,8 @@ import {
 } from "./common";
 import { registerAutofillHandlers } from "./autofill";
 import { registerPageDiffHandlers } from "./page-diff";
+import { registerResearchHandlers } from "./research";
+import { ResearchOrchestrator } from "../agent/research/orchestrator";
 import { registerVaultHandlers } from "./vault";
 import { registerHumanVaultHandlers } from "./human-vault";
 import { registerWindowControlHandlers } from "./window-controls";
@@ -113,6 +115,32 @@ export function registerIpcHandlers(
   runtime: AgentRuntime,
 ): void {
   const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
+
+  // --- Research Desk ---
+  let researchOrchestrator: ResearchOrchestrator | null = null;
+
+  const getResearchOrchestrator = (): ResearchOrchestrator => {
+    if (!researchOrchestrator) {
+      const settings = loadSettings();
+      const provider = settings.chatProvider
+        ? createProvider(settings.chatProvider)
+        : null;
+      if (!provider) {
+        throw new Error("Chat provider not configured — required for Research Desk");
+      }
+      researchOrchestrator = new ResearchOrchestrator(provider, tabManager, runtime);
+      // Push state updates to renderer when orchestrator changes
+      researchOrchestrator.setUpdateListener((state) => {
+        const windows = BrowserWindow.getAllWindows();
+        for (const win of windows) {
+          if (!win.isDestroyed()) {
+            win.webContents.send(Channels.RESEARCH_STATE_UPDATE, state);
+          }
+        }
+      });
+    }
+    return researchOrchestrator;
+  };
 
   // Private browsing
   ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, () => {
@@ -402,6 +430,7 @@ export function registerIpcHandlers(
           tabManager,
           runtime,
           history,
+          researchOrchestrator,
         );
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -805,6 +834,9 @@ export function registerIpcHandlers(
 
   registerAutofillHandlers(windowState);
   registerPageDiffHandlers(windowState, sendToRendererViews);
+
+  // Research Desk handlers
+  registerResearchHandlers(() => getResearchOrchestrator());
 
   // --- Clear browsing data ---
 
