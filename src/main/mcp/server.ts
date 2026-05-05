@@ -242,24 +242,6 @@ function getActiveTabSummary(tabManager: TabManager) {
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 async function getPostActionState(
   tabManager: TabManager,
   name: string,
@@ -454,14 +436,6 @@ async function waitForConditionMcp(
 
   return JSON.stringify(timeoutPayload);
 }
-
-
-
-
-
-
-
-
 
 
 function registerTools(
