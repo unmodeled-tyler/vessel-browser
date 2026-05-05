@@ -1476,7 +1476,7 @@ if (researchState && (researchState.phase === "briefing" || researchState.phase 
     (researchState.phase === "planning"
       ? "Now produce the Research Objectives based on the brief conversation above."
       : "Continue the briefing interview. Ask one question at a time.");
-  
+
   // Use streamAgentQuery with the orchestrator prompt
   // ... (rest of the streaming logic)
 }

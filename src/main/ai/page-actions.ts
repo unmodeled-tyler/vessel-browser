@@ -565,7 +565,6 @@ export async function scrollPage(
 }
 
 
-
 export async function clickElement(
   wc: WebContents,
   selector: string,
@@ -2415,7 +2414,6 @@ export async function clearOverlays(
 
   return steps.join("\n");
 }
-
 
 
 async function resolveTargetByText(
