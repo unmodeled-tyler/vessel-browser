@@ -49,8 +49,10 @@ export function useResearch() {
     state: researchState,
     isPremium: isResearchPremium,
 
-    startBrief(query: string) {
-      return window.vessel.research.startBrief(query);
+    async startBrief(query: string) {
+      const result = await window.vessel.research.startBrief(query);
+      setResearchState(await window.vessel.research.getState());
+      return result;
     },
 
     confirmBrief() {

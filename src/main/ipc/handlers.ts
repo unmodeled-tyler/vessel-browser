@@ -129,12 +129,17 @@ export function registerIpcHandlers(
         throw new Error("Chat provider not configured — required for Research Desk");
       }
       researchOrchestrator = new ResearchOrchestrator(provider, tabManager, runtime);
-      // Push state updates to renderer when orchestrator changes
+      // Push state updates to every renderer surface that may host the sidebar.
       researchOrchestrator.setUpdateListener((state) => {
-        const windows = BrowserWindow.getAllWindows();
-        for (const win of windows) {
-          if (!win.isDestroyed()) {
-            win.webContents.send(Channels.RESEARCH_STATE_UPDATE, state);
+        const targets = [
+          mainWindow.webContents,
+          chromeView.webContents,
+          sidebarView.webContents,
+          devtoolsPanelView.webContents,
+        ];
+        for (const webContents of targets) {
+          if (!webContents.isDestroyed()) {
+            webContents.send(Channels.RESEARCH_STATE_UPDATE, state);
           }
         }
       });

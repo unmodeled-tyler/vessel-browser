@@ -3358,6 +3358,14 @@
     transform: scale(0.98);
 }
 
+.research-start-btn:disabled,
+.research-confirm-btn:disabled {
+    cursor: progress;
+    filter: saturate(0.85);
+    opacity: 0.78;
+    transform: none;
+}
+
 .research-start-btn-main {
     font-size: 13px;
     font-weight: 700;

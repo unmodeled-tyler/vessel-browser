@@ -6,6 +6,7 @@ export const ResearchDesk: Component = () => {
   const state = research.state;
   const [draftQuery, setDraftQuery] = createSignal("");
   const [startError, setStartError] = createSignal<string | null>(null);
+  const [isStarting, setIsStarting] = createSignal(false);
 
   async function handleStartResearch(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -17,13 +18,18 @@ export const ResearchDesk: Component = () => {
     }
 
     setStartError(null);
-    const result = await research.startBrief(query);
-    if (!result.accepted) {
-      setStartError(
-        result.reason === "busy"
-          ? "Research Desk is already working on a brief."
-          : "Could not start research. Please try again.",
-      );
+    setIsStarting(true);
+    try {
+      const result = await research.startBrief(query);
+      if (!result.accepted) {
+        setStartError(
+          result.reason === "busy"
+            ? "Research Desk already has a brief in progress — switching views now."
+            : "Could not start research. Please try again.",
+        );
+      }
+    } finally {
+      setIsStarting(false);
     }
   }
 
@@ -82,9 +88,19 @@ export const ResearchDesk: Component = () => {
                 <Show when={startError()}>
                   {(message) => <p class="research-start-error">{message()}</p>}
                 </Show>
-                <button class="research-start-btn" type="submit">
-                  <span class="research-start-btn-main">Start Research</span>
-                  <span class="research-start-btn-sub">Build a scoped research brief</span>
+                <button
+                  class="research-start-btn"
+                  type="submit"
+                  disabled={isStarting()}
+                >
+                  <span class="research-start-btn-main">
+                    {isStarting() ? "Starting Research…" : "Start Research"}
+                  </span>
+                  <span class="research-start-btn-sub">
+                    {isStarting()
+                      ? "Opening the briefing workspace"
+                      : "Build a scoped research brief"}
+                  </span>
                 </button>
               </form>
             </div>
