@@ -54,6 +54,7 @@ docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 
 # Tests (local overrides)
 # Keep committed tests tracked, but hide local/untracked test experiments by default.
+# Force-add intentional new top-level tests with: git add -f tests/name.test.ts
 tests/*.test.ts
 !tests/ad-blocking-rules.test.ts
 !tests/ai-activity.test.ts
@@ -83,4 +84,3 @@ tests/*.scratch.ts
 # Local secrets / deployment config
 .webui_secret_key
 scripts/cloudflare-worker/wrangler.toml
-hf-space/Dockerfile.full-build
