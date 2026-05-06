@@ -10,6 +10,131 @@ for (var cr = 0; cr < contentRoots.length; cr++) {
   if (contentRoot) break;
 }`;
 const NAV_ANCESTORS_JS = "var NAV_ANCESTORS = 'nav, aside, footer, header, [role=\"navigation\"], [role=\"complementary\"], .sidebar, .navbox, .infobox, figcaption, .thumbcaption, .mw-jump-link';";
+const TEXT_MATCH_HELPERS_JS = `
+function normalizeHighlightSearchText(value) {
+  return String(value || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+}
+
+function isHighlightableTextNode(n) {
+  var p = n.parentElement;
+  if (!p) return false;
+  if (SKIP_TAGS[p.tagName]) return false;
+  if (p.closest('[data-vessel-highlight]')) return false;
+  if (p.closest(NAV_ANCESTORS)) return false;
+  var style = window.getComputedStyle(p);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  if (p.offsetWidth === 0 && p.offsetHeight === 0) return false;
+  return true;
+}
+
+function collectTextRangeMatches(root, searchText, limit) {
+  var normalizedSearch = normalizeHighlightSearchText(searchText);
+  if (!root || !normalizedSearch) return [];
+  var normalized = '';
+  var map = [];
+  var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: function(n) {
+      return isHighlightableTextNode(n)
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    }
+  });
+  var n;
+  while ((n = w.nextNode())) {
+    var text = n.textContent || '';
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (/\\s/.test(ch)) {
+        if (normalized.length === 0 || normalized.charAt(normalized.length - 1) === ' ') {
+          continue;
+        }
+        normalized += ' ';
+      } else {
+        normalized += ch.toLowerCase();
+      }
+      map.push({ node: n, offset: i });
+    }
+  }
+  var matches = [];
+  var from = 0;
+  while (matches.length < limit) {
+    var idx = normalized.indexOf(normalizedSearch, from);
+    if (idx === -1) break;
+    var start = map[idx];
+    var end = map[idx + normalizedSearch.length - 1];
+    if (start && end) {
+      matches.push({
+        startNode: start.node,
+        startOffset: start.offset,
+        endNode: end.node,
+        endOffset: end.offset + 1,
+      });
+    }
+    from = idx + Math.max(1, normalizedSearch.length);
+  }
+  return matches;
+}
+
+function collectTextSegmentsForMatch(match) {
+  var segments = [];
+  var inRange = false;
+  var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: function(n) {
+      return isHighlightableTextNode(n) || n === match.startNode || n === match.endNode
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    }
+  });
+  var n;
+  while ((n = w.nextNode())) {
+    if (n === match.startNode) inRange = true;
+    if (!inRange) continue;
+    segments.push({
+      node: n,
+      start: n === match.startNode ? match.startOffset : 0,
+      end: n === match.endNode ? match.endOffset : (n.textContent || '').length,
+    });
+    if (n === match.endNode) break;
+  }
+  return segments;
+}
+
+function markTextSegment(segment, solidColor, bgColor) {
+  if (!segment.node || segment.end <= segment.start) return null;
+  var parent = segment.node.parentNode;
+  if (!parent) return null;
+  var text = segment.node.textContent || '';
+  var selected = text.slice(segment.start, segment.end);
+  if (!selected) return null;
+  var mark = document.createElement('mark');
+  mark.className = '__vessel-highlight-text';
+  mark.style.setProperty('background', bgColor, 'important');
+  mark.style.setProperty('border-bottom-color', solidColor, 'important');
+  mark.setAttribute('data-vessel-highlight', 'true');
+  mark.textContent = selected;
+  if (segment.start > 0) {
+    parent.insertBefore(document.createTextNode(text.slice(0, segment.start)), segment.node);
+  }
+  parent.insertBefore(mark, segment.node);
+  if (segment.end < text.length) {
+    parent.insertBefore(document.createTextNode(text.slice(segment.end)), segment.node);
+  }
+  parent.removeChild(segment.node);
+  return mark;
+}
+
+function applyTextRangeMatch(match, solidColor, bgColor) {
+  var segments = collectTextSegmentsForMatch(match);
+  var marks = [];
+  for (var i = segments.length - 1; i >= 0; i--) {
+    try {
+      var mark = markTextSegment(segments[i], solidColor, bgColor);
+      if (mark) marks.unshift(mark);
+    } catch (_e) {}
+  }
+  return marks;
+}
+`;
 
 interface ColorValues {
   solid: string;
@@ -255,7 +380,6 @@ export async function highlightOnPage(
     return wc.executeJavaScript(`
       (function() {
         var searchText = (${JSON.stringify(text)} || '').trim();
-        var foldedSearchText = searchText.toLowerCase();
         var solidColor = ${JSON.stringify(c.solid)};
         var bgColor = ${JSON.stringify(c.bg)};
         var labelBg = ${JSON.stringify(c.label)};
@@ -267,60 +391,22 @@ export async function highlightOnPage(
         ${SKIP_TAGS_JS}
         ${CONTENT_ROOTS_JS}
         ${NAV_ANCESTORS_JS}
-
-        function collectMatches(root, limit) {
-          var matches = [];
-          var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-            acceptNode: function(n) {
-              var p = n.parentElement;
-              if (!p) return NodeFilter.FILTER_REJECT;
-              if (SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
-              if (p.closest('[data-vessel-highlight]')) return NodeFilter.FILTER_REJECT;
-              if (p.closest(NAV_ANCESTORS)) return NodeFilter.FILTER_REJECT;
-              var style = window.getComputedStyle(p);
-              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
-              if (p.offsetWidth === 0 && p.offsetHeight === 0) return NodeFilter.FILTER_REJECT;
-              return NodeFilter.FILTER_ACCEPT;
-            }
-          });
-          var n;
-          while ((n = w.nextNode())) {
-            var haystack = n.textContent || '';
-            var idx = haystack.indexOf(searchText);
-            if (idx === -1 && foldedSearchText) {
-              idx = haystack.toLowerCase().indexOf(foldedSearchText);
-            }
-            if (idx !== -1) {
-              matches.push({ node: n, idx: idx });
-              if (matches.length >= limit) break;
-            }
-          }
-          return matches;
-        }
+        ${TEXT_MATCH_HELPERS_JS}
 
         // First try: match inside main content area (skip nav/sidebar/captions)
-        var textNodes = contentRoot ? collectMatches(contentRoot, 20) : [];
+        var textMatches = contentRoot ? collectTextRangeMatches(contentRoot, searchText, 20) : [];
         // Fallback: if no matches in content area, search the whole body
-        if (textNodes.length === 0) {
-          textNodes = collectMatches(document.body, 20);
+        if (textMatches.length === 0) {
+          textMatches = collectTextRangeMatches(document.body, searchText, 20);
         }
         var count = 0;
         var firstMark = null;
-        for (var i = 0; i < textNodes.length; i++) {
-          var match = textNodes[i];
-          try {
-            var range = document.createRange();
-            range.setStart(match.node, match.idx);
-            range.setEnd(match.node, match.idx + searchText.length);
-            var mark = document.createElement('mark');
-            mark.className = '__vessel-highlight-text';
-            mark.style.setProperty('background', bgColor, 'important');
-            mark.style.setProperty('border-bottom-color', solidColor, 'important');
-            mark.setAttribute('data-vessel-highlight', 'true');
-            range.surroundContents(mark);
-            if (!firstMark) firstMark = mark;
+        for (var i = textMatches.length - 1; i >= 0; i--) {
+          var marks = applyTextRangeMatch(textMatches[i], solidColor, bgColor);
+          if (marks.length > 0) {
+            firstMark = marks[0];
             count++;
-          } catch (_e) {}
+          }
         }
         if (count === 0) return 'Text not found: ' + searchText.slice(0, 80);
         if (firstMark) firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -405,60 +491,19 @@ export async function highlightBatchOnPage(
       ${SKIP_TAGS_JS}
       ${CONTENT_ROOTS_JS}
       ${NAV_ANCESTORS_JS}
-
-      function collectMatches(root, searchText, foldedSearchText, limit) {
-        var matches = [];
-        var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-          acceptNode: function(n) {
-            var p = n.parentElement;
-            if (!p) return NodeFilter.FILTER_REJECT;
-            if (SKIP_TAGS[p.tagName]) return NodeFilter.FILTER_REJECT;
-            if (p.closest('[data-vessel-highlight]')) return NodeFilter.FILTER_REJECT;
-            if (p.closest(NAV_ANCESTORS)) return NodeFilter.FILTER_REJECT;
-            var style = window.getComputedStyle(p);
-            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
-            if (p.offsetWidth === 0 && p.offsetHeight === 0) return NodeFilter.FILTER_REJECT;
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        });
-        var n;
-        while ((n = w.nextNode())) {
-          var haystack = n.textContent || '';
-          var idx = haystack.indexOf(searchText);
-          if (idx === -1 && foldedSearchText) {
-            idx = haystack.toLowerCase().indexOf(foldedSearchText);
-          }
-          if (idx !== -1) {
-            matches.push({ node: n, idx: idx });
-            if (matches.length >= limit) break;
-          }
-        }
-        return matches;
-      }
+      ${TEXT_MATCH_HELPERS_JS}
 
       for (var e = 0; e < entries.length; e++) {
         var entry = entries[e];
         var c = entry.color;
         if (entry.text) {
           var searchText = (entry.text || '').trim();
-          var foldedSearchText = searchText.toLowerCase();
-          var textNodes = contentRoot ? collectMatches(contentRoot, searchText, foldedSearchText, 20) : [];
-          if (textNodes.length === 0) {
-            textNodes = collectMatches(document.body, searchText, foldedSearchText, 20);
+          var textMatches = contentRoot ? collectTextRangeMatches(contentRoot, searchText, 20) : [];
+          if (textMatches.length === 0) {
+            textMatches = collectTextRangeMatches(document.body, searchText, 20);
           }
-          for (var i = 0; i < textNodes.length; i++) {
-            try {
-              var match = textNodes[i];
-              var range = document.createRange();
-              range.setStart(match.node, match.idx);
-              range.setEnd(match.node, match.idx + searchText.length);
-              var mark = document.createElement('mark');
-              mark.className = '__vessel-highlight-text';
-              mark.style.setProperty('background', c.bg, 'important');
-              mark.style.setProperty('border-bottom-color', c.solid, 'important');
-              mark.setAttribute('data-vessel-highlight', 'true');
-              range.surroundContents(mark);
-            } catch (_e) {}
+          for (var i = textMatches.length - 1; i >= 0; i--) {
+            applyTextRangeMatch(textMatches[i], c.solid, c.bg);
           }
         } else if (entry.selector) {
           try {

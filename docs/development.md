@@ -8,6 +8,14 @@ The packaged AppImage path:
 - uses the packaged Vessel app icon and metadata
 - is the recommended path for early adopters who just want to run Vessel
 
+Windows packaged releases:
+
+- use the `Vessel-<version>-x64-setup.exe` NSIS installer
+- can be installed over an existing Vessel install when upgrading
+- preserve Vessel app data during the normal upgrade path
+
+You do not need to uninstall Vessel before installing a newer Windows release. Uninstall first only if you are recovering from a broken install or intentionally removing local Vessel data.
+
 The source installer:
 
 - clones or updates Vessel into `~/.local/share/vessel-browser`
