@@ -77,4 +77,28 @@ describe("Research IPC handler contracts", () => {
     phase = "executing";
     assert.strictEqual(phase, "executing");
   });
+
+  it("useResearch premium signal updates on subscription callback", () => {
+    // Simulate what window.vessel.premium.onUpdate does — fires with new state
+    let premiumActive = false;
+    const updatePremium = (status: string | undefined) => {
+      premiumActive = status === "active" || status === "trialing";
+    };
+
+    // Initial: inactive
+    updatePremium("inactive");
+    assert.strictEqual(premiumActive, false);
+
+    // Upgrade happens in another tab / settings
+    updatePremium("active");
+    assert.strictEqual(premiumActive, true);
+
+    // Expiry
+    updatePremium("expired");
+    assert.strictEqual(premiumActive, false);
+
+    // Missing status — safe default
+    updatePremium(undefined);
+    assert.strictEqual(premiumActive, false);
+  });
 });

@@ -596,6 +596,15 @@ export function registerIpcHandlers(
       await stopMcpServer();
       await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
     }
+    // Keep the Research Desk orchestrator's provider in sync with settings.
+    if (key === "chatProvider" && researchOrchestrator) {
+      try {
+        researchOrchestrator.setProvider(createProvider(value as Parameters<typeof createProvider>[0]));
+      } catch {
+        // Provider config is invalid — keep the current provider so
+        // an in-progress research session can finish.
+      }
+    }
     const rendererSettings = getRendererSettings();
     sendToRendererViews(Channels.SETTINGS_UPDATE, rendererSettings);
     return rendererSettings;

@@ -1,9 +1,62 @@
-import { Show, Switch, Match, type Component } from "solid-js";
+import {
+  For,
+  Show,
+  Switch,
+  Match,
+  createMemo,
+  createSignal,
+  type Component,
+} from "solid-js";
+import { useAI } from "../../stores/ai";
 import { useResearch } from "../../stores/research";
 
 export const ResearchDesk: Component = () => {
   const research = useResearch();
+  const {
+    query: sendChatQuery,
+    messages,
+    streamingText,
+    isStreaming,
+    pendingQueryCount,
+  } = useAI();
   const state = research.state;
+  const [topicInput, setTopicInput] = createSignal("");
+  const [briefInput, setBriefInput] = createSignal("");
+
+  const transcriptMessages = createMemo(() => {
+    const allMessages = messages();
+    const originalQuery = state().originalQuery?.trim();
+    if (!originalQuery) return allMessages;
+
+    for (let i = allMessages.length - 1; i >= 0; i -= 1) {
+      const message = allMessages[i];
+      if (message.role === "user" && message.content.trim() === originalQuery) {
+        return allMessages.slice(i);
+      }
+    }
+
+    return [];
+  });
+
+  const hasAssistantBrief = createMemo(() =>
+    transcriptMessages().some((message) => message.role === "assistant"),
+  );
+
+  const sendBriefMessage = async (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    await sendChatQuery(trimmed);
+  };
+
+  const startBrief = async () => {
+    const query = topicInput().trim();
+    if (!query) return;
+    const result = await research.startBrief(query);
+    if (result.accepted) {
+      setTopicInput("");
+      await sendBriefMessage(query);
+    }
+  };
 
   return (
     <div class="research-desk">
@@ -11,40 +64,113 @@ export const ResearchDesk: Component = () => {
         <Match when={state().phase === "idle"}>
           <div class="research-idle">
             <h3>Research Desk</h3>
-            <p>Deep research with parallel sub-agents. I'll interview you to refine your question, then spawn agents to investigate multiple angles simultaneously. Every claim in the final report is source-anchored.</p>
+            <p>Start with a topic. Vessel will shape it into a focused brief, draft a research plan, and then send sub-agents after the strongest sources.</p>
             <Show when={!research.isPremium()}>
               <div class="research-premium-notice">
                 <span class="premium-badge">Premium</span>
                 {" "}Brief is free; full research and export require Vessel Premium.
               </div>
             </Show>
-            <button
-              class="research-start-btn"
-              onClick={async () => {
-                await research.startBrief(
-                  prompt("What would you like to research?") ?? "",
-                );
+            <form
+              class="research-topic-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void startBrief();
               }}
             >
-              Start Research
-            </button>
+              <textarea
+                class="research-topic-input"
+                rows={3}
+                placeholder="What should we research?"
+                value={topicInput()}
+                onInput={(event) => setTopicInput(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void startBrief();
+                  }
+                }}
+              />
+              <button
+                class="research-start-btn"
+                type="submit"
+                disabled={!topicInput().trim()}
+              >
+                Start Briefing
+              </button>
+            </form>
           </div>
         </Match>
 
         <Match when={state().phase === "briefing"}>
           <div class="research-phase">
             <h3>Briefing</h3>
-            <p>Answer the questions in the Chat tab to refine your research question.</p>
+            <p>Work through the brief here. Once the assistant has enough context, turn it into a research plan.</p>
+            <div class="research-brief-thread">
+              <For each={transcriptMessages()}>
+                {(message) => (
+                  <div class={`research-brief-message ${message.role}`}>
+                    {message.content}
+                  </div>
+                )}
+              </For>
+              <Show when={isStreaming() && streamingText()}>
+                <div class="research-brief-message assistant">
+                  {streamingText()}
+                </div>
+              </Show>
+              <Show when={isStreaming() && !streamingText()}>
+                <div class="research-brief-status">Thinking...</div>
+              </Show>
+              <Show when={pendingQueryCount() > 0}>
+                <div class="research-brief-status">
+                  {pendingQueryCount()} queued
+                </div>
+              </Show>
+            </div>
+            <form
+              class="research-brief-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const message = briefInput();
+                setBriefInput("");
+                void sendBriefMessage(message);
+              }}
+            >
+              <textarea
+                class="research-brief-input"
+                rows={2}
+                placeholder={isStreaming() ? "Send now to queue a follow-up..." : "Please provide as much information about your research question as possible, e.g. constraints, preferred sources..."}
+                value={briefInput()}
+                onInput={(event) => setBriefInput(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    const message = briefInput();
+                    setBriefInput("");
+                    void sendBriefMessage(message);
+                  }
+                }}
+              />
+              <button type="submit" disabled={!briefInput().trim()}>
+                {isStreaming() ? "Queue" : "Send"}
+              </button>
+            </form>
             <div class="phase-controls">
               <button
+                disabled={!hasAssistantBrief() || isStreaming()}
                 onClick={async () => {
                   const result = await research.confirmBrief();
-                  if (!result.accepted && result.reason === "premium") {
+                  if (result.accepted) {
+                    await sendChatQuery(
+                      "Build the Research Objectives from this brief now.",
+                    );
+                  } else if (result.reason === "premium") {
                     void window.vessel.premium.checkout();
                   }
                 }}
               >
-                Confirm Brief
+                Build Research Plan
               </button>
               <button class="secondary" onClick={() => research.cancel()}>
                 Cancel

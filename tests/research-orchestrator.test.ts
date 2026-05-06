@@ -172,6 +172,45 @@ describe("ResearchState transitions", () => {
     assert.ok(objectives.threads.length <= MAX);
   });
 
+  it("startBrief ignores empty queries", async () => {
+    const orch = new ResearchOrchestrator(
+      makeMockProvider(),
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+
+    await orch.startBrief("   ");
+
+    assert.strictEqual(orch.getState().phase, "idle");
+    assert.strictEqual(orch.getState().originalQuery, null);
+  });
+
+  it("startBrief clears stale delivered state before a new run", async () => {
+    const orch = new ResearchOrchestrator(
+      makeMockProvider(),
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+
+    await orch.startBrief("first");
+    orch.confirmBrief();
+    orch.setObjectives(makeMockObjectives());
+    orch.approveObjectives();
+    await orch.executeSubAgents();
+    assert.strictEqual(orch.getState().phase, "delivered");
+    assert.ok(orch.getState().report);
+
+    orch.cancel();
+    await orch.startBrief("second");
+
+    const state = orch.getState();
+    assert.strictEqual(state.phase, "briefing");
+    assert.strictEqual(state.originalQuery, "second");
+    assert.strictEqual(state.report, null);
+    assert.strictEqual(state.objectives, null);
+    assert.deepStrictEqual(state.threadFindings, []);
+  });
+
   it("parseAndSetObjectives returns false for invalid text", async () => {
     const orch = new ResearchOrchestrator(
       makeMockProvider(),
@@ -321,13 +360,16 @@ describe("ResearchState transitions", () => {
     assert.ok(orch.getState().report);
   });
 
-  it("does not deliver a report after cancellation during execution", async () => {
+  it("does not deliver a report or continue extraction after cancellation during execution", async () => {
     let releaseAgent!: () => void;
     let synthesisCalled = false;
+    let claimExtractionCalled = false;
     const provider: AIProvider = {
       agentToolProfile: "default",
       streamQuery: async (systemPrompt, _userMessage, onChunk, onEnd) => {
-        if (!systemPrompt.includes("claim extractor")) {
+        if (systemPrompt.includes("claim extractor")) {
+          claimExtractionCalled = true;
+        } else {
           synthesisCalled = true;
         }
         onChunk("[]");
@@ -383,5 +425,59 @@ describe("ResearchState transitions", () => {
     assert.strictEqual(orch.getState().phase, "idle");
     assert.strictEqual(orch.getState().report, null);
     assert.strictEqual(synthesisCalled, false);
+    assert.strictEqual(claimExtractionCalled, false);
+  });
+
+  it("setProvider swaps the AI provider and running execution uses the new one", async () => {
+    let firstProviderUsed = false;
+    let secondProviderUsed = false;
+
+    const firstProvider: AIProvider = {
+      agentToolProfile: "default",
+      streamQuery: async (_sp, _um, onChunk, onEnd) => {
+        firstProviderUsed = true;
+        onChunk("[]");
+        onEnd();
+      },
+      streamAgentQuery: async (_sp, _um, _tools, onChunk, _otc, onEnd) => {
+        onChunk("first");
+        onEnd();
+      },
+      cancel: () => {},
+    };
+
+    const secondProvider: AIProvider = {
+      agentToolProfile: "default",
+      streamQuery: async (_sp, _um, onChunk, onEnd) => {
+        secondProviderUsed = true;
+        onChunk("[]");
+        onEnd();
+      },
+      streamAgentQuery: async (_sp, _um, _tools, onChunk, _otc, onEnd) => {
+        onChunk("second");
+        onEnd();
+      },
+      cancel: () => {},
+    };
+
+    const orch = new ResearchOrchestrator(
+      firstProvider,
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+
+    orch.setProvider(secondProvider);
+
+    // Execute a full run — should use secondProvider for everything
+    await orch.startBrief("test provider swap");
+    orch.confirmBrief();
+    orch.setObjectives(makeMockObjectives());
+    orch.approveObjectives();
+    await orch.executeSubAgents();
+
+    // synthesis and claim extraction both go through streamQuery
+    assert.strictEqual(firstProviderUsed, false);
+    assert.strictEqual(secondProviderUsed, true);
+    assert.strictEqual(orch.getState().phase, "delivered");
   });
 });

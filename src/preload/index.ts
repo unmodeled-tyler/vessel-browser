@@ -216,7 +216,7 @@ const api = {
       >(Channels.RESEARCH_START_BRIEF, query),
     confirmBrief: () =>
       ipcRenderer.invoke<
-        { accepted: true } | { accepted: false; reason: "premium" }
+        { accepted: true } | { accepted: false; reason: "premium" | "error" }
       >(Channels.RESEARCH_CONFIRM_BRIEF),
     approveObjectives: (options?: {
       supervisionMode?: "walk-away" | "interactive";
