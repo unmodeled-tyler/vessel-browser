@@ -1,5 +1,5 @@
 import { For, Show, type Component } from "solid-js";
-import type { ProviderId } from "../../../../shared/types";
+import type { ProviderId, ReasoningEffortLevel } from "../../../../shared/types";
 import type { AgentTranscriptDisplayMode } from "../../../../shared/types";
 import { PROVIDERS } from "../../../../shared/providers";
 import type { SettingsAgentProps } from "./settingsTypes";
@@ -14,6 +14,17 @@ const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
   defaultModel: p.defaultModel,
   models: p.models,
 }));
+
+const REASONING_EFFORT_OPTIONS: Array<{
+  value: ReasoningEffortLevel;
+  label: string;
+}> = [
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "max", label: "Max" },
+];
 
 const SettingsAgent: Component<SettingsAgentProps> = (props) => {
   const chatMeta = () =>
@@ -217,6 +228,34 @@ const SettingsAgent: Component<SettingsAgentProps> = (props) => {
             and <code>32768</code> recommended.
           </p>
         </Show>
+
+        <div class="settings-field">
+          <label class="settings-label" for="chat-reasoning-effort">
+            Reasoning Level
+          </label>
+          <select
+            id="chat-reasoning-effort"
+            class="settings-input settings-select"
+            value={props.chat.reasoningEffort()}
+            onChange={(e) =>
+              props.chat.setReasoningEffort(
+                e.currentTarget.value as ReasoningEffortLevel,
+              )
+            }
+          >
+            <For each={REASONING_EFFORT_OPTIONS}>
+              {(option) => (
+                <option value={option.value}>{option.label}</option>
+              )}
+            </For>
+          </select>
+          <p class="settings-hint">
+            Applies to providers and models that expose reasoning controls.
+            Off requests no reasoning where supported and otherwise leaves the
+            model at its normal behavior; Max requests the strongest supported
+            reasoning tier.
+          </p>
+        </div>
       </Show>
 
       <div class="settings-field">

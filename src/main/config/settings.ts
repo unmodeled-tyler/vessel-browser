@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import type {
   ProviderConfig,
+  ReasoningEffortLevel,
   RuntimeHealthIssue,
   VesselSettings,
 } from "../../shared/types";
@@ -185,6 +186,27 @@ function sanitizePort(value: unknown): number {
   return defaults.mcpPort;
 }
 
+function sanitizeReasoningEffortLevel(value: unknown): ReasoningEffortLevel {
+  return value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "max" ||
+    value === "off"
+    ? value
+    : "off";
+}
+
+function sanitizeChatProvider(
+  provider: ProviderConfig | null,
+): ProviderConfig | null {
+  return provider
+    ? {
+        ...provider,
+        reasoningEffort: sanitizeReasoningEffortLevel(provider.reasoningEffort),
+      }
+    : null;
+}
+
 export function loadSettings(): VesselSettings {
   if (settings) return settings;
   settingsIssues = [];
@@ -201,7 +223,9 @@ export function loadSettings(): VesselSettings {
     settings = {
       ...defaults,
       ...parsed,
-      chatProvider: mergeChatProviderSecret(parsed.chatProvider ?? null),
+      chatProvider: sanitizeChatProvider(
+        mergeChatProviderSecret(parsed.chatProvider ?? null),
+      ),
       mcpPort: sanitizePort(parsed.mcpPort ?? defaults.mcpPort),
       agentTranscriptMode:
         parsed.agentTranscriptMode === "off" ||
@@ -292,6 +316,9 @@ export function setSetting<K extends keyof VesselSettings>(
         ...nextProvider,
         apiKey: resolvedApiKey,
         hasApiKey: Boolean(resolvedApiKey),
+        reasoningEffort: sanitizeReasoningEffortLevel(
+          nextProvider.reasoningEffort,
+        ),
       };
     }
   } else {

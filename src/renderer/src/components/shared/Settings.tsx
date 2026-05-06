@@ -14,6 +14,7 @@ import type {
   PremiumState,
   ProviderId,
   ProviderConfig,
+  ReasoningEffortLevel,
   RuntimeHealthState,
   SearchEngineId,
 } from "../../../../shared/types";
@@ -352,6 +353,8 @@ const Settings: Component = () => {
   const [chatHasStoredApiKey, setChatHasStoredApiKey] = createSignal(false);
   const [chatModel, setChatModel] = createSignal("");
   const [chatBaseUrl, setChatBaseUrl] = createSignal("");
+  const [chatReasoningEffort, setChatReasoningEffort] =
+    createSignal<ReasoningEffortLevel>("off");
 
   const chatProviderMeta = () => CHAT_PROVIDERS.find((p) => p.id === chatProviderId()) ?? CHAT_PROVIDERS[0];
 
@@ -443,9 +446,11 @@ const Settings: Component = () => {
       setChatHasStoredApiKey(cp.hasApiKey === true);
       setChatModel(cp.model);
       setChatBaseUrl(cp.baseUrl ?? "");
+      setChatReasoningEffort(cp.reasoningEffort ?? "off");
     } else {
       setChatApiKey("");
       setChatHasStoredApiKey(false);
+      setChatReasoningEffort("off");
     }
     setTelemetryEnabled(settings.telemetryEnabled !== false);
     // Load domain policy
@@ -576,6 +581,7 @@ const Settings: Component = () => {
             hasApiKey: chatHasStoredApiKey() && !chatApiKey().trim(),
             model: chatModel().trim() || chatProviderMeta().defaultModel,
             baseUrl: chatBaseUrl().trim() || undefined,
+            reasoningEffort: chatReasoningEffort(),
           }
         : null;
       await window.vessel.settings.set("chatProvider", chatConfig);
@@ -716,6 +722,8 @@ const Settings: Component = () => {
                     setModel: setChatModel,
                     baseUrl: chatBaseUrl,
                     setBaseUrl: setChatBaseUrl,
+                    reasoningEffort: chatReasoningEffort,
+                    setReasoningEffort: setChatReasoningEffort,
                     providerModels,
                     modelFetchState,
                     modelFetchWarning,

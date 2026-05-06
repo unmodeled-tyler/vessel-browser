@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { AIProvider } from './provider';
-import type { AIMessage, ProviderConfig } from '../../shared/types';
+import type { AIMessage, ProviderConfig, ReasoningEffortLevel } from '../../shared/types';
 import { PROVIDERS } from "../../shared/providers";
 import { isRichToolResult, type TextBlock } from './tool-result';
 import { getEffectiveMaxIterations } from '../premium/manager';
@@ -49,6 +49,43 @@ function agentTemperatureForProfile(
   profile: AgentToolProfile,
 ): number | undefined {
   return profile === 'compact' ? 0.2 : undefined;
+}
+
+type OpenAIReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+
+function modelLikelySupportsOpenAIReasoningEffort(model: string): boolean {
+  return /^(?:o\d|o[1-9]|gpt-5|codex|computer-use)/i.test(model.trim());
+}
+
+export function toOpenAIReasoningEffort(
+  effort: ReasoningEffortLevel | undefined,
+  providerId: ProviderId,
+  model: string,
+): OpenAIReasoningEffort | undefined {
+  const supportsReasoningParam =
+    providerId === 'openrouter' ||
+    providerId === 'custom' ||
+    (providerId === 'openai' && modelLikelySupportsOpenAIReasoningEffort(model));
+
+  if (!supportsReasoningParam) return undefined;
+
+  switch (effort) {
+    case 'off':
+      if (providerId === 'openai' && !/^gpt-5\.1/i.test(model.trim())) {
+        return undefined;
+      }
+      return 'none';
+    case 'low':
+      return 'low';
+    case 'medium':
+      return 'medium';
+    case 'high':
+      return 'high';
+    case 'max':
+      return 'xhigh';
+    default:
+      return undefined;
+  }
 }
 
 function followUpReminderForProfile(
@@ -963,6 +1000,7 @@ export class OpenAICompatProvider implements AIProvider {
   private client: OpenAI;
   private model: string;
   private providerId: ProviderId;
+  private reasoningEffort: ReasoningEffortLevel;
   private abortController: AbortController | null = null;
 
   constructor(config: ProviderConfig) {
@@ -983,6 +1021,7 @@ export class OpenAICompatProvider implements AIProvider {
     });
     this.providerId = config.id;
     this.model = config.model || meta?.defaultModel || 'gpt-4o';
+    this.reasoningEffort = config.reasoningEffort ?? 'off';
     this.agentToolProfile = resolveAgentToolProfile(config);
   }
 
@@ -1000,6 +1039,11 @@ export class OpenAICompatProvider implements AIProvider {
       ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
       { role: 'user', content: userMessage },
     ];
+    const reasoningEffort = toOpenAIReasoningEffort(
+      this.reasoningEffort,
+      this.providerId,
+      this.model,
+    );
 
     try {
       const stream = await this.client.chat.completions.create(
@@ -1008,6 +1052,7 @@ export class OpenAICompatProvider implements AIProvider {
           max_tokens: 4096,
           stream: true,
           messages,
+          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
         },
         { signal: this.abortController.signal },
       );
@@ -1059,6 +1104,11 @@ export class OpenAICompatProvider implements AIProvider {
       ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
       { role: 'user', content: userMessage },
     ];
+    const reasoningEffort = toOpenAIReasoningEffort(
+      this.reasoningEffort,
+      this.providerId,
+      this.model,
+    );
 
     try {
       const maxIterations = getEffectiveMaxIterations();
@@ -1093,6 +1143,7 @@ export class OpenAICompatProvider implements AIProvider {
             tools: openAITools,
             tool_choice: 'auto',
             temperature: agentTemperatureForProfile(this.agentToolProfile),
+            ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
           },
           { signal: this.abortController.signal },
         );

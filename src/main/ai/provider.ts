@@ -4,6 +4,7 @@ import type {
   AIMessage,
   ProviderConfig,
   ProviderModelsResult,
+  ReasoningEffortLevel,
 } from "../../shared/types";
 import { okResult } from "../../shared/result";
 import { AnthropicProvider } from "./provider-anthropic";
@@ -42,7 +43,20 @@ export function sanitizeProviderConfig(config: ProviderConfig): ProviderConfig {
     apiKey: config.apiKey.trim(),
     model: config.model.trim(),
     baseUrl: config.baseUrl?.trim() || undefined,
+    reasoningEffort: sanitizeReasoningEffortLevel(config.reasoningEffort),
   };
+}
+
+export function sanitizeReasoningEffortLevel(
+  value: unknown,
+): ReasoningEffortLevel {
+  return value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "max" ||
+    value === "off"
+    ? value
+    : "off";
 }
 
 export function validateProviderConfig(config: ProviderConfig): string | null {
@@ -196,7 +210,11 @@ export function createProvider(config: ProviderConfig): AIProvider {
   }
 
   if (normalized.id === "anthropic") {
-    return new AnthropicProvider(normalized.apiKey, normalized.model);
+    return new AnthropicProvider(
+      normalized.apiKey,
+      normalized.model,
+      normalized.reasoningEffort,
+    );
   }
 
   return new OpenAICompatProvider(normalized);
