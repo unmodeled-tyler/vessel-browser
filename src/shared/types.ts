@@ -438,12 +438,15 @@ export type ProviderId =
   | "google"
   | "custom";
 
+export type ReasoningEffortLevel = "off" | "low" | "medium" | "high" | "max";
+
 export interface ProviderConfig {
   id: ProviderId;
   apiKey: string;
   hasApiKey?: boolean;
   model: string;
   baseUrl?: string;
+  reasoningEffort?: ReasoningEffortLevel;
 }
 
 export interface ProviderMeta {

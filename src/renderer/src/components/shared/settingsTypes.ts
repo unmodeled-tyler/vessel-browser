@@ -3,6 +3,7 @@ import type {
   AgentTranscriptDisplayMode,
   PremiumState,
   ProviderId,
+  ReasoningEffortLevel,
   RuntimeHealthState,
   SearchEngineId,
 } from "../../../../shared/types";
@@ -86,6 +87,8 @@ export interface ChatProps {
   setModel: Setter<string>;
   baseUrl: Accessor<string>;
   setBaseUrl: Setter<string>;
+  reasoningEffort: Accessor<ReasoningEffortLevel>;
+  setReasoningEffort: Setter<ReasoningEffortLevel>;
   providerModels: Accessor<string[]>;
   modelFetchState: Accessor<"idle" | "loading" | "error">;
   modelFetchWarning: Accessor<string | null>;
