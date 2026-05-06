@@ -3,6 +3,7 @@ import test from "node:test";
 import type { WebContents } from "electron";
 import { parseHTML } from "linkedom";
 
+import { formatLiveSelectionSection } from "../src/main/highlights/live-snapshot";
 import { highlightOnPage } from "../src/main/highlights/inject";
 import { generateStableSelector } from "../src/shared/dom/selectors";
 
@@ -138,7 +139,39 @@ test("highlightOnPage marks selected text that spans inline nodes", async () => 
         .join(""),
       "OpenAI announces a new model",
     );
+    assert.deepEqual(
+      Array.from(
+        window.document.querySelectorAll(
+          "mark.__vessel-highlight-text[data-vessel-highlight]",
+        ),
+      ).map((mark) => mark.getAttribute("data-vessel-highlight-text")),
+      [
+        "OpenAI announces a new model",
+        "OpenAI announces a new model",
+        "OpenAI announces a new model",
+      ],
+    );
   } finally {
     Object.assign(globalThis, previous);
   }
+});
+
+test("formatLiveSelectionSection surfaces saved visible highlights prominently", () => {
+  const section = formatLiveSelectionSection({
+    activeSelection: "More personalized responses and controls",
+    pageHighlights: [
+      {
+        text: "More personalized responses and controls",
+        color: "rgb(240, 198, 54)",
+        persisted: true,
+      },
+    ],
+  });
+
+  assert.ok(section);
+  assert.match(section, /Active User Selection/);
+  assert.match(section, /Visible Highlights On Screen/);
+  assert.match(section, /Treat this as authoritative before searching or inspecting/);
+  assert.match(section, /More personalized responses and controls/);
+  assert.match(section, /saved/);
 });

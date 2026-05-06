@@ -99,7 +99,7 @@ function collectTextSegmentsForMatch(match) {
   return segments;
 }
 
-function markTextSegment(segment, solidColor, bgColor) {
+function markTextSegment(segment, solidColor, bgColor, fullText) {
   if (!segment.node || segment.end <= segment.start) return null;
   var parent = segment.node.parentNode;
   if (!parent) return null;
@@ -111,6 +111,9 @@ function markTextSegment(segment, solidColor, bgColor) {
   mark.style.setProperty('background', bgColor, 'important');
   mark.style.setProperty('border-bottom-color', solidColor, 'important');
   mark.setAttribute('data-vessel-highlight', 'true');
+  if (fullText) {
+    mark.setAttribute('data-vessel-highlight-text', fullText);
+  }
   mark.textContent = selected;
   if (segment.start > 0) {
     parent.insertBefore(document.createTextNode(text.slice(0, segment.start)), segment.node);
@@ -123,12 +126,12 @@ function markTextSegment(segment, solidColor, bgColor) {
   return mark;
 }
 
-function applyTextRangeMatch(match, solidColor, bgColor) {
+function applyTextRangeMatch(match, solidColor, bgColor, fullText) {
   var segments = collectTextSegmentsForMatch(match);
   var marks = [];
   for (var i = segments.length - 1; i >= 0; i--) {
     try {
-      var mark = markTextSegment(segments[i], solidColor, bgColor);
+      var mark = markTextSegment(segments[i], solidColor, bgColor, fullText);
       if (mark) marks.unshift(mark);
     } catch (_e) {}
   }
@@ -402,7 +405,7 @@ export async function highlightOnPage(
         var count = 0;
         var firstMark = null;
         for (var i = textMatches.length - 1; i >= 0; i--) {
-          var marks = applyTextRangeMatch(textMatches[i], solidColor, bgColor);
+          var marks = applyTextRangeMatch(textMatches[i], solidColor, bgColor, searchText);
           if (marks.length > 0) {
             firstMark = marks[0];
             count++;
@@ -503,7 +506,7 @@ export async function highlightBatchOnPage(
             textMatches = collectTextRangeMatches(document.body, searchText, 20);
           }
           for (var i = textMatches.length - 1; i >= 0; i--) {
-            applyTextRangeMatch(textMatches[i], c.solid, c.bg);
+            applyTextRangeMatch(textMatches[i], c.solid, c.bg, searchText);
           }
         } else if (entry.selector) {
           try {
