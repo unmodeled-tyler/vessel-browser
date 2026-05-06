@@ -1,6 +1,5 @@
 import type { WebContents } from "electron";
 import * as highlightsManager from "./manager";
-import { highlightOnPage } from "./inject";
 
 const MAX_HIGHLIGHT_TEXT = 5000;
 

@@ -669,7 +669,8 @@ export class TabManager {
         `(function() {
         var marks = document.querySelectorAll('mark.__vessel-highlight-text[data-vessel-highlight]');
         marks.forEach(function(m) {
-          if (m.textContent === ${JSON.stringify(text)}) {
+          var highlightText = m.getAttribute('data-vessel-highlight-text') || m.textContent;
+          if (highlightText === ${JSON.stringify(text)}) {
             var parent = m.parentNode;
             while (m.firstChild) parent.insertBefore(m.firstChild, m);
             m.remove();
