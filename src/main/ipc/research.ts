@@ -19,10 +19,14 @@ export function registerResearchHandlers(
     Channels.RESEARCH_START_BRIEF,
     async (_event, query: string) => {
       try {
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) {
+          return { accepted: false, reason: "error" as const };
+        }
         if (getOrchestrator().getState().phase !== "idle") {
           return { accepted: false, reason: "busy" as const };
         }
-        await getOrchestrator().startBrief(query);
+        await getOrchestrator().startBrief(trimmedQuery);
         return { accepted: true };
       } catch (err) {
         logger.error("RESEARCH_START_BRIEF failed", err);
@@ -32,11 +36,20 @@ export function registerResearchHandlers(
   );
 
   ipcMain.handle(Channels.RESEARCH_CONFIRM_BRIEF, () => {
-    if (isToolGated("research_confirm_brief")) {
-      return { accepted: false, reason: "premium" as const };
+    try {
+      if (isToolGated("research_confirm_brief")) {
+        return { accepted: false, reason: "premium" as const };
+      }
+      const orchestrator = getOrchestrator();
+      if (orchestrator.getState().phase !== "briefing") {
+        return { accepted: false, reason: "error" as const };
+      }
+      orchestrator.confirmBrief();
+      return { accepted: true };
+    } catch (err) {
+      logger.error("RESEARCH_CONFIRM_BRIEF failed", err);
+      return { accepted: false, reason: "error" as const };
     }
-    getOrchestrator().confirmBrief();
-    return { accepted: true };
   });
 
   ipcMain.handle(
@@ -52,12 +65,17 @@ export function registerResearchHandlers(
         if (isToolGated("research_approve_objectives")) {
           return { accepted: false, reason: "premium" as const };
         }
-        getOrchestrator().approveObjectives(
+        const orchestrator = getOrchestrator();
+        const state = orchestrator.getState();
+        if (state.phase !== "awaiting_approval" || !state.objectives) {
+          return { accepted: false, reason: "error" as const };
+        }
+        orchestrator.approveObjectives(
           options.supervisionMode,
           options.includeTraces,
         );
         // Fire off sub-agent execution in background
-        getOrchestrator().executeSubAgents().catch((err) => {
+        orchestrator.executeSubAgents().catch((err) => {
           logger.error("Background sub-agent execution failed", err);
         });
         return { accepted: true };

@@ -21,13 +21,17 @@ const [isResearchPremium, setIsResearchPremium] = createSignal(false);
 
 let initialized = false;
 let cleanup: (() => void) | null = null;
+let premiumCleanup: (() => void) | null = null;
 
 function init(): void {
   if (initialized) return;
   initialized = true;
 
-  // Check premium status
+  // Check premium status once, then subscribe to updates
   window.vessel.premium.getState().then((premium) => {
+    setIsResearchPremium(isPremiumStatus(premium.status));
+  });
+  premiumCleanup = window.vessel.premium.onUpdate((premium) => {
     setIsResearchPremium(isPremiumStatus(premium.status));
   });
 
@@ -84,6 +88,10 @@ export function useResearch() {
       if (cleanup) {
         cleanup();
         cleanup = null;
+      }
+      if (premiumCleanup) {
+        premiumCleanup();
+        premiumCleanup = null;
       }
       initialized = false;
     },

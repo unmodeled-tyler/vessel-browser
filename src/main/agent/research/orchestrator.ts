@@ -31,7 +31,7 @@ export class ResearchOrchestrator {
   private updateListener: ((state: ResearchState) => void) | null = null;
 
   constructor(
-    private readonly provider: AIProvider,
+    private provider: AIProvider,
     private readonly tabManager: TabManager,
     private readonly runtime: AgentRuntime,
   ) {
@@ -87,22 +87,40 @@ export class ResearchOrchestrator {
   }
 
   cancel(): void {
-    // Change phase immediately so running sub-agents bail at next check point
-    this.state.error = "Research cancelled.";
-    this.setPhase("idle");
+    // Reset visible state immediately. Running sub-agents observe phase !== "executing"
+    // and bail at their next checkpoint without delivering stale results.
+    this.state = this.initialState();
+    this.emit();
+  }
+
+  /**
+   * Swap the AI provider used by this orchestrator.
+   * Safe to call while research is in progress — running sub-agents
+   * pick up the new provider on their next LLM call.
+   */
+  setProvider(provider: AIProvider): void {
+    this.provider = provider;
   }
 
   // ── phase: idle → briefing ────────────────────────────────────
 
   async startBrief(userQuery: string): Promise<void> {
+    const query = userQuery.trim();
+    if (!query) {
+      logger.warn("Ignoring empty Research Desk query");
+      return;
+    }
     if (this.state.phase !== "idle") {
       logger.warn("Research already in progress, ignoring startBrief");
       return;
     }
-    this.state.originalQuery = userQuery;
+
+    // Ensure a fresh run never inherits stale objectives, reports, traces, or errors.
+    this.state = this.initialState();
+    this.state.originalQuery = query;
     this.state.startedAt = new Date().toISOString();
     this.setPhase("briefing");
-    logger.info(`Brief started for query: ${userQuery.slice(0, 120)}`);
+    logger.info(`Brief started for query: ${query.slice(0, 120)}`);
   }
 
   // ── phase: briefing → planning ─────────────────────────────────
@@ -386,13 +404,15 @@ export class ResearchOrchestrator {
     }
 
     let claims: SourcedClaim[] = [];
-    try {
-      claims = await this.extractClaimsFromTranscript(thread, transcript);
-    } catch (err) {
-      logger.warn(`Claim extraction failed for "${thread.label}"`, err);
+    if (this.state.phase === "executing") {
+      try {
+        claims = await this.extractClaimsFromTranscript(thread, transcript);
+      } catch (err) {
+        logger.warn(`Claim extraction failed for "${thread.label}"`, err);
+      }
     }
 
-    if (this.state.includeTraces) {
+    if (this.state.phase === "executing" && this.state.includeTraces) {
       this.state.subAgentTraces.push(trace);
     }
 
