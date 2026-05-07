@@ -25,13 +25,14 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
   },
   openai_codex: {
     id: 'openai_codex',
-    name: 'Codex (OAuth)',
+    name: 'OpenAI Codex',
+    type: 'codex_oauth' as const,
     defaultModel: 'gpt-5',
-    models: ['gpt-5'],
+    models: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'o4', 'o4-mini'],
     requiresApiKey: false,
-    type: 'codex_oauth',
+    defaultBaseUrl: 'https://api.openai.com/v1',
     apiKeyPlaceholder: '',
-    apiKeyHint: 'Sign in with OpenAI Codex OAuth',
+    apiKeyHint: 'Sign in with your ChatGPT Plus or Pro subscription',
   },
   openrouter: {
     id: 'openrouter',
