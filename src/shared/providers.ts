@@ -23,6 +23,16 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     apiKeyPlaceholder: 'sk-...',
     apiKeyHint: 'Get your key from platform.openai.com',
   },
+  openai_codex: {
+    id: 'openai_codex',
+    name: 'Codex (OAuth)',
+    defaultModel: 'gpt-5',
+    models: ['gpt-5'],
+    requiresApiKey: false,
+    type: 'codex_oauth',
+    apiKeyPlaceholder: '',
+    apiKeyHint: 'Sign in with OpenAI Codex OAuth',
+  },
   openrouter: {
     id: 'openrouter',
     name: 'OpenRouter',
