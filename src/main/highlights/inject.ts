@@ -234,6 +234,19 @@ export const VESSEL_HIGHLIGHT_CSS = `
 }
 `;
 
+async function ensureHighlightStyles(wc: WebContents): Promise<void> {
+  await wc.executeJavaScript(`
+    (function() {
+      if (!document.getElementById('__vessel-highlight-styles')) {
+        var s = document.createElement('style');
+        s.id = '__vessel-highlight-styles';
+        s.textContent = ${JSON.stringify(VESSEL_HIGHLIGHT_CSS)};
+        document.head.appendChild(s);
+      }
+    })()
+  `);
+}
+
 export async function highlightOnPage(
   wc: WebContents,
   resolvedSelector?: string | null,
@@ -244,14 +257,9 @@ export async function highlightOnPage(
 ): Promise<string> {
   const c = resolveColor(color);
 
+  await ensureHighlightStyles(wc);
   await wc.executeJavaScript(`
     (function() {
-      if (!document.getElementById('__vessel-highlight-styles')) {
-        var s = document.createElement('style');
-        s.id = '__vessel-highlight-styles';
-        s.textContent = ${JSON.stringify(VESSEL_HIGHLIGHT_CSS)};
-        document.head.appendChild(s);
-      }
       if (!window.__vesselHighlightLabelManager) {
         var overlap = function(a, b) {
           return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
@@ -480,16 +488,9 @@ export async function highlightBatchOnPage(
 
   if (serialized.length === 0) return;
 
-  // First ensure the style/manager infrastructure is injected (same setup as highlightOnPage)
-  // Then process all entries in a single call
+  await ensureHighlightStyles(wc);
   await wc.executeJavaScript(`
     (function() {
-      if (!document.getElementById('__vessel-highlight-styles')) {
-        var s = document.createElement('style');
-        s.id = '__vessel-highlight-styles';
-        s.textContent = ${JSON.stringify(VESSEL_HIGHLIGHT_CSS)};
-        document.head.appendChild(s);
-      }
       var entries = ${JSON.stringify(serialized)};
       ${SKIP_TAGS_JS}
       ${CONTENT_ROOTS_JS}
@@ -609,6 +610,8 @@ export async function clearAllHighlightElements(
         el.style.removeProperty('outline');
         el.style.removeProperty('outline-offset');
       });
+      var style = document.getElementById('__vessel-highlight-styles');
+      if (style) style.remove();
       return true;
     })()
   `);
