@@ -627,7 +627,7 @@ const api = {
     cancelAuth: (): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(Channels.CODEX_CANCEL_AUTH),
     disconnect: (): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke("codex:disconnect"),
+      ipcRenderer.invoke(Channels.CODEX_DISCONNECT),
     onAuthStatus: (
       cb: (payload: { status: string; error: string | null }) => void,
     ): (() => void) => {

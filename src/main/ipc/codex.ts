@@ -39,7 +39,7 @@ export function registerCodexHandlers(): void {
     return { ok: true };
   });
 
-  ipcMain.handle("codex:disconnect", () => {
+  ipcMain.handle(Channels.CODEX_DISCONNECT, () => {
     clearStoredCodexTokens();
     return { ok: true };
   });

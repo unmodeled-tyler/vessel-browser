@@ -6,6 +6,7 @@ import type { AgentToolProfile } from "./tool-profile";
 import { refreshAccessToken } from "./codex-oauth";
 import { readStoredCodexTokens, writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settings";
 import { createLogger } from "../../shared/logger";
+import { isRichToolResult, type TextBlock } from "./tool-result";
 
 const logger = createLogger("CodexProvider");
 
@@ -87,14 +88,14 @@ export class CodexProvider implements AIProvider {
         const delta = chunk.choices?.[0]?.delta?.content;
         if (delta) onChunk(delta);
       }
-
-      onEnd();
     } catch (err: unknown) {
-      if ((err as { name?: string }).name === "AbortError") {
-        onEnd();
-        return;
+      if ((err as { name?: string }).name !== "AbortError") {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("Codex streamQuery error:", err);
+        onChunk(`\n\n[Error: ${msg}]`);
       }
-      logger.error("Codex streamQuery error:", err);
+    } finally {
+      this.abortController = null;
       onEnd();
     }
   }
@@ -204,7 +205,21 @@ export class CodexProvider implements AIProvider {
             } catch {
               // pass empty args
             }
-            const result = await onToolCall(tc.name, args);
+            let result = await onToolCall(tc.name, args);
+
+            // OpenAI doesn't support image content in tool results — extract text only
+            try {
+              const parsed = JSON.parse(result);
+              if (isRichToolResult(parsed)) {
+                result = parsed.content
+                  .filter((b): b is TextBlock => b.type === "text")
+                  .map((b) => b.text)
+                  .join("\n");
+              }
+            } catch {
+              // Not JSON — use as-is
+            }
+
             currentMessages.push({
               role: "tool",
               tool_call_id: tc.id,
@@ -213,14 +228,14 @@ export class CodexProvider implements AIProvider {
           }
         }
       }
-
-      onEnd();
     } catch (err: unknown) {
-      if ((err as { name?: string }).name === "AbortError") {
-        onEnd();
-        return;
+      if ((err as { name?: string }).name !== "AbortError") {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("Codex streamAgentQuery error:", err);
+        onChunk(`\n\n[Error: ${msg}]`);
       }
-      logger.error("Codex streamAgentQuery error:", err);
+    } finally {
+      this.abortController = null;
       onEnd();
     }
   }
