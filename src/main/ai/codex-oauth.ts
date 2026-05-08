@@ -237,7 +237,7 @@ function startServer(
 
       try {
         activeFlow?.onStatus("exchanging");
-        const redirectUri = `http://localhost:${port}/auth/callback`;
+        const redirectUri = `http://localhost:${activeFlow?.port ?? port}/auth/callback`;
         const tokens = await exchangeCodeForTokens(code, redirectUri, pkce.codeVerifier);
 
         res.writeHead(302, {
