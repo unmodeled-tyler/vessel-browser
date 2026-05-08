@@ -10,6 +10,8 @@ import { okResult } from "../../shared/result";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
 import { PROVIDERS } from "../../shared/providers";
+import { CodexProvider } from "./provider-codex";
+import { readStoredCodexTokens } from "../config/settings";
 import type { AgentToolProfile } from "./tool-profile";
 import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from "./content-limits";
 
@@ -74,7 +76,7 @@ export function validateProviderConnection(
     return "Selected AI provider is not supported.";
   }
 
-  if (meta.requiresApiKey && !normalized.apiKey) {
+  if (meta.type !== "codex_oauth" && meta.requiresApiKey && !normalized.apiKey) {
     return `${meta.name} requires an API key. Open settings (Ctrl+,) to add one.`;
   }
 
@@ -181,6 +183,19 @@ export async function fetchProviderModels(
     return okResult({ models: page.data.map((model) => model.id) });
   }
 
+  if (normalized.id === "openai_codex") {
+    const tokens = readStoredCodexTokens();
+    if (!tokens) {
+      throw new Error("Codex provider requires authentication. Connect your ChatGPT account in settings.");
+    }
+    const client = new OpenAI({
+      apiKey: tokens.accessToken,
+      baseURL: normalized.baseUrl || "https://api.openai.com/v1",
+    });
+    const page = await client.models.list();
+    return okResult({ models: page.data.map((model) => model.id) });
+  }
+
   const meta = PROVIDERS[normalized.id];
   const baseURL =
     normalized.baseUrl || meta?.defaultBaseUrl || "https://api.openai.com/v1";
@@ -215,6 +230,16 @@ export function createProvider(config: ProviderConfig): AIProvider {
       normalized.model,
       normalized.reasoningEffort,
     );
+  }
+
+  if (normalized.id === "openai_codex") {
+    const tokens = readStoredCodexTokens();
+    if (!tokens) {
+      throw new Error(
+        "OpenAI Codex requires authentication. Open settings to connect your ChatGPT account.",
+      );
+    }
+    return new CodexProvider(tokens, normalized.model, normalized.baseUrl);
   }
 
   return new OpenAICompatProvider(normalized);
