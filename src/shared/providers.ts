@@ -23,6 +23,17 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     apiKeyPlaceholder: 'sk-...',
     apiKeyHint: 'Get your key from platform.openai.com',
   },
+  openai_codex: {
+    id: 'openai_codex',
+    name: 'OpenAI Codex',
+    type: 'codex_oauth' as const,
+    defaultModel: 'gpt-5',
+    models: ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'o4', 'o4-mini'],
+    requiresApiKey: false,
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    apiKeyPlaceholder: '',
+    apiKeyHint: 'Sign in with your ChatGPT Plus or Pro subscription',
+  },
   openrouter: {
     id: 'openrouter',
     name: 'OpenRouter',

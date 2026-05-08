@@ -2,6 +2,7 @@ import { app, safeStorage } from "electron";
 import path from "path";
 import fs from "fs";
 import type {
+  CodexOAuthTokens,
   ProviderConfig,
   ReasoningEffortLevel,
   RuntimeHealthIssue,
@@ -37,6 +38,7 @@ const defaults: VesselSettings = {
 
 const SAVE_DEBOUNCE_MS = 150;
 const CHAT_PROVIDER_SECRET_FILENAME = "vessel-chat-provider-secret";
+const CODEX_TOKENS_FILENAME = "vessel-codex-tokens";
 const logger = createLogger("Settings");
 
 /** Allowlist of setting keys accepted via IPC. */
@@ -117,6 +119,52 @@ function clearStoredProviderSecret(): void {
   }
 }
 
+function getCodexTokensPath(): string {
+  return path.join(getUserDataPath(), CODEX_TOKENS_FILENAME);
+}
+
+export function readStoredCodexTokens(): CodexOAuthTokens | null {
+  try {
+    const raw = fs.readFileSync(getCodexTokensPath());
+    const decoded =
+      canUseSafeStorage() && safeStorage.decryptString
+        ? safeStorage.decryptString(raw)
+        : raw.toString("utf-8");
+    const parsed = JSON.parse(decoded) as CodexOAuthTokens;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.accessToken === "string" &&
+      typeof parsed.refreshToken === "string"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Ignore missing or unreadable tokens.
+  }
+  return null;
+}
+
+export function writeStoredCodexTokens(tokens: CodexOAuthTokens): void {
+  const filePath = getCodexTokensPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const payload = JSON.stringify(tokens);
+  if (canUseSafeStorage()) {
+    const encrypted = safeStorage.encryptString(payload);
+    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
+    return;
+  }
+  fs.writeFileSync(filePath, payload, { mode: 0o600 });
+}
+
+export function clearStoredCodexTokens(): void {
+  try {
+    fs.unlinkSync(getCodexTokensPath());
+  } catch {
+    // Token file may not exist.
+  }
+}
+
 function mergeChatProviderSecret(
   provider: ProviderConfig | null | undefined,
 ): ProviderConfig | null {
@@ -155,13 +203,15 @@ function buildPersistedSettings(source: VesselSettings): VesselSettings {
 
 export function getRendererSettings(): VesselSettings {
   const current = loadSettings();
+  const provider = current.chatProvider;
+  const hasCodexTokens = provider?.id === "openai_codex" && readStoredCodexTokens() !== null;
   return {
     ...current,
-    chatProvider: current.chatProvider
+    chatProvider: provider
       ? {
-          ...current.chatProvider,
+          ...provider,
           apiKey: "",
-          hasApiKey: Boolean(current.chatProvider.apiKey),
+          hasApiKey: Boolean(provider.apiKey) || hasCodexTokens,
         }
       : null,
   };

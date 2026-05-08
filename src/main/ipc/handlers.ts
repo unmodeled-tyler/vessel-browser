@@ -69,6 +69,7 @@ import { registerHistoryHandlers } from "./history";
 import { registerPremiumHandlers } from "./premium";
 import { registerSessionHandlers } from "./sessions";
 import { registerSecurityHandlers } from "./security";
+import { registerCodexHandlers } from "./codex";
 import { clearByTimeRange } from "../history/manager";
 
 let activeChatProvider: AIProvider | null = null;
@@ -783,6 +784,8 @@ export function registerIpcHandlers(
   registerHumanVaultHandlers();
 
   registerWindowControlHandlers(mainWindow);
+
+  registerCodexHandlers();
 
   // --- Automation kits ---
 

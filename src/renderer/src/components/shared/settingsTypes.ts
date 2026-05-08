@@ -94,6 +94,14 @@ export interface ChatProps {
   modelFetchWarning: Accessor<string | null>;
   doFetchModels: () => void;
   resetProviderModels: () => void;
+  codexAuthStatus: Accessor<"idle" | "waiting" | "exchanging" | "connected" | "error">;
+  codexAccountEmail: Accessor<string>;
+  setCodexAccountEmail: Setter<string>;
+  codexAuthError: Accessor<string>;
+  setCodexAuthError: Setter<string>;
+  providerType: Accessor<"direct_sdk" | "compatible" | "codex_oauth" | undefined>;
+  startCodexAuth: () => Promise<void>;
+  disconnectCodex: () => Promise<void>;
 }
 
 export interface VaultProps {

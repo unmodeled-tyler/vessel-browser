@@ -620,6 +620,26 @@ const api = {
     toggle: (): Promise<boolean> =>
       ipcRenderer.invoke(Channels.TAB_TOGGLE_PIP),
   },
+  codex: {
+    startAuth: (): Promise<
+      { ok: true; accountEmail: string; accountId: string } | { ok: false; error: string }
+    > => ipcRenderer.invoke(Channels.CODEX_START_AUTH),
+    cancelAuth: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(Channels.CODEX_CANCEL_AUTH),
+    disconnect: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(Channels.CODEX_DISCONNECT),
+    onAuthStatus: (
+      cb: (payload: { status: string; error: string | null }) => void,
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        payload: { status: string; error: string | null },
+      ) => cb(payload);
+      ipcRenderer.on(Channels.CODEX_AUTH_STATUS, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.CODEX_AUTH_STATUS, handler);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("vessel", api);

@@ -430,6 +430,7 @@ export interface UIState {
 export type ProviderId =
   | "anthropic"
   | "openai"
+  | "openai_codex"
   | "openrouter"
   | "ollama"
   | "llama_cpp"
@@ -455,10 +456,24 @@ export interface ProviderMeta {
   defaultModel: string;
   models: string[];
   requiresApiKey: boolean;
+  type?: "direct_sdk" | "compatible" | "codex_oauth";
   defaultBaseUrl?: string;
   apiKeyPlaceholder: string;
   apiKeyHint: string;
 }
+
+export interface CodexOAuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  idToken: string;
+  /** API-key-style token obtained by exchanging the ChatGPT id_token for openai-api-key. */
+  apiKey?: string;
+  expiresAt: number;       // epoch ms
+  accountId: string;       // chatgpt_account_id from JWT
+  accountEmail?: string;
+}
+
+export type CodexAuthStatus = "idle" | "waiting" | "exchanging" | "connected" | "error";
 
 export interface ProviderModelsResult {
   ok: boolean;
