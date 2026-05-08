@@ -87,10 +87,93 @@ const SettingsAgent: Component<SettingsAgentProps> = (props) => {
           </select>
         </div>
 
+        <Show when={props.chat.providerType() === "codex_oauth"}>
+          <div class="settings-field">
+            <label class="settings-label">Account</label>
+            <Show
+              when={props.chat.codexAuthStatus() === "connected"}
+              fallback={
+                <div>
+                  <Show
+                    when={
+                      props.chat.codexAuthStatus() === "waiting" ||
+                      props.chat.codexAuthStatus() === "exchanging"
+                    }
+                    fallback={
+                      <div>
+                        <button
+                          type="button"
+                          class="settings-btn"
+                          onClick={() => props.chat.startCodexAuth()}
+                          disabled={props.chat.codexAuthStatus() === "waiting" || props.chat.codexAuthStatus() === "exchanging"}
+                        >
+                          Connect with ChatGPT
+                        </button>
+                        <p class="settings-hint">
+                          Sign in with your ChatGPT Plus or Pro subscription. A
+                          browser tab will open where you'll authorize Vessel.
+                        </p>
+                        <Show when={props.chat.codexAuthStatus() === "error"}>
+                          <p class="settings-hint" style="color:var(--error)">
+                            {props.chat.codexAuthError()}
+                          </p>
+                          <button
+                            type="button"
+                            class="settings-btn"
+                            onClick={() => props.chat.startCodexAuth()}
+                          >
+                            Try Again
+                          </button>
+                        </Show>
+                      </div>
+                    }
+                  >
+                    <p class="settings-hint" style="color:var(--accent-primary)">
+                      <Show
+                        when={props.chat.codexAuthStatus() === "waiting"}
+                        fallback="Exchanging authorization..."
+                      >
+                        Waiting for browser login...
+                      </Show>
+                      {" "}
+                      <button
+                        type="button"
+                        class="settings-link-btn"
+                        onClick={() => window.vessel.codex.cancelAuth()}
+                      >
+                        Cancel
+                      </button>
+                    </p>
+                  </Show>
+                </div>
+              }
+            >
+              <div style="display:flex;align-items:center;gap:8px">
+                <span
+                  style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block"
+                />
+                <span>
+                  Connected as {props.chat.codexAccountEmail() || "ChatGPT"}
+                </span>
+              </div>
+              <p class="settings-hint">
+                <button
+                  type="button"
+                  class="settings-link-btn"
+                  onClick={() => props.chat.disconnectCodex()}
+                >
+                  Disconnect
+                </button>
+              </p>
+            </Show>
+          </div>
+        </Show>
+
         <Show
           when={
-            chatMeta().requiresKey ||
-            props.chat.providerId() === "custom"
+            props.chat.providerType() !== "codex_oauth" &&
+            (chatMeta().requiresKey ||
+            props.chat.providerId() === "custom")
           }
         >
           <div class="settings-field">
