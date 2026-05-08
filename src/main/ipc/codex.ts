@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from "electron";
+import { ipcMain, type WebContents } from "electron";
 import { Channels } from "../../shared/channels";
 import { startCodexOAuth, cancelCodexOAuth } from "../ai/codex-oauth";
 import { writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settings";
@@ -9,14 +9,23 @@ const logger = createLogger("CodexIPC");
 
 export function registerCodexHandlers(): void {
   ipcMain.handle(Channels.CODEX_START_AUTH, async (event) => {
-    try {
-      const win = BrowserWindow.fromWebContents(event.sender);
-      if (!win) throw new Error("No window found for sender");
-
-      const sendStatus = (status: CodexAuthStatus, error?: string) => {
-        win.webContents.send(Channels.CODEX_AUTH_STATUS, { status, error: error || null });
+    const wc: WebContents | undefined = event.sender;
+    if (!wc || wc.isDestroyed()) {
+      return {
+        ok: false as const,
+        error: "No active window found for sender",
       };
+    }
 
+    const sendStatus = (status: CodexAuthStatus, error?: string) => {
+      try {
+        wc.send(Channels.CODEX_AUTH_STATUS, { status, error: error || null });
+      } catch {
+        logger.warn("Codex auth status send failed — window may be closed");
+      }
+    };
+
+    try {
       const tokens = await startCodexOAuth(sendStatus);
       writeStoredCodexTokens(tokens);
 

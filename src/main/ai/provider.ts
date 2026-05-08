@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type {
   AIMessage,
+  CodexOAuthTokens,
   ProviderConfig,
   ProviderModelsResult,
   ReasoningEffortLevel,
@@ -149,6 +150,43 @@ export function buildLlamaCppCtxWarning(ctxSize: number | null): string | undefi
   return undefined;
 }
 
+async function fetchCodexBackendModels(
+  tokens: CodexOAuthTokens,
+): Promise<string[]> {
+  const url = new URL("https://chatgpt.com/backend-api/codex/models");
+  url.searchParams.set("client_version", "0.129.0");
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${tokens.accessToken}`,
+    originator: "codex_cli_rs",
+    "User-Agent": "codex_cli_rs/0.129.0 Vessel",
+  };
+  if (tokens.accountId) {
+    headers["ChatGPT-Account-ID"] = tokens.accountId;
+  }
+
+  const response = await fetch(url.toString(), { headers });
+  if (!response.ok) {
+    throw new Error(`Codex backend model discovery failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { models?: unknown };
+  if (!Array.isArray(payload.models)) {
+    throw new Error("Codex backend model discovery returned an invalid response");
+  }
+
+  return payload.models
+    .map((model): string | null => {
+      if (!model || typeof model !== "object") return null;
+      const record = model as Record<string, unknown>;
+      const id = record.slug || record.id || record.model;
+      const visibility = record.visibility;
+      if (visibility === "hidden") return null;
+      return typeof id === "string" && id.trim() ? id.trim() : null;
+    })
+    .filter((id): id is string => id !== null);
+}
+
 async function probeLlamaCppCtxWarning(baseURL: string): Promise<string | undefined> {
   try {
     const root = new URL(baseURL);
@@ -188,12 +226,18 @@ export async function fetchProviderModels(
     if (!tokens) {
       throw new Error("Codex provider requires authentication. Connect your ChatGPT account in settings.");
     }
-    const client = new OpenAI({
-      apiKey: tokens.accessToken,
-      baseURL: normalized.baseUrl || "https://api.openai.com/v1",
-    });
-    const page = await client.models.list();
-    return okResult({ models: page.data.map((model) => model.id) });
+    try {
+      const models = await fetchCodexBackendModels(tokens);
+      if (models.length > 0) {
+        return okResult({ models });
+      }
+      throw new Error("Codex backend model discovery returned no models");
+    } catch (err) {
+      return okResult({
+        models: PROVIDERS.openai_codex.models,
+        warning: `Using built-in Codex model list because live discovery failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      });
+    }
   }
 
   const meta = PROVIDERS[normalized.id];

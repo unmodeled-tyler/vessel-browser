@@ -10,7 +10,9 @@ const ISSUER = "https://auth.openai.com";
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_PORT_RETRIES = 5;
+// Keep in sync with the Codex CLI Hydra redirect URI allow-list.
+const PREFERRED_PORT = 1455;
+const FALLBACK_PORT = 1457;
 
 interface PkceCodes {
   codeVerifier: string;
@@ -37,7 +39,8 @@ function base64url(buffer: Buffer): string {
 }
 
 function generatePkce(): PkceCodes {
-  const codeVerifier = base64url(crypto.randomBytes(32));
+  // Codex CLI uses 64 random bytes (≈86 chars base64url) for the verifier.
+  const codeVerifier = base64url(crypto.randomBytes(64));
   const hash = crypto.createHash("sha256").update(codeVerifier).digest();
   const codeChallenge = base64url(hash);
   return { codeVerifier, codeChallenge };
@@ -57,7 +60,9 @@ function buildAuthorizeUrl(port: number, pkce: PkceCodes, state: string): string
     code_challenge: pkce.codeChallenge,
     code_challenge_method: "S256",
     state,
+    id_token_add_organizations: "true",
     codex_cli_simplified_flow: "true",
+    originator: "codex_cli_rs",
   });
   return `${ISSUER}/oauth/authorize?${params.toString()}`;
 }
@@ -72,11 +77,13 @@ function parseJwtClaims(idToken: string): {
     const payload = JSON.parse(
       Buffer.from(parts[1], "base64url").toString("utf-8"),
     );
+    const authClaims = payload["https://api.openai.com/auth"] || {};
     const accountId =
+      authClaims.chatgpt_account_id ||
       payload.chatgpt_account_id ||
       payload.sub ||
       "";
-    const email = payload.email || undefined;
+    const email = authClaims.email || payload.email || undefined;
     return { accountId, email };
   } catch {
     return null;
@@ -97,6 +104,63 @@ function parseTokenExpiry(accessToken: string): number {
     // fall through
   }
   return Date.now() + 3600_000; // default 1h
+}
+
+async function exchangeIdTokenForApiKey(idToken: string): Promise<string> {
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+    client_id: CLIENT_ID,
+    requested_token: "openai-api-key",
+    subject_token: idToken,
+    subject_token_type: "urn:ietf:params:oauth:token-type:id_token",
+  });
+
+  const response = await fetch(`${ISSUER}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  if (!response.ok) {
+    let errorMsg = `OpenAI API token exchange failed: ${response.status}`;
+    try {
+      const err = await response.json() as Record<string, unknown>;
+      if (typeof err.error_description === "string") {
+        errorMsg = err.error_description;
+      } else if (typeof err.error === "string") {
+        errorMsg = err.error;
+      }
+    } catch {
+      // use default
+    }
+    throw new Error(errorMsg);
+  }
+
+  const data = (await response.json()) as { access_token?: string };
+  if (!data.access_token) {
+    throw new Error("OpenAI API token exchange did not return an access token");
+  }
+  return data.access_token;
+}
+
+export async function ensureCodexApiKey(
+  tokens: CodexOAuthTokens,
+): Promise<CodexOAuthTokens> {
+  if (tokens.apiKey) return tokens;
+  if (!tokens.idToken) return tokens;
+
+  try {
+    return {
+      ...tokens,
+      apiKey: await exchangeIdTokenForApiKey(tokens.idToken),
+    };
+  } catch (err) {
+    logger.warn(
+      "Codex API-key token exchange failed; continuing with ChatGPT OAuth tokens:",
+      err,
+    );
+    return tokens;
+  }
 }
 
 async function exchangeCodeForTokens(
@@ -141,8 +205,7 @@ async function exchangeCodeForTokens(
 
   const claims = parseJwtClaims(data.id_token);
   const expiresAt = parseTokenExpiry(data.access_token);
-
-  return {
+  const tokens: CodexOAuthTokens = {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     idToken: data.id_token,
@@ -150,14 +213,16 @@ async function exchangeCodeForTokens(
     accountId: claims?.accountId || "",
     accountEmail: claims?.email,
   };
+
+  return ensureCodexApiKey(tokens);
 }
 
 async function refreshAccessToken(
-  refreshToken: string,
+  tokens: CodexOAuthTokens,
 ): Promise<CodexOAuthTokens> {
   const body = new URLSearchParams({
     grant_type: "refresh_token",
-    refresh_token: refreshToken,
+    refresh_token: tokens.refreshToken,
     client_id: CLIENT_ID,
   });
 
@@ -183,18 +248,20 @@ async function refreshAccessToken(
     id_token?: string;
   };
 
-  const idToken = data.id_token || "";
+  const idToken = data.id_token || tokens.idToken || "";
   const claims = idToken ? parseJwtClaims(idToken) : null;
   const expiresAt = parseTokenExpiry(data.access_token);
-
-  return {
+  const refreshedTokens: CodexOAuthTokens = {
     accessToken: data.access_token,
-    refreshToken: data.refresh_token || refreshToken,
+    refreshToken: data.refresh_token || tokens.refreshToken,
     idToken,
+    apiKey: tokens.apiKey,
     expiresAt,
-    accountId: claims?.accountId || "",
-    accountEmail: claims?.email,
+    accountId: claims?.accountId || tokens.accountId || "",
+    accountEmail: claims?.email || tokens.accountEmail,
   };
+
+  return ensureCodexApiKey(refreshedTokens);
 }
 
 function startServer(
@@ -287,16 +354,23 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-async function bindServer(
-  server: http.Server,
-  startPort: number,
-): Promise<number> {
-  for (let attempt = 0; attempt < MAX_PORT_RETRIES; attempt++) {
-    const port = startPort + attempt;
+async function bindServer(server: http.Server): Promise<number> {
+  const allowedPorts = [PREFERRED_PORT, FALLBACK_PORT];
+
+  for (const port of allowedPorts) {
     try {
       await new Promise<void>((resolve, reject) => {
-        server.listen(port, "127.0.0.1", () => resolve());
-        server.once("error", reject);
+        const onError = (err: Error) => {
+          server.off("listening", onListening);
+          reject(err);
+        };
+        const onListening = () => {
+          server.off("error", onError);
+          resolve();
+        };
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(port, "127.0.0.1");
       });
       return port;
     } catch (err: unknown) {
@@ -306,8 +380,9 @@ async function bindServer(
       throw err;
     }
   }
+
   throw new Error(
-    `Could not find an available port in range ${startPort}–${startPort + MAX_PORT_RETRIES - 1}`,
+    `Could not bind Codex OAuth callback server to registered ports ${allowedPorts.join(", ")}`,
   );
 }
 
@@ -324,11 +399,19 @@ export async function startCodexOAuth(
   return new Promise<CodexOAuthTokens>((resolve, reject) => {
     let settled = false;
 
+    const safeOnStatus = (status: CodexAuthStatus, error?: string) => {
+      try {
+        onStatus(status, error);
+      } catch {
+        logger.warn("Codex OAuth status callback failed — window may be closed");
+      }
+    };
+
     const wrappedResolve = (tokens: CodexOAuthTokens) => {
       if (settled) return;
       settled = true;
       cleanup();
-      onStatus("connected");
+      safeOnStatus("connected");
       resolve(tokens);
     };
 
@@ -336,7 +419,7 @@ export async function startCodexOAuth(
       if (settled) return;
       settled = true;
       cleanup();
-      onStatus("error", err.message);
+      safeOnStatus("error", err.message);
       reject(err);
     };
 
@@ -361,12 +444,12 @@ export async function startCodexOAuth(
       activeFlow = null;
     };
 
-    bindServer(server, 1455)
+    bindServer(server)
       .then((port) => {
         if (settled) return; // timed out before bind completed
         activeFlow!.port = port;
         const authUrl = buildAuthorizeUrl(port, pkce, state);
-        onStatus("waiting");
+        safeOnStatus("waiting");
 
         // Open in default browser
         shell.openExternal(authUrl).catch((err: Error) => {
@@ -381,7 +464,11 @@ export function cancelCodexOAuth(): void {
   if (!activeFlow) return;
   activeFlow.server.close();
   if (activeFlow.timeout) clearTimeout(activeFlow.timeout);
-  activeFlow.onStatus("idle");
+  try {
+    activeFlow.onStatus("idle");
+  } catch {
+    logger.warn("Codex OAuth cancel status callback failed — window may be closed");
+  }
   activeFlow = null;
 }
 

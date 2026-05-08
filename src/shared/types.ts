@@ -466,6 +466,8 @@ export interface CodexOAuthTokens {
   accessToken: string;
   refreshToken: string;
   idToken: string;
+  /** API-key-style token obtained by exchanging the ChatGPT id_token for openai-api-key. */
+  apiKey?: string;
   expiresAt: number;       // epoch ms
   accountId: string;       // chatgpt_account_id from JWT
   accountEmail?: string;

@@ -1,28 +1,41 @@
-import OpenAI from "openai";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AIMessage, CodexOAuthTokens } from "../../shared/types";
 import type { AIProvider } from "./provider";
 import type { AgentToolProfile } from "./tool-profile";
 import { refreshAccessToken } from "./codex-oauth";
-import { readStoredCodexTokens, writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settings";
+import { writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settings";
 import { createLogger } from "../../shared/logger";
-import { isRichToolResult, type TextBlock } from "./tool-result";
 
 const logger = createLogger("CodexProvider");
 
 const REFRESH_WINDOW_MS = 5 * 60 * 1000; // refresh if expiring within 5 min
+const CODEX_BACKEND_BASE_URL = "https://chatgpt.com/backend-api/codex";
+const CODEX_CLIENT_VERSION = "0.129.0";
+
+interface CodexResponsesStreamEvent {
+  type?: string;
+  delta?: string;
+  response?: {
+    error?: {
+      code?: string;
+      message?: string;
+      type?: string;
+    };
+  };
+  item?: {
+    content?: Array<{ type?: string; text?: string }>;
+  };
+}
 
 export class CodexProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile;
   private tokens: CodexOAuthTokens;
   private model: string;
-  private baseUrl: string;
   private abortController: AbortController | null = null;
 
-  constructor(tokens: CodexOAuthTokens, model: string, baseUrl?: string) {
+  constructor(tokens: CodexOAuthTokens, model: string, _baseUrl?: string) {
     this.tokens = tokens;
     this.model = model;
-    this.baseUrl = baseUrl || "https://api.openai.com/v1";
     this.agentToolProfile = "default";
   }
 
@@ -31,7 +44,7 @@ export class CodexProvider implements AIProvider {
 
     try {
       logger.info("Refreshing Codex access token");
-      const fresh = await refreshAccessToken(this.tokens.refreshToken);
+      const fresh = await refreshAccessToken(this.tokens);
       this.tokens = fresh;
       writeStoredCodexTokens(fresh);
     } catch (err) {
@@ -42,11 +55,145 @@ export class CodexProvider implements AIProvider {
     }
   }
 
-  private createClient(): OpenAI {
-    return new OpenAI({
-      apiKey: this.tokens.accessToken,
-      baseURL: this.baseUrl,
+  private backendHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.tokens.accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      originator: "codex_cli_rs",
+      "User-Agent": `codex_cli_rs/${CODEX_CLIENT_VERSION} Vessel`,
+    };
+    if (this.tokens.accountId) {
+      headers["ChatGPT-Account-ID"] = this.tokens.accountId;
+    }
+    return headers;
+  }
+
+  private buildInput(
+    userMessage: string,
+    history?: AIMessage[],
+  ): Array<{ type: "message"; role: string; content: Array<{ type: "input_text"; text: string }> }> {
+    const input: Array<{
+      type: "message";
+      role: string;
+      content: Array<{ type: "input_text"; text: string }>;
+    }> = [];
+
+    for (const msg of history ?? []) {
+      input.push({
+        type: "message",
+        role: msg.role,
+        content: [{ type: "input_text", text: msg.content }],
+      });
+    }
+
+    input.push({
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: userMessage }],
     });
+
+    return input;
+  }
+
+  private handleStreamEvent(
+    raw: string,
+    onChunk: (text: string) => void,
+    emittedTextFromDelta: { value: boolean },
+  ): void {
+    if (!raw.trim() || raw.trim() === "[DONE]") return;
+
+    let event: CodexResponsesStreamEvent;
+    try {
+      event = JSON.parse(raw) as CodexResponsesStreamEvent;
+    } catch {
+      return;
+    }
+
+    if (event.type === "response.output_text.delta" && event.delta) {
+      emittedTextFromDelta.value = true;
+      onChunk(event.delta);
+      return;
+    }
+
+    if (event.type === "response.output_item.done" && !emittedTextFromDelta.value) {
+      const text = event.item?.content
+        ?.filter((item) => item.type === "output_text" && item.text)
+        .map((item) => item.text)
+        .join("");
+      if (text) onChunk(text);
+      return;
+    }
+
+    if (event.type === "response.failed") {
+      const error = event.response?.error;
+      const message = error?.message || error?.code || "Codex response failed";
+      throw new Error(message);
+    }
+  }
+
+  private async streamCodexResponse(
+    systemPrompt: string,
+    userMessage: string,
+    onChunk: (text: string) => void,
+    history?: AIMessage[],
+  ): Promise<void> {
+    const response = await fetch(`${CODEX_BACKEND_BASE_URL}/responses`, {
+      method: "POST",
+      headers: this.backendHeaders(),
+      signal: this.abortController?.signal,
+      body: JSON.stringify({
+        model: this.model,
+        instructions: systemPrompt,
+        input: this.buildInput(userMessage, history),
+        stream: true,
+        store: false,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(
+        `Codex backend request failed: ${response.status}${text ? ` ${text}` : ""}`,
+      );
+    }
+
+    if (!response.body) {
+      throw new Error("Codex backend returned an empty response stream");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const emittedTextFromDelta = { value: false };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let separatorIndex: number;
+      while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, separatorIndex);
+        buffer = buffer.slice(separatorIndex + 2);
+        const data = block
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        this.handleStreamEvent(data, onChunk, emittedTextFromDelta);
+      }
+    }
+
+    const trailing = buffer.trim();
+    if (trailing) {
+      const data = trailing
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      this.handleStreamEvent(data, onChunk, emittedTextFromDelta);
+    }
   }
 
   async streamQuery(
@@ -59,35 +206,8 @@ export class CodexProvider implements AIProvider {
     await this.ensureFreshTokens();
     this.abortController = new AbortController();
 
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-    ];
-
-    if (history) {
-      for (const msg of history) {
-        messages.push({
-          role: msg.role as "user" | "assistant",
-          content: msg.content,
-        });
-      }
-    }
-
-    messages.push({ role: "user", content: userMessage });
-
     try {
-      const stream = await this.createClient().chat.completions.create(
-        {
-          model: this.model,
-          messages,
-          stream: true,
-        },
-        { signal: this.abortController.signal },
-      );
-
-      for await (const chunk of stream) {
-        const delta = chunk.choices?.[0]?.delta?.content;
-        if (delta) onChunk(delta);
-      }
+      await this.streamCodexResponse(systemPrompt, userMessage, onChunk, history);
     } catch (err: unknown) {
       if ((err as { name?: string }).name !== "AbortError") {
         const msg = err instanceof Error ? err.message : String(err);
@@ -103,131 +223,17 @@ export class CodexProvider implements AIProvider {
   async streamAgentQuery(
     systemPrompt: string,
     userMessage: string,
-    tools: Anthropic.Tool[],
+    _tools: Anthropic.Tool[],
     onChunk: (text: string) => void,
-    onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
+    _onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
     onEnd: () => void,
     history?: AIMessage[],
   ): Promise<void> {
     await this.ensureFreshTokens();
     this.abortController = new AbortController();
 
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-    ];
-
-    if (history) {
-      for (const msg of history) {
-        messages.push({
-          role: msg.role as "user" | "assistant",
-          content: msg.content,
-        });
-      }
-    }
-
-    messages.push({ role: "user", content: userMessage });
-
-    const openaiTools: OpenAI.Chat.Completions.ChatCompletionTool[] = tools.map(
-      (tool) => ({
-        type: "function" as const,
-        function: {
-          name: tool.name,
-          description: tool.description || "",
-          parameters: tool.input_schema as Record<string, unknown>,
-        },
-      }),
-    );
-
     try {
-      let continueLoop = true;
-      let currentMessages = [...messages];
-
-      while (continueLoop) {
-        const stream = await this.createClient().chat.completions.create(
-          {
-            model: this.model,
-            messages: currentMessages,
-            tools: openaiTools,
-            stream: true,
-          },
-          { signal: this.abortController.signal },
-        );
-
-        let contentBuffer = "";
-        const toolCalls: Map<
-          number,
-          { id: string; name: string; args: string }
-        > = new Map();
-
-        for await (const chunk of stream) {
-          const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) {
-            contentBuffer += delta.content;
-            onChunk(delta.content);
-          }
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index;
-              if (!toolCalls.has(idx)) {
-                toolCalls.set(idx, {
-                  id: tc.id || "",
-                  name: tc.function?.name || "",
-                  args: tc.function?.arguments || "",
-                });
-              } else {
-                const existing = toolCalls.get(idx)!;
-                if (tc.id) existing.id = tc.id;
-                if (tc.function?.name) existing.name += tc.function.name;
-                if (tc.function?.arguments) existing.args += tc.function.arguments;
-              }
-            }
-          }
-        }
-
-        if (toolCalls.size === 0) {
-          continueLoop = false;
-        } else {
-          const assistantMsg: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
-            role: "assistant",
-            content: contentBuffer || null,
-            tool_calls: Array.from(toolCalls.entries()).map(([, tc]) => ({
-              id: tc.id,
-              type: "function" as const,
-              function: { name: tc.name, arguments: tc.args },
-            })),
-          };
-          currentMessages.push(assistantMsg);
-
-          for (const [, tc] of toolCalls) {
-            let args: Record<string, unknown> = {};
-            try {
-              args = JSON.parse(tc.args);
-            } catch {
-              // pass empty args
-            }
-            let result = await onToolCall(tc.name, args);
-
-            // OpenAI doesn't support image content in tool results — extract text only
-            try {
-              const parsed = JSON.parse(result);
-              if (isRichToolResult(parsed)) {
-                result = parsed.content
-                  .filter((b): b is TextBlock => b.type === "text")
-                  .map((b) => b.text)
-                  .join("\n");
-              }
-            } catch {
-              // Not JSON — use as-is
-            }
-
-            currentMessages.push({
-              role: "tool",
-              tool_call_id: tc.id,
-              content: result,
-            });
-          }
-        }
-      }
+      await this.streamCodexResponse(systemPrompt, userMessage, onChunk, history);
     } catch (err: unknown) {
       if ((err as { name?: string }).name !== "AbortError") {
         const msg = err instanceof Error ? err.message : String(err);
