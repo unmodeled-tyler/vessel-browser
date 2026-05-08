@@ -38,6 +38,7 @@ import type {
 const CHAT_PROVIDERS = Object.values(PROVIDERS).map((p) => ({
   id: p.id,
   name: p.name,
+  type: p.type,
   requiresKey: p.requiresApiKey,
   needsBaseUrl: p.id === "llama_cpp" || p.id === "custom",
   defaultBaseUrl: p.defaultBaseUrl,
@@ -358,9 +359,14 @@ const Settings: Component = () => {
 
   const chatProviderMeta = () => CHAT_PROVIDERS.find((p) => p.id === chatProviderId()) ?? CHAT_PROVIDERS[0];
 
+  const providerType = () => chatProviderMeta()?.type;
+
   const [providerModels, setProviderModels] = createSignal<string[]>([]);
   const [modelFetchState, setModelFetchState] = createSignal<"idle" | "loading" | "error">("idle");
   const [modelFetchWarning, setModelFetchWarning] = createSignal<string | null>(null);
+  const [codexAuthStatus, setCodexAuthStatus] = createSignal<"idle" | "waiting" | "exchanging" | "connected" | "error">("idle");
+  const [codexAccountEmail, setCodexAccountEmail] = createSignal("");
+  const [codexAuthError, setCodexAuthError] = createSignal("");
 
   const resetProviderModels = () => {
     setProviderModels([]);
@@ -403,6 +409,32 @@ const Settings: Component = () => {
       setModelFetchWarning(null);
       setModelFetchState("error");
     });
+  };
+
+  const startCodexAuth = async () => {
+    setCodexAuthStatus("waiting");
+    setCodexAuthError("");
+    try {
+      const result = await window.vessel.codex.startAuth();
+      if (result.ok) {
+        setCodexAccountEmail(result.accountEmail);
+        setCodexAuthStatus("connected");
+        setChatHasStoredApiKey(true);
+      } else {
+        setCodexAuthStatus("error");
+        setCodexAuthError(result.error);
+      }
+    } catch (err) {
+      setCodexAuthStatus("error");
+      setCodexAuthError(err instanceof Error ? err.message : "Unknown error");
+    }
+  };
+
+  const disconnectCodex = async () => {
+    await window.vessel.codex.disconnect();
+    setCodexAuthStatus("idle");
+    setCodexAccountEmail("");
+    setChatHasStoredApiKey(false);
   };
 
   // Auto-fetch when provider switches or when api key is filled in
@@ -451,6 +483,9 @@ const Settings: Component = () => {
       setChatApiKey("");
       setChatHasStoredApiKey(false);
       setChatReasoningEffort("off");
+    }
+    if (cp?.id === "openai_codex" && cp.hasApiKey) {
+      setCodexAuthStatus("connected");
     }
     setTelemetryEnabled(settings.telemetryEnabled !== false);
     // Load domain policy
@@ -502,9 +537,20 @@ const Settings: Component = () => {
         });
       }
     });
+    const unsubCodex = window.vessel.codex.onAuthStatus((payload) => {
+      if (payload.status === "waiting") {
+        setCodexAuthStatus("waiting");
+      } else if (payload.status === "exchanging") {
+        setCodexAuthStatus("exchanging");
+      } else if (payload.status === "error") {
+        setCodexAuthStatus("error");
+        setCodexAuthError(payload.error || "Unknown error");
+      }
+    });
     onCleanup(() => {
       unsubscribe();
       unsubscribePremium();
+      unsubCodex();
     });
   });
 
@@ -729,6 +775,14 @@ const Settings: Component = () => {
                     modelFetchWarning,
                     doFetchModels,
                     resetProviderModels,
+                    codexAuthStatus,
+                    codexAccountEmail,
+                    setCodexAccountEmail,
+                    codexAuthError,
+                    setCodexAuthError,
+                    providerType,
+                    startCodexAuth,
+                    disconnectCodex,
                   }}
                   mcpPort={mcpPort}
                   setMcpPort={setMcpPort}
