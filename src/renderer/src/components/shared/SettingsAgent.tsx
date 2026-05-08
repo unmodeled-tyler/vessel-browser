@@ -100,32 +100,35 @@ const SettingsAgent: Component<SettingsAgentProps> = (props) => {
                       props.chat.codexAuthStatus() === "exchanging"
                     }
                     fallback={
-                      <div>
+                      <Show
+                        when={props.chat.codexAuthStatus() === "error"}
+                        fallback={
+                          <div>
+                            <button
+                              type="button"
+                              class="settings-btn"
+                              onClick={() => props.chat.startCodexAuth()}
+                            >
+                              Connect with ChatGPT
+                            </button>
+                            <p class="settings-hint">
+                              Sign in with your ChatGPT Plus or Pro subscription. A
+                              browser tab will open where you'll authorize Vessel.
+                            </p>
+                          </div>
+                        }
+                      >
+                        <p class="settings-hint" style="color:var(--error)">
+                          {props.chat.codexAuthError()}
+                        </p>
                         <button
                           type="button"
                           class="settings-btn"
                           onClick={() => props.chat.startCodexAuth()}
-                          disabled={props.chat.codexAuthStatus() === "waiting" || props.chat.codexAuthStatus() === "exchanging"}
                         >
-                          Connect with ChatGPT
+                          Try Again
                         </button>
-                        <p class="settings-hint">
-                          Sign in with your ChatGPT Plus or Pro subscription. A
-                          browser tab will open where you'll authorize Vessel.
-                        </p>
-                        <Show when={props.chat.codexAuthStatus() === "error"}>
-                          <p class="settings-hint" style="color:var(--error)">
-                            {props.chat.codexAuthError()}
-                          </p>
-                          <button
-                            type="button"
-                            class="settings-btn"
-                            onClick={() => props.chat.startCodexAuth()}
-                          >
-                            Try Again
-                          </button>
-                        </Show>
-                      </div>
+                      </Show>
                     }
                   >
                     <p class="settings-hint" style="color:var(--accent-primary)">
