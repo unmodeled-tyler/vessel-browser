@@ -93,6 +93,23 @@ const AddressBar: Component<{
   const buildSearchUrl = (query: string): string =>
     searchEnginePreset().url + encodeURIComponent(query);
 
+  const looksLikeUrl = (value: string): boolean => {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return true;
+    if (/^(about|file|data|javascript):/i.test(value)) return true;
+    if (/^localhost(:\d+)?([/?#]|$)/i.test(value)) return true;
+    if (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#]|$)/.test(value)) return true;
+    return /^[^\s]+\.[^\s]{2,}([/?#].*)?$/i.test(value);
+  };
+
+  const resolveAddressInput = (value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed) return trimmed;
+    if (searchEngine() !== "none" && !looksLikeUrl(trimmed)) {
+      return buildSearchUrl(trimmed);
+    }
+    return trimmed;
+  };
+
   const [pageDiff, setPageDiff] = createSignal<PageDiff | null>(null);
   const [diffExpanded, setDiffExpanded] = createSignal(false);
   let diffCollapseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -315,7 +332,7 @@ const AddressBar: Component<{
       selectSuggestion(items[idx].url);
     } else {
       const val = inputValue().trim();
-      if (val) commitAddressNavigation(val);
+      if (val) commitAddressNavigation(resolveAddressInput(val));
     }
   };
 

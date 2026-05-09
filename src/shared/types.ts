@@ -28,6 +28,33 @@ export const TAB_GROUP_COLOR_LABELS: Record<TabGroupColor, string> = {
   gray: "Gray",
 };
 
+export interface DownloadRecord {
+  id: string;
+  filename: string;
+  savePath: string;
+  totalBytes: number;
+  receivedBytes: number;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  startedAt: string;
+  updatedAt: string;
+}
+
+export interface PermissionRecord {
+  origin: string;
+  permission: string;
+  decision: "allow" | "deny";
+  updatedAt: string;
+}
+
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  checkedAt: string;
+  releaseUrl?: string;
+  error?: string;
+}
+
 export interface TabState {
   id: string;
   title: string;

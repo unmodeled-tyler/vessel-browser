@@ -22,6 +22,9 @@ import type {
   ScheduledJob,
   SecurityState,
   SessionSnapshot,
+  DownloadRecord,
+  PermissionRecord,
+  UpdateCheckResult,
   TabGroupColor,
   TabState,
   VesselSettings,
@@ -552,6 +555,15 @@ const api = {
       ipcRenderer.invoke(Channels.AUTOFILL_FILL, profileId),
   },
   downloads: {
+    getAll: (): Promise<DownloadRecord[]> => ipcRenderer.invoke(Channels.DOWNLOADS_GET),
+    clear: (): Promise<boolean> => ipcRenderer.invoke(Channels.DOWNLOADS_CLEAR),
+    open: (id: string): Promise<boolean> => ipcRenderer.invoke(Channels.DOWNLOADS_OPEN, id),
+    showInFolder: (id: string): Promise<boolean> => ipcRenderer.invoke(Channels.DOWNLOADS_SHOW_IN_FOLDER, id),
+    onUpdate: (cb: (items: DownloadRecord[]) => void): (() => void) => {
+      const handler = (_: unknown, items: DownloadRecord[]) => cb(items);
+      ipcRenderer.on(Channels.DOWNLOADS_UPDATE, handler);
+      return () => ipcRenderer.removeListener(Channels.DOWNLOADS_UPDATE, handler);
+    },
     onStarted: (
       cb: (info: { filename: string; savePath: string; totalBytes: number; receivedBytes: number; state: string }) => void,
     ): (() => void) => {
@@ -605,6 +617,15 @@ const api = {
       ipcRenderer.invoke(Channels.SECURITY_PROCEED_ANYWAY, tabId),
     goBackToSafety: (tabId: string): Promise<void> =>
       ipcRenderer.invoke(Channels.SECURITY_GO_BACK_TO_SAFETY, tabId),
+  },
+  updates: {
+    check: (): Promise<UpdateCheckResult> => ipcRenderer.invoke(Channels.UPDATES_CHECK),
+    openDownload: (): Promise<void> => ipcRenderer.invoke(Channels.UPDATES_OPEN_DOWNLOAD),
+  },
+  permissions: {
+    getAll: (): Promise<PermissionRecord[]> => ipcRenderer.invoke(Channels.PERMISSIONS_GET),
+    clear: (): Promise<boolean> => ipcRenderer.invoke(Channels.PERMISSIONS_CLEAR),
+    clearOrigin: (origin: string): Promise<boolean> => ipcRenderer.invoke(Channels.PERMISSIONS_CLEAR_ORIGIN, origin),
   },
   browsingData: {
     clear: (options: ClearDataOptions): Promise<void> =>

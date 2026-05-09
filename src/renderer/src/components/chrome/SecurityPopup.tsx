@@ -1,5 +1,5 @@
-import { type Component, onMount, onCleanup } from "solid-js";
-import type { SecurityState } from "../../../../shared/types";
+import { createMemo, createSignal, For, Show, type Component, onMount, onCleanup } from "solid-js";
+import type { PermissionRecord, SecurityState } from "../../../../shared/types";
 
 interface SecurityPopupProps {
   state: SecurityState;
@@ -21,6 +21,18 @@ const SecurityPopup: Component<SecurityPopupProps> = (props) => {
     }
   };
 
+  const [permissions, setPermissions] = createSignal<PermissionRecord[]>([]);
+  const origin = createMemo(() => {
+    try { return new URL(props.state.url).origin; } catch { return ""; }
+  });
+  const sitePermissions = createMemo(() =>
+    permissions().filter((item) => item.origin === origin()),
+  );
+
+  const loadPermissions = async () => {
+    try { setPermissions(await window.vessel.permissions.getAll()); } catch {}
+  };
+
   const handleLearnMore = () => {
     window.vessel.security.showDetails(props.state);
     props.onClose();
@@ -37,6 +49,7 @@ const SecurityPopup: Component<SecurityPopupProps> = (props) => {
   };
 
   onMount(() => {
+    void loadPermissions();
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest(".security-indicator-wrapper")) {
@@ -54,6 +67,31 @@ const SecurityPopup: Component<SecurityPopupProps> = (props) => {
         <button class="security-popup-link" onClick={handleLearnMore}>
           Learn More
         </button>
+        <div class="security-popup-section">
+          <div class="security-popup-section-title">Site permissions</div>
+          <Show
+            when={sitePermissions().length > 0}
+            fallback={<p class="security-popup-muted">No saved permission decisions for this site.</p>}
+          >
+            <For each={sitePermissions()}>
+              {(item) => (
+                <div class="security-popup-permission-row">
+                  <span>{item.permission}</span>
+                  <strong class={item.decision}>{item.decision}</strong>
+                </div>
+              )}
+            </For>
+            <button
+              class="security-popup-link"
+              onClick={async () => {
+                await window.vessel.permissions.clearOrigin(origin());
+                await loadPermissions();
+              }}
+            >
+              Reset permissions for this site
+            </button>
+          </Show>
+        </div>
         {props.state.canProceed && (
           <div class="security-popup-actions">
             <button class="security-popup-action-proceed" onClick={handleProceedAnyway}>
