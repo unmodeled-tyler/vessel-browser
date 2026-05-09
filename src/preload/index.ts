@@ -24,6 +24,7 @@ import type {
   SessionSnapshot,
   DownloadRecord,
   PermissionRecord,
+  UpdateCheckResult,
   TabGroupColor,
   TabState,
   VesselSettings,
@@ -616,6 +617,10 @@ const api = {
       ipcRenderer.invoke(Channels.SECURITY_PROCEED_ANYWAY, tabId),
     goBackToSafety: (tabId: string): Promise<void> =>
       ipcRenderer.invoke(Channels.SECURITY_GO_BACK_TO_SAFETY, tabId),
+  },
+  updates: {
+    check: (): Promise<UpdateCheckResult> => ipcRenderer.invoke(Channels.UPDATES_CHECK),
+    openDownload: (): Promise<void> => ipcRenderer.invoke(Channels.UPDATES_OPEN_DOWNLOAD),
   },
   permissions: {
     getAll: (): Promise<PermissionRecord[]> => ipcRenderer.invoke(Channels.PERMISSIONS_GET),

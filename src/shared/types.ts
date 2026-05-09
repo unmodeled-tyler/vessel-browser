@@ -46,6 +46,15 @@ export interface PermissionRecord {
   updatedAt: string;
 }
 
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  checkedAt: string;
+  releaseUrl?: string;
+  error?: string;
+}
+
 export interface TabState {
   id: string;
   title: string;

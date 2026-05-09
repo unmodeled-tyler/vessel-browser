@@ -73,6 +73,7 @@ import { registerCodexHandlers } from "./codex";
 import { clearByTimeRange } from "../history/manager";
 import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
 import { clearPermissions, clearPermissionsForOrigin, listPermissions, setPermissionBroadcaster } from "../security/permissions";
+import { checkForUpdates, openUpdateDownload } from "../updates/checker";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -855,6 +856,9 @@ export function registerIpcHandlers(
     clearPermissionsForOrigin(origin);
     return true;
   });
+
+  ipcMain.handle(Channels.UPDATES_CHECK, () => checkForUpdates());
+  ipcMain.handle(Channels.UPDATES_OPEN_DOWNLOAD, () => openUpdateDownload());
 
   ipcMain.handle(Channels.TAB_TOGGLE_PIP, async () => {
     return togglePictureInPicture(tabManager);
