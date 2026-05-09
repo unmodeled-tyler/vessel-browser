@@ -1159,6 +1159,29 @@ const Settings: Component = () => {
           border-color: color-mix(in srgb, var(--status-error) 32%, transparent);
           background: color-mix(in srgb, var(--status-error) 6%, transparent);
         }
+        .settings-inline-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+        .settings-secondary-btn {
+          height: 32px;
+          padding: 0 12px;
+          border-radius: var(--radius-md);
+          border: 1px solid var(--border-visible);
+          background: var(--surface-glass);
+          color: var(--text-primary);
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .settings-secondary-btn:hover:not(:disabled) {
+          background: var(--bg-tertiary);
+        }
+        .settings-secondary-btn:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
         .settings-label {
           display: block;
           font-size: 12px;

@@ -1,9 +1,21 @@
-import { For, Show, type Component } from "solid-js";
+import { createSignal, For, Show, type Component } from "solid-js";
 import { SEARCH_ENGINE_PRESETS } from "../../../../shared/types";
-import type { SearchEngineId } from "../../../../shared/types";
+import type { SearchEngineId, UpdateCheckResult } from "../../../../shared/types";
 import type { SettingsGeneralProps } from "./settingsTypes";
 
 const SettingsGeneral: Component<SettingsGeneralProps> = (props) => {
+  const [checkingUpdates, setCheckingUpdates] = createSignal(false);
+  const [updateResult, setUpdateResult] = createSignal<UpdateCheckResult | null>(null);
+
+  const checkUpdates = async () => {
+    setCheckingUpdates(true);
+    try {
+      setUpdateResult(await window.vessel.updates.check());
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
   return (
     <div class="settings-category-panel">
       <Show when={props.welcomeBanner.show()}>
@@ -127,6 +139,49 @@ const SettingsGeneral: Component<SettingsGeneralProps> = (props) => {
         </select>
         <p class="settings-hint">
           Choose the application color scheme. Takes effect after saving.
+        </p>
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label">Updates</label>
+        <div class="settings-inline-actions">
+          <button
+            type="button"
+            class="settings-secondary-btn"
+            disabled={checkingUpdates()}
+            onClick={checkUpdates}
+          >
+            {checkingUpdates() ? "Checking…" : "Check for updates"}
+          </button>
+          <Show when={updateResult()?.updateAvailable}>
+            <button
+              type="button"
+              class="settings-secondary-btn"
+              onClick={() => window.vessel.updates.openDownload()}
+            >
+              Open latest release
+            </button>
+          </Show>
+        </div>
+        <Show when={updateResult()}>
+          {(result) => (
+            <p class="settings-hint">
+              <Show
+                when={!result().error}
+                fallback={<>Could not check for updates: {result().error}</>}
+              >
+                <Show
+                  when={result().updateAvailable}
+                  fallback={<>Vessel is up to date. Current version: {result().currentVersion}.</>}
+                >
+                  Update available: {result().latestVersion} is available. You have {result().currentVersion}.
+                </Show>
+              </Show>
+            </p>
+          )}
+        </Show>
+        <p class="settings-hint">
+          Checks the published npm package and links to GitHub Releases for installers/AppImages.
         </p>
       </div>
 

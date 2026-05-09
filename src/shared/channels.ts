@@ -233,6 +233,10 @@ export const Channels = {
   CODEX_AUTH_STATUS: "codex:auth-status",
   CODEX_DISCONNECT: "codex:disconnect",
 
+  // Updates
+  UPDATES_CHECK: "updates:check",
+  UPDATES_OPEN_DOWNLOAD: "updates:open-download",
+
   // Permissions
   PERMISSIONS_GET: "permissions:get",
   PERMISSIONS_CLEAR: "permissions:clear",
