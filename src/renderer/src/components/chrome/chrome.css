@@ -1746,7 +1746,7 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
     padding: 12px 16px;
-    min-width: 220px;
+    min-width: 280px;
     z-index: 100;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
@@ -1778,6 +1778,38 @@
 .security-popup-link:hover {
     color: #93c5fd;
 }
+
+.security-popup-section {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 8px;
+    margin-top: 2px;
+}
+
+.security-popup-section-title {
+    font-size: 11px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+}
+
+.security-popup-muted {
+    color: #9ca3af;
+    font-size: 12px;
+    margin: 0;
+}
+
+.security-popup-permission-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    font-size: 12px;
+    color: #e5e7eb;
+    margin: 4px 0;
+}
+
+.security-popup-permission-row strong.allow { color: #86efac; }
+.security-popup-permission-row strong.deny { color: #fca5a5; }
 
 .security-popup-actions {
     display: flex;

@@ -72,7 +72,7 @@ import { registerSecurityHandlers } from "./security";
 import { registerCodexHandlers } from "./codex";
 import { clearByTimeRange } from "../history/manager";
 import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
-import { clearPermissions, listPermissions, setPermissionBroadcaster } from "../security/permissions";
+import { clearPermissions, clearPermissionsForOrigin, listPermissions, setPermissionBroadcaster } from "../security/permissions";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -849,6 +849,10 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.PERMISSIONS_GET, () => listPermissions());
   ipcMain.handle(Channels.PERMISSIONS_CLEAR, () => {
     clearPermissions();
+    return true;
+  });
+  ipcMain.handle(Channels.PERMISSIONS_CLEAR_ORIGIN, (_event, origin: string) => {
+    clearPermissionsForOrigin(origin);
     return true;
   });
 

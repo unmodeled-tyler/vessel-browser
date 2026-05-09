@@ -87,9 +87,8 @@ const SettingsGeneral: Component<SettingsGeneralProps> = (props) => {
           <option value="none">None (disabled)</option>
         </select>
         <p class="settings-hint">
-          The search engine used by the AI agent when it needs to search the
-          web. "None" disables the fallback and forces the agent to use on-page
-          search inputs only.
+          Used for searches typed directly into the address bar and for agent web-search fallbacks.
+          "None" disables address-bar search, so entries are treated as URLs only.
         </p>
       </div>
 

@@ -27,6 +27,11 @@ function save(origin: string, permission: string, decision: "allow" | "deny"): v
 
 export function listPermissions(): PermissionRecord[] { return records; }
 export function clearPermissions(): void { records = []; persistence.schedule(); emit(); }
+export function clearPermissionsForOrigin(origin: string): void {
+  records = records.filter((record) => record.origin !== origin);
+  persistence.schedule();
+  emit();
+}
 export function setPermissionBroadcaster(fn: (channel: string, payload: unknown) => void): void { broadcaster = fn; }
 
 export function installPermissionHandler(): void {

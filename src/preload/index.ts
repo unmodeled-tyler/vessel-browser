@@ -620,6 +620,7 @@ const api = {
   permissions: {
     getAll: (): Promise<PermissionRecord[]> => ipcRenderer.invoke(Channels.PERMISSIONS_GET),
     clear: (): Promise<boolean> => ipcRenderer.invoke(Channels.PERMISSIONS_CLEAR),
+    clearOrigin: (origin: string): Promise<boolean> => ipcRenderer.invoke(Channels.PERMISSIONS_CLEAR_ORIGIN, origin),
   },
   browsingData: {
     clear: (options: ClearDataOptions): Promise<void> =>
