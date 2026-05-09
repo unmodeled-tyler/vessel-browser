@@ -2,7 +2,7 @@ import { createSignal, onCleanup, onMount, type Component } from 'solid-js';
 import type { RuntimeHealthState } from '../../../shared/types';
 import './chrome.css';
 
-const TitleBar: Component = () => {
+const TitleBar: Component<{ onOpenDownloads?: () => void }> = (props) => {
   const isPrivateWindow = new URLSearchParams(window.location.search).get("private") === "1";
   const [mcpStatus, setMcpStatus] = createSignal<'ready' | 'error' | 'starting' | 'stopped'>('starting');
   const [mcpTooltip, setMcpTooltip] = createSignal('MCP: starting...');
@@ -57,6 +57,13 @@ const TitleBar: Component = () => {
         </button>
       </div>
       <div class="window-controls">
+        <button
+          class="window-btn"
+          onClick={() => props.onOpenDownloads?.()}
+          data-tooltip="Downloads"
+        >
+          ↓
+        </button>
         <button
           class="window-btn"
           onClick={() => window.vessel.window.minimize()}

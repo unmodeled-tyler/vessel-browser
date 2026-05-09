@@ -5,6 +5,7 @@ import AddressBar from "./components/chrome/AddressBar";
 import BookmarkNotifications from "./components/chrome/BookmarkNotifications";
 import HighlightNotifications from "./components/chrome/HighlightNotifications";
 import DownloadToast from "./components/chrome/DownloadToast";
+import DownloadsPanel from "./components/chrome/DownloadsPanel";
 import FindBar from "./components/chrome/FindBar";
 import FlowProgress from "./components/chrome/FlowProgress";
 import AgentTranscriptDock from "./components/chrome/AgentTranscriptDock";
@@ -59,6 +60,7 @@ const App: Component = () => {
   } | null>(null);
   const [keyboardHelpOpen, setKeyboardHelpOpen] = createSignal(false);
   const [clearDataOpen, setClearDataOpen] = createSignal(false);
+  const [downloadsOpen, setDownloadsOpen] = createSignal(false);
   const loadingPresence = useAnimatedPresence(() => !!activeTab()?.isLoading, 300);
 
   const showHighlightResult = (result: {
@@ -202,7 +204,7 @@ const App: Component = () => {
         <AgentTranscriptDock />
       </Show>
       <div class="chrome">
-        <TitleBar />
+        <TitleBar onOpenDownloads={() => setDownloadsOpen(true)} />
         <TabBar />
         <AddressBar onClearData={() => setClearDataOpen(true)} />
         <Show when={loadingPresence.visible()}>
@@ -213,6 +215,7 @@ const App: Component = () => {
         <CommandBar />
         <Settings />
       </Show>
+      <DownloadsPanel open={downloadsOpen()} onClose={() => setDownloadsOpen(false)} />
       <ClearBrowsingData
         open={clearDataOpen()}
         onClose={() => setClearDataOpen(false)}

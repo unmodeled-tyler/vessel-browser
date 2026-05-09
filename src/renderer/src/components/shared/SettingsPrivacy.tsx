@@ -1,7 +1,12 @@
-import { Show, type Component } from "solid-js";
+import { createSignal, For, onMount, Show, type Component } from "solid-js";
+import type { PermissionRecord } from "../../../shared/types";
 import type { SettingsPrivacyProps } from "./settingsTypes";
 
 const SettingsPrivacy: Component<SettingsPrivacyProps> = (props) => {
+  const [permissions, setPermissions] = createSignal<PermissionRecord[]>([]);
+  const loadPermissions = async () => setPermissions(await window.vessel.permissions.getAll());
+  onMount(() => { void loadPermissions(); });
+
   return (
     <div class="settings-category-panel">
       <div class="settings-field">
@@ -47,6 +52,30 @@ const SettingsPrivacy: Component<SettingsPrivacyProps> = (props) => {
             kiosk or supervised browsing, blocklist to block specific sites.
           </p>
         </Show>
+      </div>
+
+      <div class="settings-field">
+        <label class="settings-label">Site Permissions</label>
+        <p class="settings-hint">
+          Camera, microphone, location, notifications, and other site capability choices remembered by Vessel.
+        </p>
+        <div class="settings-list">
+          <For each={permissions()} fallback={<p class="settings-hint">No saved permission decisions yet.</p>}>
+            {(item) => (
+              <div class="settings-list-row">
+                <span>{item.origin}</span>
+                <span>{item.permission}: {item.decision}</span>
+              </div>
+            )}
+          </For>
+        </div>
+        <button
+          type="button"
+          class="settings-secondary-btn"
+          onClick={async () => { await window.vessel.permissions.clear(); await loadPermissions(); }}
+        >
+          Clear saved permissions
+        </button>
       </div>
 
       <div class="settings-field">

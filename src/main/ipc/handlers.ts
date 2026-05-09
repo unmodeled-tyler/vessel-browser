@@ -71,6 +71,8 @@ import { registerSessionHandlers } from "./sessions";
 import { registerSecurityHandlers } from "./security";
 import { registerCodexHandlers } from "./codex";
 import { clearByTimeRange } from "../history/manager";
+import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
+import { clearPermissions, listPermissions, setPermissionBroadcaster } from "../security/permissions";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -834,6 +836,21 @@ export function registerIpcHandlers(
   });
 
   // --- Picture-in-Picture ---
+
+  setDownloadBroadcaster(sendToRendererViews);
+  setPermissionBroadcaster(sendToRendererViews);
+  ipcMain.handle(Channels.DOWNLOADS_GET, () => listDownloads());
+  ipcMain.handle(Channels.DOWNLOADS_CLEAR, () => {
+    clearDownloads();
+    return true;
+  });
+  ipcMain.handle(Channels.DOWNLOADS_OPEN, (_event, id: string) => openDownload(id));
+  ipcMain.handle(Channels.DOWNLOADS_SHOW_IN_FOLDER, (_event, id: string) => showDownloadInFolder(id));
+  ipcMain.handle(Channels.PERMISSIONS_GET, () => listPermissions());
+  ipcMain.handle(Channels.PERMISSIONS_CLEAR, () => {
+    clearPermissions();
+    return true;
+  });
 
   ipcMain.handle(Channels.TAB_TOGGLE_PIP, async () => {
     return togglePictureInPicture(tabManager);
