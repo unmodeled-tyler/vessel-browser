@@ -5,16 +5,40 @@ import type { PermissionRecord } from "../../shared/types";
 import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
 
 const filePath = () => path.join(app.getPath("userData"), "vessel-permissions.json");
+
+function parseOrigin(value: string): string | null {
+  try {
+    const origin = new URL(value).origin;
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
+}
+
+function isPermissionRecord(value: unknown): value is PermissionRecord {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<PermissionRecord>;
+  return (
+    typeof record.origin === "string" &&
+    parseOrigin(record.origin) === record.origin &&
+    typeof record.permission === "string" &&
+    record.permission.trim().length > 0 &&
+    (record.decision === "allow" || record.decision === "deny") &&
+    typeof record.updatedAt === "string"
+  );
+}
+
 let records = loadJsonFile<PermissionRecord[]>({
   filePath: filePath(),
   fallback: [],
-  parse: (raw) => Array.isArray(raw) ? raw as PermissionRecord[] : [],
+  parse: (raw) => Array.isArray(raw) ? raw.filter(isPermissionRecord) : [],
 });
 const persistence = createDebouncedJsonPersistence({ debounceMs: 250, filePath: filePath(), getValue: () => records, logLabel: "permissions" });
 let broadcaster: ((channel: string, payload: unknown) => void) | null = null;
 
 function key(origin: string, permission: string): string { return `${origin}\n${permission}`; }
-function emit(): void { broadcaster?.(Channels.PERMISSIONS_GET, records); }
+function snapshot(): PermissionRecord[] { return records.map((record) => ({ ...record })); }
+function emit(): void { broadcaster?.(Channels.PERMISSIONS_GET, snapshot()); }
 function save(origin: string, permission: string, decision: "allow" | "deny"): void {
   const k = key(origin, permission);
   const existing = records.find((r) => key(r.origin, r.permission) === k);
@@ -25,9 +49,10 @@ function save(origin: string, permission: string, decision: "allow" | "deny"): v
   emit();
 }
 
-export function listPermissions(): PermissionRecord[] { return records; }
+export function listPermissions(): PermissionRecord[] { return snapshot(); }
 export function clearPermissions(): void { records = []; persistence.schedule(); emit(); }
 export function clearPermissionsForOrigin(origin: string): void {
+  if (!parseOrigin(origin)) return;
   records = records.filter((record) => record.origin !== origin);
   persistence.schedule();
   emit();
@@ -36,7 +61,8 @@ export function setPermissionBroadcaster(fn: (channel: string, payload: unknown)
 
 export function installPermissionHandler(): void {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details: { requestingUrl?: string }) => {
-    const origin = new URL(details.requestingUrl || webContents.getURL()).origin;
+    const origin = parseOrigin(details.requestingUrl || webContents.getURL());
+    if (!origin) { callback(false); return; }
     const existing = records.find((r) => r.origin === origin && r.permission === permission);
     if (existing) { callback(existing.decision === "allow"); return; }
     const result = dialog.showMessageBoxSync({

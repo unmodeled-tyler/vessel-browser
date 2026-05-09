@@ -41,7 +41,7 @@ function persist(): void {
 }
 
 function emit(): void {
-  broadcaster?.(Channels.DOWNLOADS_UPDATE, state.items);
+  broadcaster?.(Channels.DOWNLOADS_UPDATE, listDownloads());
 }
 
 export function setDownloadBroadcaster(fn: (channel: string, payload: unknown) => void): void {
@@ -49,7 +49,7 @@ export function setDownloadBroadcaster(fn: (channel: string, payload: unknown) =
 }
 
 export function listDownloads(): DownloadRecord[] {
-  return state.items;
+  return state.items.map((item) => ({ ...item }));
 }
 
 export function upsertDownload(input: Omit<DownloadRecord, "id" | "startedAt" | "updatedAt">): DownloadRecord {
@@ -76,7 +76,7 @@ export function clearDownloads(): void {
 
 export async function openDownload(id: string): Promise<boolean> {
   const item = state.items.find((d) => d.id === id);
-  if (!item || !fs.existsSync(item.savePath)) return false;
+  if (!item || item.state !== "completed" || !fs.existsSync(item.savePath)) return false;
   return (await shell.openPath(item.savePath)) === "";
 }
 
