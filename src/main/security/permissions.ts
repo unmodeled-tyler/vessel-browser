@@ -49,6 +49,10 @@ let broadcaster: ((channel: string, payload: unknown) => void) | null = null;
 function key(origin: string, permission: string): string { return `${origin}\n${permission}`; }
 function snapshot(): PermissionRecord[] { return records.map((record) => ({ ...record })); }
 function emit(): void { broadcaster?.(Channels.PERMISSIONS_GET, snapshot()); }
+function getDecision(origin: string, permission: string): "allow" | "deny" | null {
+  const existing = records.find((r) => r.origin === origin && r.permission === permission);
+  return existing?.decision ?? sessionDecisions.get(key(origin, permission)) ?? null;
+}
 function save(origin: string, permission: string, decision: "allow" | "deny"): void {
   const k = key(origin, permission);
   const existing = records.find((r) => key(r.origin, r.permission) === k);
@@ -73,15 +77,20 @@ export function clearPermissionsForOrigin(origin: string): void {
 export function setPermissionBroadcaster(fn: (channel: string, payload: unknown) => void): void { broadcaster = fn; }
 
 export function installPermissionHandler(): void {
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    if (!ALLOWED_PERMISSION_TYPES.has(permission)) return false;
+    const origin = parseOrigin(requestingOrigin || webContents.getURL());
+    if (!origin) return false;
+    return getDecision(origin, permission) === "allow";
+  });
+
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details: { requestingUrl?: string }) => {
     if (!ALLOWED_PERMISSION_TYPES.has(permission)) { callback(false); return; }
     const origin = parseOrigin(details.requestingUrl || webContents.getURL());
     if (!origin) { callback(false); return; }
     const k = key(origin, permission);
-    const existing = records.find((r) => r.origin === origin && r.permission === permission);
-    if (existing) { callback(existing.decision === "allow"); return; }
-    const sessionDecision = sessionDecisions.get(k);
-    if (sessionDecision) { callback(sessionDecision === "allow"); return; }
+    const decision = getDecision(origin, permission);
+    if (decision) { callback(decision === "allow"); return; }
     const result = dialog.showMessageBoxSync({
       type: "question",
       buttons: ["Deny", "Allow Once", "Allow Until Quit", "Always Allow"],
