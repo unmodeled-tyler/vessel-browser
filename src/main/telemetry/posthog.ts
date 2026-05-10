@@ -32,6 +32,8 @@ const POSTHOG_HOST =
 const BATCH_INTERVAL_MS = 60_000; // Flush every 60 seconds
 const MAX_BATCH_SIZE = 50;
 const SENSITIVE_PROPERTY_RE = /url|uri|query|prompt|content|text|token|secret|key|password|credential|email|domain/i;
+const SENSITIVE_STRING_VALUE_RE =
+  /https?:\/\/|www\.|[^\s@]+@[^\s@]+\.[^\s@]+|bearer\s+\S+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.|(?:sk|pk|rk|gh[pousr]|xox[baprs])-[-_A-Za-z0-9]{12,}/i;
 
 // --- Anonymous device ID (persistent, no PII) ---
 
@@ -78,7 +80,7 @@ function isEnabled(): boolean {
   return loadSettings().telemetryEnabled !== false;
 }
 
-function sanitizeTelemetryProperties(
+export function sanitizeTelemetryProperties(
   properties: Record<string, unknown>,
 ): Record<string, unknown> {
   const safe: Record<string, unknown> = {};
@@ -90,6 +92,9 @@ function sanitizeTelemetryProperties(
       typeof value === "boolean" ||
       value === null
     ) {
+      if (typeof value === "string" && SENSITIVE_STRING_VALUE_RE.test(value)) {
+        continue;
+      }
       safe[key] = typeof value === "string" ? value.slice(0, 120) : value;
     }
   }

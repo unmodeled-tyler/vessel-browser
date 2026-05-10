@@ -11,6 +11,18 @@ const logger = createLogger("VaultShared");
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
+const KEY_STORAGE_PREFIX = "base64:";
+
+export function encodeEncryptionKeyForStorage(key: Buffer): string {
+  return `${KEY_STORAGE_PREFIX}${key.toString("base64")}`;
+}
+
+export function decodeEncryptionKeyFromStorage(value: string): Buffer {
+  if (value.startsWith(KEY_STORAGE_PREFIX)) {
+    return Buffer.from(value.slice(KEY_STORAGE_PREFIX.length), "base64");
+  }
+  return Buffer.from(value, "utf-8");
+}
 
 export function assertSecretStorageAvailable(customMessage?: string): void {
   if (!safeStorage.isEncryptionAvailable()) {
@@ -27,12 +39,18 @@ export function getOrCreateEncryptionKey(keyFilename: string): Buffer {
 
   if (fs.existsSync(keyPath)) {
     const encryptedKey = fs.readFileSync(keyPath);
-    return Buffer.from(safeStorage.decryptString(encryptedKey), "utf-8");
+    const key = decodeEncryptionKeyFromStorage(
+      safeStorage.decryptString(encryptedKey),
+    );
+    if (key.length !== 32) {
+      throw new Error("Stored vault encryption key has an invalid length.");
+    }
+    return key;
   }
 
   const key = crypto.randomBytes(32);
   fs.mkdirSync(path.dirname(keyPath), { recursive: true });
-  const encrypted = safeStorage.encryptString(key.toString("utf-8"));
+  const encrypted = safeStorage.encryptString(encodeEncryptionKeyForStorage(key));
   fs.writeFileSync(keyPath, encrypted, { mode: 0o600 });
   fs.chmodSync(keyPath, 0o600);
   return key;

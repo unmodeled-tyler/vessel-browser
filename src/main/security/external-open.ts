@@ -14,6 +14,9 @@ export async function openExternalAllowlisted(
   if (!schemes.includes(parsed.protocol)) {
     throw new Error(`Blocked external URL scheme: ${parsed.protocol}`);
   }
+  if (parsed.username || parsed.password) {
+    throw new Error("Blocked external URL with embedded credentials");
+  }
   if (rule.hosts && !rule.hosts.includes(parsed.hostname)) {
     throw new Error(`Blocked external URL host: ${parsed.hostname}`);
   }
