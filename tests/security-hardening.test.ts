@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assertTrustedIpcSender,
+  isManagedTabIpcSender,
   registerTrustedIpcSender,
 } from "../src/main/ipc/common";
 import {
@@ -28,6 +29,20 @@ test("trusted IPC guard rejects unregistered renderer senders", () => {
 test("trusted IPC guard accepts registered app UI senders", () => {
   registerTrustedIpcSender({ id: 42, once: () => undefined } as never);
   assert.doesNotThrow(() => assertTrustedIpcSender({ sender: { id: 42 } } as never));
+});
+
+test("managed tab IPC helper rejects unknown webContents senders", () => {
+  const tabManager = {
+    findTabByWebContentsId: (id: number) => (id === 7 ? { id: "tab" } : undefined),
+  };
+  assert.equal(
+    isManagedTabIpcSender({ sender: { id: 7 } } as never, tabManager),
+    true,
+  );
+  assert.equal(
+    isManagedTabIpcSender({ sender: { id: 8 } } as never, tabManager),
+    false,
+  );
 });
 
 test("credential host normalization removes scheme and www prefix", () => {
@@ -93,5 +108,19 @@ test("telemetry sanitizer drops sensitive keys and sensitive-looking values", ()
       count: 2,
     }),
     { action: "save", status: "ok", count: 2 },
+  );
+});
+
+test("telemetry sanitizer can enforce event-specific property allowlists", () => {
+  assert.deepEqual(
+    sanitizeTelemetryProperties(
+      {
+        step: "activation_failed",
+        status: "free",
+        accidental: "should not leave",
+      },
+      new Set(["step", "status"]),
+    ),
+    { step: "activation_failed", status: "free" },
   );
 });

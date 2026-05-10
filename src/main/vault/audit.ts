@@ -21,7 +21,11 @@ export function appendAuditEntry(entry: VaultAuditEntry): void {
   try {
     const auditPath = getAuditPath();
     fs.mkdirSync(path.dirname(auditPath), { recursive: true });
-    fs.appendFileSync(auditPath, JSON.stringify(entry) + "\n");
+    fs.appendFileSync(auditPath, JSON.stringify(entry) + "\n", {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    fs.chmodSync(auditPath, 0o600);
   } catch (err) {
     logger.error("Failed to write audit log:", err);
   }

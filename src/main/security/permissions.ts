@@ -93,17 +93,25 @@ export function installPermissionHandler(): void {
     if (decision) { callback(decision === "allow"); return; }
     const result = dialog.showMessageBoxSync({
       type: "question",
-      buttons: ["Deny", "Allow Once", "Allow Until Quit", "Always Allow"],
+      buttons: [
+        "Deny Once",
+        "Deny Until Quit",
+        "Always Deny",
+        "Allow Once",
+        "Allow Until Quit",
+        "Always Allow",
+      ],
       defaultId: 0,
       cancelId: 0,
       title: "Site permission request",
       message: `${origin} wants to use ${permission}`,
       detail: "Temporary choices are safer for camera, microphone, location, and clipboard access. Persistent choices can be cleared in Settings > Privacy.",
     });
-    if (result === 1) { callback(true); return; }
-    if (result === 2) { sessionDecisions.set(k, "allow"); callback(true); return; }
-    if (result === 3) { save(origin, permission, "allow"); callback(true); return; }
-    save(origin, permission, "deny");
+    if (result === 1) { sessionDecisions.set(k, "deny"); callback(false); return; }
+    if (result === 2) { save(origin, permission, "deny"); callback(false); return; }
+    if (result === 3) { callback(true); return; }
+    if (result === 4) { sessionDecisions.set(k, "allow"); callback(true); return; }
+    if (result === 5) { save(origin, permission, "allow"); callback(true); return; }
     callback(false);
   });
 }

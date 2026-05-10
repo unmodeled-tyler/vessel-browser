@@ -135,7 +135,7 @@ export function createVaultIO<T>(
     const encrypted = encrypt(json);
     const vaultPath = getVaultPath();
     fs.mkdirSync(path.dirname(vaultPath), { recursive: true });
-    fs.writeFileSync(vaultPath, encrypted);
+    fs.writeFileSync(vaultPath, encrypted, { mode: 0o600 });
     fs.chmodSync(vaultPath, 0o600);
     cachedEntries = entries;
   }
@@ -219,7 +219,11 @@ export function createAuditLog<T extends Record<string, unknown>>(
     try {
       const auditPath = getAuditPath();
       fs.mkdirSync(path.dirname(auditPath), { recursive: true });
-      fs.appendFileSync(auditPath, JSON.stringify(entry) + "\n");
+      fs.appendFileSync(auditPath, JSON.stringify(entry) + "\n", {
+        encoding: "utf-8",
+        mode: 0o600,
+      });
+      fs.chmodSync(auditPath, 0o600);
 
       try {
         const lines = fs
@@ -228,7 +232,11 @@ export function createAuditLog<T extends Record<string, unknown>>(
           .filter((l) => l.trim());
         if (lines.length > maxEntries) {
           const trimmed = lines.slice(-maxEntries);
-          fs.writeFileSync(auditPath, trimmed.join("\n") + "\n");
+          fs.writeFileSync(auditPath, trimmed.join("\n") + "\n", {
+            encoding: "utf-8",
+            mode: 0o600,
+          });
+          fs.chmodSync(auditPath, 0o600);
         }
       } catch {
         // Non-critical — don't fail the operation

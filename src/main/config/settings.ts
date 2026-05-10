@@ -319,8 +319,10 @@ function persistNow(): Promise<void> {
       fs.promises.writeFile(
         getSettingsPath(),
         JSON.stringify(buildPersistedSettings(settings!), null, 2),
+        { encoding: "utf-8", mode: 0o600 },
       ),
     )
+    .then(() => fs.promises.chmod(getSettingsPath(), 0o600).catch(() => undefined))
     .catch((err) => logger.error("Failed to save settings:", err));
 }
 
