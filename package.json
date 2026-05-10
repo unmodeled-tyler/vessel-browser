@@ -28,6 +28,9 @@
     "dist:mac:dir:signed": "npm run build:icon:mac && npm run build && electron-builder --config electron-builder.config.cjs --mac dir --publish never",
     "preview": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "audit:prod": "npm audit --omit=dev",
+    "audit:all": "npm audit",
+    "deps:check": "npm outdated",
     "prepublishOnly": "npm run build",
     "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
     "test:mcp-proxy": "node scripts/test-mcp-stdio-proxy.mjs",
@@ -66,7 +69,7 @@
   "devDependencies": {
     "@types/node": "^25.6.2",
     "c8": "^11.0.0",
-    "electron": "^41.5.1",
+    "electron": "^42.0.1",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "linkedom": "^0.18.12",

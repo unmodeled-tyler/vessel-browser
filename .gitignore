@@ -85,4 +85,3 @@ tests/*.scratch.ts
 # Local secrets / deployment config
 .webui_secret_key
 scripts/cloudflare-worker/wrangler.toml
-tests/security-hardening.test.ts
