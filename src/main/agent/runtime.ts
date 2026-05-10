@@ -64,6 +64,7 @@ interface ControlledActionOptions {
   args?: Record<string, unknown>;
   tabId?: string | null;
   dangerous?: boolean;
+  requiresApproval?: boolean;
   undoable?: boolean;
   executor: () => Promise<string>;
 }
@@ -433,6 +434,7 @@ export class AgentRuntime {
     args = {},
     tabId = null,
     dangerous = false,
+    requiresApproval = false,
     undoable,
     executor,
   }: ControlledActionOptions): Promise<string> {
@@ -454,7 +456,7 @@ export class AgentRuntime {
       mode: "replace",
     });
 
-    const approvalReason = this.getApprovalReason(dangerous);
+    const approvalReason = this.getApprovalReason(dangerous, requiresApproval);
     if (approvalReason) {
       this.publishTranscript({
         source,
@@ -729,9 +731,12 @@ export class AgentRuntime {
     };
   }
 
-  private getApprovalReason(dangerous: boolean): string | null {
+  private getApprovalReason(dangerous: boolean, requiresApproval: boolean): string | null {
     if (this.state.supervisor.paused) {
       return "Agent execution is paused";
+    }
+    if (requiresApproval) {
+      return "Approval required: high-risk action";
     }
     if (this.state.supervisor.approvalMode === "manual") {
       return "Approval required: ask every time mode";

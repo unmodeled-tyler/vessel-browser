@@ -31,6 +31,7 @@
     "audit:prod": "npm audit --omit=dev",
     "audit:all": "npm audit",
     "deps:check": "npm outdated",
+    "release:checksums": "node scripts/generate-checksums.mjs",
     "prepublishOnly": "npm run build",
     "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
     "test:mcp-proxy": "node scripts/test-mcp-stdio-proxy.mjs",

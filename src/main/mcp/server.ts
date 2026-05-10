@@ -234,6 +234,12 @@ function isDangerousMcpAction(name: string): boolean {
   return name === "close_tab" || isDangerousAction(name);
 }
 
+function requiresExplicitMcpApproval(name: string, args: Record<string, unknown>): boolean {
+  if (name === "delete_session" || name === "close_tab" || name === "load_session") return true;
+  if (name === "remove_folder" && args.delete_contents === true) return true;
+  return false;
+}
+
 function getActiveTabSummary(tabManager: TabManager) {
   const activeTab = tabManager.getActiveTab();
   const activeTabId = tabManager.getActiveTabId();
@@ -339,6 +345,7 @@ async function withAction(
       args,
       tabId: tabManager.getActiveTabId(),
       dangerous: isDangerousMcpAction(name),
+      requiresApproval: requiresExplicitMcpApproval(name, args),
       executor,
     });
     const stateInfo = await getPostActionState(tabManager, name);

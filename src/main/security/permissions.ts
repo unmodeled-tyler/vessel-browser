@@ -43,6 +43,7 @@ let records = loadJsonFile<PermissionRecord[]>({
   parse: (raw) => Array.isArray(raw) ? raw.filter(isPermissionRecord) : [],
 });
 const persistence = createDebouncedJsonPersistence({ debounceMs: 250, filePath: filePath(), getValue: () => records, logLabel: "permissions" });
+const sessionDecisions = new Map<string, "allow" | "deny">();
 let broadcaster: ((channel: string, payload: unknown) => void) | null = null;
 
 function key(origin: string, permission: string): string { return `${origin}\n${permission}`; }
@@ -59,10 +60,13 @@ function save(origin: string, permission: string, decision: "allow" | "deny"): v
 }
 
 export function listPermissions(): PermissionRecord[] { return snapshot(); }
-export function clearPermissions(): void { records = []; persistence.schedule(); emit(); }
+export function clearPermissions(): void { records = []; sessionDecisions.clear(); persistence.schedule(); emit(); }
 export function clearPermissionsForOrigin(origin: string): void {
   if (!parseOrigin(origin)) return;
   records = records.filter((record) => record.origin !== origin);
+  for (const storedKey of sessionDecisions.keys()) {
+    if (storedKey.startsWith(`${origin}\n`)) sessionDecisions.delete(storedKey);
+  }
   persistence.schedule();
   emit();
 }
@@ -73,19 +77,24 @@ export function installPermissionHandler(): void {
     if (!ALLOWED_PERMISSION_TYPES.has(permission)) { callback(false); return; }
     const origin = parseOrigin(details.requestingUrl || webContents.getURL());
     if (!origin) { callback(false); return; }
+    const k = key(origin, permission);
     const existing = records.find((r) => r.origin === origin && r.permission === permission);
     if (existing) { callback(existing.decision === "allow"); return; }
+    const sessionDecision = sessionDecisions.get(k);
+    if (sessionDecision) { callback(sessionDecision === "allow"); return; }
     const result = dialog.showMessageBoxSync({
       type: "question",
-      buttons: ["Deny", "Allow"],
+      buttons: ["Deny", "Allow Once", "Allow Until Quit", "Always Allow"],
       defaultId: 0,
       cancelId: 0,
       title: "Site permission request",
       message: `${origin} wants to use ${permission}`,
-      detail: "Vessel will remember your choice. You can clear saved permissions in Settings > Privacy.",
+      detail: "Temporary choices are safer for camera, microphone, location, and clipboard access. Persistent choices can be cleared in Settings > Privacy.",
     });
-    const decision = result === 1 ? "allow" : "deny";
-    save(origin, permission, decision);
-    callback(decision === "allow");
+    if (result === 1) { callback(true); return; }
+    if (result === 2) { sessionDecisions.set(k, "allow"); callback(true); return; }
+    if (result === 3) { save(origin, permission, "allow"); callback(true); return; }
+    save(origin, permission, "deny");
+    callback(false);
   });
 }

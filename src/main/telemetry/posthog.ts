@@ -31,6 +31,7 @@ const POSTHOG_HOST =
 
 const BATCH_INTERVAL_MS = 60_000; // Flush every 60 seconds
 const MAX_BATCH_SIZE = 50;
+const SENSITIVE_PROPERTY_RE = /url|uri|query|prompt|content|text|token|secret|key|password|credential|email|domain/i;
 
 // --- Anonymous device ID (persistent, no PII) ---
 
@@ -77,6 +78,24 @@ function isEnabled(): boolean {
   return loadSettings().telemetryEnabled !== false;
 }
 
+function sanitizeTelemetryProperties(
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(properties)) {
+    if (SENSITIVE_PROPERTY_RE.test(key)) continue;
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      value === null
+    ) {
+      safe[key] = typeof value === "string" ? value.slice(0, 120) : value;
+    }
+  }
+  return safe;
+}
+
 // --- Public API ---
 
 export function trackEvent(
@@ -88,7 +107,7 @@ export function trackEvent(
   eventQueue.push({
     event,
     properties: {
-      ...properties,
+      ...sanitizeTelemetryProperties(properties),
       premium_status: isPremium() ? "premium" : "free",
       app_version: app.getVersion(),
       platform: process.platform,
@@ -141,8 +160,8 @@ export function trackVaultAction(action: "credential_added" | "credential_remove
   trackEvent("vault_action", { action });
 }
 
-export function trackExtractionFailed(domain: string, reason: string): void {
-  trackEvent("extraction_failed", { domain, reason });
+export function trackExtractionFailed(_domain: string, reason: string): void {
+  trackEvent("extraction_failed", { reason });
 }
 
 export function trackPremiumFunnel(
