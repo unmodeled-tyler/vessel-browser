@@ -1,8 +1,9 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
 import type { SecurityState } from "../../shared/types";
-import { assertString } from "./common";
+import { assertString, assertTrustedIpcSender } from "./common";
 import type { TabManager } from "../tabs/tab-manager";
+import { loadInternalDataURL } from "../network/url-safety";
 
 const esc = (s: string) =>
   s
@@ -50,7 +51,8 @@ function buildCertificateDetailsHtml(state: SecurityState): string {
 }
 
 export function registerSecurityHandlers(tabManager: TabManager): void {
-  ipcMain.handle(Channels.SECURITY_SHOW_DETAILS, async (_, state: SecurityState) => {
+  ipcMain.handle(Channels.SECURITY_SHOW_DETAILS, async (event, state: SecurityState) => {
+    assertTrustedIpcSender(event);
     const domain = (() => {
       try {
         return new URL(state.url).hostname || state.url;
@@ -73,15 +75,17 @@ export function registerSecurityHandlers(tabManager: TabManager): void {
         spellcheck: false,
       },
     });
-    void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
+    void loadInternalDataURL(win.webContents, `data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
   });
 
-  ipcMain.handle(Channels.SECURITY_PROCEED_ANYWAY, (_, tabId: string) => {
+  ipcMain.handle(Channels.SECURITY_PROCEED_ANYWAY, (event, tabId: string) => {
+    assertTrustedIpcSender(event);
     assertString(tabId, "tabId");
     tabManager.proceedAnyway(tabId);
   });
 
-  ipcMain.handle(Channels.SECURITY_GO_BACK_TO_SAFETY, (_, tabId: string) => {
+  ipcMain.handle(Channels.SECURITY_GO_BACK_TO_SAFETY, (event, tabId: string) => {
+    assertTrustedIpcSender(event);
     assertString(tabId, "tabId");
     tabManager.goBackToSafety(tabId);
   });

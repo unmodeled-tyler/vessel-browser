@@ -1,22 +1,43 @@
-import { app, shell } from "electron";
+import { app, dialog, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Channels } from "../../shared/channels";
+import type { DownloadRecord } from "../../shared/types";
 import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
 
-export interface DownloadRecord {
-  id: string;
-  filename: string;
-  savePath: string;
-  totalBytes: number;
-  receivedBytes: number;
-  state: "progressing" | "completed" | "cancelled" | "interrupted";
-  startedAt: string;
-  updatedAt: string;
+const filePath = () => path.join(app.getPath("userData"), "vessel-downloads.json");
+const EXECUTABLE_EXTENSIONS = new Set([
+  ".appimage",
+  ".bat",
+  ".cmd",
+  ".command",
+  ".desktop",
+  ".exe",
+  ".msi",
+  ".ps1",
+  ".scr",
+  ".sh",
+]);
+
+function hasMisleadingDoubleExtension(filename: string): boolean {
+  return /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|txt|zip)\.(exe|msi|bat|cmd|ps1|sh|scr|appimage)$/i.test(filename);
 }
 
-const filePath = () => path.join(app.getPath("userData"), "vessel-downloads.json");
+function isExecutableDownload(savePath: string): boolean {
+  return EXECUTABLE_EXTENSIONS.has(path.extname(savePath).toLowerCase());
+}
+
+function executableWarningDetail(item: DownloadRecord): string {
+  return [
+    "This file can run code on your computer. Only open it if you trust the source.",
+    item.url ? `Source: ${item.url}` : null,
+    item.mimeType ? `Type: ${item.mimeType}` : null,
+    hasMisleadingDoubleExtension(item.filename)
+      ? "Warning: this filename uses a misleading double extension."
+      : null,
+  ].filter(Boolean).join("\n");
+}
 
 function parse(raw: unknown): { items: DownloadRecord[] } {
   if (!raw || typeof raw !== "object") return { items: [] };
@@ -41,7 +62,7 @@ function persist(): void {
 }
 
 function emit(): void {
-  broadcaster?.(Channels.DOWNLOADS_UPDATE, state.items);
+  broadcaster?.(Channels.DOWNLOADS_UPDATE, listDownloads());
 }
 
 export function setDownloadBroadcaster(fn: (channel: string, payload: unknown) => void): void {
@@ -49,7 +70,7 @@ export function setDownloadBroadcaster(fn: (channel: string, payload: unknown) =
 }
 
 export function listDownloads(): DownloadRecord[] {
-  return state.items;
+  return state.items.map((item) => ({ ...item }));
 }
 
 export function upsertDownload(input: Omit<DownloadRecord, "id" | "startedAt" | "updatedAt">): DownloadRecord {
@@ -76,7 +97,19 @@ export function clearDownloads(): void {
 
 export async function openDownload(id: string): Promise<boolean> {
   const item = state.items.find((d) => d.id === id);
-  if (!item || !fs.existsSync(item.savePath)) return false;
+  if (!item || item.state !== "completed" || !fs.existsSync(item.savePath)) return false;
+  if (isExecutableDownload(item.savePath)) {
+    const result = dialog.showMessageBoxSync({
+      type: "warning",
+      buttons: ["Cancel", "Open Anyway"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Open executable download?",
+      message: `Open ${item.filename}?`,
+      detail: executableWarningDetail(item),
+    });
+    if (result !== 1) return false;
+  }
   return (await shell.openPath(item.savePath)) === "";
 }
 

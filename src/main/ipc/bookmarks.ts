@@ -4,6 +4,7 @@ import { Channels } from "../../shared/channels";
 import * as bookmarkManager from "../bookmarks/manager";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { trackBookmarkAction } from "../telemetry/posthog";
+import { assertTrustedIpcSender } from "./common";
 
 function getSafeBookmarkExportName(name: string): string {
   const safeName = name
@@ -86,7 +87,8 @@ export function registerBookmarkHandlers(): void {
 
   ipcMain.handle(
     Channels.BOOKMARKS_EXPORT_HTML,
-    async (_, options?: { includeNotes?: boolean }) => {
+    async (event, options?: { includeNotes?: boolean }) => {
+      assertTrustedIpcSender(event);
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: "Export Bookmarks",
         defaultPath: "vessel-bookmarks.html",
@@ -106,7 +108,8 @@ export function registerBookmarkHandlers(): void {
     },
   );
 
-  ipcMain.handle(Channels.BOOKMARKS_EXPORT_JSON, async () => {
+  ipcMain.handle(Channels.BOOKMARKS_EXPORT_JSON, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: "Export Vessel Bookmark Archive",
       defaultPath: "vessel-bookmarks.json",
@@ -125,7 +128,8 @@ export function registerBookmarkHandlers(): void {
 
   ipcMain.handle(
     Channels.FOLDER_EXPORT_HTML,
-    async (_, folderId: string, options?: { includeNotes?: boolean }) => {
+    async (event, folderId: string, options?: { includeNotes?: boolean }) => {
+      assertTrustedIpcSender(event);
       const folder = bookmarkManager.getFolder(folderId);
       if (!folder) return null;
 
@@ -150,7 +154,8 @@ export function registerBookmarkHandlers(): void {
     },
   );
 
-  ipcMain.handle(Channels.BOOKMARKS_IMPORT_HTML, async () => {
+  ipcMain.handle(Channels.BOOKMARKS_IMPORT_HTML, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "Import Bookmarks",
       filters: [
@@ -164,7 +169,8 @@ export function registerBookmarkHandlers(): void {
     return bookmarkManager.importBookmarksFromHtml(content);
   });
 
-  ipcMain.handle(Channels.BOOKMARKS_IMPORT_JSON, async () => {
+  ipcMain.handle(Channels.BOOKMARKS_IMPORT_JSON, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "Import Bookmarks",
       filters: [

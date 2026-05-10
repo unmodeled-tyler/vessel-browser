@@ -72,6 +72,7 @@ tests/*.test.ts
 !tests/results-only-context.test.ts
 !tests/scheduler.test.ts
 !tests/search-shortcuts.test.ts
+!tests/security-hardening.test.ts
 !tests/structured-data.test.ts
 !tests/summary-context.test.ts
 tests/local/

@@ -34,6 +34,7 @@ export function getOrCreateEncryptionKey(keyFilename: string): Buffer {
   fs.mkdirSync(path.dirname(keyPath), { recursive: true });
   const encrypted = safeStorage.encryptString(key.toString("utf-8"));
   fs.writeFileSync(keyPath, encrypted, { mode: 0o600 });
+  fs.chmodSync(keyPath, 0o600);
   return key;
 }
 
@@ -130,15 +131,26 @@ export function createVaultIO<T>(
 
 // --- Domain matching ---
 
-export function domainMatches(pattern: string, hostname: string): boolean {
-  const p = pattern.toLowerCase().trim();
-  const h = hostname.toLowerCase().trim();
-  if (p === h) return true;
-  if (p.startsWith("*.")) {
-    const suffix = p.slice(2);
-    return h === suffix || h.endsWith("." + suffix);
+export function normalizeCredentialHost(value: string): string | null {
+  try {
+    const parsed = new URL(value.includes("://") ? value : `https://${value}`);
+    return parsed.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    const normalized = value
+      .toLowerCase()
+      .trim()
+      .replace(/^(https?:\/\/)?(www\.)?/, "")
+      .replace(/\/.*$/, "");
+    return normalized && !normalized.includes(" ") ? normalized : null;
   }
-  return false;
+}
+
+export function domainMatches(pattern: string, hostname: string): boolean {
+  const isWildcard = pattern.trim().startsWith("*.");
+  const p = normalizeCredentialHost(isWildcard ? pattern.slice(2) : pattern);
+  const h = normalizeCredentialHost(hostname);
+  if (!p || !h) return false;
+  return isWildcard ? h.endsWith("." + p) : p === h;
 }
 
 // --- TOTP ---

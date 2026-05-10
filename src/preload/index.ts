@@ -282,6 +282,8 @@ const api = {
     get: () => ipcRenderer.invoke(Channels.SETTINGS_GET),
     getHealth: (): Promise<RuntimeHealthState> =>
       ipcRenderer.invoke(Channels.SETTINGS_HEALTH_GET),
+    regenerateMcpToken: (): Promise<{ endpoint: string } | null> =>
+      ipcRenderer.invoke(Channels.MCP_REGENERATE_TOKEN),
     onHealthUpdate: (
       cb: (health: RuntimeHealthState) => void,
     ): (() => void) => {

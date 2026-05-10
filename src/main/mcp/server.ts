@@ -77,7 +77,7 @@ import {
   searchMemoryNotes,
   writeMemoryNote,
 } from "../memory/obsidian";
-import { setMcpHealth } from "../health/runtime-health";
+import { getRuntimeHealth, setMcpHealth } from "../health/runtime-health";
 import { MAX_MCP_NAV_CONTENT_LENGTH } from "../ai/content-limits";
 import { registerDevTools } from "../devtools/tools";
 import {
@@ -147,6 +147,7 @@ function writeMcpAuthFile(endpoint: string, token: string): void {
       JSON.stringify({ endpoint, token, pid: process.pid }, null, 2) + "\n",
       { mode: 0o600 },
     );
+    fs.chmodSync(filePath, 0o600);
   } catch (err) {
     logger.warn("Failed to write auth file:", err);
   }
@@ -174,6 +175,7 @@ function clearMcpAuthFile(): void {
       ) + "\n",
       { mode: 0o600 },
     );
+    fs.chmodSync(filePath, 0o600);
   } catch (err) {
     logger.warn("Failed to clear auth file:", err);
   }
@@ -182,6 +184,14 @@ function clearMcpAuthFile(): void {
 /** Returns the current MCP auth token. */
 export function getMcpAuthToken(): string | null {
   return mcpAuthToken;
+}
+
+export function regenerateMcpAuthToken(): { endpoint: string } | null {
+  const endpoint = getRuntimeHealth().mcp.endpoint;
+  if (!httpServer || !endpoint) return null;
+  mcpAuthToken = crypto.randomBytes(32).toString("hex");
+  writeMcpAuthFile(endpoint, mcpAuthToken);
+  return { endpoint };
 }
 
 export interface McpServerStartResult {
@@ -222,6 +232,12 @@ function asPromptResponse(text: string) {
 
 function isDangerousMcpAction(name: string): boolean {
   return name === "close_tab" || isDangerousAction(name);
+}
+
+function requiresExplicitMcpApproval(name: string, args: Record<string, unknown>): boolean {
+  if (name === "delete_session" || name === "close_tab" || name === "load_session") return true;
+  if (name === "remove_folder" && args.delete_contents === true) return true;
+  return false;
 }
 
 function getActiveTabSummary(tabManager: TabManager) {
@@ -329,6 +345,7 @@ async function withAction(
       args,
       tabId: tabManager.getActiveTabId(),
       dangerous: isDangerousMcpAction(name),
+      requiresApproval: requiresExplicitMcpApproval(name, args),
       executor,
     });
     const stateInfo = await getPostActionState(tabManager, name);

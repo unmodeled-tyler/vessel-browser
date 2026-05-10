@@ -1,7 +1,8 @@
-import { app, shell } from "electron";
+import { app } from "electron";
 import type { UpdateCheckResult } from "../../shared/types";
+import { openExternalAllowlisted } from "../security/external-open";
 
-const NPM_PACKAGE_URL = "https://registry.npmjs.org/@quanta-intellect%2Fvessel-browser/latest";
+const GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/unmodeled-tyler/quanta-vessel-browser/releases/latest";
 const RELEASES_URL = "https://github.com/unmodeled-tyler/quanta-vessel-browser/releases/latest";
 
 function normalizeVersion(version: string): number[] {
@@ -30,22 +31,25 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   const checkedAt = new Date().toISOString();
 
   try {
-    const response = await fetch(NPM_PACKAGE_URL, {
-      headers: { accept: "application/json", "user-agent": `Vessel/${currentVersion}` },
+    const response = await fetch(GITHUB_LATEST_RELEASE_API_URL, {
+      headers: { accept: "application/vnd.github+json", "user-agent": `Vessel/${currentVersion}` },
     });
     if (!response.ok) {
-      throw new Error(`Registry responded with ${response.status}`);
+      throw new Error(`GitHub Releases responded with ${response.status}`);
     }
-    const body = (await response.json()) as { version?: unknown; homepage?: unknown };
-    const latestVersion = typeof body.version === "string" ? body.version : null;
-    if (!latestVersion) throw new Error("Registry response did not include a version");
+    const body = (await response.json()) as { tag_name?: unknown; html_url?: unknown };
+    const latestVersion = typeof body.tag_name === "string" ? body.tag_name : null;
+    if (!latestVersion) throw new Error("GitHub release response did not include a tag name");
+    const releaseUrl = typeof body.html_url === "string" && body.html_url.startsWith("https://github.com/")
+      ? body.html_url
+      : RELEASES_URL;
 
     return {
       currentVersion,
       latestVersion,
       updateAvailable: compareVersions(latestVersion, currentVersion) > 0,
       checkedAt,
-      releaseUrl: RELEASES_URL,
+      releaseUrl,
     };
   } catch (error) {
     return {
@@ -60,5 +64,5 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 }
 
 export async function openUpdateDownload(): Promise<void> {
-  await shell.openExternal(RELEASES_URL);
+  await openExternalAllowlisted(RELEASES_URL, { hosts: ["github.com"] });
 }

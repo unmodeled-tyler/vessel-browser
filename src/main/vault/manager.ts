@@ -5,6 +5,7 @@ import {
   createVaultIO,
   domainMatches,
   generateTotpCode,
+  normalizeCredentialHost,
 } from "./shared";
 
 /**
@@ -43,12 +44,8 @@ export function getEntry(id: string): VaultEntry | undefined {
 }
 
 export function findEntriesForDomain(url: string): Omit<VaultEntry, "password" | "totpSecret">[] {
-  let hostname: string;
-  try {
-    hostname = new URL(url).hostname;
-  } catch {
-    return [];
-  }
+  const hostname = normalizeCredentialHost(url);
+  if (!hostname) return [];
 
   return loadVault()
     .filter((e) => domainMatches(e.domainPattern, hostname))

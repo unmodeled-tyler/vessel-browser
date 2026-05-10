@@ -43,6 +43,9 @@ const DownloadsPanel: Component<{ open: boolean; onClose: () => void }> = (props
                   <div class="downloads-file">
                     <strong>{item.filename}</strong>
                     <span>{item.savePath}</span>
+                    <Show when={item.url}>
+                      {(url) => <span>Source: {url()}</span>}
+                    </Show>
                     <small>{item.state} · {formatBytes(item.receivedBytes)}{item.totalBytes ? ` / ${formatBytes(item.totalBytes)}` : ""}</small>
                   </div>
                   <div class="downloads-row-actions">

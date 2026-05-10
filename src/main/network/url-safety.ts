@@ -4,6 +4,7 @@
  */
 
 import { checkDomainPolicy } from "./domain-policy";
+import type { WebContents } from "electron";
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
 
@@ -43,4 +44,29 @@ export function assertPermittedNavigationURL(url: string): void {
   if (policyError) {
     throw new Error(policyError);
   }
+}
+
+export function loadPermittedNavigationURL(wc: WebContents, url: string): Promise<void> {
+  assertPermittedNavigationURL(url);
+  return wc.loadURL(url);
+}
+
+export function loadInternalDataURL(wc: WebContents, dataUrl: string): Promise<void> {
+  if (!dataUrl.startsWith("data:text/html;charset=utf-8,")) {
+    throw new Error("Blocked unexpected internal data URL");
+  }
+  return wc.loadURL(dataUrl);
+}
+
+export function loadTrustedAppURL(wc: WebContents, url: string): Promise<void> {
+  const parsed = new URL(url);
+  if (!["file:", "http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`Blocked unexpected app URL scheme: ${parsed.protocol}`);
+  }
+  const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
+  const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  if (isHttp && !isLocalhost) {
+    throw new Error(`Blocked unexpected app URL host: ${parsed.hostname}`);
+  }
+  return wc.loadURL(parsed.toString());
 }
