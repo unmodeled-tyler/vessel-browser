@@ -77,7 +77,7 @@ import {
   searchMemoryNotes,
   writeMemoryNote,
 } from "../memory/obsidian";
-import { setMcpHealth } from "../health/runtime-health";
+import { getRuntimeHealth, setMcpHealth } from "../health/runtime-health";
 import { MAX_MCP_NAV_CONTENT_LENGTH } from "../ai/content-limits";
 import { registerDevTools } from "../devtools/tools";
 import {
@@ -184,6 +184,14 @@ function clearMcpAuthFile(): void {
 /** Returns the current MCP auth token. */
 export function getMcpAuthToken(): string | null {
   return mcpAuthToken;
+}
+
+export function regenerateMcpAuthToken(): { endpoint: string; authToken: string } | null {
+  const endpoint = getRuntimeHealth().mcp.endpoint;
+  if (!httpServer || !endpoint) return null;
+  mcpAuthToken = crypto.randomBytes(32).toString("hex");
+  writeMcpAuthFile(endpoint, mcpAuthToken);
+  return { endpoint, authToken: mcpAuthToken };
 }
 
 export interface McpServerStartResult {

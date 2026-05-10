@@ -1,4 +1,4 @@
-import { For, Show, type Component } from "solid-js";
+import { createSignal, For, Show, type Component } from "solid-js";
 import type { ProviderId, ReasoningEffortLevel } from "../../../../shared/types";
 import type { AgentTranscriptDisplayMode } from "../../../../shared/types";
 import { PROVIDERS } from "../../../../shared/providers";
@@ -27,6 +27,7 @@ const REASONING_EFFORT_OPTIONS: Array<{
 ];
 
 const SettingsAgent: Component<SettingsAgentProps> = (props) => {
+  const [mcpTokenMessage, setMcpTokenMessage] = createSignal<string | null>(null);
   const chatMeta = () =>
     CHAT_PROVIDERS.find((p) => p.id === props.chat.providerId()) ??
     CHAT_PROVIDERS[0];
@@ -361,6 +362,25 @@ const SettingsAgent: Component<SettingsAgentProps> = (props) => {
           <code>http://127.0.0.1:&lt;port&gt;/mcp</code>. Changing this value
           restarts the MCP server immediately.
         </p>
+        <div class="settings-inline-actions">
+          <button
+            type="button"
+            class="settings-secondary-btn"
+            onClick={async () => {
+              const result = await window.vessel.settings.regenerateMcpToken();
+              setMcpTokenMessage(
+                result
+                  ? "MCP token regenerated. Update any external client config using Vessel's auth file."
+                  : "MCP server is not running, so no token was regenerated.",
+              );
+            }}
+          >
+            Regenerate MCP token
+          </button>
+        </div>
+        <Show when={mcpTokenMessage()}>
+          {(message) => <p class="settings-hint">{message()}</p>}
+        </Show>
       </div>
 
       <div class="settings-field">

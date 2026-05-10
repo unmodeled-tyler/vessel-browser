@@ -1,6 +1,7 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { app, type BrowserView } from "electron";
+import { loadTrustedAppURL } from "../network/url-safety";
 
 /**
  * Returns the dev-mode renderer URL for a given view name, or null if
@@ -47,9 +48,9 @@ export function loadRenderers(
   const devtoolsUrl = rendererUrlFor("devtools");
 
   if (chromeUrl && sidebarUrl && devtoolsUrl) {
-    chromeView.webContents.loadURL(chromeUrl);
-    sidebarView.webContents.loadURL(sidebarUrl);
-    devtoolsPanelView.webContents.loadURL(devtoolsUrl);
+    void loadTrustedAppURL(chromeView.webContents, chromeUrl);
+    void loadTrustedAppURL(sidebarView.webContents, sidebarUrl);
+    void loadTrustedAppURL(devtoolsPanelView.webContents, devtoolsUrl);
   } else {
     const rendererFile = resolveRendererFile();
     chromeView.webContents.loadFile(rendererFile, {

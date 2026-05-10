@@ -32,6 +32,8 @@ export interface DownloadRecord {
   id: string;
   filename: string;
   savePath: string;
+  url?: string;
+  mimeType?: string;
   totalBytes: number;
   receivedBytes: number;
   state: "progressing" | "completed" | "cancelled" | "interrupted";

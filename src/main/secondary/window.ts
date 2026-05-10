@@ -11,6 +11,7 @@ import {
   installDownloadHandler,
   unregisterDownloadHandler,
 } from "../network/downloads";
+import { loadTrustedAppURL } from "../network/url-safety";
 import { TabManager } from "../tabs/tab-manager";
 import { CHROME_HEIGHT } from "../window";
 import { resolveRendererFile } from "../startup/renderer";
@@ -49,7 +50,7 @@ function loadSecondaryRenderer(chromeView: WebContentsView): void {
     const url = new URL(devUrl);
     url.searchParams.set("view", "chrome");
     url.searchParams.set("secondary", "1");
-    chromeView.webContents.loadURL(url.toString());
+    void loadTrustedAppURL(chromeView.webContents, url.toString());
   } else {
     chromeView.webContents.loadFile(resolveRendererFile(), {
       query: { view: "chrome", secondary: "1" },

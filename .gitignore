@@ -72,6 +72,7 @@ tests/*.test.ts
 !tests/results-only-context.test.ts
 !tests/scheduler.test.ts
 !tests/search-shortcuts.test.ts
+!tests/security-hardening.test.ts
 !tests/structured-data.test.ts
 !tests/summary-context.test.ts
 tests/local/
@@ -84,3 +85,4 @@ tests/*.scratch.ts
 # Local secrets / deployment config
 .webui_secret_key
 scripts/cloudflare-worker/wrangler.toml
+tests/security-hardening.test.ts

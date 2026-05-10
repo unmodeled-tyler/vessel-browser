@@ -43,7 +43,7 @@ import {
   clearAllHighlightElements,
 } from "../highlights/inject";
 import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlights/capture";
-import { startMcpServer, stopMcpServer } from "../mcp/server";
+import { regenerateMcpAuthToken, startMcpServer, stopMcpServer } from "../mcp/server";
 import {
   getInstalledKits,
   installKitFromFile,
@@ -77,6 +77,7 @@ import { clearByTimeRange } from "../history/manager";
 import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
 import { clearPermissions, clearPermissionsForOrigin, listPermissions, setPermissionBroadcaster } from "../security/permissions";
 import { checkForUpdates, openUpdateDownload } from "../updates/checker";
+import { loadInternalDataURL, loadPermittedNavigationURL } from "../network/url-safety";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -465,14 +466,15 @@ export function registerIpcHandlers(
       const originalUrl = activeTab.readerOriginalUrl;
       activeTab.setReaderMode(false);
       if (originalUrl) {
-        activeTab.view.webContents.loadURL(originalUrl);
+        void loadPermittedNavigationURL(activeTab.view.webContents, originalUrl);
       }
     } else {
       const originalUrl = activeTab.state.url;
       const content = await extractContent(activeTab.view.webContents);
       const html = generateReaderHTML(content);
       activeTab.setReaderMode(true, originalUrl);
-      activeTab.view.webContents.loadURL(
+      void loadInternalDataURL(
+        activeTab.view.webContents,
         `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
       );
     }
@@ -571,6 +573,11 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
+
+  ipcMain.handle(Channels.MCP_REGENERATE_TOKEN, (event) => {
+    requireTrusted(event);
+    return regenerateMcpAuthToken();
+  });
 
   ipcMain.handle(Channels.SETTINGS_SET, async (event, key: string, value: unknown) => {
     requireTrusted(event);

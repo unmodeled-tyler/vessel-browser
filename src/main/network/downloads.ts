@@ -8,6 +8,8 @@ import { upsertDownload } from "./download-manager";
 export interface DownloadInfo {
   filename: string;
   savePath: string;
+  url?: string;
+  mimeType?: string;
   totalBytes: number;
   receivedBytes: number;
   state: "progressing" | "completed" | "cancelled" | "interrupted";
@@ -80,6 +82,8 @@ export function installDownloadHandlerForSession(
     const info: DownloadInfo = {
       filename,
       savePath,
+      url: item.getURL(),
+      mimeType: typeof item.getMimeType === "function" ? item.getMimeType() : undefined,
       totalBytes: item.getTotalBytes(),
       receivedBytes: 0,
       state: "progressing",

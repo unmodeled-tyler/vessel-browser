@@ -6,6 +6,7 @@ import {
   createAuditLog,
   domainMatches,
   generateTotpCode,
+  normalizeCredentialHost,
 } from "./shared";
 
 /**
@@ -40,12 +41,7 @@ const auditLog = createAuditLog<HumanVaultAuditEntry>(
 // --- Domain extraction ---
 
 function extractDomain(url: string): string {
-  try {
-    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
-    return parsed.hostname.toLowerCase();
-  } catch {
-    return url.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, "").replace(/\/.*$/, "");
-  }
+  return normalizeCredentialHost(url) ?? "";
 }
 
 // --- Public API ---

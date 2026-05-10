@@ -3,6 +3,7 @@ import { Channels } from "../../shared/channels";
 import type { SecurityState } from "../../shared/types";
 import { assertString, assertTrustedIpcSender } from "./common";
 import type { TabManager } from "../tabs/tab-manager";
+import { loadInternalDataURL } from "../network/url-safety";
 
 const esc = (s: string) =>
   s
@@ -74,7 +75,7 @@ export function registerSecurityHandlers(tabManager: TabManager): void {
         spellcheck: false,
       },
     });
-    void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
+    void loadInternalDataURL(win.webContents, `data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
   });
 
   ipcMain.handle(Channels.SECURITY_PROCEED_ANYWAY, (event, tabId: string) => {

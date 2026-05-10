@@ -9,6 +9,8 @@ export interface DownloadRecord {
   id: string;
   filename: string;
   savePath: string;
+  url?: string;
+  mimeType?: string;
   totalBytes: number;
   receivedBytes: number;
   state: "progressing" | "completed" | "cancelled" | "interrupted";
@@ -29,6 +31,10 @@ const EXECUTABLE_EXTENSIONS = new Set([
   ".scr",
   ".sh",
 ]);
+
+function hasMisleadingDoubleExtension(filename: string): boolean {
+  return /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|txt|zip)\.(exe|msi|bat|cmd|ps1|sh|scr|appimage)$/i.test(filename);
+}
 
 function isExecutableDownload(savePath: string): boolean {
   return EXECUTABLE_EXTENSIONS.has(path.extname(savePath).toLowerCase());
@@ -101,7 +107,12 @@ export async function openDownload(id: string): Promise<boolean> {
       cancelId: 0,
       title: "Open executable download?",
       message: `Open ${item.filename}?`,
-      detail: "This file can run code on your computer. Only open it if you trust the source.",
+      detail: [
+        "This file can run code on your computer. Only open it if you trust the source.",
+        item.url ? `Source: ${item.url}` : null,
+        item.mimeType ? `Type: ${item.mimeType}` : null,
+        hasMisleadingDoubleExtension(item.filename) ? "Warning: this filename uses a misleading double extension." : null,
+      ].filter(Boolean).join("\n"),
     });
     if (result !== 1) return false;
   }
