@@ -1,4 +1,4 @@
-import { app, shell } from "electron";
+import { app, dialog, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -17,6 +17,22 @@ export interface DownloadRecord {
 }
 
 const filePath = () => path.join(app.getPath("userData"), "vessel-downloads.json");
+const EXECUTABLE_EXTENSIONS = new Set([
+  ".appimage",
+  ".bat",
+  ".cmd",
+  ".command",
+  ".desktop",
+  ".exe",
+  ".msi",
+  ".ps1",
+  ".scr",
+  ".sh",
+]);
+
+function isExecutableDownload(savePath: string): boolean {
+  return EXECUTABLE_EXTENSIONS.has(path.extname(savePath).toLowerCase());
+}
 
 function parse(raw: unknown): { items: DownloadRecord[] } {
   if (!raw || typeof raw !== "object") return { items: [] };
@@ -77,6 +93,18 @@ export function clearDownloads(): void {
 export async function openDownload(id: string): Promise<boolean> {
   const item = state.items.find((d) => d.id === id);
   if (!item || item.state !== "completed" || !fs.existsSync(item.savePath)) return false;
+  if (isExecutableDownload(item.savePath)) {
+    const result = dialog.showMessageBoxSync({
+      type: "warning",
+      buttons: ["Cancel", "Open Anyway"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Open executable download?",
+      message: `Open ${item.filename}?`,
+      detail: "This file can run code on your computer. Only open it if you trust the source.",
+    });
+    if (result !== 1) return false;
+  }
   return (await shell.openPath(item.savePath)) === "";
 }
 

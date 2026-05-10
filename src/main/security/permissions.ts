@@ -5,6 +5,15 @@ import type { PermissionRecord } from "../../shared/types";
 import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
 
 const filePath = () => path.join(app.getPath("userData"), "vessel-permissions.json");
+const ALLOWED_PERMISSION_TYPES = new Set([
+  "clipboard-read",
+  "fullscreen",
+  "geolocation",
+  "media",
+  "midiSysex",
+  "notifications",
+  "pointerLock",
+]);
 
 function parseOrigin(value: string): string | null {
   try {
@@ -22,7 +31,7 @@ function isPermissionRecord(value: unknown): value is PermissionRecord {
     typeof record.origin === "string" &&
     parseOrigin(record.origin) === record.origin &&
     typeof record.permission === "string" &&
-    record.permission.trim().length > 0 &&
+    ALLOWED_PERMISSION_TYPES.has(record.permission) &&
     (record.decision === "allow" || record.decision === "deny") &&
     typeof record.updatedAt === "string"
   );
@@ -61,6 +70,7 @@ export function setPermissionBroadcaster(fn: (channel: string, payload: unknown)
 
 export function installPermissionHandler(): void {
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details: { requestingUrl?: string }) => {
+    if (!ALLOWED_PERMISSION_TYPES.has(permission)) { callback(false); return; }
     const origin = parseOrigin(details.requestingUrl || webContents.getURL());
     if (!origin) { callback(false); return; }
     const existing = records.find((r) => r.origin === origin && r.permission === permission);

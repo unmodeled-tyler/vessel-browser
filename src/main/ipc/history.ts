@@ -2,6 +2,7 @@ import { dialog, ipcMain } from "electron";
 import { promises as fs } from "fs";
 import { Channels } from "../../shared/channels";
 import * as historyManager from "../history/manager";
+import { assertTrustedIpcSender } from "./common";
 
 export function registerHistoryHandlers(): void {
   ipcMain.handle(Channels.HISTORY_GET, () => {
@@ -12,11 +13,13 @@ export function registerHistoryHandlers(): void {
     return historyManager.search(query);
   });
 
-  ipcMain.handle(Channels.HISTORY_CLEAR, () => {
+  ipcMain.handle(Channels.HISTORY_CLEAR, (event) => {
+    assertTrustedIpcSender(event);
     historyManager.clearAll();
   });
 
-  ipcMain.handle(Channels.HISTORY_EXPORT_HTML, async () => {
+  ipcMain.handle(Channels.HISTORY_EXPORT_HTML, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: "Export History",
       defaultPath: "vessel-history.html",
@@ -28,7 +31,8 @@ export function registerHistoryHandlers(): void {
     return { filePath, count: historyManager.getState().entries.length };
   });
 
-  ipcMain.handle(Channels.HISTORY_EXPORT_JSON, async () => {
+  ipcMain.handle(Channels.HISTORY_EXPORT_JSON, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: "Export History",
       defaultPath: "vessel-history.json",
@@ -40,7 +44,8 @@ export function registerHistoryHandlers(): void {
     return { filePath, count: historyManager.getState().entries.length };
   });
 
-  ipcMain.handle(Channels.HISTORY_IMPORT, async () => {
+  ipcMain.handle(Channels.HISTORY_IMPORT, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "Import History",
       filters: [

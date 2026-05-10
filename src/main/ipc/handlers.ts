@@ -1,4 +1,5 @@
 import { app, ipcMain, session } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
@@ -52,7 +53,9 @@ import { registerScheduleHandlers, getScheduledKitIds } from "../automation/sche
 import {
   assertNumber,
   assertString,
+  assertTrustedIpcSender,
   getActiveTabInfo,
+  registerTrustedIpcSender,
   type SendToRendererViews,
 } from "./common";
 import { registerAutofillHandlers } from "./autofill";
@@ -117,13 +120,22 @@ export function registerIpcHandlers(
   runtime: AgentRuntime,
 ): void {
   const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
+  registerTrustedIpcSender(chromeView.webContents);
+  registerTrustedIpcSender(sidebarView.webContents);
+  registerTrustedIpcSender(devtoolsPanelView.webContents);
+
+  const requireTrusted = (event: IpcMainEvent | IpcMainInvokeEvent) => {
+    assertTrustedIpcSender(event);
+  };
 
   // Private browsing
-  ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, () => {
+  ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, (event) => {
+    requireTrusted(event);
     createPrivateWindow();
   });
 
-  ipcMain.handle(Channels.OPEN_NEW_WINDOW, () => {
+  ipcMain.handle(Channels.OPEN_NEW_WINDOW, (event) => {
+    requireTrusted(event);
     createSecondaryWindow();
   });
 
@@ -560,7 +572,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
 
-  ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: unknown) => {
+  ipcMain.handle(Channels.SETTINGS_SET, async (event, key: string, value: unknown) => {
+    requireTrusted(event);
     assertString(key, "key");
     if (!SETTABLE_KEYS.has(key)) {
       throw new Error(`Unknown setting key: ${key}`);
@@ -584,13 +597,14 @@ export function registerIpcHandlers(
 
   ipcMain.handle(Channels.AGENT_RUNTIME_GET, () => runtime.getState());
 
-  ipcMain.handle(Channels.AGENT_PAUSE, () => runtime.pause());
+  ipcMain.handle(Channels.AGENT_PAUSE, (event) => { requireTrusted(event); return runtime.pause(); });
 
-  ipcMain.handle(Channels.AGENT_RESUME, () => runtime.resume());
+  ipcMain.handle(Channels.AGENT_RESUME, (event) => { requireTrusted(event); return runtime.resume(); });
 
   ipcMain.handle(
     Channels.AGENT_SET_APPROVAL_MODE,
-    (_, mode: ApprovalMode): AgentRuntimeState => {
+    (event, mode: ApprovalMode): AgentRuntimeState => {
+      requireTrusted(event);
       assertString(mode, "mode");
       if (!VALID_APPROVAL_MODES.includes(mode as ValidApprovalMode)) {
         throw new Error(`Invalid approval mode: ${mode}`);
@@ -603,8 +617,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     Channels.AGENT_APPROVAL_RESOLVE,
-    (_, approvalId: string, approved: boolean) =>
-      runtime.resolveApproval(approvalId, approved),
+    (event, approvalId: string, approved: boolean) => {
+      requireTrusted(event);
+      return runtime.resolveApproval(approvalId, approved);
+    },
   );
 
   ipcMain.handle(
@@ -630,7 +646,10 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     Channels.AGENT_SESSION_RESTORE,
-    (_, snapshot?: SessionSnapshot | null) => runtime.restoreSession(snapshot),
+    (event, snapshot?: SessionSnapshot | null) => {
+      requireTrusted(event);
+      return runtime.restoreSession(snapshot);
+    },
   );
 
   registerBookmarkHandlers();
@@ -796,11 +815,13 @@ export function registerIpcHandlers(
     return getInstalledKits();
   });
 
-  ipcMain.handle(Channels.AUTOMATION_INSTALL_FROM_FILE, async () => {
+  ipcMain.handle(Channels.AUTOMATION_INSTALL_FROM_FILE, async (event) => {
+    requireTrusted(event);
     return await installKitFromFile();
   });
 
-  ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (_event, id: unknown) => {
+  ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (event, id: unknown) => {
+    requireTrusted(event);
     assertString(id, "id");
     return uninstallKit(id, getScheduledKitIds());
   });
@@ -814,7 +835,8 @@ export function registerIpcHandlers(
 
   // --- Clear browsing data ---
 
-  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (_, options: ClearDataOptions) => {
+  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (event, options: ClearDataOptions) => {
+    requireTrusted(event);
     const { cache, cookies, history, localStorage: clearLs, timeRange } = options;
 
     // Note: cache and cookies/storage clearing ignore timeRange — Electron's
@@ -841,24 +863,27 @@ export function registerIpcHandlers(
   setDownloadBroadcaster(sendToRendererViews);
   setPermissionBroadcaster(sendToRendererViews);
   ipcMain.handle(Channels.DOWNLOADS_GET, () => listDownloads());
-  ipcMain.handle(Channels.DOWNLOADS_CLEAR, () => {
+  ipcMain.handle(Channels.DOWNLOADS_CLEAR, (event) => {
+    requireTrusted(event);
     clearDownloads();
     return true;
   });
-  ipcMain.handle(Channels.DOWNLOADS_OPEN, (_event, id: string) => openDownload(id));
-  ipcMain.handle(Channels.DOWNLOADS_SHOW_IN_FOLDER, (_event, id: string) => showDownloadInFolder(id));
+  ipcMain.handle(Channels.DOWNLOADS_OPEN, (event, id: string) => { requireTrusted(event); return openDownload(id); });
+  ipcMain.handle(Channels.DOWNLOADS_SHOW_IN_FOLDER, (event, id: string) => { requireTrusted(event); return showDownloadInFolder(id); });
   ipcMain.handle(Channels.PERMISSIONS_GET, () => listPermissions());
-  ipcMain.handle(Channels.PERMISSIONS_CLEAR, () => {
+  ipcMain.handle(Channels.PERMISSIONS_CLEAR, (event) => {
+    requireTrusted(event);
     clearPermissions();
     return true;
   });
-  ipcMain.handle(Channels.PERMISSIONS_CLEAR_ORIGIN, (_event, origin: string) => {
+  ipcMain.handle(Channels.PERMISSIONS_CLEAR_ORIGIN, (event, origin: string) => {
+    requireTrusted(event);
     clearPermissionsForOrigin(origin);
     return true;
   });
 
   ipcMain.handle(Channels.UPDATES_CHECK, () => checkForUpdates());
-  ipcMain.handle(Channels.UPDATES_OPEN_DOWNLOAD, () => openUpdateDownload());
+  ipcMain.handle(Channels.UPDATES_OPEN_DOWNLOAD, (event) => { requireTrusted(event); return openUpdateDownload(); });
 
   ipcMain.handle(Channels.TAB_TOGGLE_PIP, async () => {
     return togglePictureInPicture(tabManager);

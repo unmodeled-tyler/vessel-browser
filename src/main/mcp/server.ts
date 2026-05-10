@@ -147,6 +147,7 @@ function writeMcpAuthFile(endpoint: string, token: string): void {
       JSON.stringify({ endpoint, token, pid: process.pid }, null, 2) + "\n",
       { mode: 0o600 },
     );
+    fs.chmodSync(filePath, 0o600);
   } catch (err) {
     logger.warn("Failed to write auth file:", err);
   }
@@ -174,6 +175,7 @@ function clearMcpAuthFile(): void {
       ) + "\n",
       { mode: 0o600 },
     );
+    fs.chmodSync(filePath, 0o600);
   } catch (err) {
     logger.warn("Failed to clear auth file:", err);
   }

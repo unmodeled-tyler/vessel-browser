@@ -4,11 +4,13 @@ import { startCodexOAuth, cancelCodexOAuth } from "../ai/codex-oauth";
 import { writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settings";
 import type { CodexAuthStatus } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
+import { assertTrustedIpcSender } from "./common";
 
 const logger = createLogger("CodexIPC");
 
 export function registerCodexHandlers(): void {
   ipcMain.handle(Channels.CODEX_START_AUTH, async (event) => {
+    assertTrustedIpcSender(event);
     const wc: WebContents | undefined = event.sender;
     if (!wc || wc.isDestroyed()) {
       return {
@@ -43,12 +45,14 @@ export function registerCodexHandlers(): void {
     }
   });
 
-  ipcMain.handle(Channels.CODEX_CANCEL_AUTH, () => {
+  ipcMain.handle(Channels.CODEX_CANCEL_AUTH, (event) => {
+    assertTrustedIpcSender(event);
     cancelCodexOAuth();
     return { ok: true };
   });
 
-  ipcMain.handle(Channels.CODEX_DISCONNECT, () => {
+  ipcMain.handle(Channels.CODEX_DISCONNECT, (event) => {
+    assertTrustedIpcSender(event);
     clearStoredCodexTokens();
     return { ok: true };
   });

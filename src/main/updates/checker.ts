@@ -1,5 +1,6 @@
-import { app, shell } from "electron";
+import { app } from "electron";
 import type { UpdateCheckResult } from "../../shared/types";
+import { openExternalAllowlisted } from "../security/external-open";
 
 const GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/unmodeled-tyler/quanta-vessel-browser/releases/latest";
 const RELEASES_URL = "https://github.com/unmodeled-tyler/quanta-vessel-browser/releases/latest";
@@ -63,5 +64,5 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 }
 
 export async function openUpdateDownload(): Promise<void> {
-  await shell.openExternal(RELEASES_URL);
+  await openExternalAllowlisted(RELEASES_URL, { hosts: ["github.com"] });
 }

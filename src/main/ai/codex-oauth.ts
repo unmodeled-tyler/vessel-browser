@@ -1,8 +1,8 @@
 import http from "http";
 import crypto from "crypto";
-import { shell } from "electron";
 import type { CodexOAuthTokens, CodexAuthStatus } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
+import { openExternalAllowlisted } from "../security/external-open";
 
 const logger = createLogger("CodexOAuth");
 
@@ -452,7 +452,7 @@ export async function startCodexOAuth(
         safeOnStatus("waiting");
 
         // Open in default browser
-        shell.openExternal(authUrl).catch((err: Error) => {
+        openExternalAllowlisted(authUrl, { hosts: ["auth.openai.com"] }).catch((err: Error) => {
           logger.warn("Failed to open browser, user will need the URL:", err);
         });
       })

@@ -77,13 +77,26 @@ function canUseSafeStorage(): boolean {
   }
 }
 
+function writePrivateFile(filePath: string, data: string | Buffer): void {
+  fs.writeFileSync(filePath, data, { mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best effort on platforms/filesystems without POSIX permissions.
+  }
+}
+
+function assertSafeStorageAvailable(): void {
+  if (!canUseSafeStorage()) {
+    throw new Error("OS-backed secret storage is unavailable; refusing to store secrets on disk.");
+  }
+}
+
 function readStoredProviderSecret(): StoredProviderSecret | null {
   try {
+    if (!canUseSafeStorage()) return null;
     const raw = fs.readFileSync(getChatProviderSecretPath());
-    const decoded =
-      canUseSafeStorage() && safeStorage.decryptString
-        ? safeStorage.decryptString(raw)
-        : raw.toString("utf-8");
+    const decoded = safeStorage.decryptString(raw);
     const parsed = JSON.parse(decoded) as StoredProviderSecret;
     if (
       parsed &&
@@ -100,15 +113,12 @@ function readStoredProviderSecret(): StoredProviderSecret | null {
 }
 
 function writeStoredProviderSecret(secret: StoredProviderSecret): void {
+  assertSafeStorageAvailable();
   const filePath = getChatProviderSecretPath();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const payload = JSON.stringify(secret);
-  if (canUseSafeStorage()) {
-    const encrypted = safeStorage.encryptString(payload);
-    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
-    return;
-  }
-  fs.writeFileSync(filePath, payload, { mode: 0o600 });
+  const encrypted = safeStorage.encryptString(payload);
+  writePrivateFile(filePath, encrypted);
 }
 
 function clearStoredProviderSecret(): void {
@@ -125,11 +135,9 @@ function getCodexTokensPath(): string {
 
 export function readStoredCodexTokens(): CodexOAuthTokens | null {
   try {
+    if (!canUseSafeStorage()) return null;
     const raw = fs.readFileSync(getCodexTokensPath());
-    const decoded =
-      canUseSafeStorage() && safeStorage.decryptString
-        ? safeStorage.decryptString(raw)
-        : raw.toString("utf-8");
+    const decoded = safeStorage.decryptString(raw);
     const parsed = JSON.parse(decoded) as CodexOAuthTokens;
     if (
       parsed &&
@@ -146,15 +154,12 @@ export function readStoredCodexTokens(): CodexOAuthTokens | null {
 }
 
 export function writeStoredCodexTokens(tokens: CodexOAuthTokens): void {
+  assertSafeStorageAvailable();
   const filePath = getCodexTokensPath();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const payload = JSON.stringify(tokens);
-  if (canUseSafeStorage()) {
-    const encrypted = safeStorage.encryptString(payload);
-    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
-    return;
-  }
-  fs.writeFileSync(filePath, payload, { mode: 0o600 });
+  const encrypted = safeStorage.encryptString(payload);
+  writePrivateFile(filePath, encrypted);
 }
 
 export function clearStoredCodexTokens(): void {
