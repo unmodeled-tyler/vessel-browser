@@ -146,14 +146,11 @@ export function normalizeCredentialHost(value: string): string | null {
 }
 
 export function domainMatches(pattern: string, hostname: string): boolean {
-  const p = normalizeCredentialHost(pattern.startsWith("*.") ? pattern.slice(2) : pattern);
+  const isWildcard = pattern.trim().startsWith("*.");
+  const p = normalizeCredentialHost(isWildcard ? pattern.slice(2) : pattern);
   const h = normalizeCredentialHost(hostname);
   if (!p || !h) return false;
-  if (pattern.trim().startsWith("*.")) {
-    return h.endsWith("." + p);
-  }
-  if (p === h) return true;
-  return false;
+  return isWildcard ? h.endsWith("." + p) : p === h;
 }
 
 // --- TOTP ---

@@ -60,10 +60,12 @@ export function loadInternalDataURL(wc: WebContents, dataUrl: string): Promise<v
 
 export function loadTrustedAppURL(wc: WebContents, url: string): Promise<void> {
   const parsed = new URL(url);
-  if (parsed.protocol !== "file:" && parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+  if (!["file:", "http:", "https:"].includes(parsed.protocol)) {
     throw new Error(`Blocked unexpected app URL scheme: ${parsed.protocol}`);
   }
-  if ((parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+  const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
+  const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  if (isHttp && !isLocalhost) {
     throw new Error(`Blocked unexpected app URL host: ${parsed.hostname}`);
   }
   return wc.loadURL(parsed.toString());

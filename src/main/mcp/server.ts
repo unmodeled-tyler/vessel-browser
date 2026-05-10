@@ -186,12 +186,12 @@ export function getMcpAuthToken(): string | null {
   return mcpAuthToken;
 }
 
-export function regenerateMcpAuthToken(): { endpoint: string; authToken: string } | null {
+export function regenerateMcpAuthToken(): { endpoint: string } | null {
   const endpoint = getRuntimeHealth().mcp.endpoint;
   if (!httpServer || !endpoint) return null;
   mcpAuthToken = crypto.randomBytes(32).toString("hex");
   writeMcpAuthFile(endpoint, mcpAuthToken);
-  return { endpoint, authToken: mcpAuthToken };
+  return { endpoint };
 }
 
 export interface McpServerStartResult {

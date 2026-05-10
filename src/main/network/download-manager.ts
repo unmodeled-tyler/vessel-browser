@@ -3,20 +3,8 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Channels } from "../../shared/channels";
+import type { DownloadRecord } from "../../shared/types";
 import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
-
-export interface DownloadRecord {
-  id: string;
-  filename: string;
-  savePath: string;
-  url?: string;
-  mimeType?: string;
-  totalBytes: number;
-  receivedBytes: number;
-  state: "progressing" | "completed" | "cancelled" | "interrupted";
-  startedAt: string;
-  updatedAt: string;
-}
 
 const filePath = () => path.join(app.getPath("userData"), "vessel-downloads.json");
 const EXECUTABLE_EXTENSIONS = new Set([
@@ -38,6 +26,17 @@ function hasMisleadingDoubleExtension(filename: string): boolean {
 
 function isExecutableDownload(savePath: string): boolean {
   return EXECUTABLE_EXTENSIONS.has(path.extname(savePath).toLowerCase());
+}
+
+function executableWarningDetail(item: DownloadRecord): string {
+  return [
+    "This file can run code on your computer. Only open it if you trust the source.",
+    item.url ? `Source: ${item.url}` : null,
+    item.mimeType ? `Type: ${item.mimeType}` : null,
+    hasMisleadingDoubleExtension(item.filename)
+      ? "Warning: this filename uses a misleading double extension."
+      : null,
+  ].filter(Boolean).join("\n");
 }
 
 function parse(raw: unknown): { items: DownloadRecord[] } {
@@ -107,12 +106,7 @@ export async function openDownload(id: string): Promise<boolean> {
       cancelId: 0,
       title: "Open executable download?",
       message: `Open ${item.filename}?`,
-      detail: [
-        "This file can run code on your computer. Only open it if you trust the source.",
-        item.url ? `Source: ${item.url}` : null,
-        item.mimeType ? `Type: ${item.mimeType}` : null,
-        hasMisleadingDoubleExtension(item.filename) ? "Warning: this filename uses a misleading double extension." : null,
-      ].filter(Boolean).join("\n"),
+      detail: executableWarningDetail(item),
     });
     if (result !== 1) return false;
   }

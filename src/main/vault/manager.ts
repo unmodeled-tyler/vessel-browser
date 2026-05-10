@@ -44,12 +44,7 @@ export function getEntry(id: string): VaultEntry | undefined {
 }
 
 export function findEntriesForDomain(url: string): Omit<VaultEntry, "password" | "totpSecret">[] {
-  let hostname: string;
-  try {
-    hostname = normalizeCredentialHost(url) ?? "";
-  } catch {
-    return [];
-  }
+  const hostname = normalizeCredentialHost(url);
   if (!hostname) return [];
 
   return loadVault()
