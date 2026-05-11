@@ -32,6 +32,22 @@ const POSTHOG_HOST =
 const BATCH_INTERVAL_MS = 60_000; // Flush every 60 seconds
 const MAX_BATCH_SIZE = 50;
 const SENSITIVE_PROPERTY_RE = /url|uri|query|prompt|content|text|token|secret|key|password|credential|email|domain/i;
+const SENSITIVE_STRING_VALUE_RE =
+  /https?:\/\/|www\.|[^\s@]+@[^\s@]+\.[^\s@]+|bearer\s+\S+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.|(?:sk|pk|rk|gh[pousr]|xox[baprs])-[-_A-Za-z0-9]{12,}/i;
+const EMPTY_PROPERTY_ALLOWLIST = new Set<string>();
+const TELEMETRY_PROPERTY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
+  app_launched: new Set(["electron_version", "chrome_version"]),
+  app_session_ended: new Set(["duration_minutes"]),
+  tool_called: new Set(["tool_name", "page_type"]),
+  provider_configured: new Set(["provider_id"]),
+  page_type_detected: new Set(["page_type"]),
+  setting_changed: new Set(["setting_key"]),
+  approval_mode_changed: new Set(["mode"]),
+  bookmark_action: new Set(["action"]),
+  vault_action: new Set(["action"]),
+  extraction_failed: new Set(["reason"]),
+  premium_funnel: new Set(["step", "status", "reason"]),
+};
 
 // --- Anonymous device ID (persistent, no PII) ---
 
@@ -53,7 +69,8 @@ function getDeviceId(): string {
   deviceId = randomUUID();
   try {
     fs.mkdirSync(path.dirname(idPath), { recursive: true });
-    fs.writeFileSync(idPath, deviceId, "utf-8");
+    fs.writeFileSync(idPath, deviceId, { encoding: "utf-8", mode: 0o600 });
+    fs.chmodSync(idPath, 0o600);
   } catch {
     // Non-critical — we'll generate a new one next launch
   }
@@ -78,18 +95,23 @@ function isEnabled(): boolean {
   return loadSettings().telemetryEnabled !== false;
 }
 
-function sanitizeTelemetryProperties(
+export function sanitizeTelemetryProperties(
   properties: Record<string, unknown>,
+  allowedKeys?: ReadonlySet<string>,
 ): Record<string, unknown> {
   const safe: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
-    if (SENSITIVE_PROPERTY_RE.test(key)) continue;
+    if (allowedKeys && !allowedKeys.has(key)) continue;
+    if (!allowedKeys?.has(key) && SENSITIVE_PROPERTY_RE.test(key)) continue;
     if (
       typeof value === "string" ||
       typeof value === "number" ||
       typeof value === "boolean" ||
       value === null
     ) {
+      if (typeof value === "string" && SENSITIVE_STRING_VALUE_RE.test(value)) {
+        continue;
+      }
       safe[key] = typeof value === "string" ? value.slice(0, 120) : value;
     }
   }
@@ -103,11 +125,13 @@ export function trackEvent(
   properties: Record<string, unknown> = {},
 ): void {
   if (!isEnabled()) return;
+  const allowedKeys =
+    TELEMETRY_PROPERTY_ALLOWLIST[event] ?? EMPTY_PROPERTY_ALLOWLIST;
 
   eventQueue.push({
     event,
     properties: {
-      ...sanitizeTelemetryProperties(properties),
+      ...sanitizeTelemetryProperties(properties, allowedKeys),
       premium_status: isPremium() ? "premium" : "free",
       app_version: app.getVersion(),
       platform: process.platform,

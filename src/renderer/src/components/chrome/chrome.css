@@ -114,7 +114,6 @@
     color: var(--bg-primary);
 }
 
-
 /* ═══════════════════════════════════════
    Tab bar — elevated, distinctive
    ═══════════════════════════════════════ */
@@ -506,7 +505,6 @@
     padding-bottom: 1px;
 }
 
-
 /* ═══════════════════════════════════════
    Address bar — refined URL shell
    ═══════════════════════════════════════ */
@@ -844,7 +842,6 @@
     animation: badge-enter var(--duration-enter) var(--ease-out-back) both;
 }
 
-
 /* ═══════════════════════════════════════
    Bookmark toast notifications — animated
    ═══════════════════════════════════════ */
@@ -917,7 +914,6 @@
     line-height: 1.45;
     word-break: break-word;
 }
-
 
 .highlight-toast {
     border-color: color-mix(in srgb, var(--accent-primary) 25%, transparent);
@@ -1430,7 +1426,6 @@
         box-shadow: 0 0 0 0 transparent;
     }
 }
-
 
 /* ═══════════════════════════════════════
    Page diff — "What Changed?" popup

@@ -5,11 +5,13 @@ import * as historyManager from "../history/manager";
 import { assertTrustedIpcSender } from "./common";
 
 export function registerHistoryHandlers(): void {
-  ipcMain.handle(Channels.HISTORY_GET, () => {
+  ipcMain.handle(Channels.HISTORY_GET, (event) => {
+    assertTrustedIpcSender(event);
     return historyManager.getState();
   });
 
-  ipcMain.handle(Channels.HISTORY_SEARCH, (_, query: string) => {
+  ipcMain.handle(Channels.HISTORY_SEARCH, (event, query: string) => {
+    assertTrustedIpcSender(event);
     return historyManager.search(query);
   });
 

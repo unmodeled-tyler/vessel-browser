@@ -215,7 +215,6 @@ function asNoActiveTabResponse() {
   return asErrorTextResponse("No active tab");
 }
 
-
 function asPromptResponse(text: string) {
   return {
     messages: [
@@ -234,9 +233,9 @@ function isDangerousMcpAction(name: string): boolean {
   return name === "close_tab" || isDangerousAction(name);
 }
 
-function requiresExplicitMcpApproval(name: string, args: Record<string, unknown>): boolean {
+export function requiresExplicitMcpApproval(name: string, args: Record<string, unknown>): boolean {
   if (name === "delete_session" || name === "close_tab" || name === "load_session") return true;
-  if (name === "remove_folder" && args.delete_contents === true) return true;
+  if (name === "remove_bookmark_folder" && args.delete_contents === true) return true;
   return false;
 }
 
@@ -256,7 +255,6 @@ function getActiveTabSummary(tabManager: TabManager) {
     humanFocused: true,
   };
 }
-
 
 async function getPostActionState(
   tabManager: TabManager,
@@ -453,7 +451,6 @@ async function waitForConditionMcp(
 
   return JSON.stringify(timeoutPayload);
 }
-
 
 function registerTools(
   server: McpServer,
@@ -1812,7 +1809,6 @@ function registerTools(
       ),
   );
 
-
   server.registerTool(
     "checkpoint_restore",
     {
@@ -1842,7 +1838,6 @@ function registerTools(
         },
       ),
   );
-
 
   server.registerTool(
     "save_session",

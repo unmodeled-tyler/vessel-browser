@@ -196,7 +196,6 @@ async function bootstrap(): Promise<void> {
     revealMainWindow();
   }, 8000);
 
-
   const { chromeView, sidebarView, devtoolsPanelView, tabManager } = windowState;
   runtime = new AgentRuntime(tabManager);
   installAdBlocking(tabManager);

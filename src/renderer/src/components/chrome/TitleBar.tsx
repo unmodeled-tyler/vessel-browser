@@ -1,5 +1,5 @@
 import { createSignal, onCleanup, onMount, type Component } from 'solid-js';
-import type { RuntimeHealthState } from '../../../shared/types';
+import type { RuntimeHealthState } from '../../../../shared/types';
 import './chrome.css';
 
 const TitleBar: Component<{ onOpenDownloads?: () => void }> = (props) => {

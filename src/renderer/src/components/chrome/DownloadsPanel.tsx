@@ -1,5 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show, type Component } from "solid-js";
-import type { DownloadRecord } from "../../../shared/types";
+import type { DownloadRecord } from "../../../../shared/types";
 import "./chrome.css";
 
 const formatBytes = (bytes: number) => {

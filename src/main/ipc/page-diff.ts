@@ -7,7 +7,11 @@ import {
   schedulePageSnapshotCapture,
 } from "../content/page-diff-monitor";
 import { getPremiumState, isPremiumActiveState } from "../premium/manager";
-import { assertTrustedIpcSender, type SendToRendererViews } from "./common";
+import {
+  assertTrustedIpcSender,
+  isManagedTabIpcSender,
+  type SendToRendererViews,
+} from "./common";
 import type { WindowState } from "../window";
 
 export function registerPageDiffHandlers(
@@ -52,6 +56,7 @@ export function registerPageDiffHandlers(
   ipcMain.on(Channels.PAGE_DIFF_ACTIVITY, (event) => {
     const wc = event.sender;
     if (!wc || wc.isDestroyed()) return;
+    if (!isManagedTabIpcSender(event, windowState.tabManager)) return;
     if (!allowPageEvent(wc.id)) return;
     notePageMutationActivity(wc, sendToRendererViews);
   });
@@ -59,6 +64,7 @@ export function registerPageDiffHandlers(
   ipcMain.on(Channels.PAGE_DIFF_DIRTY, (event) => {
     const wc = event.sender;
     if (!wc || wc.isDestroyed()) return;
+    if (!isManagedTabIpcSender(event, windowState.tabManager)) return;
     if (!allowPageEvent(wc.id)) return;
     schedulePageSnapshotCapture(wc, sendToRendererViews);
   });

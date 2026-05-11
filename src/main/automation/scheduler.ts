@@ -19,6 +19,7 @@ import {
 import { createLogger } from "../../shared/logger";
 import type { WindowState } from "../window";
 import type { AgentRuntime } from "../agent/runtime";
+import { assertTrustedIpcSender } from "../ipc/common";
 
 const logger = createLogger("Scheduler");
 
@@ -50,7 +51,13 @@ function loadJobs(): void {
 
 function saveJobs(): void {
   try {
-    fs.writeFileSync(getJobsPath(), JSON.stringify(jobs, null, 2), "utf-8");
+    const jobsPath = getJobsPath();
+    fs.mkdirSync(path.dirname(jobsPath), { recursive: true });
+    fs.writeFileSync(jobsPath, JSON.stringify(jobs, null, 2), {
+      encoding: "utf-8",
+      mode: 0o600,
+    });
+    fs.chmodSync(jobsPath, 0o600);
   } catch (err) {
     logger.warn("Failed to save jobs:", err);
   }
@@ -320,9 +327,13 @@ export function registerScheduleHandlers(
     pollInterval = setInterval(() => tick(windowState, runtime), 60_000);
   }, msToNextMinute);
 
-  ipcMain.handle(Channels.SCHEDULE_GET_ALL, () => jobs);
+  ipcMain.handle(Channels.SCHEDULE_GET_ALL, (event) => {
+    assertTrustedIpcSender(event);
+    return jobs;
+  });
 
-  ipcMain.handle(Channels.SCHEDULE_CREATE, (_, rawJob: unknown) => {
+  ipcMain.handle(Channels.SCHEDULE_CREATE, (event, rawJob: unknown) => {
+    assertTrustedIpcSender(event);
     if (!isValidJobData(rawJob)) {
       throw new Error(
         "Invalid job data. Required: kitId, kitName, kitIcon, renderedPrompt, schedule, enabled.",
@@ -340,7 +351,8 @@ export function registerScheduleHandlers(
     return newJob;
   });
 
-  ipcMain.handle(Channels.SCHEDULE_UPDATE, (_, id: unknown, updates: unknown) => {
+  ipcMain.handle(Channels.SCHEDULE_UPDATE, (event, id: unknown, updates: unknown) => {
+    assertTrustedIpcSender(event);
     if (typeof id !== "string") throw new Error("id must be a string");
     const job = jobs.find((j) => j.id === id);
     if (!job) return null;
@@ -367,7 +379,8 @@ export function registerScheduleHandlers(
     return job;
   });
 
-  ipcMain.handle(Channels.SCHEDULE_DELETE, (_, id: unknown) => {
+  ipcMain.handle(Channels.SCHEDULE_DELETE, (event, id: unknown) => {
+    assertTrustedIpcSender(event);
     if (typeof id !== "string") throw new Error("id must be a string");
     const before = jobs.length;
     jobs = jobs.filter((j) => j.id !== id);

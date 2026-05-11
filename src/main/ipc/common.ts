@@ -17,6 +17,13 @@ export function assertTrustedIpcSender(
   }
 }
 
+export function isManagedTabIpcSender(
+  event: IpcMainEvent,
+  tabManager: { findTabByWebContentsId(webContentsId: number): unknown },
+): boolean {
+  return Boolean(tabManager.findTabByWebContentsId(event.sender.id));
+}
+
 export function assertString(
   value: unknown,
   name: string,
