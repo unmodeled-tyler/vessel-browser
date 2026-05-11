@@ -3246,6 +3246,10 @@
     overflow: hidden;
 }
 
+.research-phase {
+    flex: 1;
+}
+
 .research-idle h3,
 .research-phase h3 {
     margin: 0;
@@ -3354,8 +3358,7 @@
 .research-brief-thread {
     display: flex;
     flex: 1;
-    min-height: 160px;
-    max-height: 42vh;
+    min-height: 0;
     flex-direction: column;
     gap: 8px;
     overflow-y: auto;
