@@ -5,6 +5,7 @@ import type { AgentToolProfile } from "./tool-profile";
 import { refreshAccessToken } from "./codex-oauth";
 import { writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settings";
 import { createLogger } from "../../shared/logger";
+import { getEffectiveMaxIterations } from "../premium/manager";
 
 const logger = createLogger("CodexProvider");
 
@@ -61,6 +62,58 @@ interface CodexStreamAccumulation {
 type CodexInputItem =
   | { type: "message"; role: string; content: Array<{ type: "input_text" | "output_text"; text: string }> }
   | { type: "function_call_output"; call_id: string; output: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export async function createCodexFunctionCallOutput(
+  functionCall: CodexOutputItem,
+  availableToolNames: ReadonlySet<string>,
+  onChunk: (text: string) => void,
+  onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
+): Promise<CodexInputItem> {
+  const callId = functionCall.call_id || functionCall.id || "";
+  const name = functionCall.name || "";
+
+  if (!callId) {
+    return {
+      type: "function_call_output",
+      call_id: callId,
+      output: "Error: Function call was missing a call_id. Please retry the tool call.",
+    };
+  }
+
+  if (!name || !availableToolNames.has(name)) {
+    onChunk(`\n<<tool:${name || "unknown"}:⚠ unsupported>>\n`);
+    return {
+      type: "function_call_output",
+      call_id: callId,
+      output: `Error: Unsupported tool${name ? `: ${name}` : ""}. Use one of the provided tools.`,
+    };
+  }
+
+  let args: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(functionCall.arguments || "{}");
+    if (!isRecord(parsed)) throw new Error("Tool arguments must be a JSON object");
+    args = parsed;
+  } catch {
+    onChunk(`\n<<tool:${name}:⚠ invalid args>>\n`);
+    return {
+      type: "function_call_output",
+      call_id: callId,
+      output: "Error: Invalid JSON in tool arguments. Please retry with a valid JSON object.",
+    };
+  }
+
+  const output = await onToolCall(name, args);
+  return {
+    type: "function_call_output",
+    call_id: callId,
+    output,
+  };
+}
 
 export class CodexProvider implements AIProvider {
   readonly agentToolProfile: AgentToolProfile;
@@ -293,6 +346,9 @@ export class CodexProvider implements AIProvider {
   ): Promise<void> {
     await this.ensureFreshTokens();
     this.abortController = new AbortController();
+    const maxIterations = getEffectiveMaxIterations();
+    const availableToolNames = new Set(tools.map((tool) => tool.name));
+    let iterationsUsed = 0;
 
     const convertedTools: CodexResponsesTool[] = tools.map((tool) => ({
       type: "function",
@@ -305,7 +361,8 @@ export class CodexProvider implements AIProvider {
     let turnState: string | null = null;
 
     try {
-      while (true) {
+      for (let i = 0; i < maxIterations; i++) {
+        iterationsUsed = i + 1;
         const result = await this.streamCodexResponse(
           {
             model: this.model,
@@ -334,21 +391,18 @@ export class CodexProvider implements AIProvider {
         // so follow-up requests only need to supply the function_call_output items.
         currentInput = [];
         for (const fc of functionCalls) {
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(fc.arguments || "{}");
-          } catch {
-            // pass empty args
-          }
-
-          const output = await onToolCall(fc.name || "", args);
-
-          currentInput.push({
-            type: "function_call_output",
-            call_id: fc.call_id || fc.id || "",
-            output,
-          });
+          currentInput.push(
+            await createCodexFunctionCallOutput(
+              fc,
+              availableToolNames,
+              onChunk,
+              onToolCall,
+            ),
+          );
         }
+      }
+      if (iterationsUsed >= maxIterations) {
+        onChunk(`\n\n[Reached maximum tool call limit (${maxIterations} steps). You can adjust this in Settings → Max Tool Iterations, or continue by sending another message.]`);
       }
     } catch (err: unknown) {
       if ((err as { name?: string }).name !== "AbortError") {

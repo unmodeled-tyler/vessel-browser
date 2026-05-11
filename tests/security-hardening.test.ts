@@ -11,6 +11,7 @@ import {
   loadTrustedAppURL,
 } from "../src/main/network/url-safety";
 import { openExternalAllowlisted } from "../src/main/security/external-open";
+import { createCodexFunctionCallOutput } from "../src/main/ai/provider-codex";
 import { requiresExplicitMcpApproval } from "../src/main/mcp/server";
 import { sanitizeTelemetryProperties } from "../src/main/telemetry/posthog";
 import {
@@ -149,4 +150,73 @@ test("MCP approval helper flags destructive bookmark folder removal", () => {
     }),
     false,
   );
+});
+
+test("Codex function call output rejects malformed arguments without executing", async () => {
+  let executed = false;
+  const chunks: string[] = [];
+
+  const output = await createCodexFunctionCallOutput(
+    {
+      type: "function_call",
+      call_id: "call_1",
+      name: "navigate",
+      arguments: "{bad json",
+    },
+    new Set(["navigate"]),
+    (chunk) => chunks.push(chunk),
+    async () => {
+      executed = true;
+      return "should not run";
+    },
+  );
+
+  assert.equal(executed, false);
+  assert.equal(output.type, "function_call_output");
+  assert.equal(output.call_id, "call_1");
+  assert.match(output.output, /Invalid JSON/);
+  assert.equal(chunks.some((chunk) => chunk.includes("invalid args")), true);
+});
+
+test("Codex function call output rejects unsupported tools without executing", async () => {
+  let executed = false;
+
+  const output = await createCodexFunctionCallOutput(
+    {
+      type: "function_call",
+      call_id: "call_2",
+      name: "invented_tool",
+      arguments: "{}",
+    },
+    new Set(["navigate"]),
+    () => undefined,
+    async () => {
+      executed = true;
+      return "should not run";
+    },
+  );
+
+  assert.equal(executed, false);
+  assert.equal(output.call_id, "call_2");
+  assert.match(output.output, /Unsupported tool: invented_tool/);
+});
+
+test("Codex function call output executes valid supported calls", async () => {
+  const output = await createCodexFunctionCallOutput(
+    {
+      type: "function_call",
+      call_id: "call_3",
+      name: "navigate",
+      arguments: JSON.stringify({ url: "https://example.com" }),
+    },
+    new Set(["navigate"]),
+    () => undefined,
+    async (name, args) => `${name}:${args.url}`,
+  );
+
+  assert.deepEqual(output, {
+    type: "function_call_output",
+    call_id: "call_3",
+    output: "navigate:https://example.com",
+  });
 });
