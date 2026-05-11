@@ -1005,6 +1005,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             onClick={() => setSidebarTab("research")}
           >
             Research
+            <span class="sidebar-tab-beta">Beta</span>
           </button>
         </div>
 

@@ -434,6 +434,19 @@
     animation: badge-enter var(--duration-enter) var(--ease-out-back) both;
 }
 
+.sidebar-tab-beta {
+    height: 15px;
+    padding: 0 5px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 14px;
+    text-transform: uppercase;
+}
+
 .sidebar-messages {
     flex: 1;
     overflow-y: auto;
