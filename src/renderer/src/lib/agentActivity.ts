@@ -7,6 +7,7 @@ import type {
 
 export const AGENT_ACTIVITY_WINDOW_MS = 6000;
 export const AGENT_RECENT_WINDOW_MS = 30_000;
+export const AGENT_RUNNING_STALE_WINDOW_MS = 5 * 60_000;
 
 export type AgentPresence = "active" | "recent" | "idle";
 
@@ -72,8 +73,14 @@ function isAgentActionActive(
 ): boolean {
   if (!isAgentActionSource(action.source)) return false;
 
-  if (action.status === "running" || action.status === "waiting-approval") {
+  if (action.status === "waiting-approval") {
     return true;
+  }
+
+  if (action.status === "running") {
+    const startedAt = new Date(action.startedAt).getTime();
+    if (Number.isNaN(startedAt)) return false;
+    return currentTime - startedAt < AGENT_RUNNING_STALE_WINDOW_MS;
   }
 
   if (action.status !== "completed" || !action.finishedAt) {
@@ -151,8 +158,7 @@ function hasRecentActivity(
 ): boolean {
   for (const action of state.actions) {
     if (!isAgentActionSource(action.source)) continue;
-    if (action.status === "running" || action.status === "waiting-approval")
-      return true;
+    if (isAgentActionActive(action, currentTime)) return true;
     const ts = action.finishedAt
       ? new Date(action.finishedAt).getTime()
       : new Date(action.startedAt).getTime();

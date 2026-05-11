@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { createLogger } from "../../shared/logger";
 import type {
   ActionSource,
+  ActionStatus,
   AgentActionEntry,
   AgentCheckpoint,
   AgentTranscriptEntry,
@@ -38,6 +39,10 @@ const MAX_UNDO_SNAPSHOTS = 10;
 const MAX_TRANSCRIPT_ENTRIES = 40;
 const MAX_TRANSCRIPT_TEXT_LENGTH = 8000;
 const PERSIST_DEBOUNCE_MS = 500;
+const INTERRUPTED_ACTION_STATUSES = new Set<ActionStatus>([
+  "running",
+  "waiting-approval",
+]);
 const logger = createLogger("Runtime");
 
 interface RuntimePersistenceShape {
@@ -104,6 +109,22 @@ function getRuntimeStatePath(): string {
 function sanitizePersistence(
   persisted: Partial<RuntimePersistenceShape> | null | undefined,
 ): AgentRuntimeState {
+  const recoveredAt = new Date().toISOString();
+  const actions = Array.isArray(persisted?.actions)
+    ? persisted!.actions.slice(-MAX_ACTIONS).map((action) =>
+        INTERRUPTED_ACTION_STATUSES.has(action.status)
+          ? {
+              ...action,
+              status: "failed" as ActionStatus,
+              finishedAt: action.finishedAt ?? recoveredAt,
+              error:
+                action.error ??
+                "Action was interrupted before the previous Vessel session ended.",
+            }
+          : action,
+      )
+    : [];
+
   return {
     session: persisted?.session ?? null,
     supervisor: {
@@ -112,9 +133,7 @@ function sanitizePersistence(
       pendingApprovals: [],
       lastError: persisted?.supervisor?.lastError,
     },
-    actions: Array.isArray(persisted?.actions)
-      ? persisted!.actions.slice(-MAX_ACTIONS)
-      : [],
+    actions,
     checkpoints: Array.isArray(persisted?.checkpoints)
       ? persisted!.checkpoints.slice(-MAX_CHECKPOINTS)
       : [],
