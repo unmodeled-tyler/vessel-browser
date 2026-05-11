@@ -106,6 +106,11 @@ function parseTokenExpiry(accessToken: string): number {
   return Date.now() + 3600_000; // default 1h
 }
 
+/**
+ * @deprecated The Codex provider now routes inference through the ChatGPT
+ * backend with the OAuth access_token. Kept only for a potential future
+ * Platform API fallback.
+ */
 async function exchangeIdTokenForApiKey(idToken: string): Promise<string> {
   const body = new URLSearchParams({
     grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -143,6 +148,7 @@ async function exchangeIdTokenForApiKey(idToken: string): Promise<string> {
   return data.access_token;
 }
 
+/** @deprecated See exchangeIdTokenForApiKey. */
 export async function ensureCodexApiKey(
   tokens: CodexOAuthTokens,
 ): Promise<CodexOAuthTokens> {
@@ -214,7 +220,7 @@ async function exchangeCodeForTokens(
     accountEmail: claims?.email,
   };
 
-  return ensureCodexApiKey(tokens);
+  return tokens;
 }
 
 async function refreshAccessToken(
@@ -261,7 +267,7 @@ async function refreshAccessToken(
     accountEmail: claims?.email || tokens.accountEmail,
   };
 
-  return ensureCodexApiKey(refreshedTokens);
+  return refreshedTokens;
 }
 
 function startServer(

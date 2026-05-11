@@ -11,7 +11,7 @@ import { okResult } from "../../shared/result";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
 import { PROVIDERS } from "../../shared/providers";
-import { CodexProvider } from "./provider-codex";
+import { CodexProvider, CODEX_CLIENT_VERSION } from "./provider-codex";
 import { readStoredCodexTokens } from "../config/settings";
 import type { AgentToolProfile } from "./tool-profile";
 import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from "./content-limits";
@@ -154,12 +154,12 @@ async function fetchCodexBackendModels(
   tokens: CodexOAuthTokens,
 ): Promise<string[]> {
   const url = new URL("https://chatgpt.com/backend-api/codex/models");
-  url.searchParams.set("client_version", "0.129.0");
+  url.searchParams.set("client_version", CODEX_CLIENT_VERSION);
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${tokens.accessToken}`,
     originator: "codex_cli_rs",
-    "User-Agent": "codex_cli_rs/0.129.0 Vessel",
+    "User-Agent": `codex_cli_rs/${CODEX_CLIENT_VERSION} Vessel`,
   };
   if (tokens.accountId) {
     headers["ChatGPT-Account-ID"] = tokens.accountId;
@@ -283,7 +283,7 @@ export function createProvider(config: ProviderConfig): AIProvider {
         "OpenAI Codex requires authentication. Open settings to connect your ChatGPT account.",
       );
     }
-    return new CodexProvider(tokens, normalized.model, normalized.baseUrl);
+    return new CodexProvider(tokens, normalized.model);
   }
 
   return new OpenAICompatProvider(normalized);
