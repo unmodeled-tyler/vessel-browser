@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, ipcMain, session } from "electron";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
@@ -141,14 +141,8 @@ export function registerIpcHandlers(
         ? createProvider(settings.chatProvider)
         : null;
       researchOrchestrator = new ResearchOrchestrator(provider, tabManager, runtime);
-      // Push state updates to renderer when orchestrator changes
       researchOrchestrator.setUpdateListener((state) => {
-        const windows = BrowserWindow.getAllWindows();
-        for (const win of windows) {
-          if (!win.isDestroyed()) {
-            win.webContents.send(Channels.RESEARCH_STATE_UPDATE, state);
-          }
-        }
+        sendToRendererViews(Channels.RESEARCH_STATE_UPDATE, state);
       });
     }
     return researchOrchestrator;
