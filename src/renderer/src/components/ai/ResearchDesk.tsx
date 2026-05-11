@@ -18,14 +18,59 @@ interface QuickReplyOption {
 function uniqueQuickReplies(options: QuickReplyOption[]): QuickReplyOption[] {
   const seen = new Set<string>();
   return options.filter((option) => {
-    if (seen.has(option.label)) return false;
-    seen.add(option.label);
+    const key = option.label.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
 
+function makeQuickReply(label: string): QuickReplyOption | null {
+  const cleaned = label
+    .replace(/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.?!:]$/, "");
+
+  if (cleaned.length < 2 || cleaned.length > 80) return null;
+
+  return {
+    label: cleaned,
+    response: `Let's use: ${cleaned}.`,
+  };
+}
+
+function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] {
+  const options: QuickReplyOption[] = [];
+
+  for (const line of prompt.split("\n")) {
+    const option = makeQuickReply(line);
+    if (/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/.test(line) && option) {
+      options.push(option);
+    }
+  }
+
+  const inlineMatch = prompt.match(
+    /(?:choose|pick|select|prefer|between|among)\s+(.+?)(?:\?|$)/i,
+  );
+  if (inlineMatch) {
+    const inlineOptions = inlineMatch[1]
+      .split(/\s*(?:,|\/|\bor\b|\band\b)\s*/i)
+      .map(makeQuickReply)
+      .filter((option): option is QuickReplyOption => option !== null);
+    options.push(...inlineOptions);
+  }
+
+  return uniqueQuickReplies(options);
+}
+
 function buildQuickReplies(prompt: string): QuickReplyOption[] {
   const text = prompt.toLowerCase();
+  const explicitOptions = extractExplicitQuickReplies(prompt);
+  if (explicitOptions.length > 0) {
+    return explicitOptions.slice(0, 6);
+  }
+
   const options: QuickReplyOption[] = [];
 
   if (text.includes("audience") || text.includes("reader") || text.includes("who is this for")) {
@@ -114,10 +159,17 @@ function buildQuickReplies(prompt: string): QuickReplyOption[] {
     );
   }
 
-  options.push({
-    label: "Use defaults",
-    response: "Use sensible defaults and proceed. If a choice materially affects the report, call it out in the assumptions.",
-  });
+  if (
+    text.includes("assumption") ||
+    text.includes("default") ||
+    text.includes("proceed") ||
+    options.length === 0
+  ) {
+    options.push({
+      label: "Use defaults",
+      response: "Use sensible defaults and proceed. If a choice materially affects the report, call it out in the assumptions.",
+    });
+  }
 
   return uniqueQuickReplies(options).slice(0, 6);
 }
@@ -163,6 +215,10 @@ export const ResearchDesk: Component = () => {
   const quickReplies = createMemo(() =>
     latestAssistantQuestion() ? buildQuickReplies(latestAssistantQuestion()) : [],
   );
+  const shouldShowQuickRepliesForMessage = (content: string) =>
+    quickReplies().length > 0 &&
+    !isStreaming() &&
+    content.trim() === latestAssistantQuestion();
   const isBriefStarting = createMemo(() =>
     state().phase === "briefing" &&
     transcriptMessages().length === 0 &&
@@ -259,9 +315,26 @@ export const ResearchDesk: Component = () => {
               </Show>
               <For each={transcriptMessages()}>
                 {(message) => (
-                  <div class={`research-brief-message ${message.role}`}>
-                    {message.content}
-                  </div>
+                  <>
+                    <div class={`research-brief-message ${message.role}`}>
+                      {message.content}
+                    </div>
+                    <Show when={message.role === "assistant" && shouldShowQuickRepliesForMessage(message.content)}>
+                      <div class="research-quick-replies inline" aria-label="Suggested briefing responses">
+                        <For each={quickReplies()}>
+                          {(option) => (
+                            <button
+                              type="button"
+                              class="research-quick-reply"
+                              onClick={() => void sendBriefMessage(option.response)}
+                            >
+                              {option.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </>
                 )}
               </For>
               <Show when={isStreaming() && streamingText()}>
@@ -278,21 +351,6 @@ export const ResearchDesk: Component = () => {
                 </div>
               </Show>
             </div>
-            <Show when={quickReplies().length > 0 && !isStreaming()}>
-              <div class="research-quick-replies" aria-label="Suggested briefing responses">
-                <For each={quickReplies()}>
-                  {(option) => (
-                    <button
-                      type="button"
-                      class="research-quick-reply"
-                      onClick={() => void sendBriefMessage(option.response)}
-                    >
-                      {option.label}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
             <form
               class="research-brief-form"
               onSubmit={(event) => {

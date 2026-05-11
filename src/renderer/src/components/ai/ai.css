@@ -3445,6 +3445,13 @@
     padding: 1px 0;
 }
 
+.research-quick-replies.inline {
+    max-width: 94%;
+    align-self: flex-start;
+    margin-top: -2px;
+    padding-left: 2px;
+}
+
 .research-quick-reply {
     min-height: 28px;
     padding: 0 10px;
