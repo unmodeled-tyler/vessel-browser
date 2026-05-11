@@ -42,6 +42,12 @@ export const ResearchDesk: Component = () => {
   const hasAssistantBrief = createMemo(() =>
     transcriptMessages().some((message) => message.role === "assistant"),
   );
+  const isBriefStarting = createMemo(() =>
+    state().phase === "briefing" &&
+    transcriptMessages().length === 0 &&
+    !streamingText() &&
+    pendingQueryCount() === 0,
+  );
 
   const sendBriefMessage = async (message: string) => {
     const trimmed = message.trim();
@@ -118,6 +124,17 @@ export const ResearchDesk: Component = () => {
             <h3>Briefing</h3>
             <p>Work through the brief here. Once the assistant has enough context, turn it into a research plan.</p>
             <div class="research-brief-thread">
+              <Show when={isBriefStarting()}>
+                <div class="research-brief-loading" role="status" aria-live="polite">
+                  <span class="research-spinner" aria-hidden="true" />
+                  <div>
+                    <div class="research-loading-title">Brief started</div>
+                    <div class="research-loading-copy">
+                      Preparing the first briefing question...
+                    </div>
+                  </div>
+                </div>
+              </Show>
               <For each={transcriptMessages()}>
                 {(message) => (
                   <div class={`research-brief-message ${message.role}`}>
