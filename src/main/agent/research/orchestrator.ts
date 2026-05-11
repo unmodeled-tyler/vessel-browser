@@ -31,7 +31,7 @@ export class ResearchOrchestrator {
   private updateListener: ((state: ResearchState) => void) | null = null;
 
   constructor(
-    private provider: AIProvider,
+    private provider: AIProvider | null,
     private readonly tabManager: TabManager,
     private readonly runtime: AgentRuntime,
   ) {
@@ -100,6 +100,13 @@ export class ResearchOrchestrator {
    */
   setProvider(provider: AIProvider): void {
     this.provider = provider;
+  }
+
+  private getProvider(): AIProvider {
+    if (!this.provider) {
+      throw new Error("Chat provider not configured - required for Research Desk");
+    }
+    return this.provider;
   }
 
   // ── phase: idle → briefing ────────────────────────────────────
@@ -304,7 +311,8 @@ export class ResearchOrchestrator {
     let transcript = "";
 
     try {
-      if (!this.provider.streamAgentQuery) {
+      const provider = this.getProvider();
+      if (!provider.streamAgentQuery) {
         throw new Error("Provider does not support agent tool loops");
       }
 
@@ -314,12 +322,12 @@ export class ResearchOrchestrator {
       const actionCtx: ActionContext = {
         tabManager: this.tabManager,
         runtime: this.runtime,
-        toolProfile: this.provider.agentToolProfile,
+        toolProfile: provider.agentToolProfile,
         tabId: tabId ?? undefined,
         _tabMutex: tabMutex,
       };
 
-      await this.provider.streamAgentQuery(
+      await provider.streamAgentQuery(
         systemPrompt,
         userMessage,
         AGENT_TOOLS,
@@ -466,7 +474,7 @@ TRANSCRIPT:
 ${transcript.slice(0, 32000)}`;
 
     let response = "";
-    await this.provider.streamQuery(
+    await this.getProvider().streamQuery(
       prompt,
       "Extract the claims.",
       (chunk) => {
@@ -522,7 +530,7 @@ ${transcript.slice(0, 32000)}`;
     const synthesisPrompt = buildSynthesisPrompt(objectives, findings);
 
     let response = "";
-    await this.provider.streamQuery(
+    await this.getProvider().streamQuery(
       synthesisPrompt,
       "Return ONLY the JSON object now.",
       (chunk) => {

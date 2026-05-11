@@ -140,9 +140,6 @@ export function registerIpcHandlers(
       const provider = settings.chatProvider
         ? createProvider(settings.chatProvider)
         : null;
-      if (!provider) {
-        throw new Error("Chat provider not configured — required for Research Desk");
-      }
       researchOrchestrator = new ResearchOrchestrator(provider, tabManager, runtime);
       // Push state updates to renderer when orchestrator changes
       researchOrchestrator.setUpdateListener((state) => {

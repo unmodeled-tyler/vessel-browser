@@ -185,6 +185,20 @@ describe("ResearchState transitions", () => {
     assert.strictEqual(orch.getState().originalQuery, null);
   });
 
+  it("startBrief does not require a configured provider", async () => {
+    const orch = new ResearchOrchestrator(
+      null,
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+
+    await orch.startBrief("dogfood research task");
+
+    const state = orch.getState();
+    assert.strictEqual(state.phase, "briefing");
+    assert.strictEqual(state.originalQuery, "dogfood research task");
+  });
+
   it("startBrief clears stale delivered state before a new run", async () => {
     const orch = new ResearchOrchestrator(
       makeMockProvider(),

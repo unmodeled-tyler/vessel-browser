@@ -22,6 +22,7 @@ export const ResearchDesk: Component = () => {
   const state = research.state;
   const [topicInput, setTopicInput] = createSignal("");
   const [briefInput, setBriefInput] = createSignal("");
+  const [startError, setStartError] = createSignal("");
 
   const transcriptMessages = createMemo(() => {
     const allMessages = messages();
@@ -53,8 +54,15 @@ export const ResearchDesk: Component = () => {
     if (!query) return;
     const result = await research.startBrief(query);
     if (result.accepted) {
+      setStartError("");
       setTopicInput("");
       await sendBriefMessage(query);
+    } else {
+      setStartError(
+        result.reason === "busy"
+          ? "Research Desk is already working on a brief."
+          : "Could not start the briefing. Check your chat provider settings and try again.",
+      );
     }
   };
 
@@ -99,6 +107,9 @@ export const ResearchDesk: Component = () => {
                 Start Briefing
               </button>
             </form>
+            <Show when={startError()}>
+              <div class="research-brief-status">{startError()}</div>
+            </Show>
           </div>
         </Match>
 
