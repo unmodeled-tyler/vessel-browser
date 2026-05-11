@@ -1,5 +1,5 @@
 import { createSignal, For, onMount, Show, type Component } from "solid-js";
-import type { PermissionRecord } from "../../../shared/types";
+import type { PermissionRecord } from "../../../../shared/types";
 import type { SettingsPrivacyProps } from "./settingsTypes";
 
 const SettingsPrivacy: Component<SettingsPrivacyProps> = (props) => {
