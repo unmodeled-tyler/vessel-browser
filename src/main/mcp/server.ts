@@ -215,7 +215,6 @@ function asNoActiveTabResponse() {
   return asErrorTextResponse("No active tab");
 }
 
-
 function asPromptResponse(text: string) {
   return {
     messages: [
@@ -256,7 +255,6 @@ function getActiveTabSummary(tabManager: TabManager) {
     humanFocused: true,
   };
 }
-
 
 async function getPostActionState(
   tabManager: TabManager,
@@ -453,7 +451,6 @@ async function waitForConditionMcp(
 
   return JSON.stringify(timeoutPayload);
 }
-
 
 function registerTools(
   server: McpServer,
@@ -1812,7 +1809,6 @@ function registerTools(
       ),
   );
 
-
   server.registerTool(
     "checkpoint_restore",
     {
@@ -1842,7 +1838,6 @@ function registerTools(
         },
       ),
   );
-
 
   server.registerTool(
     "save_session",
