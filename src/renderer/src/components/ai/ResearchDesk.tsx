@@ -10,6 +10,118 @@ import {
 import { useAI } from "../../stores/ai";
 import { useResearch } from "../../stores/research";
 
+interface QuickReplyOption {
+  label: string;
+  response: string;
+}
+
+function uniqueQuickReplies(options: QuickReplyOption[]): QuickReplyOption[] {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.label)) return false;
+    seen.add(option.label);
+    return true;
+  });
+}
+
+function buildQuickReplies(prompt: string): QuickReplyOption[] {
+  const text = prompt.toLowerCase();
+  const options: QuickReplyOption[] = [];
+
+  if (text.includes("audience") || text.includes("reader") || text.includes("who is this for")) {
+    options.push(
+      {
+        label: "Technical users",
+        response: "Aim this at technical users and builders who want practical product and architecture details.",
+      },
+      {
+        label: "Product leaders",
+        response: "Aim this at product leaders comparing strategy, market positioning, and user value.",
+      },
+      {
+        label: "General overview",
+        response: "Keep it accessible for a general audience while preserving the important technical tradeoffs.",
+      },
+    );
+  }
+
+  if (text.includes("scope") || text.includes("focus") || text.includes("angle")) {
+    options.push(
+      {
+        label: "Product comparison",
+        response: "Focus on product capabilities, user experience, and how each option differs in practice.",
+      },
+      {
+        label: "Technical tradeoffs",
+        response: "Focus on technical architecture, agent/browser integration, privacy, and reliability tradeoffs.",
+      },
+      {
+        label: "Market landscape",
+        response: "Focus on the broader market landscape, maturity, business model, and adoption signals.",
+      },
+    );
+  }
+
+  if (text.includes("time") || text.includes("recent") || text.includes("current")) {
+    options.push(
+      {
+        label: "Current state",
+        response: "Use the current state of the market and prioritize recent sources and active products.",
+      },
+      {
+        label: "Last 12 months",
+        response: "Focus on developments and product changes from the last 12 months.",
+      },
+    );
+  }
+
+  if (text.includes("source") || text.includes("evidence") || text.includes("citation")) {
+    options.push(
+      {
+        label: "Primary sources",
+        response: "Prioritize primary sources like official docs, release notes, GitHub repos, pricing pages, and company announcements.",
+      },
+      {
+        label: "Include analysis",
+        response: "Use primary sources first, but include credible third-party analysis where it adds useful context.",
+      },
+    );
+  }
+
+  if (text.includes("criteria") || text.includes("compare") || text.includes("evaluate")) {
+    options.push(
+      {
+        label: "UX + agent power",
+        response: "Compare user experience, agent capabilities, reliability, privacy, extensibility, pricing, and maturity.",
+      },
+      {
+        label: "Open + proprietary",
+        response: "Include both open source and proprietary options, and make the licensing/business model clear for each one.",
+      },
+    );
+  }
+
+  if (text.includes("depth") || text.includes("detail") || text.includes("format")) {
+    options.push(
+      {
+        label: "Decision memo",
+        response: "Structure the final output like a decision memo with a comparison table and a clear recommendation.",
+      },
+      {
+        label: "Detailed report",
+        response: "Make this a detailed report with source-backed findings, tradeoffs, and gaps.",
+      },
+    );
+  }
+
+  options.push({
+    label: "Use defaults",
+    response: "Use sensible defaults and proceed. If a choice materially affects the report, call it out in the assumptions.",
+  });
+
+  return uniqueQuickReplies(options).slice(0, 6);
+}
+
 export const ResearchDesk: Component = () => {
   const research = useResearch();
   const {
@@ -42,6 +154,15 @@ export const ResearchDesk: Component = () => {
   const hasAssistantBrief = createMemo(() =>
     transcriptMessages().some((message) => message.role === "assistant"),
   );
+  const latestAssistantQuestion = createMemo(() => {
+    const assistantMessages = transcriptMessages().filter((message) => message.role === "assistant");
+    const latest = assistantMessages[assistantMessages.length - 1]?.content.trim() ?? "";
+    if (!latest.includes("?")) return "";
+    return latest;
+  });
+  const quickReplies = createMemo(() =>
+    latestAssistantQuestion() ? buildQuickReplies(latestAssistantQuestion()) : [],
+  );
   const isBriefStarting = createMemo(() =>
     state().phase === "briefing" &&
     transcriptMessages().length === 0 &&
@@ -52,6 +173,7 @@ export const ResearchDesk: Component = () => {
   const sendBriefMessage = async (message: string) => {
     const trimmed = message.trim();
     if (!trimmed) return;
+    setBriefInput("");
     await sendChatQuery(trimmed);
   };
 
@@ -156,13 +278,26 @@ export const ResearchDesk: Component = () => {
                 </div>
               </Show>
             </div>
+            <Show when={quickReplies().length > 0 && !isStreaming()}>
+              <div class="research-quick-replies" aria-label="Suggested briefing responses">
+                <For each={quickReplies()}>
+                  {(option) => (
+                    <button
+                      type="button"
+                      class="research-quick-reply"
+                      onClick={() => void sendBriefMessage(option.response)}
+                    >
+                      {option.label}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
             <form
               class="research-brief-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                const message = briefInput();
-                setBriefInput("");
-                void sendBriefMessage(message);
+                void sendBriefMessage(briefInput());
               }}
             >
               <textarea
@@ -174,9 +309,7 @@ export const ResearchDesk: Component = () => {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    const message = briefInput();
-                    setBriefInput("");
-                    void sendBriefMessage(message);
+                    void sendBriefMessage(briefInput());
                   }
                 }}
               />

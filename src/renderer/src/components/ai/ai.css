@@ -3435,6 +3435,35 @@
     to { transform: rotate(360deg); }
 }
 
+.research-quick-replies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 1px 0;
+}
+
+.research-quick-reply {
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    transition:
+        border-color var(--duration-fast) var(--ease-in-out),
+        color var(--duration-fast) var(--ease-in-out),
+        background var(--duration-fast) var(--ease-in-out);
+}
+
+.research-quick-reply:hover {
+    border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-subtle));
+    background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-tertiary));
+    color: var(--text-primary);
+}
+
 .phase-controls {
     display: flex;
     gap: 8px;
