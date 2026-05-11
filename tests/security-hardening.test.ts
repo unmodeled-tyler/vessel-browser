@@ -11,6 +11,7 @@ import {
   loadTrustedAppURL,
 } from "../src/main/network/url-safety";
 import { openExternalAllowlisted } from "../src/main/security/external-open";
+import { requiresExplicitMcpApproval } from "../src/main/mcp/server";
 import { sanitizeTelemetryProperties } from "../src/main/telemetry/posthog";
 import {
   decodeEncryptionKeyFromStorage,
@@ -122,5 +123,30 @@ test("telemetry sanitizer can enforce event-specific property allowlists", () =>
       new Set(["step", "status"]),
     ),
     { step: "activation_failed", status: "free" },
+  );
+});
+
+test("telemetry sanitizer keeps explicitly allowlisted metadata keys", () => {
+  assert.deepEqual(
+    sanitizeTelemetryProperties(
+      { setting_key: "approvalMode", email: "person@example.com" },
+      new Set(["setting_key"]),
+    ),
+    { setting_key: "approvalMode" },
+  );
+});
+
+test("MCP approval helper flags destructive bookmark folder removal", () => {
+  assert.equal(
+    requiresExplicitMcpApproval("remove_bookmark_folder", {
+      delete_contents: true,
+    }),
+    true,
+  );
+  assert.equal(
+    requiresExplicitMcpApproval("remove_bookmark_folder", {
+      delete_contents: false,
+    }),
+    false,
   );
 });

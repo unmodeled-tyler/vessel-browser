@@ -102,7 +102,7 @@ export function sanitizeTelemetryProperties(
   const safe: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
     if (allowedKeys && !allowedKeys.has(key)) continue;
-    if (SENSITIVE_PROPERTY_RE.test(key)) continue;
+    if (!allowedKeys?.has(key) && SENSITIVE_PROPERTY_RE.test(key)) continue;
     if (
       typeof value === "string" ||
       typeof value === "number" ||
