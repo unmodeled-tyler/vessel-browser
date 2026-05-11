@@ -385,7 +385,7 @@ export class Tab {
           var el = document.elementFromPoint(${x}, ${y});
           while (el) {
             if (el.hasAttribute && el.hasAttribute('data-vessel-highlight')) {
-              return el.textContent || '';
+              return el.getAttribute('data-vessel-highlight-text') || el.textContent || '';
             }
             el = el.parentElement;
           }
@@ -757,6 +757,7 @@ export class Tab {
                     mark.style.setProperty('background', 'rgba(240, 198, 54, 0.3)', 'important');
                     mark.style.setProperty('border-bottom-color', '#f0c636', 'important');
                     mark.setAttribute('data-vessel-highlight', 'true');
+                    mark.setAttribute('data-vessel-highlight-text', text);
                     range.surroundContents(mark);
                   } else {
                     // For cross-node selections, extract and wrap in a mark
@@ -765,6 +766,7 @@ export class Tab {
                     mark.style.setProperty('background', 'rgba(240, 198, 54, 0.3)', 'important');
                     mark.style.setProperty('border-bottom-color', '#f0c636', 'important');
                     mark.setAttribute('data-vessel-highlight', 'true');
+                    mark.setAttribute('data-vessel-highlight-text', text);
                     var contents = range.extractContents();
                     mark.appendChild(contents);
                     range.insertNode(mark);

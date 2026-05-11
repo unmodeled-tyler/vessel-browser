@@ -78,6 +78,11 @@ export function useBookmarks() {
       window.vessel.bookmarks.exportHtml(options),
     exportJson: (): Promise<BookmarkExportResult | null> =>
       window.vessel.bookmarks.exportJson(),
+    exportFolderHtml: (
+      folderId: string,
+      options?: BookmarkHtmlExportOptions,
+    ): Promise<BookmarkExportResult | null> =>
+      window.vessel.bookmarks.exportFolderHtml(folderId, options),
     createFolder: (name: string) => window.vessel.bookmarks.createFolder(name),
     createFolderWithSummary: (name: string, summary?: string) =>
       window.vessel.bookmarks.createFolderWithSummary(name, summary),

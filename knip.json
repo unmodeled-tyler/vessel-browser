@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/preload/index.ts",
+    "src/preload/content-script.ts",
+    "src/renderer/src/index.tsx",
+    "scripts/**/*.{js,mjs}",
+    "tests/**/*.ts"
+  ],
+  "project": [
+    "bin/**/*.js",
+    "scripts/**/*.{js,mjs}",
+    "src/**/*.{ts,tsx}",
+    "tests/**/*.ts"
+  ],
+  "ignoreFiles": [
+    "src/main/telemetry/trace-logger.ts",
+    "src/renderer/src/env.d.ts"
+  ],
+  "ignoreBinaries": ["scripts/build-macos-icon.sh"],
+  "vite": {
+    "config": "electron.vite.config.ts"
+  }
+}

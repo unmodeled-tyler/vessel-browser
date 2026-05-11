@@ -3,10 +3,13 @@ import fs from "node:fs";
 import path from "path";
 import { Channels } from "../../shared/channels";
 import { loadSettings } from "../config/settings";
+import { upsertDownload } from "./download-manager";
 
 export interface DownloadInfo {
   filename: string;
   savePath: string;
+  url?: string;
+  mimeType?: string;
   totalBytes: number;
   receivedBytes: number;
   state: "progressing" | "completed" | "cancelled" | "interrupted";
@@ -79,26 +82,31 @@ export function installDownloadHandlerForSession(
     const info: DownloadInfo = {
       filename,
       savePath,
+      url: item.getURL(),
+      mimeType: typeof item.getMimeType === "function" ? item.getMimeType() : undefined,
       totalBytes: item.getTotalBytes(),
       receivedBytes: 0,
       state: "progressing",
     };
 
-    send(Channels.DOWNLOAD_STARTED, info);
+    const record = upsertDownload(info);
+    send(Channels.DOWNLOAD_STARTED, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
 
     item.on("updated", (_event, state) => {
       info.receivedBytes = item.getReceivedBytes();
       info.totalBytes = item.getTotalBytes();
       info.state = state === "progressing" ? "progressing" : "interrupted";
 
-      send(Channels.DOWNLOAD_PROGRESS, info);
+      const record = upsertDownload(info);
+      send(Channels.DOWNLOAD_PROGRESS, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
     });
 
     item.once("done", (_event, state) => {
       info.receivedBytes = item.getReceivedBytes();
       info.state = state === "completed" ? "completed" : "cancelled";
 
-      send(Channels.DOWNLOAD_DONE, info);
+      const record = upsertDownload(info);
+      send(Channels.DOWNLOAD_DONE, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
     });
   });
 }

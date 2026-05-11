@@ -2,7 +2,9 @@ import { app, safeStorage } from "electron";
 import path from "path";
 import fs from "fs";
 import type {
+  CodexOAuthTokens,
   ProviderConfig,
+  ReasoningEffortLevel,
   RuntimeHealthIssue,
   VesselSettings,
 } from "../../shared/types";
@@ -36,6 +38,7 @@ const defaults: VesselSettings = {
 
 const SAVE_DEBOUNCE_MS = 150;
 const CHAT_PROVIDER_SECRET_FILENAME = "vessel-chat-provider-secret";
+const CODEX_TOKENS_FILENAME = "vessel-codex-tokens";
 const logger = createLogger("Settings");
 
 /** Allowlist of setting keys accepted via IPC. */
@@ -74,13 +77,26 @@ function canUseSafeStorage(): boolean {
   }
 }
 
+function writePrivateFile(filePath: string, data: string | Buffer): void {
+  fs.writeFileSync(filePath, data, { mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best effort on platforms/filesystems without POSIX permissions.
+  }
+}
+
+function assertSafeStorageAvailable(): void {
+  if (!canUseSafeStorage()) {
+    throw new Error("OS-backed secret storage is unavailable; refusing to store secrets on disk.");
+  }
+}
+
 function readStoredProviderSecret(): StoredProviderSecret | null {
   try {
+    if (!canUseSafeStorage()) return null;
     const raw = fs.readFileSync(getChatProviderSecretPath());
-    const decoded =
-      canUseSafeStorage() && safeStorage.decryptString
-        ? safeStorage.decryptString(raw)
-        : raw.toString("utf-8");
+    const decoded = safeStorage.decryptString(raw);
     const parsed = JSON.parse(decoded) as StoredProviderSecret;
     if (
       parsed &&
@@ -97,15 +113,12 @@ function readStoredProviderSecret(): StoredProviderSecret | null {
 }
 
 function writeStoredProviderSecret(secret: StoredProviderSecret): void {
+  assertSafeStorageAvailable();
   const filePath = getChatProviderSecretPath();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const payload = JSON.stringify(secret);
-  if (canUseSafeStorage()) {
-    const encrypted = safeStorage.encryptString(payload);
-    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
-    return;
-  }
-  fs.writeFileSync(filePath, payload, { mode: 0o600 });
+  const encrypted = safeStorage.encryptString(payload);
+  writePrivateFile(filePath, encrypted);
 }
 
 function clearStoredProviderSecret(): void {
@@ -113,6 +126,47 @@ function clearStoredProviderSecret(): void {
     fs.unlinkSync(getChatProviderSecretPath());
   } catch {
     // Secret file may not exist.
+  }
+}
+
+function getCodexTokensPath(): string {
+  return path.join(getUserDataPath(), CODEX_TOKENS_FILENAME);
+}
+
+export function readStoredCodexTokens(): CodexOAuthTokens | null {
+  try {
+    if (!canUseSafeStorage()) return null;
+    const raw = fs.readFileSync(getCodexTokensPath());
+    const decoded = safeStorage.decryptString(raw);
+    const parsed = JSON.parse(decoded) as CodexOAuthTokens;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.accessToken === "string" &&
+      typeof parsed.refreshToken === "string"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Ignore missing or unreadable tokens.
+  }
+  return null;
+}
+
+export function writeStoredCodexTokens(tokens: CodexOAuthTokens): void {
+  assertSafeStorageAvailable();
+  const filePath = getCodexTokensPath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const payload = JSON.stringify(tokens);
+  const encrypted = safeStorage.encryptString(payload);
+  writePrivateFile(filePath, encrypted);
+}
+
+export function clearStoredCodexTokens(): void {
+  try {
+    fs.unlinkSync(getCodexTokensPath());
+  } catch {
+    // Token file may not exist.
   }
 }
 
@@ -154,13 +208,15 @@ function buildPersistedSettings(source: VesselSettings): VesselSettings {
 
 export function getRendererSettings(): VesselSettings {
   const current = loadSettings();
+  const provider = current.chatProvider;
+  const hasCodexTokens = provider?.id === "openai_codex" && readStoredCodexTokens() !== null;
   return {
     ...current,
-    chatProvider: current.chatProvider
+    chatProvider: provider
       ? {
-          ...current.chatProvider,
+          ...provider,
           apiKey: "",
-          hasApiKey: Boolean(current.chatProvider.apiKey),
+          hasApiKey: Boolean(provider.apiKey) || hasCodexTokens,
         }
       : null,
   };
@@ -185,6 +241,27 @@ function sanitizePort(value: unknown): number {
   return defaults.mcpPort;
 }
 
+function sanitizeReasoningEffortLevel(value: unknown): ReasoningEffortLevel {
+  return value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "max" ||
+    value === "off"
+    ? value
+    : "off";
+}
+
+function sanitizeChatProvider(
+  provider: ProviderConfig | null,
+): ProviderConfig | null {
+  return provider
+    ? {
+        ...provider,
+        reasoningEffort: sanitizeReasoningEffortLevel(provider.reasoningEffort),
+      }
+    : null;
+}
+
 export function loadSettings(): VesselSettings {
   if (settings) return settings;
   settingsIssues = [];
@@ -201,7 +278,9 @@ export function loadSettings(): VesselSettings {
     settings = {
       ...defaults,
       ...parsed,
-      chatProvider: mergeChatProviderSecret(parsed.chatProvider ?? null),
+      chatProvider: sanitizeChatProvider(
+        mergeChatProviderSecret(parsed.chatProvider ?? null),
+      ),
       mcpPort: sanitizePort(parsed.mcpPort ?? defaults.mcpPort),
       agentTranscriptMode:
         parsed.agentTranscriptMode === "off" ||
@@ -240,8 +319,10 @@ function persistNow(): Promise<void> {
       fs.promises.writeFile(
         getSettingsPath(),
         JSON.stringify(buildPersistedSettings(settings!), null, 2),
+        { encoding: "utf-8", mode: 0o600 },
       ),
     )
+    .then(() => fs.promises.chmod(getSettingsPath(), 0o600).catch(() => undefined))
     .catch((err) => logger.error("Failed to save settings:", err));
 }
 
@@ -292,6 +373,9 @@ export function setSetting<K extends keyof VesselSettings>(
         ...nextProvider,
         apiKey: resolvedApiKey,
         hasApiKey: Boolean(resolvedApiKey),
+        reasoningEffort: sanitizeReasoningEffortLevel(
+          nextProvider.reasoningEffort,
+        ),
       };
     }
   } else {

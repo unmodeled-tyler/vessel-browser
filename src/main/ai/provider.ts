@@ -2,13 +2,17 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import type {
   AIMessage,
+  CodexOAuthTokens,
   ProviderConfig,
   ProviderModelsResult,
+  ReasoningEffortLevel,
 } from "../../shared/types";
 import { okResult } from "../../shared/result";
 import { AnthropicProvider } from "./provider-anthropic";
 import { OpenAICompatProvider } from "./provider-openai";
 import { PROVIDERS } from "../../shared/providers";
+import { CodexProvider, CODEX_CLIENT_VERSION } from "./provider-codex";
+import { readStoredCodexTokens } from "../config/settings";
 import type { AgentToolProfile } from "./tool-profile";
 import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from "./content-limits";
 
@@ -42,7 +46,20 @@ export function sanitizeProviderConfig(config: ProviderConfig): ProviderConfig {
     apiKey: config.apiKey.trim(),
     model: config.model.trim(),
     baseUrl: config.baseUrl?.trim() || undefined,
+    reasoningEffort: sanitizeReasoningEffortLevel(config.reasoningEffort),
   };
+}
+
+export function sanitizeReasoningEffortLevel(
+  value: unknown,
+): ReasoningEffortLevel {
+  return value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "max" ||
+    value === "off"
+    ? value
+    : "off";
 }
 
 export function validateProviderConfig(config: ProviderConfig): string | null {
@@ -60,7 +77,7 @@ export function validateProviderConnection(
     return "Selected AI provider is not supported.";
   }
 
-  if (meta.requiresApiKey && !normalized.apiKey) {
+  if (meta.type !== "codex_oauth" && meta.requiresApiKey && !normalized.apiKey) {
     return `${meta.name} requires an API key. Open settings (Ctrl+,) to add one.`;
   }
 
@@ -133,6 +150,43 @@ export function buildLlamaCppCtxWarning(ctxSize: number | null): string | undefi
   return undefined;
 }
 
+async function fetchCodexBackendModels(
+  tokens: CodexOAuthTokens,
+): Promise<string[]> {
+  const url = new URL("https://chatgpt.com/backend-api/codex/models");
+  url.searchParams.set("client_version", CODEX_CLIENT_VERSION);
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${tokens.accessToken}`,
+    originator: "codex_cli_rs",
+    "User-Agent": `codex_cli_rs/${CODEX_CLIENT_VERSION} Vessel`,
+  };
+  if (tokens.accountId) {
+    headers["ChatGPT-Account-ID"] = tokens.accountId;
+  }
+
+  const response = await fetch(url.toString(), { headers });
+  if (!response.ok) {
+    throw new Error(`Codex backend model discovery failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { models?: unknown };
+  if (!Array.isArray(payload.models)) {
+    throw new Error("Codex backend model discovery returned an invalid response");
+  }
+
+  return payload.models
+    .map((model): string | null => {
+      if (!model || typeof model !== "object") return null;
+      const record = model as Record<string, unknown>;
+      const id = record.slug || record.id || record.model;
+      const visibility = record.visibility;
+      if (visibility === "hidden") return null;
+      return typeof id === "string" && id.trim() ? id.trim() : null;
+    })
+    .filter((id): id is string => id !== null);
+}
+
 async function probeLlamaCppCtxWarning(baseURL: string): Promise<string | undefined> {
   try {
     const root = new URL(baseURL);
@@ -167,6 +221,25 @@ export async function fetchProviderModels(
     return okResult({ models: page.data.map((model) => model.id) });
   }
 
+  if (normalized.id === "openai_codex") {
+    const tokens = readStoredCodexTokens();
+    if (!tokens) {
+      throw new Error("Codex provider requires authentication. Connect your ChatGPT account in settings.");
+    }
+    try {
+      const models = await fetchCodexBackendModels(tokens);
+      if (models.length > 0) {
+        return okResult({ models });
+      }
+      throw new Error("Codex backend model discovery returned no models");
+    } catch (err) {
+      return okResult({
+        models: PROVIDERS.openai_codex.models,
+        warning: `Using built-in Codex model list because live discovery failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      });
+    }
+  }
+
   const meta = PROVIDERS[normalized.id];
   const baseURL =
     normalized.baseUrl || meta?.defaultBaseUrl || "https://api.openai.com/v1";
@@ -196,7 +269,21 @@ export function createProvider(config: ProviderConfig): AIProvider {
   }
 
   if (normalized.id === "anthropic") {
-    return new AnthropicProvider(normalized.apiKey, normalized.model);
+    return new AnthropicProvider(
+      normalized.apiKey,
+      normalized.model,
+      normalized.reasoningEffort,
+    );
+  }
+
+  if (normalized.id === "openai_codex") {
+    const tokens = readStoredCodexTokens();
+    if (!tokens) {
+      throw new Error(
+        "OpenAI Codex requires authentication. Open settings to connect your ChatGPT account.",
+      );
+    }
+    return new CodexProvider(tokens, normalized.model);
   }
 
   return new OpenAICompatProvider(normalized);

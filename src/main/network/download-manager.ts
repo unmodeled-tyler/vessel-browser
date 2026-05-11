@@ -1,0 +1,121 @@
+import { app, dialog, shell } from "electron";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { Channels } from "../../shared/channels";
+import type { DownloadRecord } from "../../shared/types";
+import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
+
+const filePath = () => path.join(app.getPath("userData"), "vessel-downloads.json");
+const EXECUTABLE_EXTENSIONS = new Set([
+  ".appimage",
+  ".bat",
+  ".cmd",
+  ".command",
+  ".desktop",
+  ".exe",
+  ".msi",
+  ".ps1",
+  ".scr",
+  ".sh",
+]);
+
+function hasMisleadingDoubleExtension(filename: string): boolean {
+  return /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|txt|zip)\.(exe|msi|bat|cmd|ps1|sh|scr|appimage)$/i.test(filename);
+}
+
+function isExecutableDownload(savePath: string): boolean {
+  return EXECUTABLE_EXTENSIONS.has(path.extname(savePath).toLowerCase());
+}
+
+function executableWarningDetail(item: DownloadRecord): string {
+  return [
+    "This file can run code on your computer. Only open it if you trust the source.",
+    item.url ? `Source: ${item.url}` : null,
+    item.mimeType ? `Type: ${item.mimeType}` : null,
+    hasMisleadingDoubleExtension(item.filename)
+      ? "Warning: this filename uses a misleading double extension."
+      : null,
+  ].filter(Boolean).join("\n");
+}
+
+function parse(raw: unknown): { items: DownloadRecord[] } {
+  if (!raw || typeof raw !== "object") return { items: [] };
+  const items = Array.isArray((raw as { items?: unknown }).items)
+    ? ((raw as { items: DownloadRecord[] }).items)
+    : [];
+  return { items };
+}
+
+let state = loadJsonFile({ filePath: filePath(), fallback: { items: [] }, parse });
+const persistence = createDebouncedJsonPersistence({
+  debounceMs: 250,
+  filePath: filePath(),
+  getValue: () => state,
+  logLabel: "downloads",
+});
+let broadcaster: ((channel: string, payload: unknown) => void) | null = null;
+
+function persist(): void {
+  state.items = state.items.slice(0, 200);
+  persistence.schedule();
+}
+
+function emit(): void {
+  broadcaster?.(Channels.DOWNLOADS_UPDATE, listDownloads());
+}
+
+export function setDownloadBroadcaster(fn: (channel: string, payload: unknown) => void): void {
+  broadcaster = fn;
+}
+
+export function listDownloads(): DownloadRecord[] {
+  return state.items.map((item) => ({ ...item }));
+}
+
+export function upsertDownload(input: Omit<DownloadRecord, "id" | "startedAt" | "updatedAt">): DownloadRecord {
+  const now = new Date().toISOString();
+  const existing = state.items.find((item) => item.savePath === input.savePath);
+  if (existing) {
+    Object.assign(existing, input, { updatedAt: now });
+    persist();
+    emit();
+    return existing;
+  }
+  const record: DownloadRecord = { id: randomUUID(), ...input, startedAt: now, updatedAt: now };
+  state.items = [record, ...state.items];
+  persist();
+  emit();
+  return record;
+}
+
+export function clearDownloads(): void {
+  state.items = [];
+  persist();
+  emit();
+}
+
+export async function openDownload(id: string): Promise<boolean> {
+  const item = state.items.find((d) => d.id === id);
+  if (!item || item.state !== "completed" || !fs.existsSync(item.savePath)) return false;
+  if (isExecutableDownload(item.savePath)) {
+    const result = dialog.showMessageBoxSync({
+      type: "warning",
+      buttons: ["Cancel", "Open Anyway"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Open executable download?",
+      message: `Open ${item.filename}?`,
+      detail: executableWarningDetail(item),
+    });
+    if (result !== 1) return false;
+  }
+  return (await shell.openPath(item.savePath)) === "";
+}
+
+export async function showDownloadInFolder(id: string): Promise<boolean> {
+  const item = state.items.find((d) => d.id === id);
+  if (!item || !fs.existsSync(item.savePath)) return false;
+  shell.showItemInFolder(item.savePath);
+  return true;
+}

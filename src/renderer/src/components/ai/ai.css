@@ -218,7 +218,6 @@
     cursor: default;
 }
 
-
 /* ═══════════════════════════════════════
    Sidebar — refined panel
    ═══════════════════════════════════════ */
@@ -459,7 +458,6 @@
         transform: translateY(0);
     }
 }
-
 
 /* ═══════════════════════════════════════
    Bookmark panel — section card
@@ -888,7 +886,6 @@
     flex-wrap: wrap;
 }
 
-
 /* ═══════════════════════════════════════
    Agent supervisor panel
    ═══════════════════════════════════════ */
@@ -1311,7 +1308,6 @@
     color: var(--status-error);
 }
 
-
 /* ═══════════════════════════════════════
    Chat messages — distinct bubbles
    ═══════════════════════════════════════ */
@@ -1491,7 +1487,6 @@
     background: var(--surface-glass);
 }
 
-
 /* ═══════════════════════════════════════
    Tool call action chips
    ═══════════════════════════════════════ */
@@ -1546,7 +1541,6 @@
     margin-right: 5px;
     opacity: 0.4;
 }
-
 
 /* ═══════════════════════════════════════
    Inline approval prompts (chat tab)
@@ -1633,7 +1627,6 @@
     background: var(--surface-active);
     color: var(--text-secondary);
 }
-
 
 /* ═══════════════════════════════════════
    Thinking & streaming states
@@ -1737,7 +1730,6 @@
         box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-primary) 0%, transparent);
     }
 }
-
 
 /* ═══════════════════════════════════════
    Sidebar empty state & input area
@@ -2028,7 +2020,6 @@
     background: var(--border-visible);
 }
 
-
 /* ═══════════════════════════════════════
    Checkpoint timeline
    ═══════════════════════════════════════ */
@@ -2127,6 +2118,115 @@
     margin-top: 2px;
 }
 
+/* ═══════════════════════════════════════
+   Page diff history
+   ═══════════════════════════════════════ */
+
+.page-diff-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.page-diff-timeline-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.page-diff-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.page-diff-history-item {
+    display: grid;
+    grid-template-columns: minmax(86px, 0.32fr) 1fr;
+    gap: 10px;
+    align-items: stretch;
+}
+
+.page-diff-history-time {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.page-diff-history-label {
+    color: var(--text-primary);
+    font-size: 11.5px;
+    font-weight: 700;
+}
+
+.page-diff-history-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    background: var(--surface-glass);
+}
+
+.page-diff-history-item:first-child .page-diff-history-card {
+    border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-glass));
+    background: color-mix(in srgb, var(--accent-primary) 8%, var(--surface-glass));
+}
+
+.page-diff-history-summary-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.page-diff-history-summary-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.page-diff-history-summary-section {
+    align-self: flex-start;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-elevated);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.page-diff-history-summary {
+    color: var(--text-primary);
+    font-size: 12.5px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.page-diff-history-position {
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+@media (max-width: 430px) {
+    .page-diff-history-item {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .page-diff-history-time {
+        padding: 0;
+    }
+}
 
 /* ═══════════════════════════════════════
    Responsive — compact layout
@@ -2171,7 +2271,6 @@
         justify-content: center;
     }
 }
-
 
 /* ═══════════════════════════════════════
    Automation Kits panel

@@ -1,5 +1,5 @@
 <div align="center">
-  
+
 ![quanta-intellect-logo-transparent](https://cdn-uploads.huggingface.co/production/uploads/686c460ba3fc457ad14ab6f8/gB6J60f9Yeyb3Thop2dUa.png)
 
 <a href="https://snapcraft.io/vessel-browser">
@@ -9,7 +9,6 @@
 
 # Vessel: Your Agent's Browser
 </div>
-
 
 Open source chromium-based browser for persistent web agents. Linux is the most mature install target today, and macOS release packaging is available from source.
 
@@ -21,11 +20,7 @@ Vessel gives external agent harnesses a real browser with durable state, MCP con
 
 *Vessel is in active development and currently makes no security assurances. Use and deploy it with care.*
 
-
-
 https://github.com/user-attachments/assets/0a72b48a-873a-4eb0-b8f2-23e34d8472c4
-
-
 
 ## Quick Start
 
@@ -78,8 +73,6 @@ Most browser automation stacks are either headless, stateless, or designed aroun
 <img width="1280" height="800" alt="@quanta-intellectvessel-browser_2026-03-17_200224_6613" src="https://github.com/user-attachments/assets/8e208ee1-cb89-4318-87a2-9561a7d9aecf" />
 <img width="1280" height="800" alt="vessel_2026-03-16_144201_7545" src="https://github.com/user-attachments/assets/da7b28ea-6c5f-4aa7-909e-0a255c80d508" />
 <img width="1280" height="800" alt="@quanta-intellectvessel-browser_2026-03-17_195754_6624" src="https://github.com/user-attachments/assets/3b3d2033-5a59-4806-bbc1-359efb7b43a9" />
-
-
 
 <img width="1280" height="800" alt="vessel_2026-03-17_145154_5389" src="https://github.com/user-attachments/assets/b1c08d6c-bcdf-4c9a-8429-a71a23a61903" />
 
@@ -184,6 +177,14 @@ The packaged AppImage path:
 - does not require a local Node/Electron toolchain
 - uses the packaged Vessel app icon and metadata
 - is the recommended path for early adopters who just want to run Vessel
+
+Windows packaged releases:
+
+- use the `Vessel-<version>-x64-setup.exe` NSIS installer
+- can be installed over an existing Vessel install when upgrading
+- preserve Vessel app data during the normal upgrade path
+
+You do not need to uninstall Vessel before installing a newer Windows release. Uninstall first only if you are recovering from a broken install or intentionally removing local Vessel data.
 
 After install:
 
@@ -420,7 +421,7 @@ mcp_servers:
     connect_timeout: 30
 ```
 
-## Configuration 
+## Configuration
 
 The installer writes three snippets to:
 

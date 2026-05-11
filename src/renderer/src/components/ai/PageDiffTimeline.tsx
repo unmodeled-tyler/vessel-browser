@@ -8,6 +8,8 @@ import {
 } from "solid-js";
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
 import type { PageDiffHistoryItem } from "../../../../shared/page-diff-types";
+import { parseDiffSummaryParts } from "../../lib/pageDiffDisplay";
+import { formatRelativeTime, formatShortDateTime } from "../../lib/timeDisplay";
 import { useTabs } from "../../stores/tabs";
 
 const PageDiffTimeline: Component = () => {
@@ -76,25 +78,40 @@ const PageDiffTimeline: Component = () => {
         <div class="agent-muted">No changes detected yet.</div>
       </Show>
       <Show when={!loading() && !error() && bursts().length > 0}>
-        <div class="agent-section-title">Recent page changes</div>
-        <div class="page-diff-list">
+        <div class="page-diff-timeline-header">
+          <div class="agent-section-title">Change history for this page</div>
+          <div class="agent-muted">
+            Newest detections are first. Each entry is a saved change burst.
+          </div>
+        </div>
+        <div class="page-diff-history-list">
           <For each={bursts()}>
             {(burst, i) => (
-              <div class="page-diff-item">
-                <div class="checkpoint-timeline-rail">
-                  <span
-                    class="checkpoint-timeline-dot"
-                    classList={{ latest: i() === 0 }}
-                  />
-                  <Show when={i() < bursts().length - 1}>
-                    <span class="checkpoint-timeline-line" />
-                  </Show>
+              <div class="page-diff-history-item">
+                <div class="page-diff-history-time">
+                  <span class="page-diff-history-label">
+                    {i() === 0 ? "Latest change" : formatRelativeTime(burst.detectedAt)}
+                  </span>
+                  <span>{formatShortDateTime(burst.detectedAt)}</span>
                 </div>
-                <div class="page-diff-content">
-                  <div class="page-diff-time">
-                    {new Date(burst.detectedAt).toLocaleString()}
+                <div class="page-diff-history-card">
+                  <div class="page-diff-history-summary-list">
+                    <For each={parseDiffSummaryParts(burst.summary)}>
+                      {(part) => (
+                        <div class="page-diff-history-summary-row">
+                          <Show when={part.section}>
+                            <span class="page-diff-history-summary-section">
+                              {part.section}
+                            </span>
+                          </Show>
+                          <span class="page-diff-history-summary">{part.text}</span>
+                        </div>
+                      )}
+                    </For>
                   </div>
-                  <div class="page-diff-summary">{burst.summary}</div>
+                  <div class="page-diff-history-position">
+                    Entry {i() + 1} of {bursts().length}
+                  </div>
                 </div>
               </div>
             )}

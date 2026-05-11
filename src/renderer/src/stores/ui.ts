@@ -72,6 +72,7 @@ export function useUI() {
     openCommandBar: () => setCommandBarOpen(true),
     closeCommandBar: () => setCommandBarOpen(false),
     openSettings: async () => {
+      setSidebarOpen(false);
       setSettingsOpen(true);
       await window.vessel.ui.setSettingsVisibility(true);
     },

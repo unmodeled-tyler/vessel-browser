@@ -42,7 +42,10 @@ export async function captureLiveHighlightSnapshot(
       const pageHighlights = Array.from(
         document.querySelectorAll("mark.__vessel-highlight-text[data-vessel-highlight]")
       ).map((mark) => {
-        const text = mark.textContent?.trim() || "";
+        const text =
+          mark.getAttribute("data-vessel-highlight-text")?.trim() ||
+          mark.textContent?.trim() ||
+          "";
         const style = window.getComputedStyle(mark);
         return {
           text,
@@ -91,22 +94,30 @@ export function formatLiveSelectionSection(
       snapshot.activeSelection.length > 400
         ? `${snapshot.activeSelection.slice(0, 397)}...`
         : snapshot.activeSelection;
-    sections.push(`## Active User Selection\n"${preview}"`);
+    sections.push(
+      `## Active User Selection\nThe user currently has this text selected on screen:\n- "${preview}"`,
+    );
   }
 
-  const unsavedHighlights = snapshot.pageHighlights.filter(
-    (highlight) => !highlight.persisted,
-  );
-  if (unsavedHighlights.length > 0) {
-    const lines = unsavedHighlights.map((highlight) => {
+  if (snapshot.pageHighlights.length > 0) {
+    const lines = snapshot.pageHighlights.map((highlight) => {
       const preview =
         highlight.text.length > 180
           ? `${highlight.text.slice(0, 177)}...`
           : highlight.text;
-      const color = highlight.color ? ` (${highlight.color})` : "";
-      return `- "${preview}"${color}`;
+      const details = [
+        highlight.persisted ? "saved" : "visible only",
+        highlight.color ? `color: ${highlight.color}` : "",
+      ].filter(Boolean);
+      return `- "${preview}"${details.length ? ` (${details.join(", ")})` : ""}`;
     });
-    sections.push(`## Unsaved Visible Highlights\n${lines.join("\n")}`);
+    sections.push(
+      [
+        "## Visible Highlights On Screen",
+        "These are the highlighted passages currently visible in the page. Treat this as authoritative before searching or inspecting:",
+        lines.join("\n"),
+      ].join("\n"),
+    );
   }
 
   return sections.length > 0 ? sections.join("\n\n") : null;

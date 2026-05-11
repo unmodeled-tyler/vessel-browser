@@ -55,6 +55,7 @@ export const Channels = {
   SETTINGS_UPDATE: "settings:update",
   SETTINGS_HEALTH_GET: "settings:health:get",
   SETTINGS_HEALTH_UPDATE: "settings:health:update",
+  MCP_REGENERATE_TOKEN: "mcp:regenerate-token",
 
   // Bookmarks
   BOOKMARKS_GET: "bookmarks:get",
@@ -70,6 +71,7 @@ export const Channels = {
   FOLDER_CREATE: "bookmarks:folder-create",
   FOLDER_REMOVE: "bookmarks:folder-remove",
   FOLDER_RENAME: "bookmarks:folder-rename",
+  FOLDER_EXPORT_HTML: "bookmarks:folder-export-html",
 
   // Highlights
   HIGHLIGHT_CAPTURE: "highlights:capture",
@@ -151,6 +153,11 @@ export const Channels = {
   DOWNLOAD_STARTED: "download:started",
   DOWNLOAD_PROGRESS: "download:progress",
   DOWNLOAD_DONE: "download:done",
+  DOWNLOADS_GET: "downloads:get",
+  DOWNLOADS_CLEAR: "downloads:clear",
+  DOWNLOADS_OPEN: "downloads:open",
+  DOWNLOADS_SHOW_IN_FOLDER: "downloads:show-in-folder",
+  DOWNLOADS_UPDATE: "downloads:update",
 
   // Premium
   PREMIUM_GET_STATE: "premium:get-state",
@@ -231,4 +238,19 @@ export const Channels = {
   RESEARCH_SET_TRACES: "research:set-traces",
   RESEARCH_CANCEL: "research:cancel",
   RESEARCH_EXPORT_REPORT: "research:export-report",
+
+  // Codex OAuth
+  CODEX_START_AUTH: "codex:start-auth",
+  CODEX_CANCEL_AUTH: "codex:cancel-auth",
+  CODEX_AUTH_STATUS: "codex:auth-status",
+  CODEX_DISCONNECT: "codex:disconnect",
+
+  // Updates
+  UPDATES_CHECK: "updates:check",
+  UPDATES_OPEN_DOWNLOAD: "updates:open-download",
+
+  // Permissions
+  PERMISSIONS_GET: "permissions:get",
+  PERMISSIONS_CLEAR: "permissions:clear",
+  PERMISSIONS_CLEAR_ORIGIN: "permissions:clear-origin",
 } as const;

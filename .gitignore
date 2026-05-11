@@ -53,17 +53,36 @@ docs/superpowers/specs/2026-03-28-linux-app-store-distribution-design.md
 docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 
 # Tests (local overrides)
-tests/
-navigation-regression.ts
+# Keep committed tests tracked, but hide local/untracked test experiments by default.
+# Force-add intentional new top-level tests with: git add -f tests/name.test.ts
+tests/*.test.ts
+!tests/ad-blocking-rules.test.ts
+!tests/ai-activity.test.ts
+!tests/ai-busy-handshake.test.ts
+!tests/ai-queue.test.ts
+!tests/automation-kit-constants.test.ts
+!tests/bookmark-context.test.ts
+!tests/bookmark-page-source.test.ts
+!tests/dom-selectors.test.ts
+!tests/input-coercion.test.ts
+!tests/link-validation.test.ts
+!tests/overlay-context.test.ts
+!tests/page-access-issues.test.ts
+!tests/page-diff-display.test.ts
+!tests/results-only-context.test.ts
+!tests/scheduler.test.ts
+!tests/search-shortcuts.test.ts
+!tests/security-hardening.test.ts
+!tests/structured-data.test.ts
+!tests/summary-context.test.ts
+tests/local/
+tests/*.local.ts
+tests/*.scratch.ts
 
 # Claude skills (local overrides)
 .claude/skills/
 
-# HF Space demo files (not part of the core browser)
-hf-space/
-tests/input-coercion.test.ts
+# Local secrets / deployment config
 .webui_secret_key
 scripts/cloudflare-worker/wrangler.toml
-scripts/cloudflare-worker/vessel-premium-api.js
-scripts/cloudflare-worker/vessel-premium-api.js
-package-lock.json
+

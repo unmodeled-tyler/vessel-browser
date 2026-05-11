@@ -20,6 +20,8 @@ import { useHistory } from "../../stores/history";
 import { useBookmarks } from "../../stores/bookmarks";
 import type { PageDiff } from "../../../../shared/page-diff-types";
 import { matchesPageSnapshotUrl } from "../../../../shared/page-url";
+import { parseDiffSummaryParts } from "../../lib/pageDiffDisplay";
+import { formatElapsedTime, formatRelativeTime } from "../../lib/timeDisplay";
 import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
@@ -53,8 +55,15 @@ const AddressBar: Component<{
   const [selectedIndex, setSelectedIndex] = createSignal(-1);
   const [searchEngine, setSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
   const [showSecurityPopup, setShowSecurityPopup] = createSignal(false);
+  const [hasEditedAddress, setHasEditedAddress] = createSignal(false);
   const now = useNow();
   let inputRef: HTMLInputElement | undefined;
+  let addressBlurTimer: ReturnType<typeof setTimeout> | null = null;
+  let skipNextAddressBlurSync = false;
+
+  onCleanup(() => {
+    if (addressBlurTimer) clearTimeout(addressBlurTimer);
+  });
 
   const PADLOCK_PATH = "M7 1a4 4 0 00-4 4v2H1.5a.5.5 0 00-.5.5v5a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-5a.5.5 0 00-.5-.5H11V5a4 4 0 00-4-4zm0 1a3 3 0 013 3v2H4V5a3 3 0 013-3z";
 
@@ -83,6 +92,23 @@ const AddressBar: Component<{
 
   const buildSearchUrl = (query: string): string =>
     searchEnginePreset().url + encodeURIComponent(query);
+
+  const looksLikeUrl = (value: string): boolean => {
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return true;
+    if (/^(about|file|data|javascript):/i.test(value)) return true;
+    if (/^localhost(:\d+)?([/?#]|$)/i.test(value)) return true;
+    if (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#]|$)/.test(value)) return true;
+    return /^[^\s]+\.[^\s]{2,}([/?#].*)?$/i.test(value);
+  };
+
+  const resolveAddressInput = (value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed) return trimmed;
+    if (searchEngine() !== "none" && !looksLikeUrl(trimmed)) {
+      return buildSearchUrl(trimmed);
+    }
+    return trimmed;
+  };
 
   const [pageDiff, setPageDiff] = createSignal<PageDiff | null>(null);
   const [diffExpanded, setDiffExpanded] = createSignal(false);
@@ -127,30 +153,12 @@ const AddressBar: Component<{
     await window.vessel.ui.openSidebarTab("diff");
   };
 
-  const formatRelativeTime = (isoDate: string): string => {
-    const diff = Date.now() - new Date(isoDate).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    return new Date(isoDate).toLocaleDateString();
-  };
-
-  const formatElapsed = (startIso: string, endIso: string): string => {
-    const elapsedMs = Math.max(
-      0,
-      new Date(endIso).getTime() - new Date(startIso).getTime(),
-    );
-    const secs = Math.round(elapsedMs / 1000);
-    if (secs < 60) return `${secs}s`;
-    const mins = Math.round(secs / 60);
-    if (mins < 60) return `${mins}m`;
-    const hours = Math.round(mins / 60);
-    return `${hours}h`;
-  };
+  const getChangeKindLabel = (kind: PageDiff["changes"][number]["kind"]) =>
+    kind === "added"
+      ? "Added"
+      : kind === "removed"
+        ? "Removed"
+        : "Changed";
 
   createEffect(() => {
     if (isPrivateWindow) return;
@@ -169,11 +177,18 @@ const AddressBar: Component<{
     });
   });
 
+  const syncInputValueFromActiveTab = () => {
+    const tab = activeTab();
+    if (!tab) return;
+    setInputValue(tab.url === "about:blank" ? "" : tab.url);
+  };
+
   // Sync URL from active tab
   createEffect(() => {
     const tab = activeTab();
-    if (tab && !inputRef?.matches(":focus")) {
-      setInputValue(tab.url === "about:blank" ? "" : tab.url);
+    const inputHasFocus = inputRef && document.activeElement === inputRef;
+    if (tab && !hasEditedAddress() && !inputHasFocus) {
+      syncInputValueFromActiveTab();
       setShowSuggestions(false);
       setSelectedIndex(-1);
     }
@@ -262,12 +277,51 @@ const AddressBar: Component<{
     });
   });
 
-  const selectSuggestion = (url: string) => {
-    setInputValue(url);
+  const clearAddressBlurTimer = () => {
+    if (!addressBlurTimer) return;
+    clearTimeout(addressBlurTimer);
+    addressBlurTimer = null;
+  };
+
+  const closeAddressSuggestions = () => {
     setShowSuggestions(false);
     setSelectedIndex(-1);
+  };
+
+  const commitAddressNavigation = (url: string) => {
+    clearAddressBlurTimer();
+    setHasEditedAddress(false);
+    skipNextAddressBlurSync = true;
     navigate(url);
     inputRef?.blur();
+    closeAddressSuggestions();
+  };
+
+  const cancelAddressEditing = () => {
+    clearAddressBlurTimer();
+    setHasEditedAddress(false);
+    syncInputValueFromActiveTab();
+    inputRef?.blur();
+    closeAddressSuggestions();
+  };
+
+  const scheduleAddressBlurReset = () => {
+    clearAddressBlurTimer();
+    addressBlurTimer = setTimeout(() => {
+      setHasEditedAddress(false);
+      if (skipNextAddressBlurSync) {
+        skipNextAddressBlurSync = false;
+      } else {
+        syncInputValueFromActiveTab();
+      }
+      closeAddressSuggestions();
+      addressBlurTimer = null;
+    }, 150);
+  };
+
+  const selectSuggestion = (url: string) => {
+    setInputValue(url);
+    commitAddressNavigation(url);
   };
 
   const handleSubmit = (e: Event) => {
@@ -278,11 +332,7 @@ const AddressBar: Component<{
       selectSuggestion(items[idx].url);
     } else {
       const val = inputValue().trim();
-      if (val) {
-        navigate(val);
-        inputRef?.blur();
-        setShowSuggestions(false);
-      }
+      if (val) commitAddressNavigation(resolveAddressInput(val));
     }
   };
 
@@ -304,10 +354,11 @@ const AddressBar: Component<{
       }
     } else if (e.key === "Escape") {
       if (showSuggestions()) {
-        setShowSuggestions(false);
-        setSelectedIndex(-1);
+        syncInputValueFromActiveTab();
+        setHasEditedAddress(false);
+        closeAddressSuggestions();
       } else {
-        inputRef?.blur();
+        cancelAddressEditing();
       }
     }
   };
@@ -436,11 +487,13 @@ const AddressBar: Component<{
             type="text"
             value={inputValue()}
             onInput={(e) => {
+              setHasEditedAddress(true);
               setInputValue(e.currentTarget.value);
               setShowSuggestions(true);
               setSelectedIndex(-1);
             }}
             onFocus={(e) => {
+              clearAddressBlurTimer();
               e.currentTarget.select();
               const query = inputValue().trim();
               if (query.length >= 2) setShowSuggestions(true);
@@ -448,10 +501,7 @@ const AddressBar: Component<{
             onKeyDown={handleInputKeyDown}
             onBlur={() => {
               // Delay to allow click on suggestion
-              setTimeout(() => {
-                setShowSuggestions(false);
-                setSelectedIndex(-1);
-              }, 150);
+              scheduleAddressBlurReset();
             }}
             placeholder="Search or enter URL"
             spellcheck={false}
@@ -547,7 +597,10 @@ const AddressBar: Component<{
           <div class="page-diff-popup-header">
             <div class="page-diff-popup-header-copy">
               <span>
-                What changed since {formatRelativeTime(pageDiff()!.oldSnapshot.capturedAt)}
+                Compared with your last visit
+              </span>
+              <span class="page-diff-burst-meta">
+                Previous snapshot from {formatRelativeTime(pageDiff()!.oldSnapshot.capturedAt)}
               </span>
               <Show
                 when={
@@ -558,7 +611,7 @@ const AddressBar: Component<{
               >
                 <span class="page-diff-burst-meta">
                   Updated {pageDiff()!.burstCount} times over{" "}
-                  {formatElapsed(
+                  {formatElapsedTime(
                     pageDiff()!.firstDetectedAt!,
                     pageDiff()!.lastDetectedAt!,
                   )}
@@ -579,14 +632,30 @@ const AddressBar: Component<{
           </div>
           <Show when={pageDiff()!.recentBursts?.length && (pageDiff()!.recentBursts?.length || 0) > 1}>
             <div class="page-diff-burst-history">
-              <div class="page-diff-burst-history-label">Changed recently</div>
+              <div class="page-diff-burst-history-label">Recent detections</div>
               <For each={pageDiff()!.recentBursts}>
-                {(burst) => (
-                  <div class="page-diff-burst-row">
+                {(burst, i) => (
+                  <div
+                    class="page-diff-burst-row"
+                    classList={{ latest: i() === 0 }}
+                  >
                     <span class="page-diff-burst-time">
-                      {formatRelativeTime(burst.detectedAt)}
+                      {i() === 0 ? "Latest" : formatRelativeTime(burst.detectedAt)}
                     </span>
-                    <span class="page-diff-burst-summary">{burst.summary}</span>
+                    <span class="page-diff-burst-summary">
+                      <For each={parseDiffSummaryParts(burst.summary)}>
+                        {(part) => (
+                          <span class="page-diff-burst-summary-part">
+                            <Show when={part.section}>
+                              <span class="page-diff-burst-summary-section">
+                                {part.section}
+                              </span>
+                            </Show>
+                            <span>{part.text}</span>
+                          </span>
+                        )}
+                      </For>
+                    </span>
                   </div>
                 )}
               </For>
@@ -596,9 +665,14 @@ const AddressBar: Component<{
             {(change) => (
               <div class={`page-diff-item page-diff-${change.kind}`}>
                 <div class="page-diff-item-header">
-                  <span class="page-diff-section">
-                    {formatSectionLabel(change.section)}
-                  </span>
+                  <div class="page-diff-badges">
+                    <span class="page-diff-kind">
+                      {getChangeKindLabel(change.kind)}
+                    </span>
+                    <span class="page-diff-section">
+                      {formatSectionLabel(change.section)}
+                    </span>
+                  </div>
                   <span class="page-diff-summary">{change.summary}</span>
                 </div>
                 <Show when={change.before || change.after}>

@@ -28,6 +28,35 @@ export const TAB_GROUP_COLOR_LABELS: Record<TabGroupColor, string> = {
   gray: "Gray",
 };
 
+export interface DownloadRecord {
+  id: string;
+  filename: string;
+  savePath: string;
+  url?: string;
+  mimeType?: string;
+  totalBytes: number;
+  receivedBytes: number;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  startedAt: string;
+  updatedAt: string;
+}
+
+export interface PermissionRecord {
+  origin: string;
+  permission: string;
+  decision: "allow" | "deny";
+  updatedAt: string;
+}
+
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  checkedAt: string;
+  releaseUrl?: string;
+  error?: string;
+}
+
 export interface TabState {
   id: string;
   title: string;
@@ -430,6 +459,7 @@ export interface UIState {
 export type ProviderId =
   | "anthropic"
   | "openai"
+  | "openai_codex"
   | "openrouter"
   | "ollama"
   | "llama_cpp"
@@ -438,12 +468,15 @@ export type ProviderId =
   | "google"
   | "custom";
 
+export type ReasoningEffortLevel = "off" | "low" | "medium" | "high" | "max";
+
 export interface ProviderConfig {
   id: ProviderId;
   apiKey: string;
   hasApiKey?: boolean;
   model: string;
   baseUrl?: string;
+  reasoningEffort?: ReasoningEffortLevel;
 }
 
 export interface ProviderMeta {
@@ -452,10 +485,24 @@ export interface ProviderMeta {
   defaultModel: string;
   models: string[];
   requiresApiKey: boolean;
+  type?: "direct_sdk" | "compatible" | "codex_oauth";
   defaultBaseUrl?: string;
   apiKeyPlaceholder: string;
   apiKeyHint: string;
 }
+
+export interface CodexOAuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  idToken: string;
+  /** API-key-style token obtained by exchanging the ChatGPT id_token for openai-api-key. */
+  apiKey?: string;
+  expiresAt: number;       // epoch ms
+  accountId: string;       // chatgpt_account_id from JWT
+  accountEmail?: string;
+}
+
+export type CodexAuthStatus = "idle" | "waiting" | "exchanging" | "connected" | "error";
 
 export interface ProviderModelsResult {
   ok: boolean;

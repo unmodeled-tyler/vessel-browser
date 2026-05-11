@@ -1,3 +1,29 @@
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import type { Tab } from "../tabs/tab";
+import type { WebContents } from "electron";
+
+const trustedIpcSenderIds = new Set<number>();
+
+export function registerTrustedIpcSender(wc: WebContents): void {
+  trustedIpcSenderIds.add(wc.id);
+  wc.once("destroyed", () => trustedIpcSenderIds.delete(wc.id));
+}
+
+export function assertTrustedIpcSender(
+  event: IpcMainEvent | IpcMainInvokeEvent,
+): void {
+  if (!trustedIpcSenderIds.has(event.sender.id)) {
+    throw new Error("Blocked IPC from untrusted renderer");
+  }
+}
+
+export function isManagedTabIpcSender(
+  event: IpcMainEvent,
+  tabManager: { findTabByWebContentsId(webContentsId: number): unknown },
+): boolean {
+  return Boolean(tabManager.findTabByWebContentsId(event.sender.id));
+}
+
 export function assertString(
   value: unknown,
   name: string,
@@ -28,9 +54,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function isValidEmail(value: string): boolean {
   return EMAIL_RE.test(value.trim());
 }
-
-import type { Tab } from "../tabs/tab";
-import type { WebContents } from "electron";
 
 export interface ActiveTabInfo {
   tab: Tab;

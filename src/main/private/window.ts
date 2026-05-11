@@ -9,6 +9,7 @@ import { createLogger } from "../../shared/logger";
 import type { TabGroupColor } from "../../shared/types";
 import { CHROME_HEIGHT } from "../window";
 import { resolveRendererFile } from "../startup/renderer";
+import { loadTrustedAppURL } from "../network/url-safety";
 import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
 import { createFindInPageBridge } from "../tabs/find-bridge";
 
@@ -50,7 +51,7 @@ function loadPrivateRenderer(chromeView: WebContentsView): void {
     const url = new URL(devUrl);
     url.searchParams.set("view", "chrome");
     url.searchParams.set("private", "1");
-    chromeView.webContents.loadURL(url.toString());
+    void loadTrustedAppURL(chromeView.webContents, url.toString());
   } else {
     chromeView.webContents.loadFile(resolveRendererFile(), {
       query: { view: "chrome", private: "1" },

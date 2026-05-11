@@ -1,6 +1,6 @@
 import { ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
-import { assertString, assertOptionalString } from "./common";
+import { assertString, assertOptionalString, assertTrustedIpcSender } from "./common";
 import * as vault from "../vault/human-vault";
 import type { HumanCredentialEntry } from "../../shared/types";
 
@@ -27,12 +27,14 @@ function normalizeTags(value: unknown): string[] | undefined {
 }
 
 export function registerHumanVaultHandlers(): void {
-  ipcMain.handle(Channels.HUMAN_VAULT_LIST, (_, domain?: string) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_LIST, (event, domain?: string) => {
+    assertTrustedIpcSender(event);
     if (domain !== undefined) assertString(domain, "domain");
     return domain ? vault.findForDomain(domain) : vault.listEntries();
   });
 
-  ipcMain.handle(Channels.HUMAN_VAULT_GET, (_, id: string) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_GET, (event, id: string) => {
+    assertTrustedIpcSender(event);
     assertString(id, "id");
     return vault.getEntrySafe(id);
   });
@@ -40,7 +42,7 @@ export function registerHumanVaultHandlers(): void {
   ipcMain.handle(
     Channels.HUMAN_VAULT_SAVE,
     (
-      _,
+      event,
       input: {
         title: string;
         url: string;
@@ -52,6 +54,7 @@ export function registerHumanVaultHandlers(): void {
         notes?: string;
       },
     ) => {
+      assertTrustedIpcSender(event);
       if (!input || typeof input !== "object") {
         throw new Error("Invalid credential entry");
       }
@@ -86,7 +89,7 @@ export function registerHumanVaultHandlers(): void {
   ipcMain.handle(
     Channels.HUMAN_VAULT_UPDATE,
     (
-      _,
+      event,
       id: string,
       updates: Partial<{
         title: string;
@@ -99,6 +102,7 @@ export function registerHumanVaultHandlers(): void {
         notes: string;
       }>,
     ) => {
+      assertTrustedIpcSender(event);
       assertString(id, "id");
       if (!updates || typeof updates !== "object") {
         throw new Error("Invalid updates");
@@ -141,12 +145,14 @@ export function registerHumanVaultHandlers(): void {
     },
   );
 
-  ipcMain.handle(Channels.HUMAN_VAULT_REMOVE, (_, id: string) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_REMOVE, (event, id: string) => {
+    assertTrustedIpcSender(event);
     assertString(id, "id");
     return vault.removeEntry(id);
   });
 
-  ipcMain.handle(Channels.HUMAN_VAULT_AUDIT_LOG, (_, limit?: number) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_AUDIT_LOG, (event, limit?: number) => {
+    assertTrustedIpcSender(event);
     return vault.readAuditLog(limit);
   });
 }

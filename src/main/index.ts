@@ -20,6 +20,7 @@ import { startBackgroundRevalidation, stopBackgroundRevalidation } from "./premi
 import { startTelemetry, stopTelemetry } from "./telemetry/posthog";
 import * as bookmarkManager from "./bookmarks/manager";
 import * as historyManager from "./history/manager";
+import { installPermissionHandler } from "./security/permissions";
 import {
   getRuntimeHealth,
   initializeRuntimeHealth,
@@ -195,7 +196,6 @@ async function bootstrap(): Promise<void> {
     revealMainWindow();
   }, 8000);
 
-
   const { chromeView, sidebarView, devtoolsPanelView, tabManager } = windowState;
   runtime = new AgentRuntime(tabManager);
   installAdBlocking(tabManager);
@@ -274,6 +274,7 @@ async function bootstrap(): Promise<void> {
   });
 
   installDownloadHandler(chromeView);
+  installPermissionHandler();
   startBackgroundRevalidation();
   startTelemetry();
 

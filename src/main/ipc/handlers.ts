@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
 import { generateReaderHTML } from "../content/reader-mode";
@@ -8,7 +9,7 @@ import {
   setSetting,
   SETTABLE_KEYS,
 } from "../config/settings";
-import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, type WindowState } from "../window";
+import { layoutViews, resizeSidebarViews, MIN_DEVTOOLS_PANEL, MAX_DEVTOOLS_PANEL, CHROME_HEIGHT, type WindowState } from "../window";
 import {
   getRuntimeHealth,
   onRuntimeHealthChange,
@@ -32,7 +33,7 @@ import type {
   type ClearDataOptions,
 } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
-import { getErrorMessage } from "../../shared/result";
+import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
 import {
   highlightOnPage,
@@ -42,7 +43,7 @@ import {
   clearAllHighlightElements,
 } from "../highlights/inject";
 import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlights/capture";
-import { startMcpServer, stopMcpServer } from "../mcp/server";
+import { regenerateMcpAuthToken, startMcpServer, stopMcpServer } from "../mcp/server";
 import {
   getInstalledKits,
   installKitFromFile,
@@ -52,7 +53,9 @@ import { registerScheduleHandlers, getScheduledKitIds } from "../automation/sche
 import {
   assertNumber,
   assertString,
+  assertTrustedIpcSender,
   getActiveTabInfo,
+  registerTrustedIpcSender,
   type SendToRendererViews,
 } from "./common";
 import { registerAutofillHandlers } from "./autofill";
@@ -71,6 +74,12 @@ import { registerHistoryHandlers } from "./history";
 import { registerPremiumHandlers } from "./premium";
 import { registerSessionHandlers } from "./sessions";
 import { registerSecurityHandlers } from "./security";
+import { registerCodexHandlers } from "./codex";
+import { clearByTimeRange } from "../history/manager";
+import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
+import { clearPermissions, clearPermissionsForOrigin, listPermissions, setPermissionBroadcaster } from "../security/permissions";
+import { checkForUpdates, openUpdateDownload } from "../updates/checker";
+import { loadInternalDataURL, loadPermittedNavigationURL } from "../network/url-safety";
 
 let activeChatProvider: AIProvider | null = null;
 const logger = createLogger("IPC");
@@ -114,6 +123,13 @@ export function registerIpcHandlers(
   runtime: AgentRuntime,
 ): void {
   const { tabManager, chromeView, sidebarView, devtoolsPanelView, mainWindow } = windowState;
+  registerTrustedIpcSender(chromeView.webContents);
+  registerTrustedIpcSender(sidebarView.webContents);
+  registerTrustedIpcSender(devtoolsPanelView.webContents);
+
+  const requireTrusted = (event: IpcMainEvent | IpcMainInvokeEvent) => {
+    assertTrustedIpcSender(event);
+  };
 
   // --- Research Desk ---
   let researchOrchestrator: ResearchOrchestrator | null = null;
@@ -142,15 +158,20 @@ export function registerIpcHandlers(
   };
 
   // Private browsing
-  ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, () => {
+  ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, (event) => {
+    requireTrusted(event);
     createPrivateWindow();
   });
 
-  ipcMain.handle(Channels.OPEN_NEW_WINDOW, () => {
+  ipcMain.handle(Channels.OPEN_NEW_WINDOW, (event) => {
+    requireTrusted(event);
     createSecondaryWindow();
   });
 
-  ipcMain.handle(Channels.IS_PRIVATE_MODE, () => false);
+  ipcMain.handle(Channels.IS_PRIVATE_MODE, (event) => {
+    requireTrusted(event);
+    return false;
+  });
 
   let sidebarResizeRecoveryTimer: NodeJS.Timeout | null = null;
   let sidebarResizeActive = false;
@@ -247,44 +268,52 @@ export function registerIpcHandlers(
 
   // --- Tab handlers ---
 
-  ipcMain.handle(Channels.TAB_CREATE, (_, url?: string) => {
+  ipcMain.handle(Channels.TAB_CREATE, (event, url?: string) => {
+    requireTrusted(event);
     const id = tabManager.createTab(url || loadSettings().defaultUrl);
     layoutViews(windowState);
     return id;
   });
 
-  ipcMain.handle(Channels.TAB_CLOSE, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_CLOSE, (event, id: string) => {
+    requireTrusted(event);
     tabManager.closeTab(id);
     layoutViews(windowState);
   });
 
-  ipcMain.handle(Channels.TAB_SWITCH, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_SWITCH, (event, id: string) => {
+    requireTrusted(event);
     tabManager.switchTab(id);
     layoutViews(windowState);
   });
 
   ipcMain.handle(
     Channels.TAB_NAVIGATE,
-    (_, id: string, url: string, postBody?: Record<string, string>) => {
+    (event, id: string, url: string, postBody?: Record<string, string>) => {
+      requireTrusted(event);
       assertString(id, "tabId");
       assertString(url, "url");
       return tabManager.navigateTab(id, url, postBody);
     },
   );
 
-  ipcMain.handle(Channels.TAB_BACK, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_BACK, (event, id: string) => {
+    requireTrusted(event);
     tabManager.goBack(id);
   });
 
-  ipcMain.handle(Channels.TAB_FORWARD, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_FORWARD, (event, id: string) => {
+    requireTrusted(event);
     tabManager.goForward(id);
   });
 
-  ipcMain.handle(Channels.TAB_RELOAD, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_RELOAD, (event, id: string) => {
+    requireTrusted(event);
     tabManager.reloadTab(id);
   });
 
-  ipcMain.handle(Channels.TAB_TOGGLE_AD_BLOCK, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_TOGGLE_AD_BLOCK, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     const tab = tabManager.getTab(id);
     if (!tab) return null;
@@ -293,107 +322,128 @@ export function registerIpcHandlers(
     return newState;
   });
 
-  ipcMain.handle(Channels.TAB_ZOOM_IN, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_ZOOM_IN, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     tabManager.zoomIn(id);
   });
 
-  ipcMain.handle(Channels.TAB_ZOOM_OUT, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_ZOOM_OUT, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     tabManager.zoomOut(id);
   });
 
-  ipcMain.handle(Channels.TAB_ZOOM_RESET, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_ZOOM_RESET, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     tabManager.zoomReset(id);
   });
 
-  ipcMain.handle(Channels.TAB_REOPEN_CLOSED, () => {
+  ipcMain.handle(Channels.TAB_REOPEN_CLOSED, (event) => {
+    requireTrusted(event);
     const id = tabManager.reopenClosedTab();
     if (id) layoutViews(windowState);
     return id;
   });
 
-  ipcMain.handle(Channels.TAB_DUPLICATE, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_DUPLICATE, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     const newId = tabManager.duplicateTab(id);
     if (newId) layoutViews(windowState);
     return newId;
   });
 
-  ipcMain.handle(Channels.TAB_PIN, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_PIN, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     tabManager.pinTab(id);
   });
 
-  ipcMain.handle(Channels.TAB_UNPIN, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_UNPIN, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     tabManager.unpinTab(id);
   });
 
-  ipcMain.handle(Channels.TAB_GROUP_CREATE, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_GROUP_CREATE, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     return tabManager.createGroupFromTab(id);
   });
 
-  ipcMain.handle(Channels.TAB_GROUP_ADD_TAB, (_, id: string, groupId: string) => {
+  ipcMain.handle(Channels.TAB_GROUP_ADD_TAB, (event, id: string, groupId: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     assertString(groupId, "groupId");
     tabManager.assignTabToGroup(id, groupId);
   });
 
-  ipcMain.handle(Channels.TAB_GROUP_REMOVE_TAB, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_GROUP_REMOVE_TAB, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     tabManager.removeTabFromGroup(id);
   });
 
-  ipcMain.handle(Channels.TAB_GROUP_TOGGLE_COLLAPSED, (_, groupId: string) => {
+  ipcMain.handle(Channels.TAB_GROUP_TOGGLE_COLLAPSED, (event, groupId: string) => {
+    requireTrusted(event);
     assertString(groupId, "groupId");
     return tabManager.toggleGroupCollapsed(groupId);
   });
 
   ipcMain.handle(
     Channels.TAB_GROUP_SET_COLOR,
-    (_, groupId: string, color: TabGroupColor) => {
+    (event, groupId: string, color: TabGroupColor) => {
+      requireTrusted(event);
       assertString(groupId, "groupId");
       assertString(color, "color");
       tabManager.setGroupColor(groupId, color);
     },
   );
 
-  ipcMain.handle(Channels.TAB_TOGGLE_MUTE, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_TOGGLE_MUTE, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     return tabManager.toggleMuted(id);
   });
 
-  ipcMain.handle(Channels.TAB_PRINT, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_PRINT, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     tabManager.printTab(id);
   });
 
-  ipcMain.handle(Channels.TAB_PRINT_TO_PDF, (_, id: string) => {
+  ipcMain.handle(Channels.TAB_PRINT_TO_PDF, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     return tabManager.saveTabAsPdf(id);
   });
 
-  ipcMain.on(Channels.TAB_CONTEXT_MENU, (_event, id: string) => {
+  ipcMain.on(Channels.TAB_CONTEXT_MENU, (event, id: string) => {
+    requireTrusted(event);
     assertString(id, "id");
     showTabContextMenu(tabManager, id, mainWindow, () => layoutViews(windowState));
   });
 
-  ipcMain.on(Channels.TAB_GROUP_CONTEXT_MENU, (_event, groupId: string) => {
+  ipcMain.on(Channels.TAB_GROUP_CONTEXT_MENU, (event, groupId: string) => {
+    requireTrusted(event);
     assertString(groupId, "groupId");
     showGroupContextMenu(tabManager, groupId, mainWindow);
   });
 
-  ipcMain.handle(Channels.TAB_STATE_GET, () => ({
-    tabs: tabManager.getAllStates(),
-    activeId: tabManager.getActiveTabId() || "",
-  }));
+  ipcMain.handle(Channels.TAB_STATE_GET, (event) => {
+    requireTrusted(event);
+    return {
+      tabs: tabManager.getAllStates(),
+      activeId: tabManager.getActiveTabId() || "",
+    };
+  });
 
   // --- AI handlers ---
 
-  ipcMain.handle(Channels.AI_QUERY, async (_, query: string, history?: AIMessage[]) => {
+  ipcMain.handle(Channels.AI_QUERY, async (event, query: string, history?: AIMessage[]) => {
+    requireTrusted(event);
     const settings = loadSettings();
     const chatConfig = settings.chatProvider;
 
@@ -444,11 +494,13 @@ export function registerIpcHandlers(
     return { accepted: true as const };
   });
 
-  ipcMain.handle(Channels.AI_CANCEL, () => {
+  ipcMain.handle(Channels.AI_CANCEL, (event) => {
+    requireTrusted(event);
     activeChatProvider?.cancel();
   });
 
-  ipcMain.handle(Channels.AI_FETCH_MODELS, async (_, config: unknown) => {
+  ipcMain.handle(Channels.AI_FETCH_MODELS, async (event, config: unknown) => {
+    requireTrusted(event);
     try {
       if (!config || typeof config !== "object" || !("id" in config)) {
         return errorResult("Invalid provider configuration", { models: [] });
@@ -463,13 +515,15 @@ export function registerIpcHandlers(
 
   // --- Content handlers ---
 
-  ipcMain.handle(Channels.CONTENT_EXTRACT, async () => {
+  ipcMain.handle(Channels.CONTENT_EXTRACT, async (event) => {
+    requireTrusted(event);
     const activeTab = tabManager.getActiveTab();
     if (!activeTab) return null;
     return extractContent(activeTab.view.webContents);
   });
 
-  ipcMain.handle(Channels.READER_MODE_TOGGLE, async () => {
+  ipcMain.handle(Channels.READER_MODE_TOGGLE, async (event) => {
+    requireTrusted(event);
     const activeTab = tabManager.getActiveTab();
     if (!activeTab) return;
 
@@ -477,14 +531,15 @@ export function registerIpcHandlers(
       const originalUrl = activeTab.readerOriginalUrl;
       activeTab.setReaderMode(false);
       if (originalUrl) {
-        activeTab.view.webContents.loadURL(originalUrl);
+        void loadPermittedNavigationURL(activeTab.view.webContents, originalUrl);
       }
     } else {
       const originalUrl = activeTab.state.url;
       const content = await extractContent(activeTab.view.webContents);
       const html = generateReaderHTML(content);
       activeTab.setReaderMode(true, originalUrl);
-      activeTab.view.webContents.loadURL(
+      void loadInternalDataURL(
+        activeTab.view.webContents,
         `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
       );
     }
@@ -492,7 +547,8 @@ export function registerIpcHandlers(
 
   // --- UI handlers ---
 
-  ipcMain.handle(Channels.SIDEBAR_TOGGLE, () => {
+  ipcMain.handle(Channels.SIDEBAR_TOGGLE, (event) => {
+    requireTrusted(event);
     windowState.uiState.sidebarOpen = !windowState.uiState.sidebarOpen;
     layoutViews(windowState);
     return {
@@ -501,7 +557,8 @@ export function registerIpcHandlers(
     };
   });
 
-  ipcMain.handle(Channels.SIDEBAR_NAVIGATE, (_, tab: string) => {
+  ipcMain.handle(Channels.SIDEBAR_NAVIGATE, (event, tab: string) => {
+    requireTrusted(event);
     assertString(tab, "tab");
     if (!windowState.uiState.sidebarOpen) {
       windowState.uiState.sidebarOpen = true;
@@ -516,12 +573,13 @@ export function registerIpcHandlers(
     };
   });
 
-  ipcMain.handle(Channels.SIDEBAR_RESIZE_START, () => {
+  ipcMain.handle(Channels.SIDEBAR_RESIZE_START, (event) => {
+    requireTrusted(event);
     sidebarResizeActive = true;
     clearSidebarResizeRecoveryTimer();
     // Position sidebar below chrome bar (like normal layout) but expand width for pointer capture
     const [width, height] = windowState.mainWindow.getContentSize();
-    const chromeHeight = windowState.uiState.focusMode ? 0 : 110; // CHROME_HEIGHT
+    const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
     const sidebarWidth = windowState.uiState.sidebarWidth;
     const resizeHandleOverlap = 6;
     windowState.sidebarView.setBounds({
@@ -533,7 +591,8 @@ export function registerIpcHandlers(
     scheduleSidebarResizeRecovery();
   });
 
-  ipcMain.handle(Channels.SIDEBAR_RESIZE, (_, width: number) => {
+  ipcMain.handle(Channels.SIDEBAR_RESIZE, (event, width: number) => {
+    requireTrusted(event);
     assertNumber(width, "width");
     const clamped = Math.max(240, Math.min(800, Math.round(width)));
     windowState.uiState.sidebarWidth = clamped;
@@ -543,7 +602,8 @@ export function registerIpcHandlers(
     return clamped;
   });
 
-  ipcMain.handle(Channels.SIDEBAR_RESIZE_COMMIT, () => {
+  ipcMain.handle(Channels.SIDEBAR_RESIZE_COMMIT, (event) => {
+    requireTrusted(event);
     sidebarResizeActive = false;
     clearSidebarResizeRecoveryTimer();
     setSetting("sidebarWidth", windowState.uiState.sidebarWidth);
@@ -552,7 +612,8 @@ export function registerIpcHandlers(
 
   ipcMain.on(
     Channels.RENDERER_VIEW_READY,
-    (_event, view: "chrome" | "sidebar" | "devtools") => {
+    (event, view: "chrome" | "sidebar" | "devtools") => {
+      requireTrusted(event);
       if (view !== "sidebar") return;
       if (!windowState.uiState.sidebarOpen) {
         windowState.uiState.sidebarOpen = true;
@@ -561,27 +622,42 @@ export function registerIpcHandlers(
     },
   );
 
-  ipcMain.handle(Channels.FOCUS_MODE_TOGGLE, () => {
+  ipcMain.handle(Channels.FOCUS_MODE_TOGGLE, (event) => {
+    requireTrusted(event);
     windowState.uiState.focusMode = !windowState.uiState.focusMode;
     layoutViews(windowState);
     return windowState.uiState.focusMode;
   });
 
-  ipcMain.handle(Channels.SETTINGS_VISIBILITY, (_, open: boolean) => {
+  ipcMain.handle(Channels.SETTINGS_VISIBILITY, (event, open: boolean) => {
+    requireTrusted(event);
     windowState.uiState.settingsOpen = open;
+    if (open) {
+      windowState.uiState.sidebarOpen = false;
+    }
     layoutViews(windowState);
     return windowState.uiState.settingsOpen;
   });
 
   // --- Settings handlers ---
 
-  ipcMain.handle(Channels.SETTINGS_GET, () => {
+  ipcMain.handle(Channels.SETTINGS_GET, (event) => {
+    requireTrusted(event);
     return getRendererSettings();
   });
 
-  ipcMain.handle(Channels.SETTINGS_HEALTH_GET, () => getRuntimeHealth());
+  ipcMain.handle(Channels.SETTINGS_HEALTH_GET, (event) => {
+    requireTrusted(event);
+    return getRuntimeHealth();
+  });
 
-  ipcMain.handle(Channels.SETTINGS_SET, async (_, key: string, value: unknown) => {
+  ipcMain.handle(Channels.MCP_REGENERATE_TOKEN, (event) => {
+    requireTrusted(event);
+    return regenerateMcpAuthToken();
+  });
+
+  ipcMain.handle(Channels.SETTINGS_SET, async (event, key: string, value: unknown) => {
+    requireTrusted(event);
     assertString(key, "key");
     if (!SETTABLE_KEYS.has(key)) {
       throw new Error(`Unknown setting key: ${key}`);
@@ -612,15 +688,19 @@ export function registerIpcHandlers(
 
   // --- Agent runtime handlers ---
 
-  ipcMain.handle(Channels.AGENT_RUNTIME_GET, () => runtime.getState());
+  ipcMain.handle(Channels.AGENT_RUNTIME_GET, (event) => {
+    requireTrusted(event);
+    return runtime.getState();
+  });
 
-  ipcMain.handle(Channels.AGENT_PAUSE, () => runtime.pause());
+  ipcMain.handle(Channels.AGENT_PAUSE, (event) => { requireTrusted(event); return runtime.pause(); });
 
-  ipcMain.handle(Channels.AGENT_RESUME, () => runtime.resume());
+  ipcMain.handle(Channels.AGENT_RESUME, (event) => { requireTrusted(event); return runtime.resume(); });
 
   ipcMain.handle(
     Channels.AGENT_SET_APPROVAL_MODE,
-    (_, mode: ApprovalMode): AgentRuntimeState => {
+    (event, mode: ApprovalMode): AgentRuntimeState => {
+      requireTrusted(event);
       assertString(mode, "mode");
       if (!VALID_APPROVAL_MODES.includes(mode as ValidApprovalMode)) {
         throw new Error(`Invalid approval mode: ${mode}`);
@@ -633,34 +713,46 @@ export function registerIpcHandlers(
 
   ipcMain.handle(
     Channels.AGENT_APPROVAL_RESOLVE,
-    (_, approvalId: string, approved: boolean) =>
-      runtime.resolveApproval(approvalId, approved),
+    (event, approvalId: string, approved: boolean) => {
+      requireTrusted(event);
+      return runtime.resolveApproval(approvalId, approved);
+    },
   );
 
   ipcMain.handle(
     Channels.AGENT_CHECKPOINT_CREATE,
-    (_, name?: string, note?: string) => runtime.createCheckpoint(name, note),
+    (event, name?: string, note?: string) => {
+      requireTrusted(event);
+      return runtime.createCheckpoint(name, note);
+    },
   );
 
-  ipcMain.handle(Channels.AGENT_CHECKPOINT_RESTORE, (_, checkpointId: string) =>
-    runtime.restoreCheckpoint(checkpointId),
-  );
+  ipcMain.handle(Channels.AGENT_CHECKPOINT_RESTORE, (event, checkpointId: string) => {
+    requireTrusted(event);
+    return runtime.restoreCheckpoint(checkpointId);
+  });
 
-  ipcMain.handle(Channels.AGENT_CHECKPOINT_UPDATE_NOTE, (_, checkpointId: string, note?: string) =>
-    runtime.updateCheckpointNote(checkpointId, note || ""),
-  );
+  ipcMain.handle(Channels.AGENT_CHECKPOINT_UPDATE_NOTE, (event, checkpointId: string, note?: string) => {
+    requireTrusted(event);
+    return runtime.updateCheckpointNote(checkpointId, note || "");
+  });
 
-  ipcMain.handle(Channels.AGENT_UNDO_LAST_ACTION, () =>
-    runtime.undoLastAction(),
-  );
+  ipcMain.handle(Channels.AGENT_UNDO_LAST_ACTION, (event) => {
+    requireTrusted(event);
+    return runtime.undoLastAction();
+  });
 
-  ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (_, note?: string) =>
-    runtime.captureSession(note),
-  );
+  ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (event, note?: string) => {
+    requireTrusted(event);
+    return runtime.captureSession(note);
+  });
 
   ipcMain.handle(
     Channels.AGENT_SESSION_RESTORE,
-    (_, snapshot?: SessionSnapshot | null) => runtime.restoreSession(snapshot),
+    (event, snapshot?: SessionSnapshot | null) => {
+      requireTrusted(event);
+      return runtime.restoreSession(snapshot);
+    },
   );
 
   registerBookmarkHandlers();
@@ -668,7 +760,8 @@ export function registerIpcHandlers(
   // --- Highlight capture (user Ctrl+H) ---
 
   // Handle capture from chrome keybinding (when chrome view has focus)
-  ipcMain.handle(Channels.HIGHLIGHT_CAPTURE, async () => {
+  ipcMain.handle(Channels.HIGHLIGHT_CAPTURE, async (event) => {
+    requireTrusted(event);
     try {
       const activeTab = tabManager.getActiveTab();
       if (!activeTab) {
@@ -722,11 +815,13 @@ export function registerIpcHandlers(
 
   // --- Highlight navigation ---
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_COUNT, () => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_COUNT, (event) => {
+    requireTrusted(event);
     return getActiveHighlightCountSafe();
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (_, index: number) => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (event, index: number) => {
+    requireTrusted(event);
     const info = getActiveTabInfo(tabManager);
     if (!info) return false;
     try {
@@ -737,7 +832,8 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (_, index: number) => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (event, index: number) => {
+    requireTrusted(event);
     const info = getActiveTabInfo(tabManager);
     if (!info) return false;
     try {
@@ -752,11 +848,12 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, async () => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, async (event) => {
+    requireTrusted(event);
     const info = getActiveTabInfo(tabManager);
     if (!info) return false;
     try {
-      const cleared = await clearAllHighlightElements(wc);
+      const cleared = await clearAllHighlightElements(info.wc);
       if (cleared) {
         await emitHighlightCount();
       }
@@ -771,15 +868,18 @@ export function registerIpcHandlers(
 
   const findBridge = createFindInPageBridge(tabManager, chromeView);
 
-  ipcMain.handle(Channels.FIND_IN_PAGE_START, (_, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+  ipcMain.handle(Channels.FIND_IN_PAGE_START, (event, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+    requireTrusted(event);
     return findBridge.start(text, options);
   });
 
-  ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (_, forward?: boolean) => {
+  ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (event, forward?: boolean) => {
+    requireTrusted(event);
     return findBridge.next(forward);
   });
 
-  ipcMain.handle(Channels.FIND_IN_PAGE_STOP, (_, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
+  ipcMain.handle(Channels.FIND_IN_PAGE_STOP, (event, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
+    requireTrusted(event);
     findBridge.stop(action);
   });
 
@@ -787,13 +887,15 @@ export function registerIpcHandlers(
 
   // --- DevTools panel ---
 
-  ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, () => {
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, (event) => {
+    requireTrusted(event);
     windowState.uiState.devtoolsPanelOpen = !windowState.uiState.devtoolsPanelOpen;
     layoutViews(windowState);
     return { open: windowState.uiState.devtoolsPanelOpen };
   });
 
-  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE, (_, height: number) => {
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE, (event, height: number) => {
+    requireTrusted(event);
     const clamped = Math.max(MIN_DEVTOOLS_PANEL, Math.min(MAX_DEVTOOLS_PANEL, Math.round(height)));
     windowState.uiState.devtoolsPanelHeight = clamped;
     layoutViews(windowState);
@@ -818,17 +920,22 @@ export function registerIpcHandlers(
 
   registerWindowControlHandlers(mainWindow);
 
+  registerCodexHandlers();
+
   // --- Automation kits ---
 
-  ipcMain.handle(Channels.AUTOMATION_GET_INSTALLED, () => {
+  ipcMain.handle(Channels.AUTOMATION_GET_INSTALLED, (event) => {
+    requireTrusted(event);
     return getInstalledKits();
   });
 
-  ipcMain.handle(Channels.AUTOMATION_INSTALL_FROM_FILE, async () => {
+  ipcMain.handle(Channels.AUTOMATION_INSTALL_FROM_FILE, async (event) => {
+    requireTrusted(event);
     return await installKitFromFile();
   });
 
-  ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (_event, id: unknown) => {
+  ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (event, id: unknown) => {
+    requireTrusted(event);
     assertString(id, "id");
     return uninstallKit(id, getScheduledKitIds());
   });
@@ -845,7 +952,8 @@ export function registerIpcHandlers(
 
   // --- Clear browsing data ---
 
-  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (_, options: ClearDataOptions) => {
+  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (event, options: ClearDataOptions) => {
+    requireTrusted(event);
     const { cache, cookies, history, localStorage: clearLs, timeRange } = options;
 
     // Note: cache and cookies/storage clearing ignore timeRange — Electron's
@@ -863,13 +971,48 @@ export function registerIpcHandlers(
     }
 
     if (history) {
-      historyManager.clearByTimeRange(timeRange);
+      clearByTimeRange(timeRange);
     }
   });
 
   // --- Picture-in-Picture ---
 
-  ipcMain.handle(Channels.TAB_TOGGLE_PIP, async () => {
+  setDownloadBroadcaster(sendToRendererViews);
+  setPermissionBroadcaster(sendToRendererViews);
+  ipcMain.handle(Channels.DOWNLOADS_GET, (event) => {
+    requireTrusted(event);
+    return listDownloads();
+  });
+  ipcMain.handle(Channels.DOWNLOADS_CLEAR, (event) => {
+    requireTrusted(event);
+    clearDownloads();
+    return true;
+  });
+  ipcMain.handle(Channels.DOWNLOADS_OPEN, (event, id: string) => { requireTrusted(event); return openDownload(id); });
+  ipcMain.handle(Channels.DOWNLOADS_SHOW_IN_FOLDER, (event, id: string) => { requireTrusted(event); return showDownloadInFolder(id); });
+  ipcMain.handle(Channels.PERMISSIONS_GET, (event) => {
+    requireTrusted(event);
+    return listPermissions();
+  });
+  ipcMain.handle(Channels.PERMISSIONS_CLEAR, (event) => {
+    requireTrusted(event);
+    clearPermissions();
+    return true;
+  });
+  ipcMain.handle(Channels.PERMISSIONS_CLEAR_ORIGIN, (event, origin: string) => {
+    requireTrusted(event);
+    clearPermissionsForOrigin(origin);
+    return true;
+  });
+
+  ipcMain.handle(Channels.UPDATES_CHECK, (event) => {
+    requireTrusted(event);
+    return checkForUpdates();
+  });
+  ipcMain.handle(Channels.UPDATES_OPEN_DOWNLOAD, (event) => { requireTrusted(event); return openUpdateDownload(); });
+
+  ipcMain.handle(Channels.TAB_TOGGLE_PIP, async (event) => {
+    requireTrusted(event);
     return togglePictureInPicture(tabManager);
   });
 }

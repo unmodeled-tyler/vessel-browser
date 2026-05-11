@@ -11,7 +11,12 @@ import {
 } from "../premium/manager";
 import { trackPremiumFunnel } from "../telemetry/posthog";
 import { errorResult } from "../../shared/result";
-import { assertString, isValidEmail, type SendToRendererViews } from "./common";
+import {
+  assertString,
+  assertTrustedIpcSender,
+  isValidEmail,
+  type SendToRendererViews,
+} from "./common";
 import type { TabManager } from "../tabs/tab-manager";
 
 const PREMIUM_TRACKABLE_STEPS = [
@@ -120,11 +125,13 @@ export function registerPremiumHandlers(
     }
   };
 
-  ipcMain.handle(Channels.PREMIUM_GET_STATE, () => {
+  ipcMain.handle(Channels.PREMIUM_GET_STATE, (event) => {
+    assertTrustedIpcSender(event);
     return getPremiumState();
   });
 
-  ipcMain.handle(Channels.PREMIUM_ACTIVATION_START, async (_, email: string) => {
+  ipcMain.handle(Channels.PREMIUM_ACTIVATION_START, async (event, email: string) => {
+    assertTrustedIpcSender(event);
     assertString(email, "email");
     if (!isValidEmail(email)) {
       return errorResult("Invalid email format");
@@ -139,7 +146,8 @@ export function registerPremiumHandlers(
 
   ipcMain.handle(
     Channels.PREMIUM_ACTIVATION_VERIFY,
-    async (_, email: string, code: string, challengeToken: string) => {
+    async (event, email: string, code: string, challengeToken: string) => {
+      assertTrustedIpcSender(event);
       assertString(email, "email");
       assertString(code, "code");
       assertString(challengeToken, "challengeToken");
@@ -162,7 +170,8 @@ export function registerPremiumHandlers(
     },
   );
 
-  ipcMain.handle(Channels.PREMIUM_CHECKOUT, async (_, email?: string) => {
+  ipcMain.handle(Channels.PREMIUM_CHECKOUT, async (event, email?: string) => {
+    assertTrustedIpcSender(event);
     trackPremiumFunnel("checkout_clicked");
     const result = await getCheckoutUrl(email);
     if (result.ok && result.url) {
@@ -172,21 +181,24 @@ export function registerPremiumHandlers(
     return result;
   });
 
-  ipcMain.handle(Channels.PREMIUM_RESET, () => {
+  ipcMain.handle(Channels.PREMIUM_RESET, (event) => {
+    assertTrustedIpcSender(event);
     trackPremiumFunnel("reset");
     const state = resetPremium();
     sendToRendererViews(Channels.PREMIUM_UPDATE, state);
     return state;
   });
 
-  ipcMain.handle(Channels.PREMIUM_TRACK_CONTEXT, (_, step: string) => {
+  ipcMain.handle(Channels.PREMIUM_TRACK_CONTEXT, (event, step: string) => {
+    assertTrustedIpcSender(event);
     assertString(step, "step");
     if (PREMIUM_TRACKABLE_STEPS.includes(step as PremiumTrackableStep)) {
       trackPremiumFunnel(step as PremiumTrackableStep);
     }
   });
 
-  ipcMain.handle(Channels.PREMIUM_PORTAL, async () => {
+  ipcMain.handle(Channels.PREMIUM_PORTAL, async (event) => {
+    assertTrustedIpcSender(event);
     trackPremiumFunnel("portal_opened");
     const result = await getPortalUrl();
     if (result.ok && result.url) {

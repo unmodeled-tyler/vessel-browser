@@ -4,15 +4,27 @@ import { Channels } from "../../shared/channels";
 import * as bookmarkManager from "../bookmarks/manager";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { trackBookmarkAction } from "../telemetry/posthog";
+import { assertTrustedIpcSender } from "./common";
+
+function getSafeBookmarkExportName(name: string): string {
+  const safeName = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return safeName || "folder";
+}
 
 export function registerBookmarkHandlers(): void {
-  ipcMain.handle(Channels.BOOKMARKS_GET, () => {
+  ipcMain.handle(Channels.BOOKMARKS_GET, (event) => {
+    assertTrustedIpcSender(event);
     return bookmarkManager.getState();
   });
 
   ipcMain.handle(
     Channels.FOLDER_CREATE,
-    (_, name: string, summary?: string) => {
+    (event, name: string, summary?: string) => {
+      assertTrustedIpcSender(event);
       trackBookmarkAction("folder_create");
       return bookmarkManager.createFolderWithSummary(name, summary);
     },
@@ -21,7 +33,7 @@ export function registerBookmarkHandlers(): void {
   ipcMain.handle(
     Channels.BOOKMARK_SAVE,
     (
-      _,
+      event,
       url: string,
       title: string,
       folderId?: string,
@@ -31,6 +43,7 @@ export function registerBookmarkHandlers(): void {
       keyFields?: string[],
       agentHints?: Record<string, string>,
     ) => {
+      assertTrustedIpcSender(event);
       trackBookmarkAction("save");
       const result = bookmarkManager.saveBookmarkWithPolicy(url, title, folderId, note, {
         onDuplicate: "update",
@@ -53,7 +66,7 @@ export function registerBookmarkHandlers(): void {
   ipcMain.handle(
     Channels.BOOKMARK_UPDATE,
     (
-      _,
+      event,
       id: string,
       updates: {
         title?: string;
@@ -65,19 +78,22 @@ export function registerBookmarkHandlers(): void {
         agentHints?: Record<string, string>;
       },
     ) => {
+      assertTrustedIpcSender(event);
       trackBookmarkAction("save");
       return bookmarkManager.updateBookmark(id, updates);
     },
   );
 
-  ipcMain.handle(Channels.BOOKMARK_REMOVE, (_, id: string) => {
+  ipcMain.handle(Channels.BOOKMARK_REMOVE, (event, id: string) => {
+    assertTrustedIpcSender(event);
     trackBookmarkAction("remove");
     return bookmarkManager.removeBookmark(id);
   });
 
   ipcMain.handle(
     Channels.BOOKMARKS_EXPORT_HTML,
-    async (_, options?: { includeNotes?: boolean }) => {
+    async (event, options?: { includeNotes?: boolean }) => {
+      assertTrustedIpcSender(event);
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: "Export Bookmarks",
         defaultPath: "vessel-bookmarks.html",
@@ -97,7 +113,8 @@ export function registerBookmarkHandlers(): void {
     },
   );
 
-  ipcMain.handle(Channels.BOOKMARKS_EXPORT_JSON, async () => {
+  ipcMain.handle(Channels.BOOKMARKS_EXPORT_JSON, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: "Export Vessel Bookmark Archive",
       defaultPath: "vessel-bookmarks.json",
@@ -114,7 +131,36 @@ export function registerBookmarkHandlers(): void {
     };
   });
 
-  ipcMain.handle(Channels.BOOKMARKS_IMPORT_HTML, async () => {
+  ipcMain.handle(
+    Channels.FOLDER_EXPORT_HTML,
+    async (event, folderId: string, options?: { includeNotes?: boolean }) => {
+      assertTrustedIpcSender(event);
+      const folder = bookmarkManager.getFolder(folderId);
+      if (!folder) return null;
+
+      const { canceled, filePath } = await dialog.showSaveDialog({
+        title: `Export ${folder.name}`,
+        defaultPath: `vessel-bookmarks-${getSafeBookmarkExportName(folder.name)}.html`,
+        filters: [{ name: "HTML Bookmarks", extensions: ["html"] }],
+      });
+      if (canceled || !filePath) return null;
+
+      const result = bookmarkManager.exportBookmarkFolderHtml(folderId, {
+        includeNotes: options?.includeNotes ?? true,
+      });
+      if (!result) return null;
+
+      await fs.writeFile(filePath, result.content, "utf-8");
+      trackBookmarkAction("export");
+      return {
+        filePath,
+        count: result.count,
+      };
+    },
+  );
+
+  ipcMain.handle(Channels.BOOKMARKS_IMPORT_HTML, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "Import Bookmarks",
       filters: [
@@ -128,7 +174,8 @@ export function registerBookmarkHandlers(): void {
     return bookmarkManager.importBookmarksFromHtml(content);
   });
 
-  ipcMain.handle(Channels.BOOKMARKS_IMPORT_JSON, async () => {
+  ipcMain.handle(Channels.BOOKMARKS_IMPORT_JSON, async (event) => {
+    assertTrustedIpcSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "Import Bookmarks",
       filters: [
@@ -142,14 +189,16 @@ export function registerBookmarkHandlers(): void {
     return bookmarkManager.importBookmarksFromJson(content);
   });
 
-  ipcMain.handle(Channels.FOLDER_REMOVE, (_, id: string, deleteContents?: boolean) => {
+  ipcMain.handle(Channels.FOLDER_REMOVE, (event, id: string, deleteContents?: boolean) => {
+    assertTrustedIpcSender(event);
     trackBookmarkAction("folder_remove");
     return bookmarkManager.removeFolder(id, deleteContents ?? false);
   });
 
   ipcMain.handle(
     Channels.FOLDER_RENAME,
-    (_, id: string, newName: string, summary?: string) => {
+    (event, id: string, newName: string, summary?: string) => {
+      assertTrustedIpcSender(event);
       return bookmarkManager.renameFolder(id, newName, summary);
     },
   );

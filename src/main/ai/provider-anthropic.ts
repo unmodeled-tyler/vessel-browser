@@ -1,14 +1,41 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AIProvider } from "./provider";
-import type { AIMessage } from "../../shared/types";
+import type { AIMessage, ReasoningEffortLevel } from "../../shared/types";
 import { isRichToolResult, type RichToolResult } from "./tool-result";
 import { getEffectiveMaxIterations } from "../premium/manager";
 import type { AgentToolProfile } from "./tool-profile";
 import { isClickReadLoop } from "./tool-guardrails";
 import { AGENT_STREAM_IDLE_TIMEOUT_MS } from "../config/timing";
 
+const ANTHROPIC_MAX_TOKENS = 4096;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function anthropicModelLikelySupportsThinking(model: string): boolean {
+  return /claude-(?:opus|sonnet|haiku)-4/i.test(model.trim());
+}
+
+export function toAnthropicThinkingConfig(
+  effort: ReasoningEffortLevel | undefined,
+  model: string,
+): Anthropic.ThinkingConfigParam | undefined {
+  if (!effort || effort === "off" || !anthropicModelLikelySupportsThinking(model)) {
+    return undefined;
+  }
+
+  const budgetByEffort: Record<Exclude<ReasoningEffortLevel, "off">, number> = {
+    low: 1024,
+    medium: 2048,
+    high: 3072,
+    max: 3584,
+  };
+
+  return {
+    type: "enabled",
+    budget_tokens: budgetByEffort[effort],
+  };
 }
 
 export class AnthropicProvider implements AIProvider {
@@ -16,11 +43,17 @@ export class AnthropicProvider implements AIProvider {
 
   private client: Anthropic;
   private model: string;
+  private reasoningEffort: ReasoningEffortLevel;
   private abortController: AbortController | null = null;
 
-  constructor(apiKey: string, model: string) {
+  constructor(
+    apiKey: string,
+    model: string,
+    reasoningEffort: ReasoningEffortLevel = "off",
+  ) {
     this.client = new Anthropic({ apiKey });
     this.model = model || "claude-sonnet-4-20250514";
+    this.reasoningEffort = reasoningEffort;
   }
 
   async streamQuery(
@@ -36,14 +69,16 @@ export class AnthropicProvider implements AIProvider {
       ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as Anthropic.MessageParam)),
       { role: "user", content: userMessage },
     ];
+    const thinking = toAnthropicThinkingConfig(this.reasoningEffort, this.model);
 
     try {
       const stream = this.client.messages.stream(
         {
           model: this.model,
-          max_tokens: 4096,
+          max_tokens: ANTHROPIC_MAX_TOKENS,
           system: systemPrompt,
           messages,
+          ...(thinking ? { thinking } : {}),
         },
         { signal: this.abortController.signal },
       );
@@ -81,6 +116,7 @@ export class AnthropicProvider implements AIProvider {
       ...(history ?? []).map((m) => ({ role: m.role, content: m.content } as Anthropic.MessageParam)),
       { role: "user", content: userMessage },
     ];
+    const thinking = toAnthropicThinkingConfig(this.reasoningEffort, this.model);
 
     try {
       const maxIterations = getEffectiveMaxIterations();
@@ -92,10 +128,11 @@ export class AnthropicProvider implements AIProvider {
         const stream = this.client.messages.stream(
           {
             model: this.model,
-            max_tokens: 4096,
+            max_tokens: ANTHROPIC_MAX_TOKENS,
             system: systemPrompt,
             messages,
             tools,
+            ...(thinking ? { thinking } : {}),
           },
           { signal: this.abortController.signal },
         );
@@ -178,6 +215,20 @@ export class AnthropicProvider implements AIProvider {
 
         // Build assistant message content for history
         const assistantContent: Anthropic.ContentBlockParam[] = [];
+        for (const block of finalMessage.content) {
+          if (block.type === "thinking") {
+            assistantContent.push({
+              type: "thinking",
+              thinking: block.thinking,
+              signature: block.signature,
+            });
+          } else if (block.type === "redacted_thinking") {
+            assistantContent.push({
+              type: "redacted_thinking",
+              data: block.data,
+            });
+          }
+        }
         if (textContent) {
           assistantContent.push({ type: "text", text: textContent });
         }

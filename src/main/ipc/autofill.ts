@@ -6,7 +6,7 @@ import { fillFormFields } from "../ai/page-actions";
 import * as autofillManager from "../autofill/manager";
 import { matchFields } from "../autofill/matcher";
 import type { WindowState } from "../window";
-import { assertString } from "./common";
+import { assertString, assertTrustedIpcSender } from "./common";
 
 const AUTOFILL_PROFILE_FIELDS = [
   "label",
@@ -58,28 +58,33 @@ function sanitizeAutofillUpdates(
 }
 
 export function registerAutofillHandlers(windowState: WindowState): void {
-  ipcMain.handle(Channels.AUTOFILL_LIST, () => {
+  ipcMain.handle(Channels.AUTOFILL_LIST, (event) => {
+    assertTrustedIpcSender(event);
     return autofillManager.listProfiles();
   });
 
   ipcMain.handle(
     Channels.AUTOFILL_ADD,
-    (_, profile: Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">) => {
+    (event, profile: Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">) => {
+      assertTrustedIpcSender(event);
       return autofillManager.addProfile(sanitizeAutofillProfile(profile));
     },
   );
 
-  ipcMain.handle(Channels.AUTOFILL_UPDATE, (_, id: unknown, updates: unknown) => {
+  ipcMain.handle(Channels.AUTOFILL_UPDATE, (event, id: unknown, updates: unknown) => {
+    assertTrustedIpcSender(event);
     assertString(id, "id");
     return autofillManager.updateProfile(id, sanitizeAutofillUpdates(updates));
   });
 
-  ipcMain.handle(Channels.AUTOFILL_DELETE, (_, id: unknown) => {
+  ipcMain.handle(Channels.AUTOFILL_DELETE, (event, id: unknown) => {
+    assertTrustedIpcSender(event);
     assertString(id, "id");
     return autofillManager.deleteProfile(id);
   });
 
-  ipcMain.handle(Channels.AUTOFILL_FILL, async (_, profileId: unknown) => {
+  ipcMain.handle(Channels.AUTOFILL_FILL, async (event, profileId: unknown) => {
+    assertTrustedIpcSender(event);
     assertString(profileId, "profileId");
     const profile = autofillManager.getProfile(profileId);
     if (!profile) throw new Error("Profile not found");

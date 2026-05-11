@@ -28,6 +28,13 @@
     "dist:mac:dir:signed": "npm run build:icon:mac && npm run build && electron-builder --config electron-builder.config.cjs --mac dir --publish never",
     "preview": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
     "typecheck": "tsc --noEmit",
+    "check:cleanup": "npm run typecheck && git diff --check && node scripts/check-cleanup.mjs && npm run deadcode:check",
+    "deadcode:check": "knip --include files,dependencies,unlisted,binaries,unresolved --no-progress",
+    "deadcode:exports": "knip --exports --no-progress --no-exit-code",
+    "audit:prod": "npm audit --omit=dev",
+    "audit:all": "npm audit",
+    "deps:check": "npm outdated",
+    "release:checksums": "node scripts/generate-checksums.mjs",
     "prepublishOnly": "npm run build",
     "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
     "test:mcp-proxy": "node scripts/test-mcp-stdio-proxy.mjs",
@@ -64,11 +71,12 @@
     "electron": ">=30.0.0"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.6.2",
     "c8": "^11.0.0",
-    "electron": "^41.3.0",
+    "electron": "^42.0.1",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
+    "knip": "^6.12.2",
     "linkedom": "^0.18.12",
     "lucide-solid": "^1.14.0",
     "solid-js": "^1.9.12",
@@ -77,11 +85,11 @@
     "vite-plugin-solid": "^2.11.12"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.92.0",
+    "@anthropic-ai/sdk": "^0.95.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
     "dompurify": "^3.4.2",
-    "openai": "^6.35.0",
-    "zod": "^4.4.1"
+    "openai": "^6.37.0",
+    "zod": "^4.4.3"
   }
 }
