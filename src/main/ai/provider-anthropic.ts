@@ -6,6 +6,7 @@ import { getEffectiveMaxIterations } from "../premium/manager";
 import type { AgentToolProfile } from "./tool-profile";
 import { isClickReadLoop } from "./tool-guardrails";
 import { AGENT_STREAM_IDLE_TIMEOUT_MS } from "../config/timing";
+import { TERMINAL_TOOL_RESULT } from "./tool-control";
 
 const ANTHROPIC_MAX_TOKENS = 4096;
 
@@ -272,6 +273,9 @@ export class AnthropicProvider implements AIProvider {
           } catch (toolErr: unknown) {
             const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
             result = `Error: Tool execution failed — ${msg}. Try a different approach or call read_page to refresh context.`;
+          }
+          if (result === TERMINAL_TOOL_RESULT) {
+            return;
           }
 
           // Check if the result contains rich content (images)

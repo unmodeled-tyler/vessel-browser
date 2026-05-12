@@ -4,6 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { handleAIQuery } from "../src/main/ai/commands";
 import type { AIProvider } from "../src/main/ai/provider";
 import type { ResearchClarification } from "../src/shared/research-types";
+import { TERMINAL_TOOL_RESULT } from "../src/main/ai/tool-control";
 
 test("Research Desk briefing exposes a structured user question tool", async () => {
   const chunks: string[] = [];
@@ -25,8 +26,9 @@ test("Research Desk briefing exposes a structured user question tool", async () 
       onEnd,
     ) {
       toolNames = tools.map((tool) => tool.name);
+      onChunk("I need a few details before I can start. ");
       onChunk("\n<<tool:ask_research_user:Which angle?>>\n");
-      await onToolCall("ask_research_user", {
+      const result = await onToolCall("ask_research_user", {
         question: "Which angle should Vessel use?",
         options: [
           {
@@ -39,6 +41,7 @@ test("Research Desk briefing exposes a structured user question tool", async () 
           },
         ],
       });
+      assert.equal(result, TERMINAL_TOOL_RESULT);
       onChunk("Which angle should Vessel use?");
       onEnd();
     },

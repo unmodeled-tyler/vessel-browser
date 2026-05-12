@@ -18,6 +18,7 @@ import { extractContent } from "../content/extractor";
 import { AGENT_TOOLS } from "./tools";
 import { pruneToolsForContext } from "../tools/pruner";
 import { executeAction, type ActionContext, clearCartState } from "./page-actions";
+import { TERMINAL_TOOL_RESULT } from "./tool-control";
 import type { TabManager } from "../tabs/tab-manager";
 import type { WebContents } from "electron";
 import type { AgentRuntime } from "../agent/runtime";
@@ -33,7 +34,8 @@ const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
     properties: {
       question: {
         type: "string",
-        description: "The concise question to show in the Research Desk chat.",
+        description:
+          "The concise question to show in the Research Desk chat. If you need several details, combine them into one short prompt instead of asking multiple separate questions.",
       },
       options: {
         type: "array",
@@ -150,11 +152,17 @@ export async function handleAIQuery(
       };
 
       if (!isPlanning && provider.streamAgentQuery) {
+        let bufferedBriefingText = "";
         await provider.streamAgentQuery(
           buildOrchestratorSystemPrompt() + phaseInstruction,
           query,
           RESEARCH_BRIEFING_TOOLS,
-          wrappedOnChunk,
+          (text) => {
+            if (clarificationPresented) return;
+            const visibleText = stripResearchQuestionToolMarkers(text);
+            fullResponse += visibleText;
+            bufferedBriefingText += visibleText;
+          },
           async (name, args) => {
             if (name !== ASK_RESEARCH_USER_TOOL.name) {
               return `Error: Unsupported Research Desk briefing tool "${name}".`;
@@ -172,9 +180,14 @@ export async function handleAIQuery(
               onChunk(clarification.question);
             }
 
-            return "Question presented to the user. Stop and wait for the user's answer.";
+            return TERMINAL_TOOL_RESULT;
           },
-          wrappedOnEnd,
+          () => {
+            if (!clarificationPresented && bufferedBriefingText) {
+              onChunk(bufferedBriefingText);
+            }
+            wrappedOnEnd();
+          },
           history,
         );
         return;
