@@ -178,9 +178,66 @@ test("Research Desk clarification tool does not retry default-only options", asy
   assert.deepEqual(
     clarifications[0]?.options.map((option) => option.label),
     [
-      "Market landscape",
-      "Product comparison",
-      "Technical architecture",
+      "Business value",
+      "User experience",
+      "Security and privacy",
+      "Use sensible defaults",
+    ],
+  );
+});
+
+test("Research Desk fallback options follow the current question, not the original query", async () => {
+  const clarifications: ResearchClarification[] = [];
+
+  const provider: AIProvider = {
+    agentToolProfile: "default",
+    async streamQuery() {
+      throw new Error("Expected Research Desk briefing to use tool path");
+    },
+    async streamAgentQuery(
+      _systemPrompt,
+      _userMessage,
+      _tools: Anthropic.Tool[],
+      _onChunk,
+      onToolCall,
+      onEnd,
+    ) {
+      await onToolCall("ask_research_user", {
+        question: "What timeframe should Vessel focus on?",
+        options: [{ label: "Use defaults", response: "Use defaults." }],
+      });
+      onEnd();
+    },
+    cancel() {},
+  };
+
+  await handleAIQuery(
+    "Compare AI browsers",
+    provider,
+    undefined,
+    () => undefined,
+    () => undefined,
+    undefined,
+    undefined,
+    [
+      { role: "user", content: "Compare AI browsers" },
+      { role: "assistant", content: "Which angle should Vessel use?" },
+      { role: "user", content: "Product comparison." },
+    ],
+    {
+      getState: () => ({
+        phase: "briefing",
+      }),
+    } as never,
+    (payload) => clarifications.push(payload),
+  );
+
+  assert.deepEqual(
+    clarifications[0]?.options.map((option) => option.label),
+    [
+      "Current landscape",
+      "Last 12 months",
+      "Historical evolution",
       "Use sensible defaults",
     ],
   );

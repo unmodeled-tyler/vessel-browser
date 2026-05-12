@@ -81,14 +81,38 @@ function isDefaultResearchOption(label: string): boolean {
   return /^use (?:sensible )?defaults?$/i.test(label);
 }
 
+function recentUserBriefingText(history?: AIMessage[]): string {
+  return (history ?? [])
+    .slice(-6)
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ")
+    .toLowerCase();
+}
+
+function removeAnsweredFallbackOptions(
+  options: Array<{ label: string; response: string }>,
+  history?: AIMessage[],
+): Array<{ label: string; response: string }> {
+  const recentUserText = recentUserBriefingText(history);
+  if (!recentUserText) return options;
+
+  const filtered = options.filter((option) => {
+    if (isDefaultResearchOption(option.label)) return true;
+    return !recentUserText.includes(option.label.toLowerCase());
+  });
+
+  return filtered.length >= 2 ? filtered : options;
+}
+
 function buildFallbackResearchOptions(
   question: string,
-  query: string,
+  history?: AIMessage[],
 ): Array<{ label: string; response: string }> {
-  const context = `${question} ${query}`.toLowerCase();
+  const context = question.toLowerCase();
 
   if (/\b(?:source|sources|domain|domains|coverage|reports?)\b/.test(context)) {
-    return [
+    return removeAnsweredFallbackOptions([
       {
         label: "Primary sources",
         response: "Prioritize primary sources such as official docs, filings, papers, and product pages.",
@@ -105,11 +129,11 @@ function buildFallbackResearchOptions(
         label: "Use sensible defaults",
         response: "Use a balanced source mix and call out any important assumptions.",
       },
-    ];
+    ], history);
   }
 
   if (/\b(?:audience|technical|layperson|depth|deep|overview|executive)\b/.test(context)) {
-    return [
+    return removeAnsweredFallbackOptions([
       {
         label: "Executive overview",
         response: "Optimize the report for an executive overview with clear tradeoffs and recommendations.",
@@ -126,11 +150,53 @@ function buildFallbackResearchOptions(
         label: "Use sensible defaults",
         response: "Use a balanced depth and call out any important assumptions.",
       },
-    ];
+    ], history);
+  }
+
+  if (/\b(?:timeframe|time frame|timeline|recent|current|historical|date|dates|period)\b/.test(context)) {
+    return removeAnsweredFallbackOptions([
+      {
+        label: "Current landscape",
+        response: "Focus on the current market and product landscape.",
+      },
+      {
+        label: "Last 12 months",
+        response: "Focus on developments from the last 12 months.",
+      },
+      {
+        label: "Historical evolution",
+        response: "Include historical context and how the space has changed over time.",
+      },
+      {
+        label: "Use sensible defaults",
+        response: "Use the most relevant timeframe and call out any assumptions.",
+      },
+    ], history);
+  }
+
+  if (/\b(?:constraint|constraints|avoid|exclude|include|must|should|focus|priority|prioritize|angle|scope)\b/.test(context)) {
+    return removeAnsweredFallbackOptions([
+      {
+        label: "Business value",
+        response: "Prioritize business value, adoption, and practical readiness.",
+      },
+      {
+        label: "User experience",
+        response: "Prioritize user experience, workflow fit, and product polish.",
+      },
+      {
+        label: "Security and privacy",
+        response: "Prioritize security, privacy, and trust implications.",
+      },
+      {
+        label: "Use sensible defaults",
+        response: "Use balanced priorities and call out any assumptions.",
+      },
+    ], history);
   }
 
   if (/\b(?:format|outline|deliverable|report|table|comparison)\b/.test(context)) {
-    return [
+    return removeAnsweredFallbackOptions([
       {
         label: "Comparison table",
         response: "Structure the report around a comparison table plus concise analysis.",
@@ -147,10 +213,10 @@ function buildFallbackResearchOptions(
         label: "Use sensible defaults",
         response: "Choose the clearest format for this research question and call out assumptions.",
       },
-    ];
+    ], history);
   }
 
-  return [
+  return removeAnsweredFallbackOptions([
     {
       label: "Market landscape",
       response: "Focus the brief on the overall market landscape and major players.",
@@ -167,12 +233,12 @@ function buildFallbackResearchOptions(
       label: "Use sensible defaults",
       response: "Use sensible defaults and call out any assumptions that materially affect the report.",
     },
-  ];
+  ], history);
 }
 
 function normalizeResearchClarification(
   args: Record<string, unknown>,
-  fallbackQuery: string,
+  history?: AIMessage[],
 ): ResearchClarification | null {
   const question = cleanResearchString(args.question, 500);
   if (question.length < 2) return null;
@@ -192,7 +258,7 @@ function normalizeResearchClarification(
 
   const usableOptions =
     options.length < 2 || options.every((option) => isDefaultResearchOption(option.label))
-      ? buildFallbackResearchOptions(question, fallbackQuery)
+      ? buildFallbackResearchOptions(question, history)
       : options;
 
   return {
@@ -268,7 +334,7 @@ export async function handleAIQuery(
               return `Error: Unsupported Research Desk briefing tool "${name}".`;
             }
 
-            const clarification = normalizeResearchClarification(args, query);
+            const clarification = normalizeResearchClarification(args, history);
             if (!clarification) {
               return "Error: ask_research_user requires a non-empty question.";
             }
