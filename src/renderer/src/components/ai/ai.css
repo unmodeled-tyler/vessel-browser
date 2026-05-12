@@ -3379,6 +3379,10 @@
     color: var(--text-primary);
 }
 
+.research-brief-message .markdown-content {
+    white-space: normal;
+}
+
 .research-brief-message.user {
     align-self: flex-end;
     background: var(--bg-tertiary);
@@ -3396,6 +3400,12 @@
     align-self: flex-start;
     color: var(--text-muted);
     font-size: 11px;
+}
+
+.research-brief-status.thinking {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .research-brief-loading {

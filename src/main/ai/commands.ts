@@ -28,7 +28,7 @@ import type { ResearchOrchestrator } from "../agent/research/orchestrator";
 const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
   name: "ask_research_user",
   description:
-    "Ask the user one Research Desk briefing question with optional clickable answer choices. Use this when the research brief needs clarification. Do not also write the question in normal assistant text.",
+    "Ask the user one Research Desk briefing question with clickable answer choices. Use this when the research brief needs clarification. Do not also write the question in normal assistant text.",
   input_schema: {
     type: "object",
     properties: {
@@ -40,7 +40,7 @@ const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
       options: {
         type: "array",
         description:
-          "Answer choices to render as clickable buttons. Always provide at least one option; use a 'Use sensible defaults' option when the user can safely delegate the choice to Vessel.",
+          "Answer choices to render as clickable buttons. Provide 2-6 concrete choices tailored to the question. You may include 'Use sensible defaults' as the final option, but never as the only option.",
         items: {
           type: "object",
           properties: {
@@ -56,7 +56,7 @@ const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
           },
           required: ["label"],
         },
-        minItems: 1,
+        minItems: 2,
         maxItems: 6,
       },
       allowTypedResponse: {
@@ -96,19 +96,17 @@ function normalizeResearchClarification(
     .filter((item): item is { label: string; response: string } => item !== null)
     .slice(0, 6);
 
+  if (
+    options.length < 2 ||
+    options.every((option) => /^use (?:sensible )?defaults?$/i.test(option.label))
+  ) {
+    return null;
+  }
+
   return {
     id: randomUUID(),
     question,
-    options:
-      options.length > 0
-        ? options
-        : [
-            {
-              label: "Use defaults",
-              response:
-                "Use sensible defaults and proceed. If any assumption materially affects the report, call it out clearly.",
-            },
-          ],
+    options,
     allowTypedResponse: args.allowTypedResponse !== false,
   };
 }
@@ -180,7 +178,7 @@ export async function handleAIQuery(
 
             const clarification = normalizeResearchClarification(args);
             if (!clarification) {
-              return "Error: ask_research_user requires a non-empty question.";
+              return "Error: ask_research_user requires a non-empty question and 2-6 concrete clickable options tailored to that question. Do not provide only a generic defaults option.";
             }
 
             clarificationPresented = true;
