@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildQuickReplies,
   extractExplicitQuickReplies,
+  findLatestAssistantQuickReplyTarget,
 } from "../src/renderer/src/components/ai/ResearchDesk";
 
 test("research quick replies use explicit assistant options", () => {
@@ -44,4 +45,33 @@ test("research quick replies split inline alternatives", () => {
     replies.map((reply) => reply.label),
     ["primary sources", "analyst coverage", "community reports"],
   );
+});
+
+test("research quick reply target does not require a literal question mark", () => {
+  const target = findLatestAssistantQuickReplyTarget([
+    { role: "user", content: "Compare AI browsers." },
+    {
+      role: "assistant",
+      content:
+        "Please choose the angle that would be most useful:\n1. Product comparison\n2. Technical architecture\n3. Market landscape",
+    },
+  ]);
+
+  assert.equal(
+    target,
+    "Please choose the angle that would be most useful:\n1. Product comparison\n2. Technical architecture\n3. Market landscape",
+  );
+});
+
+test("research quick reply target ignores assistant messages without actionable options", () => {
+  const target = findLatestAssistantQuickReplyTarget([
+    { role: "user", content: "Compare AI browsers." },
+    {
+      role: "assistant",
+      content:
+        "What scope, sources, timeframe, or format would make this report most useful?",
+    },
+  ]);
+
+  assert.equal(target, "");
 });

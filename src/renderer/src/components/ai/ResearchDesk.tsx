@@ -7,6 +7,7 @@ import {
   createSignal,
   type Component,
 } from "solid-js";
+import type { AIMessage } from "../../../../shared/types";
 import { useAI } from "../../stores/ai";
 import { useResearch } from "../../stores/research";
 
@@ -109,6 +110,20 @@ export function buildQuickReplies(prompt: string): QuickReplyOption[] {
   return [];
 }
 
+export function findLatestAssistantQuickReplyTarget(messages: AIMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== "assistant") continue;
+
+    const content = message.content.trim();
+    if (content && buildQuickReplies(content).length > 0) {
+      return content;
+    }
+  }
+
+  return "";
+}
+
 export const ResearchDesk: Component = () => {
   const research = useResearch();
   const {
@@ -141,19 +156,18 @@ export const ResearchDesk: Component = () => {
   const hasAssistantBrief = createMemo(() =>
     transcriptMessages().some((message) => message.role === "assistant"),
   );
-  const latestAssistantQuestion = createMemo(() => {
-    const assistantMessages = transcriptMessages().filter((message) => message.role === "assistant");
-    const latest = assistantMessages[assistantMessages.length - 1]?.content.trim() ?? "";
-    if (!latest.includes("?")) return "";
-    return latest;
-  });
+  const latestAssistantQuickReplyTarget = createMemo(() =>
+    findLatestAssistantQuickReplyTarget(transcriptMessages()),
+  );
   const quickReplies = createMemo(() =>
-    latestAssistantQuestion() ? buildQuickReplies(latestAssistantQuestion()) : [],
+    latestAssistantQuickReplyTarget()
+      ? buildQuickReplies(latestAssistantQuickReplyTarget())
+      : [],
   );
   const shouldShowQuickRepliesForMessage = (content: string) =>
     quickReplies().length > 0 &&
     !isStreaming() &&
-    content.trim() === latestAssistantQuestion();
+    content.trim() === latestAssistantQuickReplyTarget();
   const isBriefStarting = createMemo(() =>
     state().phase === "briefing" &&
     transcriptMessages().length === 0 &&
