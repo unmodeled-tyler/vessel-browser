@@ -50,9 +50,11 @@ const YES_NO_QUESTION_PATTERN =
 const PROCEED_QUESTION_PATTERN =
   /\b(?:proceed|continue|use defaults?|make assumptions?|sensible defaults?)\b/i;
 
+const EXPLICIT_OPTION_PREFIX = /^\s*(?:[-*•–—]|\d+[.)]|\(\d+\)|[A-Z][.)]|\([A-Z]\)|Option\s+\d+[:：])\s+/i;
+
 export function makeQuickReply(label: string): QuickReplyOption | null {
   const cleaned = label
-    .replace(/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/i, "")
+    .replace(EXPLICIT_OPTION_PREFIX, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[.?!:]$/, "");
@@ -66,11 +68,9 @@ export function makeQuickReply(label: string): QuickReplyOption | null {
 }
 
 function isExplicitOptionLine(line: string): boolean {
-  if (!/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/.test(line)) return false;
+  if (!EXPLICIT_OPTION_PREFIX.test(line)) return false;
 
-  const cleaned = line
-    .replace(/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/i, "")
-    .trim();
+  const cleaned = line.replace(EXPLICIT_OPTION_PREFIX, "").trim();
 
   if (!cleaned) return false;
 
@@ -79,7 +79,7 @@ function isExplicitOptionLine(line: string): boolean {
 
 function extractDelimitedOptions(text: string): QuickReplyOption[] {
   return text
-    .split(/\s*(?:;|,|\/|\bor\b)\s*/i)
+    .split(/\s*(?:;|,|\/|\||\bor\b)\s*/i)
     .map(makeQuickReply)
     .filter((option): option is QuickReplyOption => option !== null);
 }
@@ -100,9 +100,9 @@ function extractFollowUpOptions(prompt: string): QuickReplyOption[] {
     if (!line.includes("?")) continue;
     if (!nextLine) continue;
     // Already handled by explicit bullet extraction
-    if (/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/.test(nextLine)) continue;
+    if (EXPLICIT_OPTION_PREFIX.test(nextLine)) continue;
     // Only extract if the next line looks like a list (delimiters or "or")
-    if (!/,|\/|\bor\b/.test(nextLine)) continue;
+    if (!/[,;\/|]|\bor\b/.test(nextLine)) continue;
 
     options.push(...extractDelimitedOptions(nextLine));
   }

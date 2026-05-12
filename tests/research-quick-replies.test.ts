@@ -232,3 +232,91 @@ test("research quick replies labelled options stop at end of sentence", () => {
     ["a handful", "a moderate amount", "exhaustive"],
   );
 });
+
+test("research quick replies parse parenthesized letter options", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\n(A) High-level overview\n(B) Deep dive\n(C) Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies parse parenthesized number options", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\n(1) High-level overview\n(2) Deep dive\n(3) Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies parse Option N colon format", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\nOption 1: High-level overview\nOption 2: Deep dive\nOption 3: Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies parse pipe-delimited follow-up options", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\nHigh-level overview | Deep dive | Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies parse semicolon-delimited follow-up options", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\nHigh-level overview; Deep dive; Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies parse en dash bullet options", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\n– High-level overview\n– Deep dive\n– Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies parse em dash bullet options", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\n— High-level overview\n— Deep dive\n— Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies fall back to defaults when no options are detected", () => {
+  const replies = buildQuickReplies(
+    "Which depth are you after?",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["Use defaults"],
+  );
+});
