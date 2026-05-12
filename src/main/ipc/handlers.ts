@@ -60,6 +60,8 @@ import {
 } from "./common";
 import { registerAutofillHandlers } from "./autofill";
 import { registerPageDiffHandlers } from "./page-diff";
+import { registerResearchHandlers } from "./research";
+import { ResearchOrchestrator } from "../agent/research/orchestrator";
 import { registerVaultHandlers } from "./vault";
 import { registerHumanVaultHandlers } from "./human-vault";
 import { registerWindowControlHandlers } from "./window-controls";
@@ -127,6 +129,23 @@ export function registerIpcHandlers(
 
   const requireTrusted = (event: IpcMainEvent | IpcMainInvokeEvent) => {
     assertTrustedIpcSender(event);
+  };
+
+  // --- Research Desk ---
+  let researchOrchestrator: ResearchOrchestrator | null = null;
+
+  const getResearchOrchestrator = (): ResearchOrchestrator => {
+    if (!researchOrchestrator) {
+      const settings = loadSettings();
+      const provider = settings.chatProvider
+        ? createProvider(settings.chatProvider)
+        : null;
+      researchOrchestrator = new ResearchOrchestrator(provider, tabManager, runtime);
+      researchOrchestrator.setUpdateListener((state) => {
+        sendToRendererViews(Channels.RESEARCH_STATE_UPDATE, state);
+      });
+    }
+    return researchOrchestrator;
   };
 
   // Private browsing
@@ -451,6 +470,7 @@ export function registerIpcHandlers(
           tabManager,
           runtime,
           history,
+          researchOrchestrator,
         );
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
@@ -642,6 +662,15 @@ export function registerIpcHandlers(
     if (key === "mcpPort") {
       await stopMcpServer();
       await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
+    }
+    // Keep the Research Desk orchestrator's provider in sync with settings.
+    if (key === "chatProvider" && researchOrchestrator) {
+      try {
+        researchOrchestrator.setProvider(createProvider(value as Parameters<typeof createProvider>[0]));
+      } catch {
+        // Provider config is invalid — keep the current provider so
+        // an in-progress research session can finish.
+      }
     }
     const rendererSettings = getRendererSettings();
     sendToRendererViews(Channels.SETTINGS_UPDATE, rendererSettings);
@@ -908,6 +937,9 @@ export function registerIpcHandlers(
 
   registerAutofillHandlers(windowState);
   registerPageDiffHandlers(windowState, sendToRendererViews);
+
+  // Research Desk handlers
+  registerResearchHandlers(() => getResearchOrchestrator());
 
   // --- Clear browsing data ---
 

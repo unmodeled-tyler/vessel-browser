@@ -14,6 +14,7 @@ import type { ProviderId } from '../../shared/types';
 import { isClickReadLoop, hasRecentDuplicateToolCall } from './tool-guardrails';
 import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from './content-limits';
 import { createLogger } from '../../shared/logger';
+import { TERMINAL_TOOL_RESULT } from './tool-control';
 
 const logger = createLogger("OpenAIProvider");
 
@@ -1418,6 +1419,9 @@ export class OpenAICompatProvider implements AIProvider {
           } catch (toolErr: unknown) {
             const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
             result = `Error: Tool execution failed — ${msg}. Try a different approach or call read_page to refresh context.`;
+          }
+          if (result === TERMINAL_TOOL_RESULT) {
+            return;
           }
 
           // OpenAI doesn't support image content in tool results — extract text only

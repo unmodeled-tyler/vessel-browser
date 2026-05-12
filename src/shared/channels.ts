@@ -17,6 +17,7 @@ export const Channels = {
   AI_STREAM_CHUNK: "ai:stream-chunk",
   AI_STREAM_END: "ai:stream-end",
   AI_STREAM_IDLE: "ai:stream-idle",
+  AI_RESEARCH_CLARIFICATION: "ai:research-clarification",
   AUTOMATION_ACTIVITY_START: "automation:activity-start",
   AUTOMATION_ACTIVITY_CHUNK: "automation:activity-chunk",
   AUTOMATION_ACTIVITY_END: "automation:activity-end",
@@ -227,6 +228,17 @@ export const Channels = {
 
   // Picture-in-Picture
   TAB_TOGGLE_PIP: "tab:toggle-pip",
+
+  // Research Desk
+  RESEARCH_STATE_GET: "research:state-get",
+  RESEARCH_STATE_UPDATE: "research:state-update",
+  RESEARCH_START_BRIEF: "research:start-brief",
+  RESEARCH_CONFIRM_BRIEF: "research:confirm-brief",
+  RESEARCH_APPROVE_OBJECTIVES: "research:approve-objectives",
+  RESEARCH_SET_MODE: "research:set-mode",
+  RESEARCH_SET_TRACES: "research:set-traces",
+  RESEARCH_CANCEL: "research:cancel",
+  RESEARCH_EXPORT_REPORT: "research:export-report",
 
   // Codex OAuth
   CODEX_START_AUTH: "codex:start-auth",

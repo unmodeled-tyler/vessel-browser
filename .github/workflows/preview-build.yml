@@ -20,13 +20,22 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json', 'electron-builder.config.cjs') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
 
       - run: npm ci
       - name: Smoke test
         run: xvfb-run -a npm run smoke:test
 
       - name: Build & package
-        run: npm run build && npx electron-builder --config electron-builder.config.cjs --linux --publish never
+        run: npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux --publish never
 
       - name: Generate checksums
         run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt

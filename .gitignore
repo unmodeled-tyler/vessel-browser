@@ -57,6 +57,7 @@ docs/superpowers/specs/2026-04-01-premium-conversion-optimization-design.md
 # Force-add intentional new top-level tests with: git add -f tests/name.test.ts
 tests/*.test.ts
 !tests/ad-blocking-rules.test.ts
+!tests/agent-activity.test.ts
 !tests/ai-activity.test.ts
 !tests/ai-busy-handshake.test.ts
 !tests/ai-queue.test.ts
@@ -70,6 +71,8 @@ tests/*.test.ts
 !tests/page-access-issues.test.ts
 !tests/page-diff-display.test.ts
 !tests/results-only-context.test.ts
+!tests/research-clarification-tool.test.ts
+!tests/research-quick-replies.test.ts
 !tests/scheduler.test.ts
 !tests/search-shortcuts.test.ts
 !tests/security-hardening.test.ts
@@ -85,4 +88,3 @@ tests/*.scratch.ts
 # Local secrets / deployment config
 .webui_secret_key
 scripts/cloudflare-worker/wrangler.toml
-

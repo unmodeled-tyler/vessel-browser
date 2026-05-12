@@ -6,6 +6,7 @@ import { refreshAccessToken } from "./codex-oauth";
 import { writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settings";
 import { createLogger } from "../../shared/logger";
 import { getEffectiveMaxIterations } from "../premium/manager";
+import { TERMINAL_TOOL_RESULT } from "./tool-control";
 
 const logger = createLogger("CodexProvider");
 
@@ -63,6 +64,10 @@ type CodexInputItem =
   | { type: "message"; role: string; content: Array<{ type: "input_text" | "output_text"; text: string }> }
   | { type: "function_call_output"; call_id: string; output: string };
 
+interface CodexTerminalToolResult {
+  terminal: true;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -72,7 +77,7 @@ export async function createCodexFunctionCallOutput(
   availableToolNames: ReadonlySet<string>,
   onChunk: (text: string) => void,
   onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
-): Promise<CodexInputItem> {
+): Promise<CodexInputItem | CodexTerminalToolResult> {
   const callId = functionCall.call_id || functionCall.id || "";
   const name = functionCall.name || "";
 
@@ -108,6 +113,9 @@ export async function createCodexFunctionCallOutput(
   }
 
   const output = await onToolCall(name, args);
+  if (output === TERMINAL_TOOL_RESULT) {
+    return { terminal: true };
+  }
   return {
     type: "function_call_output",
     call_id: callId,
@@ -391,14 +399,16 @@ export class CodexProvider implements AIProvider {
         // so follow-up requests only need to supply the function_call_output items.
         currentInput = [];
         for (const fc of functionCalls) {
-          currentInput.push(
-            await createCodexFunctionCallOutput(
-              fc,
-              availableToolNames,
-              onChunk,
-              onToolCall,
-            ),
+          const output = await createCodexFunctionCallOutput(
+            fc,
+            availableToolNames,
+            onChunk,
+            onToolCall,
           );
+          if ("terminal" in output) {
+            return;
+          }
+          currentInput.push(output);
         }
       }
       if (iterationsUsed >= maxIterations) {

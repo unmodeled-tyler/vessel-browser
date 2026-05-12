@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { AIMessage, AutomationActivityEntry } from "../../../shared/types";
+import type { ResearchClarification } from "../../../shared/research-types";
 import {
   appendAutomationActivityChunk,
   finishAutomationActivity,
@@ -34,6 +35,9 @@ const [pendingQueryActivities, setPendingQueryActivities] = createSignal<
 const [queueNotice, setQueueNotice] = createSignal<string | null>(null);
 const [automationActivities, setAutomationActivities] = createSignal<
   AutomationActivityEntry[]
+>([]);
+const [researchClarifications, setResearchClarifications] = createSignal<
+  ResearchClarification[]
 >([]);
 
 let initialized = false;
@@ -177,6 +181,25 @@ function init() {
   listenerCleanups.push(window.vessel.ai.onStreamIdle(() => {
     schedulePendingDrain();
   }));
+  listenerCleanups.push(window.vessel.ai.onResearchClarification((payload) => {
+    setResearchClarifications((prev) => [...prev, payload].slice(-20));
+    setMessages((prev) => {
+      if (prev.some((message) => message.role === "assistant" && message.content === payload.question)) {
+        return prev;
+      }
+      const next = [
+        ...prev,
+        { role: "assistant" as const, content: payload.question },
+      ];
+      return trimMessages(next);
+    });
+    if (activeAutomationActivityId) {
+      const activityId = activeAutomationActivityId;
+      setAutomationActivities((prev) =>
+        appendAutomationActivityChunk(prev, activityId, payload.question),
+      );
+    }
+  }));
   listenerCleanups.push(window.vessel.ai.onAutomationActivityStart((entry) => {
     setAutomationActivities((prev) => startAutomationActivity(prev, entry));
   }));
@@ -211,6 +234,7 @@ export function resetAIStoreForTests(): void {
   setPendingQueryActivities([]);
   setQueueNotice(null);
   setAutomationActivities([]);
+  setResearchClarifications([]);
 }
 
 export function useAI() {
@@ -255,6 +279,7 @@ export function useAI() {
     streamStartedAt,
     recentQueries,
     automationActivities,
+    researchClarifications,
     pendingQueries,
     pendingQueryCount: () => pendingQueries().length,
     pendingQueryLimit: MAX_PENDING_QUERIES,
@@ -281,6 +306,7 @@ export function useAI() {
     },
     clearHistory: () => {
       setMessages([]);
+      setResearchClarifications([]);
       const next = clearPendingPromptQueue();
       setPendingQueries(next.queue);
       setPendingQueryActivities([]);

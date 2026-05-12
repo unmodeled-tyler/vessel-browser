@@ -85,9 +85,10 @@ Today, Vessel provides the browser shell, page visibility, and supervisory surfa
 - **Agent-first browser model** — Vessel is designed around an agent driving the browser while a human watches, intervenes, and redirects
 - **Human-visible browser UI** — pages render like a normal browser so agent activity stays legible instead of disappearing into a headless run
 - **Command Bar** (`Ctrl+L`) — a secondary operator surface for harness-driven workflows and future runtime commands
-- **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision across seven tabs: Supervisor, Bookmarks, Checkpoints, Chat, Automate, History, and Changes
+- **Supervisor Sidebar** (`Ctrl+Shift+L`) — live supervision across eight tabs: Supervisor, Bookmarks, Checkpoints, Chat, Automate, History, Changes, and Research
 - **Chat Assistant** — built-in conversational AI in the sidebar Chat tab; supports Anthropic, OpenAI, Ollama, llama.cpp, Mistral, xAI, Google Gemini, OpenRouter, and any OpenAI-compatible endpoint; reads the current page automatically; has full access to the same browser tools as external agents; multi-turn session history; configure provider, model, and API key in Settings
 - **Automation Kits** (Premium) — parameterized workflow templates in the sidebar Automate tab; fill in a short form and the built-in agent executes the workflow autonomously; bundled kits include Research & Collect (multi-source research with bookmark saving) and Price Scout (cross-retailer price comparison); designed for a future kit marketplace
+- **Research Desk** (Beta) — a dedicated sidebar Research tab for structured research reports; start with a topic, complete an in-tab briefing, let Vessel draft research objectives, approve the plan, then dispatch browser sub-agents to collect source-backed claims and synthesize a markdown-exportable report. Starting the brief is free; plan approval, sub-agent execution, and report export require Vessel Premium.
 - **Dev Tools Panel** (`F12`) — inspect console output, network requests, and MCP/agent activity in a resizable panel at the bottom of the window; export logs by category and date range as JSON
 - **Browser Basics For Long Runs** — pinned tabs stay compact at the front of the tab strip and are protected from accidental close; tab groups can be color-coded and collapsed; audible tabs show audio indicators with mute controls; open additional browser windows with `Ctrl+N`; print the active page with `Ctrl+P` or save it directly as PDF with `Ctrl+Shift+P`
 - **Action Undo / Rollback** — restore the browser to the session snapshot captured immediately before the last successful mutating agent action; available from the Supervisor tab and through the `undo_last_action` tool
@@ -144,7 +145,7 @@ That means the product should optimize for:
 Main Process                              Renderer (SolidJS)
 ├── TabManager (WebContentsView[])        ├── TabBar, AddressBar
 ├── AgentRuntime (session + supervision)  ├── CommandBar (secondary surface)
-├── MCP server for external agents        ├── AI Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate)
+├── MCP server for external agents        ├── AI Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate/History/Changes/Research)
 ├── AI providers (Anthropic + OAI-compat) ├── DevTools Panel (Console/Network/Activity)
 ├── Supervision, bookmarks, checkpoints   ├── Agent Transcript Dock
 └── IPC Handlers ◄──contextBridge──► ──► └── Signal stores (tabs, ai, ui)
@@ -153,7 +154,7 @@ Main Process                              Renderer (SolidJS)
 
 Each browser tab is a separate `WebContentsView` managed by the main process. The browser chrome (SolidJS) runs in its own view layered on top. All communication between renderer and main goes through typed IPC channels via `contextBridge`.
 
-The sidebar Automate tab renders kit forms entirely in the renderer and passes the rendered prompt to the built-in agent via the same `query()` path used by the Chat tab — no additional IPC surface is needed. The Changes tab reads the current page's diff timeline through IPC and unlocks persisted history for Premium users.
+The sidebar Automate tab renders kit forms entirely in the renderer and passes the rendered prompt to the built-in agent via the same `query()` path used by the Chat tab — no additional IPC surface is needed. The Changes tab reads the current page's diff timeline through IPC and unlocks persisted history for Premium users. The Research tab has a dedicated IPC surface for its state machine: briefing is available to everyone, while objective approval, parallel browser sub-agents, report synthesis, and markdown export are Premium-gated during the beta.
 
 ## Getting Started
 
@@ -255,6 +256,7 @@ Notes:
 - The default MCP port is `3100`
 - Hermes Agent and OpenClaw should treat Vessel as the persistent, human-visible browser rather than launching their own separate browser session
 - Vessel supports a built-in Chat tab with configurable AI provider; open Settings (`Ctrl+,`) and enable Chat Assistant to set a provider and model
+- The sidebar Research tab is marked Beta; use it to turn a broad research topic into a brief, approve a multi-thread plan, run browser sub-agents, and export the final report as markdown. Briefing is free, while full execution and export require Premium.
 - `llama.cpp (Local)` is a first-class chat provider in Settings and targets `http://localhost:8080/v1` by default; Vessel auto-fetches the active model from `llama-server`
 - For `llama-server`, use `--ctx-size 16384` minimum and `32768` recommended for reliable Vessel agent loops; lower values often fail once prompt, tool schema, and tool history accumulate
 - Approval policy is controlled live from the sidebar Supervisor panel rather than a separate global settings screen
@@ -545,7 +547,7 @@ src/
 │   └── src/
 │       ├── components/
 │       │   ├── chrome/   # TitleBar, TabBar, AddressBar, AgentTranscriptDock
-│       │   ├── ai/       # CommandBar, Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate/History/Changes)
+│       │   ├── ai/       # CommandBar, Sidebar (Supervisor/Bookmarks/Checkpoints/Chat/Automate/History/Changes/Research)
 │       │   ├── devtools/ # DevTools panel (Console, Network, Activity)
 │       │   └── shared/   # Settings panel
 │       ├── stores/       # SolidJS signal stores (tabs, ai, ui, runtime, bookmarks, etc.)
