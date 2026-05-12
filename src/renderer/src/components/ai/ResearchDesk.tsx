@@ -108,6 +108,16 @@ export function buildQuickReplies(prompt: string): QuickReplyOption[] {
     ];
   }
 
+  if (prompt.includes("?")) {
+    return [
+      {
+        label: "Use defaults",
+        response:
+          "Use sensible defaults and proceed. If any assumption materially affects the report, call it out clearly.",
+      },
+    ];
+  }
+
   return [];
 }
 

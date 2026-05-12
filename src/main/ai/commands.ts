@@ -40,7 +40,7 @@ const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
       options: {
         type: "array",
         description:
-          "Optional answer choices to render as clickable buttons. Keep labels short and user-facing.",
+          "Answer choices to render as clickable buttons. Always provide at least one option; use a 'Use sensible defaults' option when the user can safely delegate the choice to Vessel.",
         items: {
           type: "object",
           properties: {
@@ -56,6 +56,7 @@ const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
           },
           required: ["label"],
         },
+        minItems: 1,
         maxItems: 6,
       },
       allowTypedResponse: {
@@ -64,7 +65,7 @@ const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
           "Whether the user should also be able to answer in their own words. Defaults to true.",
       },
     },
-    required: ["question"],
+    required: ["question", "options"],
   },
 };
 
@@ -98,7 +99,16 @@ function normalizeResearchClarification(
   return {
     id: randomUUID(),
     question,
-    options,
+    options:
+      options.length > 0
+        ? options
+        : [
+            {
+              label: "Use defaults",
+              response:
+                "Use sensible defaults and proceed. If any assumption materially affects the report, call it out clearly.",
+            },
+          ],
     allowTypedResponse: args.allowTypedResponse !== false,
   };
 }

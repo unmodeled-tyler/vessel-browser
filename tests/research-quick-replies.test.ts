@@ -17,12 +17,15 @@ test("research quick replies use explicit assistant options", () => {
   );
 });
 
-test("research quick replies do not invent options for open-ended questions", () => {
+test("research quick replies provide a low-friction default for open-ended questions", () => {
   const replies = buildQuickReplies(
     "What scope, sources, timeframe, or format would make this report most useful?",
   );
 
-  assert.deepEqual(replies, []);
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["Use defaults"],
+  );
 });
 
 test("research quick replies preserve simple yes/no choices", () => {
@@ -63,7 +66,7 @@ test("research quick reply target does not require a literal question mark", () 
   );
 });
 
-test("research quick reply target ignores assistant messages without actionable options", () => {
+test("research quick reply target keeps open-ended questions actionable", () => {
   const target = findLatestAssistantQuickReplyTarget([
     { role: "user", content: "Compare AI browsers." },
     {
@@ -73,5 +76,8 @@ test("research quick reply target ignores assistant messages without actionable 
     },
   ]);
 
-  assert.equal(target, "");
+  assert.equal(
+    target,
+    "What scope, sources, timeframe, or format would make this report most useful?",
+  );
 });

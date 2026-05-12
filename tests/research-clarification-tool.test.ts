@@ -76,3 +76,48 @@ test("Research Desk briefing exposes a structured user question tool", async () 
     ["Product comparison", "Technical architecture"],
   );
 });
+
+test("Research Desk clarification tool supplies a default option when omitted", async () => {
+  const clarifications: ResearchClarification[] = [];
+
+  const provider: AIProvider = {
+    agentToolProfile: "default",
+    async streamQuery() {
+      throw new Error("Expected Research Desk briefing to use tool path");
+    },
+    async streamAgentQuery(
+      _systemPrompt,
+      _userMessage,
+      _tools: Anthropic.Tool[],
+      _onChunk,
+      onToolCall,
+      onEnd,
+    ) {
+      const result = await onToolCall("ask_research_user", {
+        question: "What scope, sources, timeframe, or format would make this report useful?",
+      });
+      assert.equal(result, TERMINAL_TOOL_RESULT);
+      onEnd();
+    },
+    cancel() {},
+  };
+
+  await handleAIQuery(
+    "Compare AI browsers",
+    provider,
+    undefined,
+    () => undefined,
+    () => undefined,
+    undefined,
+    undefined,
+    [],
+    {
+      getState: () => ({
+        phase: "briefing",
+      }),
+    } as never,
+    (payload) => clarifications.push(payload),
+  );
+
+  assert.equal(clarifications[0]?.options[0]?.label, "Use defaults");
+});
