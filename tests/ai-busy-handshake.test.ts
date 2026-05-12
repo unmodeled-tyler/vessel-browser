@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AIMessage, AutomationActivityEntry } from "../src/shared/types";
+import type { ResearchClarification } from "../src/shared/research-types";
 
 type QueryResult = { accepted: true } | { accepted: false; reason: "busy" };
 
@@ -23,6 +24,9 @@ function createMockAI(results: QueryResult[]) {
       status: "completed" | "failed";
       finishedAt: string;
     }) => void
+  >();
+  const researchClarificationListeners = new Set<
+    (payload: ResearchClarification) => void
   >();
 
   const queryCalls: Array<{ prompt: string; history: AIMessage[] | undefined }> = [];
@@ -49,6 +53,10 @@ function createMockAI(results: QueryResult[]) {
       onStreamIdle: (cb: () => void) => {
         streamIdleListeners.add(cb);
         return () => streamIdleListeners.delete(cb);
+      },
+      onResearchClarification: (cb: (payload: ResearchClarification) => void) => {
+        researchClarificationListeners.add(cb);
+        return () => researchClarificationListeners.delete(cb);
       },
       onAutomationActivityStart: (cb: (entry: AutomationActivityEntry) => void) => {
         automationStartListeners.add(cb);
@@ -83,6 +91,9 @@ function createMockAI(results: QueryResult[]) {
     },
     emitStreamIdle() {
       for (const listener of streamIdleListeners) listener();
+    },
+    emitResearchClarification(payload: ResearchClarification) {
+      for (const listener of researchClarificationListeners) listener(payload);
     },
   };
 }
@@ -234,4 +245,23 @@ test("queued automation prompt starts its activity when the retried prompt actua
   assert.equal(store.automationActivities()[0]?.id, "adhoc:test:retry");
   assert.equal(store.automationActivities()[0]?.status, "completed");
   assert.equal(store.automationActivities()[0]?.output, "Found result");
+});
+
+test("research clarification event appears as assistant message with options", async () => {
+  const mockAI = createMockAI([{ accepted: true }]);
+  const store = await loadUseAI(mockAI);
+
+  mockAI.emitResearchClarification({
+    id: "clarification:test",
+    question: "Which angle should Vessel use?",
+    options: [
+      { label: "Product comparison", response: "Focus on product comparison." },
+    ],
+    allowTypedResponse: true,
+  });
+
+  assert.deepEqual(store.messages(), [
+    { role: "assistant", content: "Which angle should Vessel use?" },
+  ]);
+  assert.equal(store.researchClarifications()[0]?.options[0]?.label, "Product comparison");
 });

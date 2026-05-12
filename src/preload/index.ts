@@ -35,7 +35,10 @@ import type {
   PageDiffHistoryItem,
 } from "../shared/page-diff-types";
 import type { DevToolsPanelState } from "../main/devtools/types";
-import type { ResearchState } from "../shared/research-types";
+import type {
+  ResearchClarification,
+  ResearchState,
+} from "../shared/research-types";
 
 const api = {
   tabs: {
@@ -120,6 +123,18 @@ const api = {
       const handler = () => cb();
       ipcRenderer.on(Channels.AI_STREAM_IDLE, handler);
       return () => ipcRenderer.removeListener(Channels.AI_STREAM_IDLE, handler);
+    },
+    onResearchClarification: (
+      cb: (payload: ResearchClarification) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, payload: ResearchClarification) =>
+        cb(payload);
+      ipcRenderer.on(Channels.AI_RESEARCH_CLARIFICATION, handler);
+      return () =>
+        ipcRenderer.removeListener(
+          Channels.AI_RESEARCH_CLARIFICATION,
+          handler,
+        );
     },
     onAutomationActivityStart: (
       cb: (entry: AutomationActivityEntry) => void,
