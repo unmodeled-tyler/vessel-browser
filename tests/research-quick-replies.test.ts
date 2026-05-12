@@ -4,6 +4,7 @@ import {
   buildQuickReplies,
   extractExplicitQuickReplies,
   findLatestAssistantQuickReplyTarget,
+  pickResearchClarificationQuickReplies,
 } from "../src/renderer/src/components/ai/ResearchDesk";
 
 test("research quick replies use explicit assistant options", () => {
@@ -47,6 +48,56 @@ test("research quick replies split inline alternatives", () => {
   assert.deepEqual(
     replies.map((reply) => reply.label),
     ["primary sources", "analyst coverage", "community reports"],
+  );
+});
+
+test("research quick replies turn example answers into options", () => {
+  const replies = buildQuickReplies(
+    'What would make this report useful? Example answers: "Focus on pricing and enterprise readiness", "Prioritize open-source browsers", or "Use current market defaults".',
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    [
+      "Focus on pricing and enterprise readiness",
+      "Prioritize open-source browsers",
+      "Use current market defaults",
+    ],
+  );
+});
+
+test("research quick replies parse semicolon-separated example answers", () => {
+  const replies = buildQuickReplies(
+    "What would make this report useful? Examples include: focus on pricing and enterprise readiness; prioritize open-source browsers; compare technical architecture.",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    [
+      "focus on pricing and enterprise readiness",
+      "prioritize open-source browsers",
+      "compare technical architecture",
+    ],
+  );
+});
+
+test("research clarification examples override injected default option", () => {
+  const replies = pickResearchClarificationQuickReplies({
+    id: "clarification:test",
+    question:
+      "What would make this report useful? Examples include: focus on pricing; prioritize open source; compare technical architecture.",
+    options: [
+      {
+        label: "Use defaults",
+        response: "Use sensible defaults and proceed.",
+      },
+    ],
+    allowTypedResponse: true,
+  });
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["focus on pricing", "prioritize open source", "compare technical architecture"],
   );
 });
 

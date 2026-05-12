@@ -11,11 +11,29 @@ import type { AIMessage } from "../../../../shared/types";
 import type { ResearchClarification } from "../../../../shared/research-types";
 import { useAI } from "../../stores/ai";
 import { useResearch } from "../../stores/research";
+import { renderMarkdown } from "../../lib/markdown";
 
 interface QuickReplyOption {
   label: string;
   response: string;
 }
+
+const ResearchBriefMarkdown = (props: { content: string }) => {
+  const html = createMemo(() => renderMarkdown(props.content));
+
+  return <div class="markdown-content" innerHTML={html()} />;
+};
+
+const ResearchBriefMessage = (props: {
+  role: AIMessage["role"];
+  content: string;
+}) => (
+  <div class={`research-brief-message ${props.role}`}>
+    <Show when={props.role === "assistant"} fallback={props.content}>
+      <ResearchBriefMarkdown content={props.content} />
+    </Show>
+  </div>
+);
 
 function uniqueQuickReplies(options: QuickReplyOption[]): QuickReplyOption[] {
   const seen = new Set<string>();
@@ -61,9 +79,44 @@ function isExplicitOptionLine(line: string): boolean {
 
 function extractDelimitedOptions(text: string): QuickReplyOption[] {
   return text
-    .split(/\s*(?:,|\/|\bor\b|\band\b)\s*/i)
+    .split(/\s*(?:;|,|\/|\bor\b)\s*/i)
     .map(makeQuickReply)
     .filter((option): option is QuickReplyOption => option !== null);
+}
+
+function extractExampleQuickReplies(prompt: string): QuickReplyOption[] {
+  const options: QuickReplyOption[] = [];
+
+  for (const line of prompt.split("\n")) {
+    if (
+      !/\b(?:examples?|sample (?:answers?|responses?)|e\.g\.|for instance|you (?:could|might) (?:say|answer|reply))\b/i.test(
+        line,
+      )
+    ) {
+      continue;
+    }
+
+    const quoted = Array.from(
+      line.matchAll(/["“”']([^"“”']{2,140})["“”']/g),
+      (match) => match[1],
+    )
+      .map(makeQuickReply)
+      .filter((option): option is QuickReplyOption => option !== null);
+    options.push(...quoted);
+
+    if (quoted.length === 0) {
+      const exampleText = line
+        .replace(
+          /^.*?\b(?:examples? include|example answers?|examples?|sample answers?|sample responses?|e\.g\.|for instance|you might (?:say|answer|reply)|you could (?:say|answer|reply))[:：]?\s*/i,
+          "",
+        )
+        .replace(/^(?:include|answers?|responses?)[:：]\s*/i, "")
+        .trim();
+      options.push(...extractDelimitedOptions(exampleText));
+    }
+  }
+
+  return uniqueQuickReplies(options);
 }
 
 export function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] {
@@ -82,6 +135,8 @@ export function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] 
   if (inlineMatch) {
     options.push(...extractDelimitedOptions(inlineMatch[1]));
   }
+
+  options.push(...extractExampleQuickReplies(prompt));
 
   return uniqueQuickReplies(options);
 }
@@ -119,6 +174,30 @@ export function buildQuickReplies(prompt: string): QuickReplyOption[] {
   }
 
   return [];
+}
+
+function isDefaultQuickReply(option: QuickReplyOption): boolean {
+  return option.label.toLowerCase() === "use defaults";
+}
+
+export function pickResearchClarificationQuickReplies(
+  clarification: ResearchClarification,
+): QuickReplyOption[] {
+  const parsedQuestionOptions = extractExplicitQuickReplies(clarification.question);
+  const structuredOptions = clarification.options.map((option) => ({
+    label: option.label,
+    response: option.response,
+  }));
+
+  if (
+    parsedQuestionOptions.length > 0 &&
+    (structuredOptions.length === 0 ||
+      structuredOptions.every(isDefaultQuickReply))
+  ) {
+    return parsedQuestionOptions;
+  }
+
+  return structuredOptions;
 }
 
 export function findLatestAssistantQuickReplyTarget(messages: AIMessage[]): string {
@@ -201,10 +280,7 @@ export const ResearchDesk: Component = () => {
   const quickReplies = createMemo(() => {
     const clarification = latestResearchClarification();
     if (clarification) {
-      return clarification.options.map((option) => ({
-        label: option.label,
-        response: option.response,
-      }));
+      return pickResearchClarificationQuickReplies(clarification);
     }
 
     return latestAssistantQuickReplyTarget()
@@ -311,9 +387,10 @@ export const ResearchDesk: Component = () => {
               <For each={transcriptMessages()}>
                 {(message) => (
                   <>
-                    <div class={`research-brief-message ${message.role}`}>
-                      {message.content}
-                    </div>
+                    <ResearchBriefMessage
+                      role={message.role}
+                      content={message.content}
+                    />
                     <Show when={message.role === "assistant" && shouldShowQuickRepliesForMessage(message.content)}>
                       <div class="research-quick-replies inline" aria-label="Suggested briefing responses">
                         <For each={quickReplies()}>
@@ -333,12 +410,13 @@ export const ResearchDesk: Component = () => {
                 )}
               </For>
               <Show when={isStreaming() && streamingText()}>
-                <div class="research-brief-message assistant">
-                  {streamingText()}
-                </div>
+                <ResearchBriefMessage role="assistant" content={streamingText()} />
               </Show>
               <Show when={isStreaming() && !streamingText()}>
-                <div class="research-brief-status">Thinking...</div>
+                <div class="research-brief-status thinking" role="status" aria-live="polite">
+                  <span class="research-spinner" aria-hidden="true" />
+                  <span>Thinking...</span>
+                </div>
               </Show>
               <Show when={pendingQueryCount() > 0}>
                 <div class="research-brief-status">
