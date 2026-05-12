@@ -188,3 +188,47 @@ test("research clarification chips only follow the latest assistant question", (
     null,
   );
 });
+
+test("research quick replies parse unicode bullet options", () => {
+  const replies = buildQuickReplies(
+    "What depth are you after?\n• High-level overview\n• Deep dive\n• Both",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Both"],
+  );
+});
+
+test("research quick replies catch options on the line after a question", () => {
+  const replies = buildQuickReplies(
+    "What depth are you after?\nHigh-level overview, deep dive, or both",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "deep dive", "both"],
+  );
+});
+
+test("research quick replies catch labelled options like Options or Choices", () => {
+  const replies = buildQuickReplies(
+    "How many sources do you want? Options: a handful, a moderate amount, or exhaustive",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["a handful", "a moderate amount", "exhaustive"],
+  );
+});
+
+test("research quick replies labelled options stop at end of sentence", () => {
+  const replies = buildQuickReplies(
+    "How many sources? Choices: a handful, a moderate amount, or exhaustive.",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["a handful", "a moderate amount", "exhaustive"],
+  );
+});

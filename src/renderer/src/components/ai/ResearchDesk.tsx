@@ -52,7 +52,7 @@ const PROCEED_QUESTION_PATTERN =
 
 export function makeQuickReply(label: string): QuickReplyOption | null {
   const cleaned = label
-    .replace(/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/i, "")
+    .replace(/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/i, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[.?!:]$/, "");
@@ -66,10 +66,10 @@ export function makeQuickReply(label: string): QuickReplyOption | null {
 }
 
 function isExplicitOptionLine(line: string): boolean {
-  if (!/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/.test(line)) return false;
+  if (!/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/.test(line)) return false;
 
   const cleaned = line
-    .replace(/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/i, "")
+    .replace(/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/i, "")
     .trim();
 
   if (!cleaned) return false;
@@ -82,6 +82,32 @@ function extractDelimitedOptions(text: string): QuickReplyOption[] {
     .split(/\s*(?:;|,|\/|\bor\b)\s*/i)
     .map(makeQuickReply)
     .filter((option): option is QuickReplyOption => option !== null);
+}
+
+/**
+ * Look for comma/slash/or-separated options on the line(s) immediately
+ * following a question line. This catches formats like:
+ *   "What depth? High-level overview, deep dive, or both."
+ */
+function extractFollowUpOptions(prompt: string): QuickReplyOption[] {
+  const lines = prompt.split("\n");
+  const options: QuickReplyOption[] = [];
+
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i].trim();
+    const nextLine = lines[i + 1].trim();
+
+    if (!line.includes("?")) continue;
+    if (!nextLine) continue;
+    // Already handled by explicit bullet extraction
+    if (/^\s*(?:[-*•]|\d+[.)]|[A-Z][.)])\s+/.test(nextLine)) continue;
+    // Only extract if the next line looks like a list (delimiters or "or")
+    if (!/,|\/|\bor\b/.test(nextLine)) continue;
+
+    options.push(...extractDelimitedOptions(nextLine));
+  }
+
+  return uniqueQuickReplies(options);
 }
 
 function extractExampleQuickReplies(prompt: string): QuickReplyOption[] {
@@ -136,7 +162,16 @@ export function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] 
     options.push(...extractDelimitedOptions(inlineMatch[1]));
   }
 
+  // Catch "Options: A, B, or C" or "Choices: A / B / C" patterns
+  const labelledMatch = prompt.match(
+    /(?:options?|choices?)\s*[:：]\s*(.+?)(?:\n|$)/i,
+  );
+  if (labelledMatch) {
+    options.push(...extractDelimitedOptions(labelledMatch[1]));
+  }
+
   options.push(...extractExampleQuickReplies(prompt));
+  options.push(...extractFollowUpOptions(prompt));
 
   return uniqueQuickReplies(options);
 }
