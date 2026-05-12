@@ -471,8 +471,6 @@ export function registerIpcHandlers(
           runtime,
           history,
           researchOrchestrator,
-          (payload) =>
-            sendToRendererViews(Channels.AI_RESEARCH_CLARIFICATION, payload),
         );
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Unknown error";
