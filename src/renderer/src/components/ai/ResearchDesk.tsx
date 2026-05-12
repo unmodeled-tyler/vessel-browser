@@ -25,7 +25,12 @@ function uniqueQuickReplies(options: QuickReplyOption[]): QuickReplyOption[] {
   });
 }
 
-function makeQuickReply(label: string): QuickReplyOption | null {
+const YES_NO_QUESTION_PATTERN =
+  /\b(?:do you want|should (?:i|we|vessel)|would you like|is it okay|okay to|shall (?:i|we))\b/i;
+const PROCEED_QUESTION_PATTERN =
+  /\b(?:proceed|continue|use defaults?|make assumptions?|sensible defaults?)\b/i;
+
+export function makeQuickReply(label: string): QuickReplyOption | null {
   const cleaned = label
     .replace(/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/i, "")
     .replace(/\s+/g, " ")
@@ -40,12 +45,31 @@ function makeQuickReply(label: string): QuickReplyOption | null {
   };
 }
 
-function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] {
+function isExplicitOptionLine(line: string): boolean {
+  if (!/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/.test(line)) return false;
+
+  const cleaned = line
+    .replace(/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/i, "")
+    .trim();
+
+  if (!cleaned) return false;
+
+  return !/[?]$/.test(cleaned);
+}
+
+function extractDelimitedOptions(text: string): QuickReplyOption[] {
+  return text
+    .split(/\s*(?:,|\/|\bor\b|\band\b)\s*/i)
+    .map(makeQuickReply)
+    .filter((option): option is QuickReplyOption => option !== null);
+}
+
+export function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] {
   const options: QuickReplyOption[] = [];
 
   for (const line of prompt.split("\n")) {
     const option = makeQuickReply(line);
-    if (/^\s*(?:[-*]|\d+[.)]|[A-Z][.)])\s+/.test(line) && option) {
+    if (isExplicitOptionLine(line) && option) {
       options.push(option);
     }
   }
@@ -54,124 +78,35 @@ function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] {
     /(?:choose|pick|select|prefer|between|among)\s+(.+?)(?:\?|$)/i,
   );
   if (inlineMatch) {
-    const inlineOptions = inlineMatch[1]
-      .split(/\s*(?:,|\/|\bor\b|\band\b)\s*/i)
-      .map(makeQuickReply)
-      .filter((option): option is QuickReplyOption => option !== null);
-    options.push(...inlineOptions);
+    options.push(...extractDelimitedOptions(inlineMatch[1]));
   }
 
   return uniqueQuickReplies(options);
 }
 
-function buildQuickReplies(prompt: string): QuickReplyOption[] {
-  const text = prompt.toLowerCase();
+export function buildQuickReplies(prompt: string): QuickReplyOption[] {
   const explicitOptions = extractExplicitQuickReplies(prompt);
   if (explicitOptions.length > 0) {
     return explicitOptions.slice(0, 6);
   }
 
-  const options: QuickReplyOption[] = [];
-
-  if (text.includes("audience") || text.includes("reader") || text.includes("who is this for")) {
-    options.push(
-      {
-        label: "Technical users",
-        response: "Aim this at technical users and builders who want practical product and architecture details.",
-      },
-      {
-        label: "Product leaders",
-        response: "Aim this at product leaders comparing strategy, market positioning, and user value.",
-      },
-      {
-        label: "General overview",
-        response: "Keep it accessible for a general audience while preserving the important technical tradeoffs.",
-      },
-    );
+  if (YES_NO_QUESTION_PATTERN.test(prompt)) {
+    return [
+      { label: "Yes", response: "Yes." },
+      { label: "No", response: "No." },
+    ];
   }
 
-  if (text.includes("scope") || text.includes("focus") || text.includes("angle")) {
-    options.push(
+  if (PROCEED_QUESTION_PATTERN.test(prompt)) {
+    return [
       {
-        label: "Product comparison",
-        response: "Focus on product capabilities, user experience, and how each option differs in practice.",
+        label: "Use defaults",
+        response: "Use sensible defaults and proceed. If a choice materially affects the report, call it out in the assumptions.",
       },
-      {
-        label: "Technical tradeoffs",
-        response: "Focus on technical architecture, agent/browser integration, privacy, and reliability tradeoffs.",
-      },
-      {
-        label: "Market landscape",
-        response: "Focus on the broader market landscape, maturity, business model, and adoption signals.",
-      },
-    );
+    ];
   }
 
-  if (text.includes("time") || text.includes("recent") || text.includes("current")) {
-    options.push(
-      {
-        label: "Current state",
-        response: "Use the current state of the market and prioritize recent sources and active products.",
-      },
-      {
-        label: "Last 12 months",
-        response: "Focus on developments and product changes from the last 12 months.",
-      },
-    );
-  }
-
-  if (text.includes("source") || text.includes("evidence") || text.includes("citation")) {
-    options.push(
-      {
-        label: "Primary sources",
-        response: "Prioritize primary sources like official docs, release notes, GitHub repos, pricing pages, and company announcements.",
-      },
-      {
-        label: "Include analysis",
-        response: "Use primary sources first, but include credible third-party analysis where it adds useful context.",
-      },
-    );
-  }
-
-  if (text.includes("criteria") || text.includes("compare") || text.includes("evaluate")) {
-    options.push(
-      {
-        label: "UX + agent power",
-        response: "Compare user experience, agent capabilities, reliability, privacy, extensibility, pricing, and maturity.",
-      },
-      {
-        label: "Open + proprietary",
-        response: "Include both open source and proprietary options, and make the licensing/business model clear for each one.",
-      },
-    );
-  }
-
-  if (text.includes("depth") || text.includes("detail") || text.includes("format")) {
-    options.push(
-      {
-        label: "Decision memo",
-        response: "Structure the final output like a decision memo with a comparison table and a clear recommendation.",
-      },
-      {
-        label: "Detailed report",
-        response: "Make this a detailed report with source-backed findings, tradeoffs, and gaps.",
-      },
-    );
-  }
-
-  if (
-    text.includes("assumption") ||
-    text.includes("default") ||
-    text.includes("proceed") ||
-    options.length === 0
-  ) {
-    options.push({
-      label: "Use defaults",
-      response: "Use sensible defaults and proceed. If a choice materially affects the report, call it out in the assumptions.",
-    });
-  }
-
-  return uniqueQuickReplies(options).slice(0, 6);
+  return [];
 }
 
 export const ResearchDesk: Component = () => {

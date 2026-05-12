@@ -71,6 +71,7 @@ tests/*.test.ts
 !tests/page-access-issues.test.ts
 !tests/page-diff-display.test.ts
 !tests/results-only-context.test.ts
+!tests/research-quick-replies.test.ts
 !tests/scheduler.test.ts
 !tests/search-shortcuts.test.ts
 !tests/security-hardening.test.ts
