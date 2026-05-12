@@ -749,6 +749,7 @@ async function waitForDomReady(
         return document.readyState || "";
       })()
     `,
+      { label: "ready-state" },
     );
 
     if (readyState === "interactive" || readyState === "complete") {
@@ -762,6 +763,7 @@ async function waitForDomReady(
 async function executeScript(
   webContents: WebContents,
   script: string,
+  options: { label?: string; warnOnFailure?: boolean } = {},
 ): Promise<unknown> {
   if (webContents.isDestroyed()) {
     return null;
@@ -779,7 +781,15 @@ async function executeScript(
       }),
     ]);
   } catch (err) {
-    logger.warn("Failed to execute page script:", err);
+    const label = options.label ? ` (${options.label})` : "";
+    const url = webContents.getURL() || "unknown URL";
+    const message = err instanceof Error ? err.message : String(err);
+    const detail = `Failed to execute page script${label} on ${url}: ${message}`;
+    if (options.warnOnFailure) {
+      logger.warn(detail);
+    } else {
+      logger.debug(detail);
+    }
     return null;
   } finally {
     if (timer) {
@@ -936,6 +946,7 @@ async function estimateExtractionTimeout(webContents: WebContents): Promise<numb
     const elementCount = await executeScript(
       webContents,
       `(function() { try { return document.querySelectorAll('*').length; } catch { return 0; } })()`,
+      { label: "element-count" },
     );
     if (typeof elementCount === "number" && elementCount > 5000) {
       // Heavy page — scale timeout: +1s per 2000 elements beyond 5000, capped
@@ -957,8 +968,12 @@ async function extractContentInner(
   await waitForDomReady(webContents);
 
   const [preloadResult, directResult] = await Promise.all([
-    executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT),
-    executeScript(webContents, DIRECT_EXTRACTION_SCRIPT),
+    executeScript(webContents, PRELOAD_EXTRACTION_SCRIPT, {
+      label: "preload-extraction",
+    }),
+    executeScript(webContents, DIRECT_EXTRACTION_SCRIPT, {
+      label: "direct-extraction",
+    }),
   ]);
 
   return mergePageContent(
