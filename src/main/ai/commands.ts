@@ -1,5 +1,8 @@
+import type Anthropic from "@anthropic-ai/sdk";
+import { randomUUID } from "node:crypto";
 import type { AIProvider } from "./provider";
 import type { AIMessage } from "../../shared/types";
+import type { ResearchClarification } from "../../shared/research-types";
 import { createTraceSession } from "../telemetry/dev-trace";
 import {
   buildSummarizePrompt,
@@ -21,6 +24,87 @@ import type { AgentRuntime } from "../agent/runtime";
 import { buildOrchestratorSystemPrompt } from "../agent/research/orchestrator-prompt";
 import type { ResearchOrchestrator } from "../agent/research/orchestrator";
 
+const ASK_RESEARCH_USER_TOOL: Anthropic.Tool = {
+  name: "ask_research_user",
+  description:
+    "Ask the user one Research Desk briefing question with optional clickable answer choices. Use this when the research brief needs clarification. Do not also write the question in normal assistant text.",
+  input_schema: {
+    type: "object",
+    properties: {
+      question: {
+        type: "string",
+        description: "The concise question to show in the Research Desk chat.",
+      },
+      options: {
+        type: "array",
+        description:
+          "Optional answer choices to render as clickable buttons. Keep labels short and user-facing.",
+        items: {
+          type: "object",
+          properties: {
+            label: {
+              type: "string",
+              description: "Short button label.",
+            },
+            response: {
+              type: "string",
+              description:
+                "Optional full response to send when the user selects this choice.",
+            },
+          },
+          required: ["label"],
+        },
+        maxItems: 6,
+      },
+      allowTypedResponse: {
+        type: "boolean",
+        description:
+          "Whether the user should also be able to answer in their own words. Defaults to true.",
+      },
+    },
+    required: ["question"],
+  },
+};
+
+const RESEARCH_BRIEFING_TOOLS: Anthropic.Tool[] = [ASK_RESEARCH_USER_TOOL];
+
+function cleanResearchString(value: unknown, maxLength: number): string {
+  return typeof value === "string"
+    ? value.replace(/\s+/g, " ").trim().slice(0, maxLength)
+    : "";
+}
+
+function normalizeResearchClarification(
+  args: Record<string, unknown>,
+): ResearchClarification | null {
+  const question = cleanResearchString(args.question, 500);
+  if (question.length < 2) return null;
+
+  const rawOptions = Array.isArray(args.options) ? args.options : [];
+  const options = rawOptions
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const label = cleanResearchString(record.label, 80);
+      if (label.length < 1) return null;
+      const response = cleanResearchString(record.response, 500) || label;
+      return { label, response };
+    })
+    .filter((item): item is { label: string; response: string } => item !== null)
+    .slice(0, 6);
+
+  return {
+    id: randomUUID(),
+    question,
+    options,
+    allowTypedResponse: args.allowTypedResponse !== false,
+  };
+}
+
+function stripResearchQuestionToolMarkers(text: string): string {
+  return text.replace(/\n?<<tool:ask_research_user(?::[^>]*)?>>\n?/g, "");
+}
+
 export async function handleAIQuery(
   query: string,
   provider: AIProvider,
@@ -31,6 +115,7 @@ export async function handleAIQuery(
   runtime?: AgentRuntime,
   history?: AIMessage[],
   researchOrchestrator?: ResearchOrchestrator,
+  onResearchClarification?: (payload: ResearchClarification) => void,
 ): Promise<void> {
   // Research Desk: during briefing/planning, use the orchestrator's system prompt
   if (researchOrchestrator) {
@@ -39,12 +124,15 @@ export async function handleAIQuery(
       const isPlanning = researchState.phase === "planning";
       const phaseInstruction = isPlanning
         ? "\n\nNow produce the Research Objectives based on the brief conversation above. Output them as a JSON object with researchQuestion, threads (array of {label, question, searchQueries, sourceBudget}), audience, reportOutline, and totalSourceBudget fields."
-        : "\n\nContinue the briefing interview. Ask one question at a time.";
+        : "\n\nContinue the briefing interview. Ask one question at a time. When you need input from the user, call ask_research_user with the exact question and any useful answer options instead of writing a freeform question.";
 
       let fullResponse = "";
+      let clarificationPresented = false;
       const wrappedOnChunk = (text: string) => {
-        fullResponse += text;
-        onChunk(text);
+        if (clarificationPresented) return;
+        const visibleText = stripResearchQuestionToolMarkers(text);
+        fullResponse += visibleText;
+        if (visibleText) onChunk(visibleText);
       };
 
       const wrappedOnEnd = () => {
@@ -60,6 +148,37 @@ export async function handleAIQuery(
         }
         onEnd();
       };
+
+      if (!isPlanning && provider.streamAgentQuery) {
+        await provider.streamAgentQuery(
+          buildOrchestratorSystemPrompt() + phaseInstruction,
+          query,
+          RESEARCH_BRIEFING_TOOLS,
+          wrappedOnChunk,
+          async (name, args) => {
+            if (name !== ASK_RESEARCH_USER_TOOL.name) {
+              return `Error: Unsupported Research Desk briefing tool "${name}".`;
+            }
+
+            const clarification = normalizeResearchClarification(args);
+            if (!clarification) {
+              return "Error: ask_research_user requires a non-empty question.";
+            }
+
+            clarificationPresented = true;
+            if (onResearchClarification) {
+              onResearchClarification(clarification);
+            } else {
+              onChunk(clarification.question);
+            }
+
+            return "Question presented to the user. Stop and wait for the user's answer.";
+          },
+          wrappedOnEnd,
+          history,
+        );
+        return;
+      }
 
       await provider.streamQuery(
         buildOrchestratorSystemPrompt() + phaseInstruction,

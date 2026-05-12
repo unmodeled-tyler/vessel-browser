@@ -18,6 +18,18 @@ export type ResearchPhase =
 
 export type SupervisionMode = "walk-away" | "interactive";
 
+export interface ResearchClarificationOption {
+  label: string;
+  response: string;
+}
+
+export interface ResearchClarification {
+  id: string;
+  question: string;
+  options: ResearchClarificationOption[];
+  allowTypedResponse: boolean;
+}
+
 export interface ResearchThread {
   /** Human-readable label for this research angle */
   label: string;

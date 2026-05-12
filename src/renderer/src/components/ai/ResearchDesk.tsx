@@ -8,6 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import type { AIMessage } from "../../../../shared/types";
+import type { ResearchClarification } from "../../../../shared/research-types";
 import { useAI } from "../../stores/ai";
 import { useResearch } from "../../stores/research";
 
@@ -124,6 +125,26 @@ export function findLatestAssistantQuickReplyTarget(messages: AIMessage[]): stri
   return "";
 }
 
+function findLatestResearchClarification(
+  messages: AIMessage[],
+  clarifications: ResearchClarification[],
+): ResearchClarification | null {
+  const assistantMessages = new Set(
+    messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.content.trim()),
+  );
+
+  for (let i = clarifications.length - 1; i >= 0; i -= 1) {
+    const clarification = clarifications[i];
+    if (assistantMessages.has(clarification.question.trim())) {
+      return clarification;
+    }
+  }
+
+  return null;
+}
+
 export const ResearchDesk: Component = () => {
   const research = useResearch();
   const {
@@ -132,6 +153,7 @@ export const ResearchDesk: Component = () => {
     streamingText,
     isStreaming,
     pendingQueryCount,
+    researchClarifications,
   } = useAI();
   const state = research.state;
   const [topicInput, setTopicInput] = createSignal("");
@@ -156,17 +178,31 @@ export const ResearchDesk: Component = () => {
   const hasAssistantBrief = createMemo(() =>
     transcriptMessages().some((message) => message.role === "assistant"),
   );
+  const latestResearchClarification = createMemo(() =>
+    findLatestResearchClarification(
+      transcriptMessages(),
+      researchClarifications(),
+    ),
+  );
   const latestAssistantQuickReplyTarget = createMemo(() =>
+    latestResearchClarification()?.question ??
     findLatestAssistantQuickReplyTarget(transcriptMessages()),
   );
-  const quickReplies = createMemo(() =>
-    latestAssistantQuickReplyTarget()
+  const quickReplies = createMemo(() => {
+    const clarification = latestResearchClarification();
+    if (clarification) {
+      return clarification.options.map((option) => ({
+        label: option.label,
+        response: option.response,
+      }));
+    }
+
+    return latestAssistantQuickReplyTarget()
       ? buildQuickReplies(latestAssistantQuickReplyTarget())
-      : [],
-  );
+      : [];
+  });
   const shouldShowQuickRepliesForMessage = (content: string) =>
     quickReplies().length > 0 &&
-    !isStreaming() &&
     content.trim() === latestAssistantQuickReplyTarget();
   const isBriefStarting = createMemo(() =>
     state().phase === "briefing" &&
