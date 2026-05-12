@@ -39,7 +39,7 @@ export async function handleAIQuery(
       const isPlanning = researchState.phase === "planning";
       const phaseInstruction = isPlanning
         ? "\n\nNow produce the Research Objectives based on the brief conversation above. Output them as a JSON object with researchQuestion, threads (array of {label, question, searchQueries, sourceBudget}), audience, reportOutline, and totalSourceBudget fields."
-        : "\n\nContinue the briefing interview. Ask one concise question, then list 2–6 expected user answers as bullet points so they can be shown as clickable buttons. Each option should read like something the user could click as their answer. Do not browse, plan the report, or write a prose preamble.";
+        : "\n\nContinue the briefing interview. You MUST end every assistant turn with one concise question AND 2–6 concrete answer choices formatted as bullet points (e.g. `- Option one`). Never ask a bare question without listed options. Each option should read like something the user could click as their answer. Do not browse, plan the report, or write a prose preamble.";
 
       let fullResponse = "";
       const wrappedOnChunk = (text: string) => {

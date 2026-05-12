@@ -53,8 +53,8 @@ function applyInlineMarkdown(text: string): string {
   html = html
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-    .replace(/(^|[^\*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
-    .replace(/(^|[^_])_([^_\n]+)_/g, "$1<em>$2</em>");
+    .replace(/(^|[^\*])\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[^_])_(?!\s)([^_\n]+?)(?<!\s)_/g, "$1<em>$2</em>");
 
   return codeSpans.reduce(
     (output, snippet, index) => output.replace(`\x00CS${index}\x00`, snippet),
@@ -63,7 +63,7 @@ function applyInlineMarkdown(text: string): string {
 }
 
 function renderList(block: string, ordered: boolean): string {
-  const pattern = ordered ? /^\d+\.\s+/ : /^[-*+]\s+/;
+  const pattern = ordered ? /^\d+\.\s+/ : /^[-*+•]\s+/;
   const items = block
     .split("\n")
     .map((line) => line.replace(pattern, "").trim())
@@ -219,11 +219,60 @@ function renderBlock(block: string): string {
     return result;
   }
 
-  if (trimmed.split("\n").every((line) => /^[-*+]\s+/.test(line))) {
+  // Mixed content: text + list without a blank-line separator
+  const hasUnorderedList = lines.some((l) => /^[-*+•]\s+/.test(l));
+  const hasOrderedList = lines.some((l) => /^\d+\.\s+/.test(l));
+  const allUnordered = lines.every((l) => /^[-*+•]\s+/.test(l));
+  const allOrdered = lines.every((l) => /^\d+\.\s+/.test(l));
+  if (
+    (hasUnorderedList || hasOrderedList) &&
+    !(allUnordered || allOrdered)
+  ) {
+    let result = "";
+    let currentText = "";
+    let currentList = "";
+    let currentOrdered = false;
+
+    for (const line of lines) {
+      const isUnordered = /^[-*+•]\s+/.test(line);
+      const isOrdered = /^\d+\.\s+/.test(line);
+      if (isUnordered || isOrdered) {
+        if (currentText) {
+          result += `<p>${applyInlineMarkdown(currentText).replace(/\n/g, "<br>")}</p>`;
+          currentText = "";
+        }
+        if (
+          currentList &&
+          ((isOrdered && !currentOrdered) || (isUnordered && currentOrdered))
+        ) {
+          result += renderList(currentList, currentOrdered);
+          currentList = "";
+        }
+        currentOrdered = isOrdered;
+        currentList += (currentList ? "\n" : "") + line;
+      } else {
+        if (currentList) {
+          result += renderList(currentList, currentOrdered);
+          currentList = "";
+        }
+        currentText += (currentText ? "\n" : "") + line;
+      }
+    }
+
+    if (currentText) {
+      result += `<p>${applyInlineMarkdown(currentText).replace(/\n/g, "<br>")}</p>`;
+    }
+    if (currentList) {
+      result += renderList(currentList, currentOrdered);
+    }
+    return result;
+  }
+
+  if (allUnordered) {
     return renderList(trimmed, false);
   }
 
-  if (trimmed.split("\n").every((line) => /^\d+\.\s+/.test(line))) {
+  if (allOrdered) {
     return renderList(trimmed, true);
   }
 
@@ -343,6 +392,10 @@ export function renderMarkdown(source: string): string {
     (out, snippet, index) => out.replace(`\x00TC${index}\x00`, snippet),
     output,
   );
+
+  if (typeof DOMPurify?.sanitize !== "function") {
+    return output;
+  }
 
   return DOMPurify.sanitize(output, {
     ALLOWED_TAGS: [
