@@ -77,7 +77,7 @@ test("Research Desk briefing exposes a structured user question tool", async () 
   );
 });
 
-test("Research Desk clarification tool rejects missing clickable options", async () => {
+test("Research Desk clarification tool synthesizes options when omitted", async () => {
   const clarifications: ResearchClarification[] = [];
   let toolResult = "";
 
@@ -119,14 +119,21 @@ test("Research Desk clarification tool rejects missing clickable options", async
     (payload) => clarifications.push(payload),
   );
 
-  assert.match(toolResult, /2-6 concrete clickable options/);
-  assert.equal(clarifications.length, 0);
+  assert.equal(toolResult, TERMINAL_TOOL_RESULT);
+  assert.deepEqual(
+    clarifications[0]?.options.map((option) => option.label),
+    [
+      "Primary sources",
+      "Analyst coverage",
+      "Community signal",
+      "Use sensible defaults",
+    ],
+  );
 });
 
-test("Research Desk clarification tool accepts retry with concrete options", async () => {
+test("Research Desk clarification tool does not retry default-only options", async () => {
   const clarifications: ResearchClarification[] = [];
-  let firstResult = "";
-  let secondResult = "";
+  let toolResult = "";
 
   const provider: AIProvider = {
     agentToolProfile: "default",
@@ -141,26 +148,9 @@ test("Research Desk clarification tool accepts retry with concrete options", asy
       onToolCall,
       onEnd,
     ) {
-      firstResult = await onToolCall("ask_research_user", {
+      toolResult = await onToolCall("ask_research_user", {
         question: "What scope should Vessel use?",
         options: [{ label: "Use defaults", response: "Use defaults." }],
-      });
-      secondResult = await onToolCall("ask_research_user", {
-        question: "What scope should Vessel use?",
-        options: [
-          {
-            label: "Product comparison",
-            response: "Focus on product comparison.",
-          },
-          {
-            label: "Technical architecture",
-            response: "Focus on technical architecture.",
-          },
-          {
-            label: "Use defaults",
-            response: "Use sensible defaults.",
-          },
-        ],
       });
       onEnd();
     },
@@ -184,10 +174,14 @@ test("Research Desk clarification tool accepts retry with concrete options", asy
     (payload) => clarifications.push(payload),
   );
 
-  assert.match(firstResult, /Do not provide only a generic defaults option/);
-  assert.equal(secondResult, TERMINAL_TOOL_RESULT);
+  assert.equal(toolResult, TERMINAL_TOOL_RESULT);
   assert.deepEqual(
     clarifications[0]?.options.map((option) => option.label),
-    ["Product comparison", "Technical architecture", "Use defaults"],
+    [
+      "Market landscape",
+      "Product comparison",
+      "Technical architecture",
+      "Use sensible defaults",
+    ],
   );
 });

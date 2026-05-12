@@ -77,8 +77,102 @@ function cleanResearchString(value: unknown, maxLength: number): string {
     : "";
 }
 
+function isDefaultResearchOption(label: string): boolean {
+  return /^use (?:sensible )?defaults?$/i.test(label);
+}
+
+function buildFallbackResearchOptions(
+  question: string,
+  query: string,
+): Array<{ label: string; response: string }> {
+  const context = `${question} ${query}`.toLowerCase();
+
+  if (/\b(?:source|sources|domain|domains|coverage|reports?)\b/.test(context)) {
+    return [
+      {
+        label: "Primary sources",
+        response: "Prioritize primary sources such as official docs, filings, papers, and product pages.",
+      },
+      {
+        label: "Analyst coverage",
+        response: "Include credible analyst, industry, and expert coverage where useful.",
+      },
+      {
+        label: "Community signal",
+        response: "Include community discussion and open-source activity when it helps evaluate adoption.",
+      },
+      {
+        label: "Use sensible defaults",
+        response: "Use a balanced source mix and call out any important assumptions.",
+      },
+    ];
+  }
+
+  if (/\b(?:audience|technical|layperson|depth|deep|overview|executive)\b/.test(context)) {
+    return [
+      {
+        label: "Executive overview",
+        response: "Optimize the report for an executive overview with clear tradeoffs and recommendations.",
+      },
+      {
+        label: "Technical deep dive",
+        response: "Optimize the report for technical readers and include architecture-level detail.",
+      },
+      {
+        label: "Product decision",
+        response: "Optimize the report for a product decision with practical comparisons and risks.",
+      },
+      {
+        label: "Use sensible defaults",
+        response: "Use a balanced depth and call out any important assumptions.",
+      },
+    ];
+  }
+
+  if (/\b(?:format|outline|deliverable|report|table|comparison)\b/.test(context)) {
+    return [
+      {
+        label: "Comparison table",
+        response: "Structure the report around a comparison table plus concise analysis.",
+      },
+      {
+        label: "Narrative report",
+        response: "Structure the report as a narrative with sections for findings, tradeoffs, and gaps.",
+      },
+      {
+        label: "Decision memo",
+        response: "Structure the report as a decision memo with recommendation-oriented takeaways.",
+      },
+      {
+        label: "Use sensible defaults",
+        response: "Choose the clearest format for this research question and call out assumptions.",
+      },
+    ];
+  }
+
+  return [
+    {
+      label: "Market landscape",
+      response: "Focus the brief on the overall market landscape and major players.",
+    },
+    {
+      label: "Product comparison",
+      response: "Focus the brief on comparing product capabilities, tradeoffs, and readiness.",
+    },
+    {
+      label: "Technical architecture",
+      response: "Focus the brief on technical architecture, implementation patterns, and limitations.",
+    },
+    {
+      label: "Use sensible defaults",
+      response: "Use sensible defaults and call out any assumptions that materially affect the report.",
+    },
+  ];
+}
+
 function normalizeResearchClarification(
   args: Record<string, unknown>,
+  fallbackQuery: string,
 ): ResearchClarification | null {
   const question = cleanResearchString(args.question, 500);
   if (question.length < 2) return null;
@@ -96,17 +190,15 @@ function normalizeResearchClarification(
     .filter((item): item is { label: string; response: string } => item !== null)
     .slice(0, 6);
 
-  if (
-    options.length < 2 ||
-    options.every((option) => /^use (?:sensible )?defaults?$/i.test(option.label))
-  ) {
-    return null;
-  }
+  const usableOptions =
+    options.length < 2 || options.every((option) => isDefaultResearchOption(option.label))
+      ? buildFallbackResearchOptions(question, fallbackQuery)
+      : options;
 
   return {
     id: randomUUID(),
     question,
-    options,
+    options: usableOptions,
     allowTypedResponse: args.allowTypedResponse !== false,
   };
 }
@@ -134,7 +226,7 @@ export async function handleAIQuery(
       const isPlanning = researchState.phase === "planning";
       const phaseInstruction = isPlanning
         ? "\n\nNow produce the Research Objectives based on the brief conversation above. Output them as a JSON object with researchQuestion, threads (array of {label, question, searchQueries, sourceBudget}), audience, reportOutline, and totalSourceBudget fields."
-        : "\n\nContinue the briefing interview. Ask one question at a time. When you need input from the user, call ask_research_user with the exact question and any useful answer options instead of writing a freeform question.";
+        : "\n\nContinue the briefing interview. For the next assistant turn, call ask_research_user immediately with one concise question and 2-6 useful answer options. Do not browse, plan the report, or write a prose preamble before calling the tool.";
 
       let fullResponse = "";
       let clarificationPresented = false;
@@ -176,9 +268,9 @@ export async function handleAIQuery(
               return `Error: Unsupported Research Desk briefing tool "${name}".`;
             }
 
-            const clarification = normalizeResearchClarification(args);
+            const clarification = normalizeResearchClarification(args, query);
             if (!clarification) {
-              return "Error: ask_research_user requires a non-empty question and 2-6 concrete clickable options tailored to that question. Do not provide only a generic defaults option.";
+              return "Error: ask_research_user requires a non-empty question.";
             }
 
             clarificationPresented = true;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildQuickReplies,
   extractExplicitQuickReplies,
+  findLatestResearchClarification,
   findLatestAssistantQuickReplyTarget,
   pickResearchClarificationQuickReplies,
 } from "../src/renderer/src/components/ai/ResearchDesk";
@@ -130,5 +131,60 @@ test("research quick reply target keeps open-ended questions actionable", () => 
   assert.equal(
     target,
     "What scope, sources, timeframe, or format would make this report most useful?",
+  );
+});
+
+test("research quick reply target clears after the user answers", () => {
+  const target = findLatestAssistantQuickReplyTarget([
+    { role: "user", content: "Compare AI browsers." },
+    {
+      role: "assistant",
+      content:
+        "Which angle should I optimize for?\n1. Product comparison\n2. Technical architecture",
+    },
+    { role: "user", content: "Product comparison." },
+  ]);
+
+  assert.equal(target, "");
+});
+
+test("research clarification chips only follow the latest assistant question", () => {
+  const clarifications = [
+    {
+      id: "clarification:first",
+      question: "Which angle should I optimize for?",
+      options: [
+        {
+          label: "Product comparison",
+          response: "Focus on product comparison.",
+        },
+      ],
+      allowTypedResponse: true,
+    },
+  ];
+
+  assert.equal(
+    findLatestResearchClarification(
+      [
+        { role: "user", content: "Compare AI browsers." },
+        { role: "assistant", content: "Which angle should I optimize for?" },
+        { role: "user", content: "Product comparison." },
+      ],
+      clarifications,
+    ),
+    null,
+  );
+
+  assert.equal(
+    findLatestResearchClarification(
+      [
+        { role: "user", content: "Compare AI browsers." },
+        { role: "assistant", content: "Which angle should I optimize for?" },
+        { role: "user", content: "Product comparison." },
+        { role: "assistant", content: "Which sources should I prioritize?" },
+      ],
+      clarifications,
+    ),
+    null,
   );
 });

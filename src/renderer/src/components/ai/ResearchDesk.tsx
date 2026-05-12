@@ -203,30 +203,42 @@ export function pickResearchClarificationQuickReplies(
 export function findLatestAssistantQuickReplyTarget(messages: AIMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i];
-    if (message.role !== "assistant") continue;
-
     const content = message.content.trim();
+    if (!content) continue;
+    if (message.role !== "assistant") return "";
+
     if (content && buildQuickReplies(content).length > 0) {
       return content;
     }
+    return "";
   }
 
   return "";
 }
 
-function findLatestResearchClarification(
+export function findLatestResearchClarification(
   messages: AIMessage[],
   clarifications: ResearchClarification[],
 ): ResearchClarification | null {
-  const assistantMessages = new Set(
-    messages
-      .filter((message) => message.role === "assistant")
-      .map((message) => message.content.trim()),
-  );
+  let latestAssistantContent = "";
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    const content = message.content.trim();
+    if (!content) continue;
+
+    if (message.role !== "assistant") {
+      return null;
+    }
+
+    latestAssistantContent = content;
+    break;
+  }
+
+  if (!latestAssistantContent) return null;
 
   for (let i = clarifications.length - 1; i >= 0; i -= 1) {
     const clarification = clarifications[i];
-    if (assistantMessages.has(clarification.question.trim())) {
+    if (clarification.question.trim() === latestAssistantContent) {
       return clarification;
     }
   }
