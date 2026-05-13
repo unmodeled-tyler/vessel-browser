@@ -310,6 +310,43 @@ test("research quick replies parse em dash bullet options", () => {
   );
 });
 
+test("research quick replies catch prose options after a blank line", () => {
+  const replies = buildQuickReplies(
+    "What angle should I optimize for?\n\nProduct comparison, technical architecture, or market landscape.",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["Product comparison", "technical architecture", "market landscape"],
+  );
+});
+
+test("research quick replies catch long plain-line options", () => {
+  const replies = buildQuickReplies(
+    "What angle should I optimize for?\n\nComparing agent orchestration frameworks and their tradeoffs\nEvaluating multimodal input handling and context window usage\nReviewing security sandboxing models for untrusted web content",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    [
+      "Comparing agent orchestration frameworks and their tradeoffs",
+      "Evaluating multimodal input handling and context window usage",
+      "Reviewing security sandboxing models for untrusted web content",
+    ],
+  );
+});
+
+test("research quick replies parse lowercase letter options", () => {
+  const replies = buildQuickReplies(
+    "Which depth?\na. High-level overview\nb. Deep dive\nc. Technical architecture",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
 test("research quick replies fall back to defaults when no options are detected", () => {
   const replies = buildQuickReplies(
     "Which depth are you after?",
