@@ -46,12 +46,12 @@ function uniqueQuickReplies(options: QuickReplyOption[]): QuickReplyOption[] {
 }
 
 const YES_NO_QUESTION_PATTERN =
-  /\b(?:do you want|should (?:i|we|vessel)|would you like|is it okay|okay to|shall (?:i|we))\b/i;
+  /^\s*(?:do you want|should (?:i|we|vessel)|would you like|is it okay|okay to|shall (?:i|we))\b/i;
 const PROCEED_QUESTION_PATTERN =
   /\b(?:proceed|continue|use defaults?|make assumptions?|sensible defaults?)\b/i;
 
-const EXPLICIT_OPTION_PREFIX = /^\s*(?:[-*+•–—]|\d+[.)]|\(\d+\)|[A-Z][.)]|\([A-Z]\)|Option\s+\d+[:：])\s+/i;
-const SENTENCE_STARTER = /^(?:Here|These|They|You|I\s|We\s|This|That|If|When|Because|Also|Please|Let|Make|Take|Go|Get|Do|Have|Has|Had|Will|Would|Could|Should|Can|May|Might|Must|Shall)\b/i;
+const EXPLICIT_OPTION_PREFIX = /^\s*(?:[-*+•–—]|\d+[.)]|\(\d+\)|[A-Za-z][.)]|\([A-Za-z]\)|Option\s+\d+[:：])\s+/i;
+const SENTENCE_STARTER = /^(?:Here|These|They|You|I\s|We\s|This|That|If|When|Because|Also|Please|Let|Will|Would|Could|Should|Can|May|Might|Must|Shall)\b/i;
 
 export function makeQuickReply(label: string): QuickReplyOption | null {
   const cleaned = label
@@ -96,10 +96,14 @@ function extractFollowUpOptions(prompt: string): QuickReplyOption[] {
 
   for (let i = 0; i < lines.length - 1; i++) {
     const line = lines[i].trim();
-    const nextLine = lines[i + 1].trim();
-
     if (!line.includes("?")) continue;
-    if (!nextLine) continue;
+
+    // Look ahead for the next non-empty line (skip blank lines)
+    let j = i + 1;
+    while (j < lines.length && !lines[j].trim()) j++;
+    if (j >= lines.length) continue;
+
+    const nextLine = lines[j].trim();
     // Already handled by explicit bullet extraction
     if (EXPLICIT_OPTION_PREFIX.test(nextLine)) continue;
     // Only extract if the next line looks like a list (delimiters or "or")
@@ -186,8 +190,10 @@ function extractImplicitOptions(prompt: string): QuickReplyOption[] {
     if (EXPLICIT_OPTION_PREFIX.test(line)) break;
     // Skip lines that look like the start of a new sentence/preamble
     if (SENTENCE_STARTER.test(line)) break;
-    // Skip overly long lines (likely a paragraph, not an option)
-    if (line.length > 55) break;
+    // Skip overly long lines (likely a paragraph, not an option),
+    // unless they contain clear option delimiters.
+    const hasDelimiters = /[,;\/|]|\bor\b/.test(line);
+    if (line.length > 80 && !hasDelimiters) break;
 
     candidates.push(line);
   }
