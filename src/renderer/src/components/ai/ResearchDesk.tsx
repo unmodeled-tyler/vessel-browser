@@ -50,7 +50,8 @@ const YES_NO_QUESTION_PATTERN =
 const PROCEED_QUESTION_PATTERN =
   /\b(?:proceed|continue|use defaults?|make assumptions?|sensible defaults?)\b/i;
 
-const EXPLICIT_OPTION_PREFIX = /^\s*(?:[-*•–—]|\d+[.)]|\(\d+\)|[A-Z][.)]|\([A-Z]\)|Option\s+\d+[:：])\s+/i;
+const EXPLICIT_OPTION_PREFIX = /^\s*(?:[-*+•–—]|\d+[.)]|\(\d+\)|[A-Z][.)]|\([A-Z]\)|Option\s+\d+[:：])\s+/i;
+const SENTENCE_STARTER = /^(?:Here|These|They|You|I\s|We\s|This|That|If|When|Because|Also|Please|Let|Make|Take|Go|Get|Do|Have|Has|Had|Will|Would|Could|Should|Can|May|Might|Must|Shall)\b/i;
 
 export function makeQuickReply(label: string): QuickReplyOption | null {
   const cleaned = label
@@ -79,7 +80,7 @@ function isExplicitOptionLine(line: string): boolean {
 
 function extractDelimitedOptions(text: string): QuickReplyOption[] {
   return text
-    .split(/\s*(?:;|,|\/|\||\bor\b)\s*/i)
+    .split(/\s*(?:;|,|\/|\||\s+-\s+|\bor\b)\s*/i)
     .map(makeQuickReply)
     .filter((option): option is QuickReplyOption => option !== null);
 }
@@ -105,6 +106,97 @@ function extractFollowUpOptions(prompt: string): QuickReplyOption[] {
     if (!/[,;\/|]|\bor\b/.test(nextLine)) continue;
 
     options.push(...extractDelimitedOptions(nextLine));
+  }
+
+  return uniqueQuickReplies(options);
+}
+
+/**
+ * Catch options that appear inline on the SAME line as the question,
+ * after a colon or question mark, with clear delimiters.
+ */
+function extractInlineOptions(prompt: string): QuickReplyOption[] {
+  const options: QuickReplyOption[] = [];
+
+  for (const line of prompt.split("\n")) {
+    const trimmed = line.trim();
+    if (!/\?/.test(trimmed)) continue;
+
+    const afterQuestion = trimmed.slice(trimmed.lastIndexOf("?") + 1).trim();
+    if (!afterQuestion) continue;
+
+    // Skip text that will be handled by specialized extractors (labels or
+    // quoted examples) so we don't emit duplicate/prefixed options.
+    if (
+      /\b(?:options?|choices?|examples?|example answers?|examples? include|sample answers?|sample responses?)\b.*[:：]/i.test(
+        afterQuestion,
+      )
+    ) {
+      continue;
+    }
+
+    const hasDelimiters = /[,;\/|]|\bor\b/.test(afterQuestion);
+    const hasDashList = /\s+-\s+/.test(afterQuestion);
+
+    if (!hasDelimiters && !hasDashList) continue;
+
+    if (hasDelimiters) {
+      options.push(...extractDelimitedOptions(afterQuestion));
+    }
+    if (hasDashList) {
+      const parts = afterQuestion.split(/\s+-\s+/);
+      for (const part of parts) {
+        const option = makeQuickReply(part);
+        if (option) options.push(option);
+      }
+    }
+  }
+
+  return uniqueQuickReplies(options);
+}
+
+/**
+ * Detect plain lines after the last question that look like options.
+ * Models often output options as short plain lines without any prefix.
+ */
+function extractImplicitOptions(prompt: string): QuickReplyOption[] {
+  const lines = prompt.split("\n");
+  const options: QuickReplyOption[] = [];
+
+  // Find the last line containing a question mark
+  let questionIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes("?")) {
+      questionIdx = i;
+      break;
+    }
+  }
+  if (questionIdx < 0) return [];
+
+  // Scan forward from the question, skipping empty/preamble lines
+  let i = questionIdx + 1;
+  while (i < lines.length && !lines[i].trim()) i++;
+
+  // Collect up to 6 consecutive short non-empty lines that look like options
+  const candidates: string[] = [];
+  for (; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) break;
+    // Skip lines that already have explicit prefixes (handled elsewhere)
+    if (EXPLICIT_OPTION_PREFIX.test(line)) break;
+    // Skip lines that look like the start of a new sentence/preamble
+    if (SENTENCE_STARTER.test(line)) break;
+    // Skip overly long lines (likely a paragraph, not an option)
+    if (line.length > 55) break;
+
+    candidates.push(line);
+  }
+
+  if (candidates.length >= 2 && candidates.length <= 6) {
+    for (const candidate of candidates) {
+      const option = makeQuickReply(candidate);
+      if (option) options.push(option);
+    }
   }
 
   return uniqueQuickReplies(options);
@@ -162,12 +254,32 @@ export function extractExplicitQuickReplies(prompt: string): QuickReplyOption[] 
     options.push(...extractDelimitedOptions(inlineMatch[1]));
   }
 
-  // Catch "Options: A, B, or C" or "Choices: A / B / C" patterns
-  const labelledMatch = prompt.match(
-    /(?:options?|choices?)\s*[:：]\s*(.+?)(?:\n|$)/i,
-  );
-  if (labelledMatch) {
-    options.push(...extractDelimitedOptions(labelledMatch[1]));
+  // Catch inline options on the same line as the question
+  options.push(...extractInlineOptions(prompt));
+
+  // Catch multi-line option lists after "Options:" / "Choices:" labels.
+  // We scan line-by-line so we can capture options that span multiple lines.
+  const lines = prompt.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\b(?:options?|choices?)\s*[:：]/i.test(lines[i])) continue;
+
+    // Anything after the label on the SAME line
+    const restOfLine = lines[i]
+      .replace(/^.*?\b(?:options?|choices?)\s*[:：]\s*/i, "")
+      .trim();
+    if (restOfLine) {
+      options.push(...extractDelimitedOptions(restOfLine));
+    }
+
+    // Scan subsequent lines for more options (until a blank line)
+    let j = i + 1;
+    while (j < lines.length && !lines[j].trim()) j++;
+    for (; j < lines.length; j++) {
+      const line = lines[j].trim();
+      if (!line) break;
+      const option = makeQuickReply(line);
+      if (option) options.push(option);
+    }
   }
 
   options.push(...extractExampleQuickReplies(prompt));
@@ -180,6 +292,12 @@ export function buildQuickReplies(prompt: string): QuickReplyOption[] {
   const explicitOptions = extractExplicitQuickReplies(prompt);
   if (explicitOptions.length > 0) {
     return explicitOptions.slice(0, 6);
+  }
+
+  // Second pass: detect plain lines after the last question that look like options
+  const implicitOptions = extractImplicitOptions(prompt);
+  if (implicitOptions.length > 0) {
+    return implicitOptions.slice(0, 6);
   }
 
   if (YES_NO_QUESTION_PATTERN.test(prompt)) {
