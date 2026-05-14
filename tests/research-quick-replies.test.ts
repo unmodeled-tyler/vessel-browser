@@ -374,6 +374,21 @@ test("research quick replies parse lowercase letter options", () => {
   );
 });
 
+test("research quick replies keep detailed model-authored options", () => {
+  const replies = buildQuickReplies(
+    "Which direction should the report take?\n1. A concise executive summary focused on market timing, decision criteria, and the highest-confidence recommendation\n2. A technical architecture review comparing implementation tradeoffs, integration risks, and maintenance burden\n3. A security-focused assessment covering sandboxing assumptions, data exposure, and operational controls",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    [
+      "A concise executive summary focused on market timing, decision criteria, and the highest-confidence recommendation",
+      "A technical architecture review comparing implementation tradeoffs, integration risks, and maintenance burden",
+      "A security-focused assessment covering sandboxing assumptions, data exposure, and operational controls",
+    ],
+  );
+});
+
 test("research quick replies fall back to defaults when no options are detected", () => {
   const replies = buildQuickReplies(
     "Which depth are you after?",
