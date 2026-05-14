@@ -476,6 +476,12 @@ export const ResearchDesk: Component = () => {
     !streamingText() &&
     pendingQueryCount() === 0,
   );
+  const researchProgress = createMemo(() => {
+    const total = Math.max(state().threads.length, 0);
+    const complete = Math.min(state().threadFindings.length, total);
+    const active = Math.max(total - complete, 0);
+    return { total, complete, active };
+  });
 
   const sendBriefMessage = async (message: string) => {
     const trimmed = message.trim();
@@ -684,6 +690,29 @@ export const ResearchDesk: Component = () => {
                     </ul>
                   </section>
 
+                  <Show
+                    when={Array.from(
+                      new Set(
+                        obj().threads.flatMap((thread) =>
+                          thread.blockedDomains,
+                        ),
+                      ),
+                    )}
+                  >
+                    {(blockedDomains) => (
+                      <Show when={blockedDomains().length > 0}>
+                        <section class="objectives-section">
+                          <p class="objectives-label">Excluded Sources</p>
+                          <div class="objectives-source-list">
+                            <For each={blockedDomains()}>
+                              {(domain) => <span>{domain}</span>}
+                            </For>
+                          </div>
+                        </section>
+                      </Show>
+                    )}
+                  </Show>
+
                   <section class="objectives-section objectives-settings">
                     <label class="mode-toggle">
                       <input
@@ -736,9 +765,18 @@ export const ResearchDesk: Component = () => {
         <Match when={state().phase === "executing"}>
           <div class="research-phase">
             <h3>Researching</h3>
-            <Show when={state().threadFindings.length > 0}>
-              <p>{state().threadFindings.length} of {state().threads.length} threads complete</p>
-            </Show>
+            <div class="research-active-card" role="status" aria-live="polite">
+              <span class="research-spinner research-active-spinner" aria-hidden="true" />
+              <div class="research-active-copy">
+                <div class="research-active-title">Agents are working</div>
+                <p>
+                  {researchProgress().complete} of {researchProgress().total} threads complete
+                  <Show when={researchProgress().active > 0}>
+                    {" "}· {researchProgress().active} active
+                  </Show>
+                </p>
+              </div>
+            </div>
             <Show when={state().supervisionMode === "interactive"}>
               <button onClick={() => research.setMode("walk-away")}>
                 Switch to Walk-Away

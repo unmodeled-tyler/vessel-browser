@@ -3377,6 +3377,22 @@
     white-space: nowrap;
 }
 
+.objectives-source-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.objectives-source-list span {
+    padding: 4px 8px;
+    border: 1px solid color-mix(in srgb, var(--status-error) 22%, var(--border-glass));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--status-error) 7%, transparent);
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.2;
+}
+
 .objectives-settings {
     gap: 10px;
 }
@@ -3548,6 +3564,31 @@
     color: var(--text-secondary);
 }
 
+.research-active-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 14px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+}
+
+.research-active-copy {
+    min-width: 0;
+}
+
+.research-active-title {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.research-active-copy p {
+    margin-top: 3px;
+}
+
 .research-spinner {
     width: 14px;
     height: 14px;
@@ -3556,6 +3597,11 @@
     border-top-color: var(--accent-primary);
     border-radius: 50%;
     animation: research-spin 0.7s linear infinite;
+}
+
+.research-spinner.research-active-spinner {
+    width: 18px;
+    height: 18px;
 }
 
 .research-loading-title {

@@ -264,6 +264,8 @@ export interface SettingsPrivacyProps {
   setDomainMode: Setter<"none" | "allowlist" | "blocklist">;
   domainList: Accessor<string>;
   setDomainList: Setter<string>;
+  sourceDoNotAllowList: Accessor<string>;
+  setSourceDoNotAllowList: Setter<string>;
 }
 
 export interface SettingsAccountProps {

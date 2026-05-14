@@ -561,6 +561,7 @@ export interface VesselSettings {
   chatProvider: ProviderConfig | null;
   maxToolIterations: number;
   domainPolicy: DomainPolicy;
+  sourceDoNotAllowList: string[];
   downloadPath: string;
   premium: PremiumState;
   telemetryEnabled: boolean;

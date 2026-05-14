@@ -18,12 +18,65 @@ import { AGENT_TOOLS } from "../../ai/tools";
 import { executeAction, type ActionContext, TabMutex } from "../../ai/page-actions";
 import type { TabManager } from "../../tabs/tab-manager";
 import type { AgentRuntime } from "../runtime";
+import { loadSettings } from "../../config/settings";
 
 const logger = createLogger("ResearchOrchestrator");
 const MAX_THREADS = 5;
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function normalizeSourceDomain(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return "";
+  try {
+    return new URL(
+      trimmed.includes("://") ? trimmed : `https://${trimmed}`,
+    ).hostname.replace(/^www\./, "");
+  } catch {
+    return trimmed.replace(/^www\./, "");
+  }
+}
+
+function mergeBlockedSourceDomains(thread: ResearchThread): ResearchThread {
+  const globalBlocked = loadSettings().sourceDoNotAllowList
+    .map(normalizeSourceDomain)
+    .filter(Boolean);
+  if (globalBlocked.length === 0) return thread;
+
+  const blockedDomains = Array.from(
+    new Set([
+      ...thread.blockedDomains.map(normalizeSourceDomain).filter(Boolean),
+      ...globalBlocked,
+    ]),
+  );
+
+  return {
+    ...thread,
+    blockedDomains,
+  };
+}
+
+function matchesSourceDomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function getBlockedSourceNavigation(
+  url: unknown,
+  blockedDomains: string[],
+): string | null {
+  if (typeof url !== "string" || blockedDomains.length === 0) return null;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return (
+      blockedDomains.find((domain) =>
+        matchesSourceDomain(hostname, normalizeSourceDomain(domain)),
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
 }
 
 export class ResearchOrchestrator {
@@ -147,8 +200,14 @@ export class ResearchOrchestrator {
       logger.warn("Not in planning phase, ignoring setObjectives");
       return;
     }
-    this.state.objectives = objectives;
-    this.state.threads = objectives.threads.slice(0, MAX_THREADS);
+    const threads = objectives.threads
+      .slice(0, MAX_THREADS)
+      .map(mergeBlockedSourceDomains);
+    this.state.objectives = {
+      ...objectives,
+      threads,
+    };
+    this.state.threads = threads;
     this.setPhase("awaiting_approval");
   }
 
@@ -344,6 +403,29 @@ export class ResearchOrchestrator {
           }
 
           // Enforce source budget
+          if (name === "navigate") {
+            const blockedDomain = getBlockedSourceNavigation(
+              args.url,
+              thread.blockedDomains,
+            );
+            if (blockedDomain) {
+              const msg = `Source skipped: ${String(args.url)} matches the Research Desk source do-not-allow list (${blockedDomain}). Choose a different source.`;
+              discardedSources.push({
+                url: String(args.url || ""),
+                title: String(args.url || "excluded source"),
+                reason: msg,
+              });
+              trace.toolCalls.push({
+                tool: name,
+                args,
+                result: msg,
+                timestamp: new Date().toISOString(),
+                durationMs: 0,
+              });
+              return msg;
+            }
+          }
+
           if (name === "navigate" || name === "search") {
             sourcesConsumed++;
             if (sourcesConsumed > thread.sourceBudget) {
