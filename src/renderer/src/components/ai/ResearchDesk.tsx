@@ -356,7 +356,12 @@ export function pickResearchClarificationQuickReplies(
     return parsedQuestionOptions;
   }
 
-  return structuredOptions;
+  if (parsedQuestionOptions.length > structuredOptions.length) {
+    return uniqueQuickReplies([...structuredOptions, ...parsedQuestionOptions])
+      .slice(0, 6);
+  }
+
+  return uniqueQuickReplies(structuredOptions).slice(0, 6);
 }
 
 export function findLatestAssistantQuickReplyTarget(messages: AIMessage[]): string {

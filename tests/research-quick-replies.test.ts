@@ -102,6 +102,33 @@ test("research clarification examples override injected default option", () => {
   );
 });
 
+test("research clarification fills incomplete structured options from visible question options", () => {
+  const replies = pickResearchClarificationQuickReplies({
+    id: "clarification:test",
+    question:
+      "Which angle should I optimize for?\n1. Product comparison\n2. Technical architecture\n3. Market landscape\n4. Security review\n5. Pricing analysis\n6. Source survey",
+    options: [
+      {
+        label: "Product comparison",
+        response: "Focus on product comparison.",
+      },
+    ],
+    allowTypedResponse: true,
+  });
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    [
+      "Product comparison",
+      "Technical architecture",
+      "Market landscape",
+      "Security review",
+      "Pricing analysis",
+      "Source survey",
+    ],
+  );
+});
+
 test("research quick reply target does not require a literal question mark", () => {
   const target = findLatestAssistantQuickReplyTarget([
     { role: "user", content: "Compare AI browsers." },
