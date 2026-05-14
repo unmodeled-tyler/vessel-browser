@@ -102,6 +102,33 @@ test("research clarification examples override injected default option", () => {
   );
 });
 
+test("research clarification fills incomplete structured options from visible question options", () => {
+  const replies = pickResearchClarificationQuickReplies({
+    id: "clarification:test",
+    question:
+      "Which angle should I optimize for?\n1. Product comparison\n2. Technical architecture\n3. Market landscape\n4. Security review\n5. Pricing analysis\n6. Source survey",
+    options: [
+      {
+        label: "Product comparison",
+        response: "Focus on product comparison.",
+      },
+    ],
+    allowTypedResponse: true,
+  });
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    [
+      "Product comparison",
+      "Technical architecture",
+      "Market landscape",
+      "Security review",
+      "Pricing analysis",
+      "Source survey",
+    ],
+  );
+});
+
 test("research quick reply target does not require a literal question mark", () => {
   const target = findLatestAssistantQuickReplyTarget([
     { role: "user", content: "Compare AI browsers." },
@@ -344,6 +371,21 @@ test("research quick replies parse lowercase letter options", () => {
   assert.deepEqual(
     replies.map((reply) => reply.label),
     ["High-level overview", "Deep dive", "Technical architecture"],
+  );
+});
+
+test("research quick replies keep detailed model-authored options", () => {
+  const replies = buildQuickReplies(
+    "Which direction should the report take?\n1. A concise executive summary focused on market timing, decision criteria, and the highest-confidence recommendation\n2. A technical architecture review comparing implementation tradeoffs, integration risks, and maintenance burden\n3. A security-focused assessment covering sandboxing assumptions, data exposure, and operational controls",
+  );
+
+  assert.deepEqual(
+    replies.map((reply) => reply.label),
+    [
+      "A concise executive summary focused on market timing, decision criteria, and the highest-confidence recommendation",
+      "A technical architecture review comparing implementation tradeoffs, integration risks, and maintenance burden",
+      "A security-focused assessment covering sandboxing assumptions, data exposure, and operational controls",
+    ],
   );
 });
 

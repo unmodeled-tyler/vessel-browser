@@ -118,7 +118,7 @@ export interface FillFormFieldResult {
 const DEFAULT_PAGE_SCRIPT_TIMEOUT_MS = 1500;
 const PAGE_SCRIPT_TIMEOUT = Symbol("page-script-timeout");
 
-export async function loadPermittedUrl(
+async function loadPermittedUrl(
   wc: WebContents,
   url: string,
 ): Promise<void> {
@@ -578,7 +578,7 @@ export async function scrollPage(
   };
 }
 
-export async function clickElement(
+async function clickElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -700,7 +700,7 @@ export async function clickElement(
     : "Clicked via pointer events";
 }
 
-export async function activateElement(
+async function activateElement(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
@@ -739,7 +739,7 @@ export async function activateElement(
   return "Activated element via DOM click";
 }
 
-export async function describeElementForClick(
+async function describeElementForClick(
   wc: WebContents,
   selector: string,
 ): Promise<
@@ -1303,7 +1303,7 @@ function recordProductAddedToCart(url: string, productName: string): void {
 /**
  * Check if the given product URL was already added to cart during this session.
  */
-export function isProductAlreadyInCart(url: string): boolean {
+function isProductAlreadyInCart(url: string): boolean {
   pruneCartAddedProducts();
   return cartAddedProducts.has(normalizeCartProductKey(url));
 }
@@ -1312,7 +1312,7 @@ export function isProductAlreadyInCart(url: string): boolean {
  * Build a summary of products already added to cart, filtered to the current
  * site when a URL is available so unrelated domains do not leak into the prompt.
  */
-export function getCartAddedSummary(url?: string): string {
+function getCartAddedSummary(url?: string): string {
   pruneCartAddedProducts();
   const origin = cartOrigin(url);
   const items = Array.from(cartAddedProducts.entries())
@@ -1336,7 +1336,7 @@ export function clearCartState(): void {
   clickStreakCount = 0;
 }
 
-export async function buildCartSuccessSuffix(
+async function buildCartSuccessSuffix(
   wc: WebContents,
   productUrl: string,
   overlayHint?: string | null,
@@ -1678,7 +1678,7 @@ async function tryAutoDismissCartDialog(wc: WebContents): Promise<string | null>
  * When a cart dialog is open, extract its interactive actions (buttons/links)
  * so the model can act on them without needing to call read_page.
  */
-export async function getCartDialogActions(wc: WebContents): Promise<string | null> {
+async function getCartDialogActions(wc: WebContents): Promise<string | null> {
   const result = await executePageScript<{
     found: boolean;
     actions: string[];
@@ -1732,7 +1732,7 @@ export async function getCartDialogActions(wc: WebContents): Promise<string | nu
  * Lightweight post-click check: did a dialog / cart-drawer appear?
  * Runs a small DOM query instead of a full extraction so it stays fast.
  */
-export async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
+async function detectPostClickOverlay(wc: WebContents): Promise<string | null> {
   const result = await executePageScript<{
     found: boolean;
     label: string;
@@ -2472,7 +2472,7 @@ function describeFillField(field: FillFormFieldInput): string {
   return "field";
 }
 
-export async function resolveFieldSelector(
+async function resolveFieldSelector(
   wc: WebContents,
   field: FillFormFieldInput,
 ): Promise<string | null> {
@@ -2878,7 +2878,7 @@ export async function focusElement(
   `);
 }
 
-export async function waitForCondition(
+async function waitForCondition(
   wc: WebContents,
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -3030,7 +3030,7 @@ export function resolveBookmarkFolderTarget(args: Record<string, unknown>): {
   };
 }
 
-export function formatFolderStatus(limit = 6): string {
+function formatFolderStatus(limit = 6): string {
   const folders = bookmarkManager.listFolderOverviews();
   const summary = folders
     .slice(0, limit)
@@ -3062,7 +3062,7 @@ export function composeFolderAwareResponse(
   return `${prefix}${message}\n${formatFolderStatus()}`;
 }
 
-export async function selectOption(
+async function selectOption(
   wc: WebContents,
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -3105,7 +3105,7 @@ export async function selectOption(
     : result || "Error: Could not select option";
 }
 
-export async function submitForm(
+async function submitForm(
   wc: WebContents,
   args: Record<string, unknown>,
 ): Promise<string> {
@@ -3327,7 +3327,7 @@ export async function pressKeyDirect(
   return pressKey(wc, { key, index, selector });
 }
 
-export async function submitFormDirect(
+async function submitFormDirect(
   wc: WebContents,
   index?: number,
   selector?: string,
@@ -3335,7 +3335,7 @@ export async function submitFormDirect(
   return submitForm(wc, { index, selector });
 }
 
-export async function selectOptionDirect(
+async function selectOptionDirect(
   wc: WebContents,
   index?: number,
   selector?: string,
