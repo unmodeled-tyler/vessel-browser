@@ -79,6 +79,86 @@ function getBlockedSourceNavigation(
   }
 }
 
+function buildFallbackSourceIndex(
+  findings: ThreadFindings[],
+): ResearchReport["sourceIndex"] {
+  const seen = new Set<string>();
+  const sources: ResearchReport["sourceIndex"] = [];
+
+  for (const claim of findings.flatMap((finding) => finding.claims)) {
+    if (!claim.sourceUrl || seen.has(claim.sourceUrl)) continue;
+    seen.add(claim.sourceUrl);
+    sources.push({
+      index: sources.length + 1,
+      url: claim.sourceUrl,
+      title: claim.sourceTitle || claim.sourceUrl,
+      accessedAt: claim.extractedAt,
+      supportingQuote: claim.extractedQuote,
+    });
+  }
+
+  return sources;
+}
+
+function citationForClaim(
+  claim: SourcedClaim,
+  sourceIndex: ResearchReport["sourceIndex"],
+): string {
+  const index =
+    sourceIndex.find((source) => source.url === claim.sourceUrl)?.index ?? 0;
+  return index > 0 ? `[${index}]` : "";
+}
+
+function buildFallbackFindingsByThread(
+  findings: ThreadFindings[],
+  sourceIndex = buildFallbackSourceIndex(findings),
+): ResearchReport["findingsByThread"] {
+  return findings.map((finding) => {
+    const claimLines = finding.claims.map((claim) => {
+      const citation = citationForClaim(claim, sourceIndex);
+      return citation
+        ? `${claim.claim} ${citation}`
+        : claim.claim;
+    });
+
+    return {
+      threadLabel: finding.threadLabel,
+      content:
+        claimLines.length > 0
+          ? claimLines.join("\n\n")
+          : `No citeable claims were extracted for this thread. ${finding.executionSummary}`,
+    };
+  });
+}
+
+function buildFallbackReport(
+  objectives: ResearchObjectives,
+  findings: ThreadFindings[],
+  reason: string,
+): ResearchReport {
+  const sourceIndex = buildFallbackSourceIndex(findings);
+  const findingsByThread = buildFallbackFindingsByThread(findings, sourceIndex);
+  const claimCount = findings.reduce(
+    (sum, finding) => sum + finding.claims.length,
+    0,
+  );
+  const executiveSummary =
+    claimCount > 0
+      ? `The model's final synthesis response could not be parsed, so Vessel generated this sourced fallback from ${claimCount} extracted claim${claimCount === 1 ? "" : "s"} across ${sourceIndex.length} source${sourceIndex.length === 1 ? "" : "s"}.`
+      : `The model's final synthesis response could not be parsed, and no citeable claims were extracted from the research threads.`;
+
+  return {
+    title: objectives.researchQuestion,
+    executiveSummary,
+    findingsByThread,
+    contradictions: [],
+    gaps: [`Final synthesis JSON could not be parsed: ${reason}`],
+    sourceIndex,
+    generatedAt: new Date().toISOString(),
+    objectives,
+  };
+}
+
 export class ResearchOrchestrator {
   private state: ResearchState;
   private updateListener: ((state: ResearchState) => void) | null = null;
@@ -621,7 +701,7 @@ ${transcript.slice(0, 32000)}`;
       () => {},
     );
 
-    const report = this.parseReportFromJson(response, objectives);
+    const report = this.parseReportFromJson(response, objectives, findings);
     this.setReport(report);
     this.setPhase("delivered");
     return report;
@@ -634,6 +714,7 @@ ${transcript.slice(0, 32000)}`;
   private parseReportFromJson(
     text: string,
     objectives: ResearchObjectives,
+    findings: ThreadFindings[],
   ): ResearchReport {
     let json = text.trim();
 
@@ -648,18 +729,41 @@ ${transcript.slice(0, 32000)}`;
     try {
       const parsed = JSON.parse(json) as Record<string, unknown>;
 
+      const sourceIndex = Array.isArray(parsed.sourceIndex)
+        ? parsed.sourceIndex
+            .map((s: unknown) => {
+              const obj = s as Record<string, unknown>;
+              return {
+                index:
+                  typeof obj.index === "number"
+                    ? obj.index
+                    : parseInt(String(obj.index), 10) || 0,
+                url: String(obj.url || "").trim(),
+                title: String(obj.title || "").trim(),
+                accessedAt: String(obj.accessedAt || "").trim(),
+                supportingQuote: String(obj.supportingQuote || "").trim(),
+              };
+            })
+            .filter((s) => s.url && s.title)
+        : [];
+
+      const findingsByThread = Array.isArray(parsed.findingsByThread)
+        ? parsed.findingsByThread.map((s: unknown) => {
+            const obj = s as Record<string, unknown>;
+            return {
+              threadLabel: String(obj.threadLabel || "").trim(),
+              content: String(obj.content || "").trim(),
+            };
+          })
+        : [];
+
       return {
         title: String(parsed.title || objectives.researchQuestion).trim(),
         executiveSummary: String(parsed.executiveSummary || "").trim(),
-        findingsByThread: Array.isArray(parsed.findingsByThread)
-          ? parsed.findingsByThread.map((s: unknown) => {
-              const obj = s as Record<string, unknown>;
-              return {
-                threadLabel: String(obj.threadLabel || "").trim(),
-                content: String(obj.content || "").trim(),
-              };
-            })
-          : [],
+        findingsByThread:
+          findingsByThread.length > 0
+            ? findingsByThread
+            : buildFallbackFindingsByThread(findings),
         contradictions: Array.isArray(parsed.contradictions)
           ? parsed.contradictions
               .map((c: unknown) => {
@@ -686,38 +790,14 @@ ${transcript.slice(0, 32000)}`;
         gaps: Array.isArray(parsed.gaps)
           ? parsed.gaps.map((g) => String(g).trim()).filter(Boolean)
           : [],
-        sourceIndex: Array.isArray(parsed.sourceIndex)
-          ? parsed.sourceIndex
-              .map((s: unknown) => {
-                const obj = s as Record<string, unknown>;
-                return {
-                  index:
-                    typeof obj.index === "number"
-                      ? obj.index
-                      : parseInt(String(obj.index), 10) || 0,
-                  url: String(obj.url || "").trim(),
-                  title: String(obj.title || "").trim(),
-                  accessedAt: String(obj.accessedAt || "").trim(),
-                  supportingQuote: String(obj.supportingQuote || "").trim(),
-                };
-              })
-              .filter((s) => s.url && s.title)
-          : [],
+        sourceIndex:
+          sourceIndex.length > 0 ? sourceIndex : buildFallbackSourceIndex(findings),
         generatedAt: new Date().toISOString(),
         objectives,
       };
     } catch (err) {
-      logger.warn("Failed to parse synthesis JSON, using minimal report", err);
-      return {
-        title: objectives.researchQuestion,
-        executiveSummary: `Report generation failed: ${String(err)}`,
-        findingsByThread: [],
-        contradictions: [],
-        gaps: ["Report generation failed — JSON parsing error"],
-        sourceIndex: [],
-        generatedAt: new Date().toISOString(),
-        objectives,
-      };
+      logger.warn("Failed to parse synthesis JSON, using sourced fallback report", err);
+      return buildFallbackReport(objectives, findings, String(err));
     }
   }
 

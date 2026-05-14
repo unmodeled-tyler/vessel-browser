@@ -374,6 +374,73 @@ describe("ResearchState transitions", () => {
     assert.ok(orch.getState().report);
   });
 
+  it("builds a sourced fallback report when synthesis returns invalid JSON", async () => {
+    const provider: AIProvider = {
+      agentToolProfile: "default",
+      streamQuery: async (systemPrompt, _userMessage, onChunk, onEnd) => {
+        if (systemPrompt.includes("claim extractor")) {
+          onChunk(JSON.stringify([
+            {
+              claim: "Quantum hardware teams are pursuing multiple qubit modalities.",
+              sourceUrl: "https://example.com/quantum-hardware",
+              sourceTitle: "Quantum Hardware Update",
+              extractedQuote: "Teams are pursuing multiple qubit modalities.",
+              relevanceNote: "Shows the hardware landscape is diversified.",
+            },
+          ]));
+        } else {
+          onChunk("");
+        }
+        onEnd();
+      },
+      streamAgentQuery: async (
+        _systemPrompt,
+        _userMessage,
+        _tools,
+        onChunk,
+        _onToolCall,
+        onEnd,
+      ) => {
+        onChunk("Visited https://example.com/quantum-hardware and found relevant evidence.");
+        onEnd();
+      },
+      cancel: () => {},
+    };
+    const orch = new ResearchOrchestrator(
+      provider,
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+
+    await orch.startBrief("test fallback report");
+    orch.confirmBrief();
+    orch.setObjectives({
+      researchQuestion: "What is happening in quantum hardware?",
+      threads: [
+        {
+          label: "Hardware",
+          question: "What is happening in quantum hardware?",
+          searchQueries: ["quantum hardware update"],
+          preferredDomains: [],
+          blockedDomains: [],
+          sourceBudget: 1,
+        },
+      ],
+      audience: "general",
+      reportOutline: ["Hardware"],
+      totalSourceBudget: 1,
+    });
+    orch.approveObjectives();
+
+    await orch.executeSubAgents();
+
+    const report = orch.getState().report;
+    assert.ok(report);
+    assert.strictEqual(report.sourceIndex.length, 1);
+    assert.match(report.executiveSummary, /sourced fallback/i);
+    assert.match(report.findingsByThread[0].content, /\[1\]/);
+  });
+
   it("does not deliver a report or continue extraction after cancellation during execution", async () => {
     let releaseAgent!: () => void;
     let synthesisCalled = false;
