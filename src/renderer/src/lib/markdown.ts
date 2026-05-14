@@ -140,7 +140,7 @@ function renderTable(block: string): string {
     )
     .join("");
 
-  return `<table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
+  return `<div class="markdown-table-scroll"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>`;
 }
 
 function renderBlock(block: string): string {

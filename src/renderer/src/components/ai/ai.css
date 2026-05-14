@@ -1363,8 +1363,15 @@
     border-bottom-left-radius: var(--radius-sm);
 }
 
+.message-assistant:has(.markdown-table-scroll) {
+    align-self: stretch;
+    max-width: 100%;
+}
+
 .markdown-content {
     display: block;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .markdown-content > :first-child {
@@ -1471,10 +1478,25 @@
     margin: 14px 0;
 }
 
-.markdown-content table {
-    width: 100%;
-    border-collapse: collapse;
+.markdown-table-scroll {
+    max-width: 100%;
     margin: 0 0 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    scrollbar-gutter: stable;
+}
+
+.markdown-content .markdown-table-scroll:last-child {
+    margin-bottom: 0;
+}
+
+.markdown-content table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
     font-size: 12.5px;
     line-height: 1.5;
 }
@@ -1488,12 +1510,14 @@
     font-weight: 600;
     color: var(--text-primary);
     padding: 6px 10px;
+    white-space: nowrap;
 }
 
 .markdown-content td {
     padding: 5px 10px;
     border-bottom: 1px solid var(--border-glass);
     color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 .markdown-content tbody tr:hover {
