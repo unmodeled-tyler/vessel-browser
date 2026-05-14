@@ -3290,6 +3290,110 @@
     color: var(--text-secondary);
 }
 
+.objectives-card {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--surface-glass);
+}
+
+.objectives-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.objectives-section + .objectives-section {
+    padding-top: 16px;
+    border-top: 1px solid var(--border-glass);
+}
+
+.objectives-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.objectives-section-header span {
+    min-width: 26px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.objectives-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.objectives-question {
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.objectives-thread-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.objectives-thread-list li {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 11px;
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-primary) 56%, transparent);
+}
+
+.objectives-thread-list li span {
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.objectives-thread-list li small {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: nowrap;
+}
+
+.objectives-settings {
+    gap: 10px;
+}
+
+.objectives-settings label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.objectives-settings input {
+    flex: 0 0 auto;
+}
+
 .research-premium-notice {
     padding: 9px 10px;
     border: 1px solid var(--border-subtle);

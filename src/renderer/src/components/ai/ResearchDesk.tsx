@@ -664,37 +664,53 @@ export const ResearchDesk: Component = () => {
             <Show when={state().objectives}>
               {(obj) => (
                 <div class="objectives-card">
-                  <p><strong>Question:</strong> {obj().researchQuestion}</p>
-                  <p><strong>Threads:</strong> {obj().threads.length}</p>
-                  <ul>
-                    {obj().threads.map((t) => (
-                      <li>{t.label} ({t.sourceBudget} sources)</li>
-                    ))}
-                  </ul>
+                  <section class="objectives-section">
+                    <p class="objectives-label">Question</p>
+                    <p class="objectives-question">{obj().researchQuestion}</p>
+                  </section>
 
-                  <label class="mode-toggle">
-                    <input
-                      type="checkbox"
-                      checked={state().supervisionMode === "walk-away"}
-                      onChange={(e) =>
-                        research.setMode(
-                          e.currentTarget.checked ? "walk-away" : "interactive",
-                        )
-                      }
-                    />
-                    Walk-away mode (notified when done)
-                  </label>
+                  <section class="objectives-section">
+                    <div class="objectives-section-header">
+                      <p class="objectives-label">Research Threads</p>
+                      <span>{obj().threads.length}</span>
+                    </div>
+                    <ul class="objectives-thread-list">
+                      {obj().threads.map((t) => (
+                        <li>
+                          <span>{t.label}</span>
+                          <small>{t.sourceBudget} sources</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
 
-                  <label class="traces-toggle">
-                    <input
-                      type="checkbox"
-                      checked={state().includeTraces}
-                      onChange={(e) =>
-                        research.setTraces(e.currentTarget.checked)
-                      }
-                    />
-                    Include agent traces with report
-                  </label>
+                  <section class="objectives-section objectives-settings">
+                    <label class="mode-toggle">
+                      <input
+                        type="checkbox"
+                        checked={state().supervisionMode === "walk-away"}
+                        onChange={(e) =>
+                          research.setMode(
+                            e.currentTarget.checked
+                              ? "walk-away"
+                              : "interactive",
+                          )
+                        }
+                      />
+                      <span>Walk-away mode (notified when done)</span>
+                    </label>
+
+                    <label class="traces-toggle">
+                      <input
+                        type="checkbox"
+                        checked={state().includeTraces}
+                        onChange={(e) =>
+                          research.setTraces(e.currentTarget.checked)
+                        }
+                      />
+                      <span>Include agent traces with report</span>
+                    </label>
+                  </section>
 
                   <div class="phase-controls">
                     <button
