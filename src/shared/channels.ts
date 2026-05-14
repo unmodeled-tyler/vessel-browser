@@ -238,6 +238,7 @@ export const Channels = {
   RESEARCH_SET_MODE: "research:set-mode",
   RESEARCH_SET_TRACES: "research:set-traces",
   RESEARCH_CANCEL: "research:cancel",
+  RESEARCH_STOP_AND_SYNTHESIZE: "research:stop-and-synthesize",
   RESEARCH_EXPORT_REPORT: "research:export-report",
 
   // Codex OAuth

@@ -55,6 +55,25 @@ const SettingsPrivacy: Component<SettingsPrivacyProps> = (props) => {
       </div>
 
       <div class="settings-field">
+        <label class="settings-label" for="source-do-not-allow-list">
+          Source Do Not Allow List
+        </label>
+        <textarea
+          id="source-do-not-allow-list"
+          class="settings-input settings-textarea"
+          rows={4}
+          value={props.sourceDoNotAllowList()}
+          onInput={(e) => props.setSourceDoNotAllowList(e.currentTarget.value)}
+          placeholder={"example.com\nlow-quality-source.net"}
+          spellcheck={false}
+        />
+        <p class="settings-hint">
+          One domain per line. Research Desk will avoid citing or visiting these
+          sources during research, without blocking normal browsing.
+        </p>
+      </div>
+
+      <div class="settings-field">
         <label class="settings-label">Site Permissions</label>
         <p class="settings-hint">
           Camera, microphone, location, notifications, and other site capability choices remembered by Vessel.

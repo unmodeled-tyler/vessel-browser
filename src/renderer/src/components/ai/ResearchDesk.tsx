@@ -476,6 +476,17 @@ export const ResearchDesk: Component = () => {
     !streamingText() &&
     pendingQueryCount() === 0,
   );
+  const researchProgress = createMemo(() => {
+    const progress = state().threadProgress;
+    const total = Math.max(state().threads.length, progress.length, 0);
+    const complete = progress.filter(
+      (item) => item.status === "completed" || item.status === "failed",
+    ).length;
+    const active = progress.filter(
+      (item) => item.status === "running" || item.status === "stopping",
+    ).length;
+    return { total, complete: Math.min(complete, total), active, progress };
+  });
 
   const sendBriefMessage = async (message: string) => {
     const trimmed = message.trim();
@@ -664,37 +675,76 @@ export const ResearchDesk: Component = () => {
             <Show when={state().objectives}>
               {(obj) => (
                 <div class="objectives-card">
-                  <p><strong>Question:</strong> {obj().researchQuestion}</p>
-                  <p><strong>Threads:</strong> {obj().threads.length}</p>
-                  <ul>
-                    {obj().threads.map((t) => (
-                      <li>{t.label} ({t.sourceBudget} sources)</li>
-                    ))}
-                  </ul>
+                  <section class="objectives-section">
+                    <p class="objectives-label">Question</p>
+                    <p class="objectives-question">{obj().researchQuestion}</p>
+                  </section>
 
-                  <label class="mode-toggle">
-                    <input
-                      type="checkbox"
-                      checked={state().supervisionMode === "walk-away"}
-                      onChange={(e) =>
-                        research.setMode(
-                          e.currentTarget.checked ? "walk-away" : "interactive",
-                        )
-                      }
-                    />
-                    Walk-away mode (notified when done)
-                  </label>
+                  <section class="objectives-section">
+                    <div class="objectives-section-header">
+                      <p class="objectives-label">Research Threads</p>
+                      <span>{obj().threads.length}</span>
+                    </div>
+                    <ul class="objectives-thread-list">
+                      {obj().threads.map((t) => (
+                        <li>
+                          <span>{t.label}</span>
+                          <small>{t.sourceBudget} sources</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
 
-                  <label class="traces-toggle">
-                    <input
-                      type="checkbox"
-                      checked={state().includeTraces}
-                      onChange={(e) =>
-                        research.setTraces(e.currentTarget.checked)
-                      }
-                    />
-                    Include agent traces with report
-                  </label>
+                  <Show
+                    when={Array.from(
+                      new Set(
+                        obj().threads.flatMap((thread) =>
+                          thread.blockedDomains,
+                        ),
+                      ),
+                    )}
+                  >
+                    {(blockedDomains) => (
+                      <Show when={blockedDomains().length > 0}>
+                        <section class="objectives-section">
+                          <p class="objectives-label">Excluded Sources</p>
+                          <div class="objectives-source-list">
+                            <For each={blockedDomains()}>
+                              {(domain) => <span>{domain}</span>}
+                            </For>
+                          </div>
+                        </section>
+                      </Show>
+                    )}
+                  </Show>
+
+                  <section class="objectives-section objectives-settings">
+                    <label class="mode-toggle">
+                      <input
+                        type="checkbox"
+                        checked={state().supervisionMode === "walk-away"}
+                        onChange={(e) =>
+                          research.setMode(
+                            e.currentTarget.checked
+                              ? "walk-away"
+                              : "interactive",
+                          )
+                        }
+                      />
+                      <span>Walk-away mode (notified when done)</span>
+                    </label>
+
+                    <label class="traces-toggle">
+                      <input
+                        type="checkbox"
+                        checked={state().includeTraces}
+                        onChange={(e) =>
+                          research.setTraces(e.currentTarget.checked)
+                        }
+                      />
+                      <span>Include agent traces with report</span>
+                    </label>
+                  </section>
 
                   <div class="phase-controls">
                     <button
@@ -720,9 +770,38 @@ export const ResearchDesk: Component = () => {
         <Match when={state().phase === "executing"}>
           <div class="research-phase">
             <h3>Researching</h3>
-            <Show when={state().threadFindings.length > 0}>
-              <p>{state().threadFindings.length} of {state().threads.length} threads complete</p>
+            <div class="research-active-card" role="status" aria-live="polite">
+              <span class="research-spinner research-active-spinner" aria-hidden="true" />
+              <div class="research-active-copy">
+                <div class="research-active-title">Agents are working</div>
+                <p>
+                  {researchProgress().complete} of {researchProgress().total} threads complete
+                  <Show when={researchProgress().active > 0}>
+                    {" "}· {researchProgress().active} active
+                  </Show>
+                </p>
+              </div>
+            </div>
+            <Show when={researchProgress().progress.length > 0}>
+              <div class="research-thread-progress-list">
+                <For each={researchProgress().progress}>
+                  {(thread) => (
+                    <div class={`research-thread-progress ${thread.status}`}>
+                      <span>{thread.threadLabel}</span>
+                      <small>{thread.message}</small>
+                    </div>
+                  )}
+                </For>
+              </div>
             </Show>
+            <div class="phase-controls">
+              <button class="secondary" onClick={() => research.cancel()}>
+                Stop Research
+              </button>
+              <button onClick={() => research.stopAndSynthesize()}>
+                Stop Research &amp; Synthesize Current Findings
+              </button>
+            </div>
             <Show when={state().supervisionMode === "interactive"}>
               <button onClick={() => research.setMode("walk-away")}>
                 Switch to Walk-Away

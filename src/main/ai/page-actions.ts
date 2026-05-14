@@ -3327,7 +3327,7 @@ export async function pressKeyDirect(
   return pressKey(wc, { key, index, selector });
 }
 
-async function submitFormDirect(
+export async function submitFormDirect(
   wc: WebContents,
   index?: number,
   selector?: string,
@@ -3335,7 +3335,7 @@ async function submitFormDirect(
   return submitForm(wc, { index, selector });
 }
 
-async function selectOptionDirect(
+export async function selectOptionDirect(
   wc: WebContents,
   index?: number,
   selector?: string,

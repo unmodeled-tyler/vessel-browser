@@ -23,6 +23,7 @@ const defaults: VesselSettings = {
   chatProvider: null,
   maxToolIterations: 200,
   domainPolicy: { allowedDomains: [], blockedDomains: [] },
+  sourceDoNotAllowList: [],
   downloadPath: "",
   telemetryEnabled: true,
   defaultSearchEngine: "duckduckgo",
@@ -251,6 +252,14 @@ function sanitizeReasoningEffortLevel(value: unknown): ReasoningEffortLevel {
     : "off";
 }
 
+function sanitizeStringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? Array.from(
+        new Set(value.map((item) => String(item).trim()).filter(Boolean)),
+      )
+    : [];
+}
+
 function sanitizeChatProvider(
   provider: ProviderConfig | null,
 ): ProviderConfig | null {
@@ -282,6 +291,9 @@ export function loadSettings(): VesselSettings {
         mergeChatProviderSecret(parsed.chatProvider ?? null),
       ),
       mcpPort: sanitizePort(parsed.mcpPort ?? defaults.mcpPort),
+      sourceDoNotAllowList: sanitizeStringList(
+        parsed.sourceDoNotAllowList ?? defaults.sourceDoNotAllowList,
+      ),
       agentTranscriptMode:
         parsed.agentTranscriptMode === "off" ||
         parsed.agentTranscriptMode === "summary" ||
@@ -344,6 +356,8 @@ export function setSetting<K extends keyof VesselSettings>(
   loadSettings();
   if (key === "mcpPort") {
     settings!.mcpPort = sanitizePort(value);
+  } else if (key === "sourceDoNotAllowList") {
+    settings!.sourceDoNotAllowList = sanitizeStringList(value);
   } else if (key === "chatProvider") {
     const nextProvider = value as VesselSettings["chatProvider"];
     if (!nextProvider) {

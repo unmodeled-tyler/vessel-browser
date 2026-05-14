@@ -9,6 +9,7 @@ import type {
   SubAgentTrace,
   SupervisionMode,
   SourcedClaim,
+  ResearchThreadProgressStatus,
 } from "../../../shared/research-types";
 import { buildOrchestratorSystemPrompt } from "./orchestrator-prompt";
 import { buildSubAgentSystemPrompt } from "./sub-agent-prompt";
@@ -18,6 +19,7 @@ import { AGENT_TOOLS } from "../../ai/tools";
 import { executeAction, type ActionContext, TabMutex } from "../../ai/page-actions";
 import type { TabManager } from "../../tabs/tab-manager";
 import type { AgentRuntime } from "../runtime";
+import { loadSettings } from "../../config/settings";
 
 const logger = createLogger("ResearchOrchestrator");
 const MAX_THREADS = 5;
@@ -26,9 +28,143 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+function normalizeSourceDomain(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return "";
+  try {
+    return new URL(
+      trimmed.includes("://") ? trimmed : `https://${trimmed}`,
+    ).hostname.replace(/^www\./, "");
+  } catch {
+    return trimmed.replace(/^www\./, "");
+  }
+}
+
+function mergeBlockedSourceDomains(thread: ResearchThread): ResearchThread {
+  const globalBlocked = loadSettings().sourceDoNotAllowList
+    .map(normalizeSourceDomain)
+    .filter(Boolean);
+  if (globalBlocked.length === 0) return thread;
+
+  const blockedDomains = Array.from(
+    new Set([
+      ...thread.blockedDomains.map(normalizeSourceDomain).filter(Boolean),
+      ...globalBlocked,
+    ]),
+  );
+
+  return {
+    ...thread,
+    blockedDomains,
+  };
+}
+
+function matchesSourceDomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+function getBlockedSourceNavigation(
+  url: unknown,
+  blockedDomains: string[],
+): string | null {
+  if (typeof url !== "string" || blockedDomains.length === 0) return null;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return (
+      blockedDomains.find((domain) =>
+        matchesSourceDomain(hostname, normalizeSourceDomain(domain)),
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function buildFallbackSourceIndex(
+  findings: ThreadFindings[],
+): ResearchReport["sourceIndex"] {
+  const seen = new Set<string>();
+  const sources: ResearchReport["sourceIndex"] = [];
+
+  for (const claim of findings.flatMap((finding) => finding.claims)) {
+    if (!claim.sourceUrl || seen.has(claim.sourceUrl)) continue;
+    seen.add(claim.sourceUrl);
+    sources.push({
+      index: sources.length + 1,
+      url: claim.sourceUrl,
+      title: claim.sourceTitle || claim.sourceUrl,
+      accessedAt: claim.extractedAt,
+      supportingQuote: claim.extractedQuote,
+    });
+  }
+
+  return sources;
+}
+
+function citationForClaim(
+  claim: SourcedClaim,
+  sourceIndex: ResearchReport["sourceIndex"],
+): string {
+  const index =
+    sourceIndex.find((source) => source.url === claim.sourceUrl)?.index ?? 0;
+  return index > 0 ? `[${index}]` : "";
+}
+
+function buildFallbackFindingsByThread(
+  findings: ThreadFindings[],
+  sourceIndex = buildFallbackSourceIndex(findings),
+): ResearchReport["findingsByThread"] {
+  return findings.map((finding) => {
+    const claimLines = finding.claims.map((claim) => {
+      const citation = citationForClaim(claim, sourceIndex);
+      return citation
+        ? `${claim.claim} ${citation}`
+        : claim.claim;
+    });
+
+    return {
+      threadLabel: finding.threadLabel,
+      content:
+        claimLines.length > 0
+          ? claimLines.join("\n\n")
+          : `No citeable claims were extracted for this thread. ${finding.executionSummary}`,
+    };
+  });
+}
+
+function buildFallbackReport(
+  objectives: ResearchObjectives,
+  findings: ThreadFindings[],
+  reason: string,
+): ResearchReport {
+  const sourceIndex = buildFallbackSourceIndex(findings);
+  const findingsByThread = buildFallbackFindingsByThread(findings, sourceIndex);
+  const claimCount = findings.reduce(
+    (sum, finding) => sum + finding.claims.length,
+    0,
+  );
+  const executiveSummary =
+    claimCount > 0
+      ? `The model's final synthesis response could not be parsed, so Vessel generated this sourced fallback from ${claimCount} extracted claim${claimCount === 1 ? "" : "s"} across ${sourceIndex.length} source${sourceIndex.length === 1 ? "" : "s"}.`
+      : `The model's final synthesis response could not be parsed, and no citeable claims were extracted from the research threads.`;
+
+  return {
+    title: objectives.researchQuestion,
+    executiveSummary,
+    findingsByThread,
+    contradictions: [],
+    gaps: [`Final synthesis JSON could not be parsed: ${reason}`],
+    sourceIndex,
+    generatedAt: new Date().toISOString(),
+    objectives,
+  };
+}
+
 export class ResearchOrchestrator {
   private state: ResearchState;
   private updateListener: ((state: ResearchState) => void) | null = null;
+  private stopRequested = false;
+  private synthesizeAfterStop = false;
 
   constructor(
     private provider: AIProvider | null,
@@ -47,6 +183,7 @@ export class ResearchOrchestrator {
       includeTraces: false,
       objectives: null,
       threads: [],
+      threadProgress: [],
       threadFindings: [],
       report: null,
       subAgentTraces: [],
@@ -89,8 +226,32 @@ export class ResearchOrchestrator {
   cancel(): void {
     // Reset visible state immediately. Running sub-agents observe phase !== "executing"
     // and bail at their next checkpoint without delivering stale results.
+    this.stopRequested = true;
+    this.synthesizeAfterStop = false;
+    this.provider?.cancel();
     this.state = this.initialState();
     this.emit();
+  }
+
+  stopAndSynthesizeCurrentFindings(): void {
+    if (this.state.phase !== "executing") {
+      logger.warn("Not executing, ignoring stopAndSynthesizeCurrentFindings");
+      return;
+    }
+    this.stopRequested = true;
+    this.synthesizeAfterStop = true;
+    this.state.threadProgress = this.state.threadProgress.map((progress) =>
+      progress.status === "completed" || progress.status === "failed"
+        ? progress
+        : {
+            ...progress,
+            status: "stopping",
+            message: "Stopping and preparing to synthesize current findings",
+            updatedAt: new Date().toISOString(),
+          },
+    );
+    this.emit();
+    this.provider?.cancel();
   }
 
   /**
@@ -147,8 +308,14 @@ export class ResearchOrchestrator {
       logger.warn("Not in planning phase, ignoring setObjectives");
       return;
     }
-    this.state.objectives = objectives;
-    this.state.threads = objectives.threads.slice(0, MAX_THREADS);
+    const threads = objectives.threads
+      .slice(0, MAX_THREADS)
+      .map(mergeBlockedSourceDomains);
+    this.state.objectives = {
+      ...objectives,
+      threads,
+    };
+    this.state.threads = threads;
     this.setPhase("awaiting_approval");
   }
 
@@ -247,7 +414,35 @@ export class ResearchOrchestrator {
     }
     if (mode) this.state.supervisionMode = mode;
     if (includeTraces !== undefined) this.state.includeTraces = includeTraces;
+    this.stopRequested = false;
+    this.synthesizeAfterStop = false;
+    this.state.threadFindings = [];
+    this.state.threadProgress = this.state.threads.map((thread) => ({
+      threadLabel: thread.label,
+      status: "queued",
+      message: "Queued",
+      updatedAt: new Date().toISOString(),
+    }));
     this.setPhase("executing");
+  }
+
+  private updateThreadProgress(
+    threadLabel: string,
+    status: ResearchThreadProgressStatus,
+    message: string,
+  ): void {
+    const updatedAt = new Date().toISOString();
+    const existingIndex = this.state.threadProgress.findIndex(
+      (progress) => progress.threadLabel === threadLabel,
+    );
+    const next = { threadLabel, status, message, updatedAt };
+    this.state.threadProgress =
+      existingIndex >= 0
+        ? this.state.threadProgress.map((progress, index) =>
+            index === existingIndex ? next : progress,
+          )
+        : [...this.state.threadProgress, next];
+    this.emit();
   }
 
   // ── phase: executing → synthesizing ────────────────────────────
@@ -274,8 +469,22 @@ export class ResearchOrchestrator {
       }),
     );
 
+    const shouldSynthesize = this.synthesizeAfterStop;
     if (this.state.phase !== "executing") return;
     this.state.threadFindings = results.filter((f): f is ThreadFindings => f !== null);
+    this.stopRequested = false;
+    this.synthesizeAfterStop = false;
+    if (!shouldSynthesize) {
+      for (const finding of this.state.threadFindings) {
+        this.updateThreadProgress(
+          finding.threadLabel,
+          finding.claims.length > 0 ? "completed" : "failed",
+          finding.claims.length > 0
+            ? `${finding.claims.length} claim${finding.claims.length === 1 ? "" : "s"} extracted`
+            : "No citeable claims extracted",
+        );
+      }
+    }
     this.setPhase("synthesizing");
 
     try {
@@ -303,6 +512,7 @@ export class ResearchOrchestrator {
 
     const tabId = this.tabManager.createTab();
     let sourcesConsumed = 0;
+    this.updateThreadProgress(thread.label, "running", "Researching sources");
 
     // Switch to the sub-agent's tab so initial navigation targets it
     if (tabId) this.tabManager.switchTab(tabId);
@@ -338,12 +548,35 @@ export class ResearchOrchestrator {
           const t0 = Date.now();
 
           // Honour cancellation
-          if (this.state.phase !== "executing") {
+          if (this.state.phase !== "executing" || this.stopRequested) {
             const msg = "Research cancelled — stopping.";
             return msg;
           }
 
           // Enforce source budget
+          if (name === "navigate") {
+            const blockedDomain = getBlockedSourceNavigation(
+              args.url,
+              thread.blockedDomains,
+            );
+            if (blockedDomain) {
+              const msg = `Source skipped: ${String(args.url)} matches the Research Desk source do-not-allow list (${blockedDomain}). Choose a different source.`;
+              discardedSources.push({
+                url: String(args.url || ""),
+                title: String(args.url || "excluded source"),
+                reason: msg,
+              });
+              trace.toolCalls.push({
+                tool: name,
+                args,
+                result: msg,
+                timestamp: new Date().toISOString(),
+                durationMs: 0,
+              });
+              return msg;
+            }
+          }
+
           if (name === "navigate" || name === "search") {
             sourcesConsumed++;
             if (sourcesConsumed > thread.sourceBudget) {
@@ -399,6 +632,9 @@ export class ResearchOrchestrator {
         message: String(err),
         timestamp: new Date().toISOString(),
       });
+      if (this.state.phase === "executing") {
+        this.updateThreadProgress(thread.label, "stopping", "Stopping thread");
+      }
     } finally {
       trace.finishedAt = new Date().toISOString();
       // Close the sub-agent's dedicated tab to prevent tab leak
@@ -427,6 +663,18 @@ export class ResearchOrchestrator {
     const pagesVisited = trace.toolCalls.filter((t) =>
       ["navigate", "read_page", "search"].includes(t.tool),
     ).length;
+
+    if (this.state.phase === "executing") {
+      this.updateThreadProgress(
+        thread.label,
+        claims.length > 0 ? "completed" : this.stopRequested ? "stopping" : "failed",
+        claims.length > 0
+          ? `${claims.length} claim${claims.length === 1 ? "" : "s"} extracted`
+          : this.stopRequested
+            ? "Stopped before citeable claims were extracted"
+            : "No citeable claims extracted",
+      );
+    }
 
     return {
       threadLabel: thread.label,
@@ -539,7 +787,7 @@ ${transcript.slice(0, 32000)}`;
       () => {},
     );
 
-    const report = this.parseReportFromJson(response, objectives);
+    const report = this.parseReportFromJson(response, objectives, findings);
     this.setReport(report);
     this.setPhase("delivered");
     return report;
@@ -552,6 +800,7 @@ ${transcript.slice(0, 32000)}`;
   private parseReportFromJson(
     text: string,
     objectives: ResearchObjectives,
+    findings: ThreadFindings[],
   ): ResearchReport {
     let json = text.trim();
 
@@ -566,18 +815,41 @@ ${transcript.slice(0, 32000)}`;
     try {
       const parsed = JSON.parse(json) as Record<string, unknown>;
 
+      const sourceIndex = Array.isArray(parsed.sourceIndex)
+        ? parsed.sourceIndex
+            .map((s: unknown) => {
+              const obj = s as Record<string, unknown>;
+              return {
+                index:
+                  typeof obj.index === "number"
+                    ? obj.index
+                    : parseInt(String(obj.index), 10) || 0,
+                url: String(obj.url || "").trim(),
+                title: String(obj.title || "").trim(),
+                accessedAt: String(obj.accessedAt || "").trim(),
+                supportingQuote: String(obj.supportingQuote || "").trim(),
+              };
+            })
+            .filter((s) => s.url && s.title)
+        : [];
+
+      const findingsByThread = Array.isArray(parsed.findingsByThread)
+        ? parsed.findingsByThread.map((s: unknown) => {
+            const obj = s as Record<string, unknown>;
+            return {
+              threadLabel: String(obj.threadLabel || "").trim(),
+              content: String(obj.content || "").trim(),
+            };
+          })
+        : [];
+
       return {
         title: String(parsed.title || objectives.researchQuestion).trim(),
         executiveSummary: String(parsed.executiveSummary || "").trim(),
-        findingsByThread: Array.isArray(parsed.findingsByThread)
-          ? parsed.findingsByThread.map((s: unknown) => {
-              const obj = s as Record<string, unknown>;
-              return {
-                threadLabel: String(obj.threadLabel || "").trim(),
-                content: String(obj.content || "").trim(),
-              };
-            })
-          : [],
+        findingsByThread:
+          findingsByThread.length > 0
+            ? findingsByThread
+            : buildFallbackFindingsByThread(findings),
         contradictions: Array.isArray(parsed.contradictions)
           ? parsed.contradictions
               .map((c: unknown) => {
@@ -604,38 +876,14 @@ ${transcript.slice(0, 32000)}`;
         gaps: Array.isArray(parsed.gaps)
           ? parsed.gaps.map((g) => String(g).trim()).filter(Boolean)
           : [],
-        sourceIndex: Array.isArray(parsed.sourceIndex)
-          ? parsed.sourceIndex
-              .map((s: unknown) => {
-                const obj = s as Record<string, unknown>;
-                return {
-                  index:
-                    typeof obj.index === "number"
-                      ? obj.index
-                      : parseInt(String(obj.index), 10) || 0,
-                  url: String(obj.url || "").trim(),
-                  title: String(obj.title || "").trim(),
-                  accessedAt: String(obj.accessedAt || "").trim(),
-                  supportingQuote: String(obj.supportingQuote || "").trim(),
-                };
-              })
-              .filter((s) => s.url && s.title)
-          : [],
+        sourceIndex:
+          sourceIndex.length > 0 ? sourceIndex : buildFallbackSourceIndex(findings),
         generatedAt: new Date().toISOString(),
         objectives,
       };
     } catch (err) {
-      logger.warn("Failed to parse synthesis JSON, using minimal report", err);
-      return {
-        title: objectives.researchQuestion,
-        executiveSummary: `Report generation failed: ${String(err)}`,
-        findingsByThread: [],
-        contradictions: [],
-        gaps: ["Report generation failed — JSON parsing error"],
-        sourceIndex: [],
-        generatedAt: new Date().toISOString(),
-        objectives,
-      };
+      logger.warn("Failed to parse synthesis JSON, using sourced fallback report", err);
+      return buildFallbackReport(objectives, findings, String(err));
     }
   }
 

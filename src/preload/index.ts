@@ -248,6 +248,8 @@ const api = {
     setTraces: (include: boolean) =>
       ipcRenderer.invoke(Channels.RESEARCH_SET_TRACES, include),
     cancel: () => ipcRenderer.invoke(Channels.RESEARCH_CANCEL),
+    stopAndSynthesize: () =>
+      ipcRenderer.invoke(Channels.RESEARCH_STOP_AND_SYNTHESIZE),
     exportReport: () =>
       ipcRenderer.invoke<
         | { accepted: true; savedPath: string }

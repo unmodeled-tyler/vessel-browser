@@ -88,6 +88,7 @@ const Settings: Component = () => {
   // Domain policy
   const [domainMode, setDomainMode] = createSignal<"none" | "allowlist" | "blocklist">("none");
   const [domainList, setDomainList] = createSignal("");
+  const [sourceDoNotAllowList, setSourceDoNotAllowList] = createSignal("");
 
   // Named sessions
   const [sessionList, setSessionList] = createSignal<SessionSummary[]>([]);
@@ -500,6 +501,9 @@ const Settings: Component = () => {
       setDomainMode("none");
       setDomainList("");
     }
+    setSourceDoNotAllowList(
+      (settings.sourceDoNotAllowList ?? []).join("\n"),
+    );
     // Load premium state
     try {
       const ps = await window.vessel.premium.getState();
@@ -620,6 +624,14 @@ const Settings: Component = () => {
           ? { allowedDomains: [], blockedDomains: domains }
           : { allowedDomains: [], blockedDomains: [] };
       await window.vessel.settings.set("domainPolicy", domainPolicy);
+      const sourceExclusions = sourceDoNotAllowList()
+        .split("\n")
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0);
+      await window.vessel.settings.set(
+        "sourceDoNotAllowList",
+        Array.from(new Set(sourceExclusions)),
+      );
       const chatConfig: ProviderConfig | null = chatEnabled()
         ? {
             id: chatProviderId(),
@@ -885,6 +897,8 @@ const Settings: Component = () => {
                   setDomainMode={setDomainMode}
                   domainList={domainList}
                   setDomainList={setDomainList}
+                  sourceDoNotAllowList={sourceDoNotAllowList}
+                  setSourceDoNotAllowList={setSourceDoNotAllowList}
                 />
               </Show>
               <Show when={activeCategory() === "account"}>
