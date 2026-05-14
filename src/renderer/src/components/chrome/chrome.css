@@ -872,6 +872,7 @@
         0 16px 40px var(--shadow-color);
     backdrop-filter: blur(16px);
     animation: toast-enter var(--duration-enter) var(--ease-out-expo) both;
+    pointer-events: auto;
 }
 
 @keyframes toast-enter {
@@ -900,11 +901,45 @@
     }
 }
 
+.bookmark-toast-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
 .bookmark-toast-title {
+    flex: 1;
+    min-width: 0;
     color: var(--text-primary);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.01em;
+}
+
+.bookmark-toast-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    margin: -3px -5px 0 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+        background var(--duration-fast) var(--ease-in-out),
+        color var(--duration-fast) var(--ease-in-out);
+}
+
+.bookmark-toast-close:hover,
+.bookmark-toast-close:focus-visible {
+    background: var(--surface-hover);
+    color: var(--text-primary);
 }
 
 .bookmark-toast-message {

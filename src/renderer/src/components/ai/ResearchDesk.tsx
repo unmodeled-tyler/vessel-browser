@@ -477,10 +477,15 @@ export const ResearchDesk: Component = () => {
     pendingQueryCount() === 0,
   );
   const researchProgress = createMemo(() => {
-    const total = Math.max(state().threads.length, 0);
-    const complete = Math.min(state().threadFindings.length, total);
-    const active = Math.max(total - complete, 0);
-    return { total, complete, active };
+    const progress = state().threadProgress;
+    const total = Math.max(state().threads.length, progress.length, 0);
+    const complete = progress.filter(
+      (item) => item.status === "completed" || item.status === "failed",
+    ).length;
+    const active = progress.filter(
+      (item) => item.status === "running" || item.status === "stopping",
+    ).length;
+    return { total, complete: Math.min(complete, total), active, progress };
   });
 
   const sendBriefMessage = async (message: string) => {
@@ -776,6 +781,26 @@ export const ResearchDesk: Component = () => {
                   </Show>
                 </p>
               </div>
+            </div>
+            <Show when={researchProgress().progress.length > 0}>
+              <div class="research-thread-progress-list">
+                <For each={researchProgress().progress}>
+                  {(thread) => (
+                    <div class={`research-thread-progress ${thread.status}`}>
+                      <span>{thread.threadLabel}</span>
+                      <small>{thread.message}</small>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+            <div class="phase-controls">
+              <button class="secondary" onClick={() => research.cancel()}>
+                Stop Research
+              </button>
+              <button onClick={() => research.stopAndSynthesize()}>
+                Stop Research &amp; Synthesize Current Findings
+              </button>
             </div>
             <Show when={state().supervisionMode === "interactive"}>
               <button onClick={() => research.setMode("walk-away")}>

@@ -104,7 +104,17 @@ const BookmarkNotifications: Component = () => {
             classList={{ "bookmark-toast-leaving": toast.leaving }}
             role="status"
           >
-            <div class="bookmark-toast-title">{toast.title}</div>
+            <div class="bookmark-toast-header">
+              <div class="bookmark-toast-title">{toast.title}</div>
+              <button
+                type="button"
+                class="bookmark-toast-close"
+                aria-label="Dismiss notification"
+                onClick={() => dismissToast(toast.id)}
+              >
+                ×
+              </button>
+            </div>
             <div class="bookmark-toast-message">{toast.message}</div>
           </div>
         )}

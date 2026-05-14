@@ -8,6 +8,7 @@ const initialState: ResearchState = {
   includeTraces: false,
   objectives: null,
   threads: [],
+  threadProgress: [],
   threadFindings: [],
   report: null,
   subAgentTraces: [],
@@ -78,6 +79,10 @@ export function useResearch() {
 
     cancel() {
       return window.vessel.research.cancel();
+    },
+
+    stopAndSynthesize() {
+      return window.vessel.research.stopAndSynthesize();
     },
 
     exportReport() {

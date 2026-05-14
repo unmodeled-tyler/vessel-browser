@@ -52,7 +52,17 @@ const HighlightNotifications: Component<Props> = (props) => {
           classList={{ "bookmark-toast-leaving": leaving() }}
           role="status"
         >
-          <div class="bookmark-toast-title">{current()!.title}</div>
+          <div class="bookmark-toast-header">
+            <div class="bookmark-toast-title">{current()!.title}</div>
+            <button
+              type="button"
+              class="bookmark-toast-close"
+              aria-label="Dismiss notification"
+              onClick={dismiss}
+            >
+              ×
+            </button>
+          </div>
           <div class="bookmark-toast-message">{current()!.message}</div>
         </div>
       </div>

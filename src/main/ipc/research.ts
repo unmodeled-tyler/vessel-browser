@@ -104,6 +104,10 @@ export function registerResearchHandlers(
     getOrchestrator().cancel();
   });
 
+  ipcMain.handle(Channels.RESEARCH_STOP_AND_SYNTHESIZE, () => {
+    getOrchestrator().stopAndSynthesizeCurrentFindings();
+  });
+
   ipcMain.handle(Channels.RESEARCH_EXPORT_REPORT, async () => {
     try {
       if (isToolGated("research_export_report")) {

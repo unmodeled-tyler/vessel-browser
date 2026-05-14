@@ -9,6 +9,7 @@ import type {
   SubAgentTrace,
   SupervisionMode,
   SourcedClaim,
+  ResearchThreadProgressStatus,
 } from "../../../shared/research-types";
 import { buildOrchestratorSystemPrompt } from "./orchestrator-prompt";
 import { buildSubAgentSystemPrompt } from "./sub-agent-prompt";
@@ -162,6 +163,8 @@ function buildFallbackReport(
 export class ResearchOrchestrator {
   private state: ResearchState;
   private updateListener: ((state: ResearchState) => void) | null = null;
+  private stopRequested = false;
+  private synthesizeAfterStop = false;
 
   constructor(
     private provider: AIProvider | null,
@@ -180,6 +183,7 @@ export class ResearchOrchestrator {
       includeTraces: false,
       objectives: null,
       threads: [],
+      threadProgress: [],
       threadFindings: [],
       report: null,
       subAgentTraces: [],
@@ -222,8 +226,32 @@ export class ResearchOrchestrator {
   cancel(): void {
     // Reset visible state immediately. Running sub-agents observe phase !== "executing"
     // and bail at their next checkpoint without delivering stale results.
+    this.stopRequested = true;
+    this.synthesizeAfterStop = false;
+    this.provider?.cancel();
     this.state = this.initialState();
     this.emit();
+  }
+
+  stopAndSynthesizeCurrentFindings(): void {
+    if (this.state.phase !== "executing") {
+      logger.warn("Not executing, ignoring stopAndSynthesizeCurrentFindings");
+      return;
+    }
+    this.stopRequested = true;
+    this.synthesizeAfterStop = true;
+    this.state.threadProgress = this.state.threadProgress.map((progress) =>
+      progress.status === "completed" || progress.status === "failed"
+        ? progress
+        : {
+            ...progress,
+            status: "stopping",
+            message: "Stopping and preparing to synthesize current findings",
+            updatedAt: new Date().toISOString(),
+          },
+    );
+    this.emit();
+    this.provider?.cancel();
   }
 
   /**
@@ -386,7 +414,35 @@ export class ResearchOrchestrator {
     }
     if (mode) this.state.supervisionMode = mode;
     if (includeTraces !== undefined) this.state.includeTraces = includeTraces;
+    this.stopRequested = false;
+    this.synthesizeAfterStop = false;
+    this.state.threadFindings = [];
+    this.state.threadProgress = this.state.threads.map((thread) => ({
+      threadLabel: thread.label,
+      status: "queued",
+      message: "Queued",
+      updatedAt: new Date().toISOString(),
+    }));
     this.setPhase("executing");
+  }
+
+  private updateThreadProgress(
+    threadLabel: string,
+    status: ResearchThreadProgressStatus,
+    message: string,
+  ): void {
+    const updatedAt = new Date().toISOString();
+    const existingIndex = this.state.threadProgress.findIndex(
+      (progress) => progress.threadLabel === threadLabel,
+    );
+    const next = { threadLabel, status, message, updatedAt };
+    this.state.threadProgress =
+      existingIndex >= 0
+        ? this.state.threadProgress.map((progress, index) =>
+            index === existingIndex ? next : progress,
+          )
+        : [...this.state.threadProgress, next];
+    this.emit();
   }
 
   // ── phase: executing → synthesizing ────────────────────────────
@@ -413,8 +469,22 @@ export class ResearchOrchestrator {
       }),
     );
 
+    const shouldSynthesize = this.synthesizeAfterStop;
     if (this.state.phase !== "executing") return;
     this.state.threadFindings = results.filter((f): f is ThreadFindings => f !== null);
+    this.stopRequested = false;
+    this.synthesizeAfterStop = false;
+    if (!shouldSynthesize) {
+      for (const finding of this.state.threadFindings) {
+        this.updateThreadProgress(
+          finding.threadLabel,
+          finding.claims.length > 0 ? "completed" : "failed",
+          finding.claims.length > 0
+            ? `${finding.claims.length} claim${finding.claims.length === 1 ? "" : "s"} extracted`
+            : "No citeable claims extracted",
+        );
+      }
+    }
     this.setPhase("synthesizing");
 
     try {
@@ -442,6 +512,7 @@ export class ResearchOrchestrator {
 
     const tabId = this.tabManager.createTab();
     let sourcesConsumed = 0;
+    this.updateThreadProgress(thread.label, "running", "Researching sources");
 
     // Switch to the sub-agent's tab so initial navigation targets it
     if (tabId) this.tabManager.switchTab(tabId);
@@ -477,7 +548,7 @@ export class ResearchOrchestrator {
           const t0 = Date.now();
 
           // Honour cancellation
-          if (this.state.phase !== "executing") {
+          if (this.state.phase !== "executing" || this.stopRequested) {
             const msg = "Research cancelled — stopping.";
             return msg;
           }
@@ -561,6 +632,9 @@ export class ResearchOrchestrator {
         message: String(err),
         timestamp: new Date().toISOString(),
       });
+      if (this.state.phase === "executing") {
+        this.updateThreadProgress(thread.label, "stopping", "Stopping thread");
+      }
     } finally {
       trace.finishedAt = new Date().toISOString();
       // Close the sub-agent's dedicated tab to prevent tab leak
@@ -589,6 +663,18 @@ export class ResearchOrchestrator {
     const pagesVisited = trace.toolCalls.filter((t) =>
       ["navigate", "read_page", "search"].includes(t.tool),
     ).length;
+
+    if (this.state.phase === "executing") {
+      this.updateThreadProgress(
+        thread.label,
+        claims.length > 0 ? "completed" : this.stopRequested ? "stopping" : "failed",
+        claims.length > 0
+          ? `${claims.length} claim${claims.length === 1 ? "" : "s"} extracted`
+          : this.stopRequested
+            ? "Stopped before citeable claims were extracted"
+            : "No citeable claims extracted",
+      );
+    }
 
     return {
       threadLabel: thread.label,

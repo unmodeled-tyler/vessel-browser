@@ -92,6 +92,7 @@ function makeInitialState(): ResearchState {
     includeTraces: false,
     objectives: null,
     threads: [],
+    threadProgress: [],
     threadFindings: [],
     report: null,
     subAgentTraces: [],
@@ -439,6 +440,108 @@ describe("ResearchState transitions", () => {
     assert.strictEqual(report.sourceIndex.length, 1);
     assert.match(report.executiveSummary, /sourced fallback/i);
     assert.match(report.findingsByThread[0].content, /\[1\]/);
+  });
+
+  it("publishes thread progress while research is running", async () => {
+    const updates: ResearchState[] = [];
+    const orch = new ResearchOrchestrator(
+      makeMockProvider(),
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+    orch.setUpdateListener((state) => updates.push(state));
+
+    await orch.startBrief("test progress");
+    orch.confirmBrief();
+    orch.setObjectives(makeMockObjectives());
+    orch.approveObjectives();
+    await orch.executeSubAgents();
+
+    assert.ok(
+      updates.some((state) =>
+        state.threadProgress.some((progress) => progress.status === "running"),
+      ),
+    );
+    assert.ok(
+      orch.getState().threadProgress.every((progress) =>
+        progress.status === "completed" || progress.status === "failed",
+      ),
+    );
+  });
+
+  it("can stop research and synthesize current findings", async () => {
+    let releaseAgent!: () => void;
+    const provider: AIProvider = {
+      agentToolProfile: "default",
+      streamQuery: async (systemPrompt, _userMessage, onChunk, onEnd) => {
+        if (systemPrompt.includes("claim extractor")) {
+          onChunk(JSON.stringify([
+            {
+              claim: "Research can be synthesized from partial findings.",
+              sourceUrl: "https://example.com/partial",
+              sourceTitle: "Partial Findings",
+              extractedQuote: "Partial findings can still be useful.",
+              relevanceNote: "Shows partial synthesis works.",
+            },
+          ]));
+        } else {
+          onChunk("");
+        }
+        onEnd();
+      },
+      streamAgentQuery: async (
+        _systemPrompt,
+        _userMessage,
+        _tools,
+        onChunk,
+        _onToolCall,
+        onEnd,
+      ) => {
+        onChunk("Research in progress.");
+        await new Promise<void>((resolve) => {
+          releaseAgent = resolve;
+        });
+        onEnd();
+      },
+      cancel: () => {
+        releaseAgent?.();
+      },
+    };
+    const orch = new ResearchOrchestrator(
+      provider,
+      makeMockTabManager(),
+      makeMockRuntime(),
+    );
+
+    await orch.startBrief("test stop and synthesize");
+    orch.confirmBrief();
+    orch.setObjectives({
+      researchQuestion: "Can partial findings be synthesized?",
+      threads: [
+        {
+          label: "Partial",
+          question: "Can partial findings be synthesized?",
+          searchQueries: ["partial findings"],
+          preferredDomains: [],
+          blockedDomains: [],
+          sourceBudget: 1,
+        },
+      ],
+      audience: "general",
+      reportOutline: ["Partial"],
+      totalSourceBudget: 1,
+    });
+    orch.approveObjectives();
+
+    const execution = orch.executeSubAgents();
+    await Promise.resolve();
+    orch.stopAndSynthesizeCurrentFindings();
+    await execution;
+
+    const state = orch.getState();
+    assert.strictEqual(state.phase, "delivered");
+    assert.ok(state.report);
+    assert.strictEqual(state.report.sourceIndex.length, 1);
   });
 
   it("does not deliver a report or continue extraction after cancellation during execution", async () => {

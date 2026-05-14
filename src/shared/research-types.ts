@@ -132,12 +132,27 @@ export interface SubAgentTrace {
   finishedAt: string;
 }
 
+export type ResearchThreadProgressStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "stopping";
+
+export interface ResearchThreadProgress {
+  threadLabel: string;
+  status: ResearchThreadProgressStatus;
+  message: string;
+  updatedAt: string;
+}
+
 export interface ResearchState {
   phase: ResearchPhase;
   supervisionMode: SupervisionMode;
   includeTraces: boolean;
   objectives: ResearchObjectives | null;
   threads: ResearchThread[];
+  threadProgress: ResearchThreadProgress[];
   threadFindings: ThreadFindings[];
   report: ResearchReport | null;
   subAgentTraces: SubAgentTrace[];
