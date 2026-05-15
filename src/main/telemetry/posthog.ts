@@ -46,7 +46,14 @@ const TELEMETRY_PROPERTY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   bookmark_action: new Set(["action"]),
   vault_action: new Set(["action"]),
   extraction_failed: new Set(["reason"]),
-  premium_funnel: new Set(["step", "status", "reason"]),
+  premium_funnel: new Set([
+    "step",
+    "status",
+    "reason",
+    "source",
+    "previous_status",
+    "new_status",
+  ]),
 };
 
 // --- Anonymous device ID (persistent, no PII) ---
@@ -207,6 +214,14 @@ export function trackPremiumFunnel(
     | "iteration_limit_clicked"
     | "checkout_success_seen"
     | "checkout_canceled"
+    | "checkout_open_failed"
+    | "activation_code_requested"
+    | "activation_code_sent"
+    | "activation_code_failed"
+    | "premium_verify_started"
+    | "premium_verify_succeeded"
+    | "premium_verify_failed"
+    | "premium_status_changed"
     | "auto_activation_attempted"
     | "auto_activation_succeeded"
     | "auto_activation_failed",
