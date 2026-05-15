@@ -38,16 +38,50 @@ async function findCustomerByEmail(env, email) {
 }
 
 async function getSubscription(env, customerId) {
-  const data = await stripeRequest(env, "GET", `/subscriptions?customer=${customerId}&status=all&limit=1`);
-  return data.data?.[0] || null;
+  const data = await stripeRequest(env, "GET", `/subscriptions?customer=${customerId}&status=all&limit=10`);
+  const subscriptions = Array.isArray(data.data) ? data.data : [];
+  return pickBestSubscription(subscriptions);
+}
+
+async function getSubscriptionById(env, subscriptionId) {
+  if (!subscriptionId) return null;
+  const data = await stripeRequest(env, "GET", `/subscriptions/${subscriptionId}`);
+  return data.error ? null : data;
+}
+
+function subscriptionAccessEndsAt(sub) {
+  if (!sub) return 0;
+  if (sub.status === "trialing") {
+    return sub.trial_end || sub.current_period_end || 0;
+  }
+  return sub.current_period_end || sub.trial_end || 0;
+}
+
+function isEntitledSubscription(sub, now = Math.floor(Date.now() / 1000)) {
+  if (!sub) return false;
+  if (sub.status !== "active" && sub.status !== "trialing") return false;
+  const accessEndsAt = subscriptionAccessEndsAt(sub);
+  return !accessEndsAt || accessEndsAt > now;
+}
+
+function pickBestSubscription(subscriptions) {
+  const now = Math.floor(Date.now() / 1000);
+  const entitled = subscriptions
+    .filter((sub) => isEntitledSubscription(sub, now))
+    .sort((a, b) => subscriptionAccessEndsAt(b) - subscriptionAccessEndsAt(a));
+  if (entitled[0]) return entitled[0];
+
+  return subscriptions
+    .slice()
+    .sort((a, b) => (b.created || 0) - (a.created || 0))[0] || null;
 }
 
 function subscriptionToStatus(sub) {
   if (!sub) return "free";
+  if (isEntitledSubscription(sub)) {
+    return sub.status;
+  }
   switch (sub.status) {
-    case "active":
-    case "trialing":
-      return sub.status;
     case "past_due":
       return "past_due";
     case "canceled":
@@ -208,7 +242,7 @@ async function sendActivationCodeEmail(env, email, code) {
   }
 }
 
-async function buildPremiumStatus(env, customerId, fallbackEmail = "") {
+async function buildPremiumStatus(env, customerId, fallbackEmail = "", preferredSubscription = null) {
   if (!customerId) {
     return {
       status: "free",
@@ -230,7 +264,7 @@ async function buildPremiumStatus(env, customerId, fallbackEmail = "") {
     };
   }
 
-  const subscription = await getSubscription(env, customer.id);
+  const subscription = preferredSubscription || await getSubscription(env, customer.id);
   const status = subscriptionToStatus(subscription);
 
   return {
@@ -527,7 +561,12 @@ async function handleVerify(request, env) {
       typeof session.customer === "string"
         ? session.customer
         : session.customer.id;
-    return corsResponse(request, env, await buildPremiumStatus(env, customerId));
+    const subscriptionId =
+      typeof session.subscription === "string"
+        ? session.subscription
+        : session.subscription?.id;
+    const subscription = await getSubscriptionById(env, subscriptionId);
+    return corsResponse(request, env, await buildPremiumStatus(env, customerId, "", subscription));
   }
 
   const token = await verifySignedToken(env, identifier, "premium-access");
@@ -617,9 +656,9 @@ function handleSuccess(request) {
     <div class="primary-path">
       <h3>Next Step — Activate in Vessel</h3>
       <ol>
-        <li>Return to <strong>Vessel</strong> — Premium should unlock automatically</li>
-        <li>If not, open <strong>Settings</strong> (<code>Ctrl+,</code>) and go to the <strong>Premium</strong> section</li>
-        <li>Enter the <strong>email</strong> you used at checkout and verify with the code we sent</li>
+        <li>Return to <strong>Vessel</strong> and keep this checkout tab open for a moment</li>
+        <li>Vessel should unlock Premium automatically once it sees this success page</li>
+        <li>If it does not, open <strong>Settings</strong> (<code>Ctrl+,</code>) and verify the <strong>email</strong> you used at checkout</li>
       </ol>
     </div>
 

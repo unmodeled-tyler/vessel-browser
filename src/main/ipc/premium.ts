@@ -41,6 +41,19 @@ export function registerPremiumHandlers(
   tabManager: TabManager,
   sendToRendererViews: SendToRendererViews,
 ): void {
+  const trackPremiumStatusChange = (
+    previousStatus: string,
+    nextStatus: string,
+    source: string,
+  ) => {
+    if (previousStatus === nextStatus) return;
+    trackPremiumFunnel("premium_status_changed", {
+      previous_status: previousStatus,
+      new_status: nextStatus,
+      source,
+    });
+  };
+
   const watchPremiumCheckoutTab = (tabId: string) => {
     const tab = tabManager.getTab(tabId);
     const wc = tab?.view.webContents;
@@ -88,13 +101,26 @@ export function registerPremiumHandlers(
       }
 
       trackPremiumFunnel("auto_activation_attempted");
+      trackPremiumFunnel("premium_verify_started", {
+        source: "checkout_auto",
+      });
+      const previousStatus = getPremiumState().status;
       const state = await verifySubscription(sessionId);
       if (isPremiumActiveState(state)) {
         sendToRendererViews(Channels.PREMIUM_UPDATE, state);
+        trackPremiumFunnel("premium_verify_succeeded", {
+          status: state.status,
+          source: "checkout_auto",
+        });
+        trackPremiumStatusChange(previousStatus, state.status, "checkout_auto");
         trackPremiumFunnel("auto_activation_succeeded", {
           status: state.status,
         });
       } else {
+        trackPremiumFunnel("premium_verify_failed", {
+          status: state.status,
+          source: "checkout_auto",
+        });
         trackPremiumFunnel("auto_activation_failed", {
           status: state.status,
         });
@@ -137,9 +163,19 @@ export function registerPremiumHandlers(
       return errorResult("Invalid email format");
     }
     trackPremiumFunnel("activation_attempted");
+    trackPremiumFunnel("activation_code_requested", {
+      source: "settings",
+    });
     const result = await requestActivationCode(email);
     if (!result.ok) {
+      trackPremiumFunnel("activation_code_failed", {
+        source: "settings",
+      });
       trackPremiumFunnel("activation_failed");
+    } else {
+      trackPremiumFunnel("activation_code_sent", {
+        source: "settings",
+      });
     }
     return result;
   });
@@ -157,13 +193,30 @@ export function registerPremiumHandlers(
         });
       }
       trackPremiumFunnel("activation_attempted");
+      trackPremiumFunnel("premium_verify_started", {
+        source: "settings_code",
+      });
+      const previousStatus = getPremiumState().status;
       const result = await verifyActivationCode(email, code, challengeToken);
       if (result.ok) {
+        trackPremiumFunnel("premium_verify_succeeded", {
+          status: result.state.status,
+          source: "settings_code",
+        });
         trackPremiumFunnel("activation_succeeded", {
           status: result.state.status,
         });
+        trackPremiumStatusChange(
+          previousStatus,
+          result.state.status,
+          "settings_code",
+        );
         sendToRendererViews(Channels.PREMIUM_UPDATE, result.state);
       } else {
+        trackPremiumFunnel("premium_verify_failed", {
+          status: result.state.status,
+          source: "settings_code",
+        });
         trackPremiumFunnel("activation_failed", { status: result.state.status });
       }
       return result;
@@ -177,6 +230,8 @@ export function registerPremiumHandlers(
     if (result.ok && result.url) {
       const tabId = tabManager.createTab(result.url);
       watchPremiumCheckoutTab(tabId);
+    } else {
+      trackPremiumFunnel("checkout_open_failed");
     }
     return result;
   });

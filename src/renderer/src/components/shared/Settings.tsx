@@ -338,8 +338,35 @@ const Settings: Component = () => {
       logger.warn("Failed to track premium context:", err);
     });
 
-  const startPremiumCheckout = () => {
-    void window.vessel.premium.checkout(premiumEmail().trim() || undefined);
+  const startPremiumCheckout = async () => {
+    setPremiumLoading(true);
+    setPremiumMessage(null);
+    try {
+      const result = await window.vessel.premium.checkout(
+        premiumEmail().trim() || undefined,
+      );
+      if (result.ok) {
+        setPremiumMessage({
+          kind: "success",
+          text: "Checkout opened. This screen will update when Premium activates.",
+        });
+      } else {
+        setPremiumMessage({
+          kind: "error",
+          text: result.error || "Could not open checkout.",
+        });
+      }
+    } catch (err) {
+      setPremiumMessage({
+        kind: "error",
+        text:
+          err instanceof Error
+            ? err.message
+            : "Could not open checkout.",
+      });
+    } finally {
+      setPremiumLoading(false);
+    }
   };
 
   const resetPremiumActivationFlow = () => {

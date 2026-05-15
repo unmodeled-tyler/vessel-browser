@@ -146,11 +146,14 @@ const SettingsAccount: Component<SettingsAccountProps> = (props) => {
               </Show>
               <button
                 class="premium-btn premium-btn-upgrade"
+                disabled={p.loading()}
                 onClick={() => {
                   p.startCheckout();
                 }}
               >
-                Subscribe to Premium — $5.99/mo after 7-day free trial
+                {p.loading()
+                  ? "Opening Checkout..."
+                  : "Subscribe to Premium — $5.99/mo after 7-day free trial"}
               </button>
               <Show when={p.message()}>
                 {(msg) => (
