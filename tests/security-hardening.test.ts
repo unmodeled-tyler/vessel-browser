@@ -12,7 +12,9 @@ import {
 } from "../src/main/network/url-safety";
 import { openExternalAllowlisted } from "../src/main/security/external-open";
 import { createCodexFunctionCallOutput } from "../src/main/ai/provider-codex";
+import { flushPersist, setSetting } from "../src/main/config/settings";
 import { requiresExplicitMcpApproval } from "../src/main/mcp/server";
+import { getPortalUrl, isPremium } from "../src/main/premium/manager";
 import { sanitizeTelemetryProperties } from "../src/main/telemetry/posthog";
 import {
   decodeEncryptionKeyFromStorage,
@@ -20,6 +22,40 @@ import {
   encodeEncryptionKeyForStorage,
   normalizeCredentialHost,
 } from "../src/main/vault/shared";
+import type { PremiumState, PremiumStatus } from "../src/shared/types";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function setPremiumStatusForTest(
+  status: PremiumStatus,
+  validatedAt: string,
+): void {
+  const state: PremiumState = {
+    status,
+    customerId: status === "free" ? "" : "cus_test",
+    verificationToken: status === "free" ? "" : "token_test",
+    email: status === "free" ? "" : "premium@example.com",
+    validatedAt,
+    expiresAt: "",
+  };
+  setSetting("premium", state);
+}
+
+async function withMockFetch<T>(
+  handler: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = handler as typeof fetch;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
 
 test("trusted IPC guard rejects unregistered renderer senders", () => {
   assert.throws(
@@ -135,6 +171,92 @@ test("telemetry sanitizer keeps explicitly allowlisted metadata keys", () => {
     ),
     { setting_key: "approvalMode" },
   );
+});
+
+test("premium gate only grants offline grace to recently validated active states", async () => {
+  try {
+    setPremiumStatusForTest("active", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), true);
+
+    setPremiumStatusForTest("trialing", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), true);
+
+    setPremiumStatusForTest("active", new Date(Date.now() - 8 * DAY_MS).toISOString());
+    assert.equal(isPremium(), false);
+
+    setPremiumStatusForTest("canceled", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), false);
+
+    setPremiumStatusForTest("past_due", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), false);
+  } finally {
+    setPremiumStatusForTest("free", "");
+    await flushPersist();
+  }
+});
+
+test("premium billing portal uses the stored verification token", async () => {
+  try {
+    setSetting("premium", {
+      status: "active",
+      customerId: "cus_test",
+      verificationToken: "signed-token",
+      email: "premium@example.com",
+      validatedAt: new Date().toISOString(),
+      expiresAt: "",
+    });
+
+    await withMockFetch(
+      async (input, init) => {
+        assert.equal(String(input), "https://vesselpremium.quantaintellect.com/portal");
+        assert.equal(init?.method, "POST");
+        assert.deepEqual(
+          JSON.parse(String(init?.body || "{}")),
+          { identifier: "signed-token" },
+        );
+        return new Response(
+          JSON.stringify({ url: "https://billing.stripe.test/session" }),
+          { status: 200 },
+        );
+      },
+      async () => {
+        assert.deepEqual(
+          await getPortalUrl(),
+          { ok: true, url: "https://billing.stripe.test/session" },
+        );
+      },
+    );
+  } finally {
+    setPremiumStatusForTest("free", "");
+    await flushPersist();
+  }
+});
+
+test("premium billing portal requires a stored verification token", async () => {
+  try {
+    setSetting("premium", {
+      status: "active",
+      customerId: "cus_test",
+      verificationToken: "",
+      email: "premium@example.com",
+      validatedAt: new Date().toISOString(),
+      expiresAt: "",
+    });
+
+    await withMockFetch(
+      async () => {
+        throw new Error("Portal API should not be called without a token");
+      },
+      async () => {
+        const result = await getPortalUrl();
+        assert.equal(result.ok, false);
+        assert.match(result.error || "", /Verify your Premium subscription/);
+      },
+    );
+  } finally {
+    setPremiumStatusForTest("free", "");
+    await flushPersist();
+  }
 });
 
 test("MCP approval helper flags destructive bookmark folder removal", () => {

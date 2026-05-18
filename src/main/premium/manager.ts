@@ -110,17 +110,21 @@ export const PREMIUM_FEATURES = new Set([
 
 export function isPremium(): boolean {
   const { premium } = loadSettings();
-  if (premium.status === "active" || premium.status === "trialing") {
+  if (premium.status !== "active" && premium.status !== "trialing") {
+    return false;
+  }
+
+  // Legacy installs may have an active cached state from before validation
+  // timestamps were persisted. Trust that state until the next verification.
+  if (!premium.validatedAt) {
     return true;
   }
-  // Offline grace: if status was active and we're within grace period
-  if (premium.validatedAt && premium.status !== "free") {
-    const lastValidated = new Date(premium.validatedAt).getTime();
-    if (Date.now() - lastValidated < OFFLINE_GRACE_PERIOD_MS) {
-      return true;
-    }
+
+  const lastValidated = new Date(premium.validatedAt).getTime();
+  if (!Number.isFinite(lastValidated)) {
+    return false;
   }
-  return false;
+  return Date.now() - lastValidated < OFFLINE_GRACE_PERIOD_MS;
 }
 
 export function getPremiumState(): PremiumState {
@@ -189,9 +193,35 @@ export async function getCheckoutUrl(
  * Open the Stripe Customer Portal for subscription management.
  */
 export async function getPortalUrl(): Promise<Result<{ url: string }>> {
-  return errorResult(
-    "Billing portal access is temporarily disabled until authenticated customer access is implemented.",
-  );
+  const current = loadSettings().premium;
+  const identifier = current.verificationToken;
+
+  if (!identifier) {
+    return errorResult(
+      "Verify your Premium subscription before opening billing management.",
+    );
+  }
+
+  try {
+    const res = await fetch(`${VERIFICATION_API}/portal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier }),
+    });
+
+    if (!res.ok) {
+      const detail = await readApiErrorDetail(res);
+      return errorResult(detail || `HTTP ${res.status}`);
+    }
+
+    const { url } = (await res.json()) as { url?: unknown };
+    if (typeof url !== "string" || !url.trim()) {
+      return errorResult("Billing portal did not return a valid URL.");
+    }
+    return okResult({ url });
+  } catch (err) {
+    return errorResult(getErrorMessage(err, "Failed to open billing portal"));
+  }
 }
 
 // --- Subscription verification ---

@@ -64,6 +64,7 @@ tests/*.test.ts
 !tests/automation-kit-constants.test.ts
 !tests/bookmark-context.test.ts
 !tests/bookmark-page-source.test.ts
+!tests/cloudflare-premium-worker.test.ts
 !tests/dom-selectors.test.ts
 !tests/input-coercion.test.ts
 !tests/link-validation.test.ts
@@ -88,3 +89,4 @@ tests/*.scratch.ts
 # Local secrets / deployment config
 .webui_secret_key
 scripts/cloudflare-worker/wrangler.toml
+scripts/cloudflare-worker/vessel-premium-api.js

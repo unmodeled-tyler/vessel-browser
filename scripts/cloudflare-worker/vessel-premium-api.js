@@ -407,15 +407,47 @@ async function handleCheckout(request, env) {
 }
 
 async function handlePortal(request, env) {
-  return corsResponse(
-    request,
-    env,
-    {
-      error:
-        "Billing portal access is temporarily disabled until authenticated customer access is implemented.",
-    },
-    403,
-  );
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
+  }
+
+  const identifier = String(body.identifier || "").trim();
+  if (!identifier) {
+    return corsResponse(request, env, { error: "identifier is required" }, 400);
+  }
+
+  const token = await verifySignedToken(env, identifier, "premium-access");
+  if (!token?.customerId) {
+    return corsResponse(
+      request,
+      env,
+      {
+        error:
+          "Authenticated billing access is required. Verify your Premium subscription again before managing billing.",
+      },
+      403,
+    );
+  }
+
+  const url = new URL(request.url);
+  const session = await stripeRequest(env, "POST", "/billing_portal/sessions", {
+    customer: token.customerId,
+    return_url: `${url.origin}/portal-return`,
+  });
+
+  if (session.error || !session.url) {
+    return corsResponse(
+      request,
+      env,
+      { error: session.error?.message || "Could not create billing portal session" },
+      400,
+    );
+  }
+
+  return corsResponse(request, env, { url: session.url });
 }
 
 async function handleActivationStart(request, env) {
