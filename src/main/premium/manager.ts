@@ -110,17 +110,21 @@ export const PREMIUM_FEATURES = new Set([
 
 export function isPremium(): boolean {
   const { premium } = loadSettings();
-  if (premium.status === "active" || premium.status === "trialing") {
+  if (premium.status !== "active" && premium.status !== "trialing") {
+    return false;
+  }
+
+  // Legacy installs may have an active cached state from before validation
+  // timestamps were persisted. Trust that state until the next verification.
+  if (!premium.validatedAt) {
     return true;
   }
-  // Offline grace: if status was active and we're within grace period
-  if (premium.validatedAt && premium.status !== "free") {
-    const lastValidated = new Date(premium.validatedAt).getTime();
-    if (Date.now() - lastValidated < OFFLINE_GRACE_PERIOD_MS) {
-      return true;
-    }
+
+  const lastValidated = new Date(premium.validatedAt).getTime();
+  if (!Number.isFinite(lastValidated)) {
+    return false;
   }
-  return false;
+  return Date.now() - lastValidated < OFFLINE_GRACE_PERIOD_MS;
 }
 
 export function getPremiumState(): PremiumState {

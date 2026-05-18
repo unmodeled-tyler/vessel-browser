@@ -12,7 +12,9 @@ import {
 } from "../src/main/network/url-safety";
 import { openExternalAllowlisted } from "../src/main/security/external-open";
 import { createCodexFunctionCallOutput } from "../src/main/ai/provider-codex";
+import { flushPersist, setSetting } from "../src/main/config/settings";
 import { requiresExplicitMcpApproval } from "../src/main/mcp/server";
+import { isPremium } from "../src/main/premium/manager";
 import { sanitizeTelemetryProperties } from "../src/main/telemetry/posthog";
 import {
   decodeEncryptionKeyFromStorage,
@@ -20,6 +22,24 @@ import {
   encodeEncryptionKeyForStorage,
   normalizeCredentialHost,
 } from "../src/main/vault/shared";
+import type { PremiumState, PremiumStatus } from "../src/shared/types";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function setPremiumStatusForTest(
+  status: PremiumStatus,
+  validatedAt: string,
+): void {
+  const state: PremiumState = {
+    status,
+    customerId: status === "free" ? "" : "cus_test",
+    verificationToken: status === "free" ? "" : "token_test",
+    email: status === "free" ? "" : "premium@example.com",
+    validatedAt,
+    expiresAt: "",
+  };
+  setSetting("premium", state);
+}
 
 test("trusted IPC guard rejects unregistered renderer senders", () => {
   assert.throws(
@@ -135,6 +155,28 @@ test("telemetry sanitizer keeps explicitly allowlisted metadata keys", () => {
     ),
     { setting_key: "approvalMode" },
   );
+});
+
+test("premium gate only grants offline grace to recently validated active states", async () => {
+  try {
+    setPremiumStatusForTest("active", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), true);
+
+    setPremiumStatusForTest("trialing", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), true);
+
+    setPremiumStatusForTest("active", new Date(Date.now() - 8 * DAY_MS).toISOString());
+    assert.equal(isPremium(), false);
+
+    setPremiumStatusForTest("canceled", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), false);
+
+    setPremiumStatusForTest("past_due", new Date(Date.now() - DAY_MS).toISOString());
+    assert.equal(isPremium(), false);
+  } finally {
+    setPremiumStatusForTest("free", "");
+    await flushPersist();
+  }
 });
 
 test("MCP approval helper flags destructive bookmark folder removal", () => {
