@@ -30,6 +30,10 @@ export interface TabGroup {
   collapsed: boolean;
 }
 
+export interface TabStateChangeMeta {
+  persistSession: boolean;
+}
+
 function sanitizePdfFilename(title: string): string {
   const clean = title
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
@@ -56,20 +60,29 @@ export class TabManager {
   private tabGroups: Map<string, TabGroup> = new Map();
   private activeTabId: string | null = null;
   private window: BaseWindow;
-  private onStateChange: (tabs: TabState[], activeId: string) => void;
+  private onStateChange: (
+    tabs: TabState[],
+    activeId: string,
+    meta: TabStateChangeMeta,
+  ) => void;
   private highlightCaptureCallback:
     | ((result: HighlightCaptureResult) => void)
     | null = null;
   private pageLoadCallback: ((url: string, wc: WebContents) => void) | null = null;
   private securityStateCallback: ((tabId: string, state: SecurityState) => void) | null = null;
   private closedTabs: { url: string; title: string; adBlockingEnabled: boolean }[] = [];
+  private lastSessionSignature = "";
   private readonly MAX_CLOSED_TABS = 20;
   readonly isPrivate: boolean;
   private readonly sessionPartition: string | undefined;
 
   constructor(
     window: BaseWindow,
-    onStateChange: (tabs: TabState[], activeId: string) => void,
+    onStateChange: (
+      tabs: TabState[],
+      activeId: string,
+      meta: TabStateChangeMeta,
+    ) => void,
     options?: { isPrivate?: boolean; sessionPartition?: string },
   ) {
     this.window = window;
@@ -120,7 +133,7 @@ export class TabManager {
     this.window.contentView.addChildView(tab.view);
     if (background) {
       tab.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-      this.broadcastState();
+      this.broadcastState({ persistSession: true });
     } else {
       this.switchTab(id);
     }
@@ -139,7 +152,7 @@ export class TabManager {
     }
 
     this.activeTabId = id;
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
   }
 
   closeTab(id: string): void {
@@ -178,7 +191,7 @@ export class TabManager {
         this.createTab();
       }
     } else {
-      this.broadcastState();
+      this.broadcastState({ persistSession: true });
     }
   }
 
@@ -240,7 +253,7 @@ export class TabManager {
     } else {
       this.order.splice(firstNonPinned, 0, id);
     }
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
   }
 
   unpinTab(id: string): void {
@@ -255,7 +268,7 @@ export class TabManager {
     } else {
       this.order.splice(firstNonPinned, 0, id);
     }
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
   }
 
   createGroupFromTab(
@@ -288,7 +301,7 @@ export class TabManager {
     const previousGroupId = tab.state.groupId;
     tab.setGroup(groupId);
     this.removeGroupIfEmpty(previousGroupId);
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
   }
 
   removeTabFromGroup(id: string): void {
@@ -297,14 +310,14 @@ export class TabManager {
     const groupId = tab.state.groupId;
     tab.setGroup(undefined);
     this.removeGroupIfEmpty(groupId);
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
   }
 
   toggleGroupCollapsed(groupId: string): boolean | null {
     const group = this.tabGroups.get(groupId);
     if (!group) return null;
     group.collapsed = !group.collapsed;
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
     return group.collapsed;
   }
 
@@ -312,7 +325,7 @@ export class TabManager {
     const group = this.tabGroups.get(groupId);
     if (!group || !TAB_GROUP_COLORS.includes(color)) return;
     group.color = color;
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
   }
 
   toggleMuted(id: string): boolean | null {
@@ -505,7 +518,7 @@ export class TabManager {
     this.order = [];
     this.tabGroups.clear();
     this.activeTabId = null;
-    this.broadcastState();
+    this.broadcastState({ persistSession: true });
   }
 
   private lastReapply = new Map<number, { url: string; at: number }>();
@@ -660,6 +673,21 @@ export class TabManager {
     this.tabGroups.delete(groupId);
   }
 
+  private getSessionSignature(states: TabState[]): string {
+    return JSON.stringify({
+      activeTabId: this.activeTabId,
+      tabs: states.map((state) => ({
+        id: state.id,
+        url: state.url || "about:blank",
+        adBlockingEnabled: state.adBlockingEnabled,
+        isPinned: state.isPinned,
+        groupId: state.groupId,
+        groupName: state.groupName,
+        groupColor: state.groupColor,
+      })),
+    });
+  }
+
   private async removeHighlightMarksForText(
     wc: WebContents,
     text: string,
@@ -684,9 +712,13 @@ export class TabManager {
       );
   }
 
-  private broadcastState(): void {
+  private broadcastState(meta: TabStateChangeMeta = { persistSession: false }): void {
     const states = this.getAllStates();
-    this.onStateChange(states, this.activeTabId || "");
+    const sessionSignature = this.getSessionSignature(states);
+    const persistSession =
+      meta.persistSession || sessionSignature !== this.lastSessionSignature;
+    this.lastSessionSignature = sessionSignature;
+    this.onStateChange(states, this.activeTabId || "", { persistSession });
     const activeTab = this.getActiveTab();
     if (activeTab && this.activeTabId && this.securityStateCallback) {
       this.securityStateCallback(this.activeTabId, activeTab.securityState);

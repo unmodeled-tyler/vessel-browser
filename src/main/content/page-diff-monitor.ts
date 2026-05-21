@@ -60,6 +60,11 @@ const MAX_RECENT_DIFF_BURSTS = 5;
 const MAX_PERSISTED_DIFF_BURSTS = 50;
 const MAX_HISTORY_DAYS = 30;
 const SAVE_DEBOUNCE_MS = 500;
+const BACKGROUND_DIFF_CAPTURE_DELAY_MS = 15000;
+
+interface PageSnapshotScheduleOptions {
+  isActive?: () => boolean;
+}
 
 function getHistoryFilePath(): string {
   return path.join(app.getPath("userData"), "vessel-page-diff-history.json");
@@ -237,6 +242,7 @@ function scheduleTimerAt(
   wc: WebContents,
   sendToRendererViews: SendToRendererViews,
   dueAt: number,
+  options: PageSnapshotScheduleOptions = {},
 ): void {
   attachDestroyCleanup(wc);
   const wcId = wc.id;
@@ -246,6 +252,15 @@ function scheduleTimerAt(
   const timer = setTimeout(() => {
     cleanupTimersForWcId(wcId);
     if (wc.isDestroyed()) return;
+    if (options.isActive && !options.isActive()) {
+      scheduleTimerAt(
+        wc,
+        sendToRendererViews,
+        Date.now() + BACKGROUND_DIFF_CAPTURE_DELAY_MS,
+        options,
+      );
+      return;
+    }
     lastMutationSnapshotAt.set(wcId, Date.now());
     void capturePageSnapshot(wc.getURL(), wc, sendToRendererViews);
   }, Math.max(0, dueAt - Date.now()));
@@ -257,8 +272,10 @@ function scheduleTimerAt(
 export function notePageMutationActivity(
   wc: WebContents,
   sendToRendererViews: SendToRendererViews,
+  options: PageSnapshotScheduleOptions = {},
 ): void {
   if (wc.isDestroyed()) return;
+  if (options.isActive && !options.isActive()) return;
 
   const wcId = wc.id;
   const now = Date.now();
@@ -269,22 +286,27 @@ export function notePageMutationActivity(
 
   const nextDueAt = computeNextSnapshotDueAt(wcId, now, 0);
   if (nextDueAt <= existingDueAt) return;
-  scheduleTimerAt(wc, sendToRendererViews, nextDueAt);
+  scheduleTimerAt(wc, sendToRendererViews, nextDueAt, options);
 }
 
 export function schedulePageSnapshotCapture(
   wc: WebContents,
   sendToRendererViews: SendToRendererViews,
   delayMs = 0,
+  options: PageSnapshotScheduleOptions = {},
 ): void {
   if (wc.isDestroyed()) return;
 
   const wcId = wc.id;
   const now = Date.now();
-  const nextDueAt = computeNextSnapshotDueAt(wcId, now, delayMs);
+  const effectiveDelayMs =
+    options.isActive && !options.isActive()
+      ? Math.max(delayMs, BACKGROUND_DIFF_CAPTURE_DELAY_MS)
+      : delayMs;
+  const nextDueAt = computeNextSnapshotDueAt(wcId, now, effectiveDelayMs);
   const existingDueAt = pendingPageSnapshotDueAt.get(wcId);
   if (existingDueAt != null && existingDueAt >= nextDueAt) {
     return;
   }
-  scheduleTimerAt(wc, sendToRendererViews, nextDueAt);
+  scheduleTimerAt(wc, sendToRendererViews, nextDueAt, options);
 }

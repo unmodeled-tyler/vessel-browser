@@ -464,14 +464,21 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
       label: folder.name,
     })),
   );
-  const groupedBookmarks = createMemo(() =>
-    bookmarkFolders().map((folder) => ({
+  const groupedBookmarks = createMemo(() => {
+    const byFolder = new Map<string, Bookmark[]>();
+    for (const bookmark of bookmarksState().bookmarks) {
+      const items = byFolder.get(bookmark.folderId) ?? [];
+      items.push(bookmark);
+      byFolder.set(bookmark.folderId, items);
+    }
+
+    return bookmarkFolders().map((folder) => ({
       ...folder,
-      items: bookmarksState()
-        .bookmarks.filter((bookmark) => bookmark.folderId === folder.id)
+      items: (byFolder.get(folder.id) ?? [])
+        .slice()
         .sort((a, b) => b.savedAt.localeCompare(a.savedAt)),
-    })),
-  );
+    }));
+  });
   const normalizedBookmarkSearch = createMemo(() =>
     normalizeBookmarkSearchText(bookmarkSearchQuery()),
   );
@@ -1979,6 +1986,18 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                     </button>
                   )}
                 </For>
+                <Show when={history.hasMore()}>
+                  <button
+                    class="history-entry"
+                    onClick={() => void history.loadMore()}
+                  >
+                    <span class="history-entry-title">Load more history</span>
+                    <span class="history-entry-url">
+                      Showing {history.historyState().entries.length} of{" "}
+                      {history.historyTotal()}
+                    </span>
+                  </button>
+                </Show>
                 <Show when={history.historyState().entries.length === 0}>
                   <p class="history-empty">No browsing history yet.</p>
                 </Show>

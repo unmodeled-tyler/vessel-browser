@@ -10,6 +10,11 @@ export function registerHistoryHandlers(): void {
     return historyManager.getState();
   });
 
+  ipcMain.handle(Channels.HISTORY_LIST, (event, offset?: number, limit?: number) => {
+    assertTrustedIpcSender(event);
+    return historyManager.listEntries(offset, limit);
+  });
+
   ipcMain.handle(Channels.HISTORY_SEARCH, (event, query: string) => {
     assertTrustedIpcSender(event);
     return historyManager.search(query);

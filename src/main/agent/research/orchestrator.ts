@@ -23,9 +23,49 @@ import { loadSettings } from "../../config/settings";
 
 const logger = createLogger("ResearchOrchestrator");
 const MAX_THREADS = 5;
+const MAX_TRACE_ARGS_CHARS = 1200;
+const MAX_TRACE_RESULT_CHARS = 2000;
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function truncateTraceText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function slimTraceArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const json = JSON.stringify(args);
+  if (json.length <= MAX_TRACE_ARGS_CHARS) return clone(args);
+  return {
+    _truncated: true,
+    originalChars: json.length,
+    preview: truncateTraceText(json, MAX_TRACE_ARGS_CHARS),
+  };
+}
+
+function slimTraceResult(result: string): string {
+  if (result.length <= MAX_TRACE_RESULT_CHARS) return result;
+  return [
+    `[Trace result truncated from ${result.length} chars.]`,
+    truncateTraceText(result, MAX_TRACE_RESULT_CHARS),
+  ].join("\n");
+}
+
+function createTraceToolCall(
+  tool: string,
+  args: Record<string, unknown>,
+  result: string,
+  startedAt: number,
+): SubAgentTrace["toolCalls"][number] {
+  return {
+    tool,
+    args: slimTraceArgs(args),
+    result: slimTraceResult(result),
+    timestamp: new Date().toISOString(),
+    durationMs: Date.now() - startedAt,
+  };
 }
 
 function normalizeSourceDomain(value: string): string {
@@ -566,13 +606,7 @@ export class ResearchOrchestrator {
                 title: String(args.url || "excluded source"),
                 reason: msg,
               });
-              trace.toolCalls.push({
-                tool: name,
-                args,
-                result: msg,
-                timestamp: new Date().toISOString(),
-                durationMs: 0,
-              });
+              trace.toolCalls.push(createTraceToolCall(name, args, msg, t0));
               return msg;
             }
           }
@@ -581,26 +615,14 @@ export class ResearchOrchestrator {
             sourcesConsumed++;
             if (sourcesConsumed > thread.sourceBudget) {
               const msg = `Source budget (${thread.sourceBudget}) exceeded. Summarize findings and stop.`;
-              trace.toolCalls.push({
-                tool: name,
-                args,
-                result: msg,
-                timestamp: new Date().toISOString(),
-                durationMs: 0,
-              });
+              trace.toolCalls.push(createTraceToolCall(name, args, msg, t0));
               return msg;
             }
           }
 
           try {
             const output = await executeAction(name, args, actionCtx);
-            trace.toolCalls.push({
-              tool: name,
-              args,
-              result: output,
-              timestamp: new Date().toISOString(),
-              durationMs: Date.now() - t0,
-            });
+            trace.toolCalls.push(createTraceToolCall(name, args, output, t0));
             return output;
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -615,13 +637,7 @@ export class ResearchOrchestrator {
               message: msg,
               timestamp: new Date().toISOString(),
             });
-            trace.toolCalls.push({
-              tool: name,
-              args,
-              result: `Error: ${msg}`,
-              timestamp: new Date().toISOString(),
-              durationMs: Date.now() - t0,
-            });
+            trace.toolCalls.push(createTraceToolCall(name, args, `Error: ${msg}`, t0));
             return `Error: ${msg}`;
           }
         },

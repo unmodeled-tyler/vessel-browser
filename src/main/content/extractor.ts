@@ -14,6 +14,22 @@ import {
 } from "../config/timing";
 
 const logger = createLogger("Extractor");
+const EXTRACTION_CACHE_TTL_MS = 1500;
+const MAX_EXTRACTION_CACHE_ENTRIES = 50;
+
+const extractionCache = new Map<
+  string,
+  { capturedAt: number; content: PageContent }
+>();
+
+export function invalidateExtractionCache(webContents: WebContents): void {
+  const prefix = `${webContents.id}:`;
+  for (const key of extractionCache.keys()) {
+    if (key.startsWith(prefix)) {
+      extractionCache.delete(key);
+    }
+  }
+}
 
 const EMPTY_PAGE_CONTENT: PageContent = {
   title: "",
@@ -985,9 +1001,15 @@ async function extractContentInner(
 export async function extractContent(
   webContents: WebContents,
 ): Promise<PageContent> {
+  const cacheKey = `${webContents.id}:${webContents.getURL() || ""}`;
+  const cached = extractionCache.get(cacheKey);
+  if (cached && Date.now() - cached.capturedAt < EXTRACTION_CACHE_TTL_MS) {
+    return structuredClone(cached.content);
+  }
+
   try {
     const timeoutMs = await estimateExtractionTimeout(webContents);
-    return await Promise.race([
+    const content = await Promise.race([
       extractContentInner(webContents),
       new Promise<never>((_, reject) =>
         setTimeout(
@@ -996,6 +1018,15 @@ export async function extractContent(
         ),
       ),
     ]);
+    extractionCache.set(cacheKey, {
+      capturedAt: Date.now(),
+      content: structuredClone(content),
+    });
+    if (extractionCache.size > MAX_EXTRACTION_CACHE_ENTRIES) {
+      const oldestKey = extractionCache.keys().next().value;
+      if (oldestKey) extractionCache.delete(oldestKey);
+    }
+    return content;
   } catch (err) {
     const url = webContents.getURL() || "";
     let domain = "unknown";

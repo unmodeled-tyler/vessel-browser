@@ -170,7 +170,7 @@ async function bootstrap(): Promise<void> {
       );
     }
   };
-  const windowState = createMainWindow((tabs, activeId) => {
+  const windowState = createMainWindow((tabs, activeId, meta) => {
     windowState.chromeView.webContents.send(
       Channels.TAB_STATE_UPDATE,
       tabs,
@@ -178,7 +178,9 @@ async function bootstrap(): Promise<void> {
     );
     void syncActiveHighlightCount(windowState);
     layoutViews(windowState);
-    runtime?.onTabStateChanged();
+    if (meta.persistSession) {
+      runtime?.onTabStateChanged();
+    }
   });
 
   let didRevealMainWindow = false;

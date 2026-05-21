@@ -59,6 +59,28 @@ function normalizeSignatureText(value: string | null | undefined): string {
   return (value || "").replace(/\s+/g, " ").trim();
 }
 
+function collectBoundedVisibleText(root: Element | null, maxLength: number): string {
+  if (!root) return "";
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const parts: string[] = [];
+  let length = 0;
+
+  while (length < maxLength) {
+    const node = walker.nextNode();
+    if (!node) break;
+    const parent = node.parentElement;
+    if (!parent || parent.closest("script, style, noscript, [hidden], [aria-hidden='true']")) {
+      continue;
+    }
+    const text = normalizeSignatureText(node.textContent);
+    if (!text) continue;
+    parts.push(text);
+    length += text.length + 1;
+  }
+
+  return parts.join(" ").slice(0, maxLength);
+}
+
 function getPageDiffSignature(): string {
   const title = normalizeSignatureText(document.title);
   const headings = Array.from(document.querySelectorAll("h1, h2, h3"))
@@ -68,11 +90,7 @@ function getPageDiffSignature(): string {
     .join(" | ");
   const mainRoot =
     document.querySelector("main, article, [role='main']") || document.body;
-  const visibleText = normalizeSignatureText(
-    mainRoot instanceof HTMLElement
-      ? mainRoot.innerText
-      : document.body?.innerText || "",
-  ).slice(0, 1200);
+  const visibleText = collectBoundedVisibleText(mainRoot, 1200);
   return [window.location.href, title, headings, visibleText].join("\n");
 }
 

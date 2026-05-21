@@ -1,12 +1,14 @@
 import { createSignal } from "solid-js";
-import type { HistoryState, HistoryEntry } from "../../../shared/types";
+import type { HistoryState, HistoryEntry, HistoryPage } from "../../../shared/types";
 import { createLogger } from "../../../shared/logger";
 
 const logger = createLogger("HistoryStore");
+const HISTORY_PAGE_SIZE = 200;
 
 const INITIAL: HistoryState = { entries: [] };
 
 const [historyState, setHistoryState] = createSignal<HistoryState>(INITIAL);
+const [historyTotal, setHistoryTotal] = createSignal(0);
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
@@ -17,9 +19,13 @@ async function init() {
   initialized = true;
   initPromise = (async () => {
     try {
-      const state = await window.vessel.history.get();
-      setHistoryState(state);
-      window.vessel.history.onUpdate((s) => setHistoryState(s));
+      const page = await window.vessel.history.list(0, HISTORY_PAGE_SIZE);
+      setHistoryState({ entries: page.entries });
+      setHistoryTotal(page.total);
+      window.vessel.history.onUpdate((page) => {
+        setHistoryState({ entries: page.entries });
+        setHistoryTotal(page.total);
+      });
     } catch (error) {
       initialized = false;
       logger.error("Failed to initialize history store:", error);
@@ -32,8 +38,21 @@ async function init() {
 
 export function useHistory() {
   void init();
+  const loadMore = async (limit = HISTORY_PAGE_SIZE): Promise<HistoryPage> => {
+    const current = historyState().entries;
+    const page = await window.vessel.history.list(current.length, limit);
+    setHistoryState({ entries: [...current, ...page.entries] });
+    setHistoryTotal(page.total);
+    return page;
+  };
+
   return {
     historyState,
+    historyTotal,
+    hasMore: () => historyState().entries.length < historyTotal(),
+    loadMore,
+    list: (offset?: number, limit?: number): Promise<HistoryPage> =>
+      window.vessel.history.list(offset, limit),
     search: (query: string): Promise<HistoryEntry[]> =>
       window.vessel.history.search(query),
     clear: () => window.vessel.history.clear(),

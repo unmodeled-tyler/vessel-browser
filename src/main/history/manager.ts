@@ -1,6 +1,6 @@
 import { app } from "electron";
 import path from "path";
-import type { ClearDataTimeRange, HistoryEntry, HistoryState, ImportResult } from "../../shared/types";
+import type { ClearDataTimeRange, HistoryEntry, HistoryPage, HistoryState, ImportResult } from "../../shared/types";
 import {
   createDebouncedJsonPersistence,
   loadJsonFile,
@@ -10,7 +10,7 @@ const MAX_HISTORY_ENTRIES = 5000;
 const SAVE_DEBOUNCE_MS = 250;
 
 let state: HistoryState | null = null;
-const listeners = new Set<(state: HistoryState) => void>();
+const listeners = new Set<(state: HistoryPage) => void>();
 
 function getHistoryPath(): string {
   return path.join(app.getPath("userData"), "vessel-history.json");
@@ -44,7 +44,7 @@ function save(): void {
 
 function emit(): void {
   if (!state) return;
-  const snapshot = { entries: [...state.entries] };
+  const snapshot = listEntries();
   for (const listener of listeners) {
     listener(snapshot);
   }
@@ -55,8 +55,20 @@ export function getState(): HistoryState {
   return { entries: [...state!.entries] };
 }
 
+export function listEntries(offset = 0, limit = 200): HistoryPage {
+  load();
+  const safeOffset = Math.max(0, Math.floor(offset));
+  const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  return {
+    entries: state!.entries.slice(safeOffset, safeOffset + safeLimit),
+    offset: safeOffset,
+    limit: safeLimit,
+    total: state!.entries.length,
+  };
+}
+
 export function subscribe(
-  listener: (state: HistoryState) => void,
+  listener: (state: HistoryPage) => void,
 ): () => void {
   listeners.add(listener);
   return () => {

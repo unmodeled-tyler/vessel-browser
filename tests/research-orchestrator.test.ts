@@ -72,7 +72,16 @@ function makeMockTabManager(): TabManager & { activeId: string } {
       }
     },
     getActiveTabId: () => activeId,
-    getActiveTab: () => null,
+    getActiveTab: () => ({
+      view: {
+        webContents: {
+          isDestroyed: () => false,
+          getURL: () => "https://example.com",
+          getTitle: () => "Example",
+          executeJavaScript: async () => "",
+        },
+      },
+    }),
     getAllStates: () => [],
   } as unknown as TabManager & { activeId: string };
 }
@@ -467,6 +476,64 @@ describe("ResearchState transitions", () => {
         progress.status === "completed" || progress.status === "failed",
       ),
     );
+  });
+
+  it("truncates large trace args and results in live research state", async () => {
+    const provider: AIProvider = {
+      agentToolProfile: "default",
+      streamQuery: async (systemPrompt, _userMessage, onChunk, onEnd) => {
+        onChunk(systemPrompt.includes("claim extractor") ? "[]" : JSON.stringify({
+          title: "Trace Report",
+          executiveSummary: "Trace test complete.",
+          findingsByThread: [],
+          sourceIndex: [],
+        }));
+        onEnd();
+      },
+      streamAgentQuery: async (
+        _systemPrompt,
+        _userMessage,
+        _tools,
+        _onChunk,
+        onToolCall,
+        onEnd,
+      ) => {
+        await onToolCall("navigate", {
+          url: `https://blocked.test/${"a".repeat(5000)}`,
+          payload: "b".repeat(5000),
+        });
+        onEnd();
+      },
+      cancel: () => {},
+    };
+    const runtime = makeMockRuntime() as AgentRuntime & {
+      runControlledAction: unknown;
+    };
+    runtime.runControlledAction = async (input: { executor: () => Promise<string> }) => {
+      await input.executor();
+      return "result ".repeat(1200);
+    };
+    const orch = new ResearchOrchestrator(
+      provider,
+      makeMockTabManager(),
+      runtime,
+    );
+
+    await orch.startBrief("test trace slimming");
+    orch.confirmBrief();
+    orch.setObjectives({
+      ...makeMockObjectives(),
+      threads: [{ ...makeMockObjectives().threads[0], blockedDomains: ["blocked.test"] }],
+    });
+    orch.approveObjectives("interactive", true);
+
+    await orch.executeSubAgents();
+
+    const call = orch.getState().subAgentTraces[0]?.toolCalls[0];
+    assert.ok(call);
+    assert.strictEqual(call.args._truncated, true);
+    assert.match(String(call.result), /Trace result truncated/);
+    assert.ok(call.result.length < 2200);
   });
 
   it("can stop research and synthesize current findings", async () => {

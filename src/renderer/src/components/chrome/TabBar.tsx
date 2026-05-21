@@ -80,6 +80,13 @@ const TabBar: Component = () => {
   );
 
   const tabEntries = createMemo<TabBarEntry[]>(() => {
+    const groupCounts = new Map<string, number>();
+    for (const tab of tabs()) {
+      if (tab.groupId) {
+        groupCounts.set(tab.groupId, (groupCounts.get(tab.groupId) ?? 0) + 1);
+      }
+    }
+
     const seenGroups = new Set<string>();
     return tabs().flatMap((tab) => {
       const entries: TabBarEntry[] = [];
@@ -91,8 +98,7 @@ const TabBar: Component = () => {
           name: tab.groupName || "Group",
           color: tab.groupColor || "blue",
           collapsed: !!tab.groupCollapsed,
-          count: tabs().filter((candidate) => candidate.groupId === tab.groupId)
-            .length,
+          count: groupCounts.get(tab.groupId) ?? 0,
         });
       }
       if (!tab.groupCollapsed || tab.id === activeTabId()) {

@@ -6,6 +6,7 @@ import {
   notePageMutationActivity,
   schedulePageSnapshotCapture,
 } from "../content/page-diff-monitor";
+import { invalidateExtractionCache } from "../content/extractor";
 import { getPremiumState, isPremiumActiveState } from "../premium/manager";
 import {
   assertTrustedIpcSender,
@@ -19,6 +20,8 @@ export function registerPageDiffHandlers(
   sendToRendererViews: SendToRendererViews,
 ): void {
   const pageEventBuckets = new Map<number, { count: number; resetAt: number }>();
+  const isActiveWebContents = (webContentsId: number): boolean =>
+    windowState.tabManager.getActiveTab()?.view.webContents.id === webContentsId;
   const allowPageEvent = (webContentsId: number): boolean => {
     const now = Date.now();
     const bucket = pageEventBuckets.get(webContentsId);
@@ -58,7 +61,10 @@ export function registerPageDiffHandlers(
     if (!wc || wc.isDestroyed()) return;
     if (!isManagedTabIpcSender(event, windowState.tabManager)) return;
     if (!allowPageEvent(wc.id)) return;
-    notePageMutationActivity(wc, sendToRendererViews);
+    invalidateExtractionCache(wc);
+    notePageMutationActivity(wc, sendToRendererViews, {
+      isActive: () => isActiveWebContents(wc.id),
+    });
   });
 
   ipcMain.on(Channels.PAGE_DIFF_DIRTY, (event) => {
@@ -66,6 +72,9 @@ export function registerPageDiffHandlers(
     if (!wc || wc.isDestroyed()) return;
     if (!isManagedTabIpcSender(event, windowState.tabManager)) return;
     if (!allowPageEvent(wc.id)) return;
-    schedulePageSnapshotCapture(wc, sendToRendererViews);
+    invalidateExtractionCache(wc);
+    schedulePageSnapshotCapture(wc, sendToRendererViews, 0, {
+      isActive: () => isActiveWebContents(wc.id),
+    });
   });
 }

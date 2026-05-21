@@ -14,6 +14,7 @@ import type {
   BookmarksState,
   ClearDataOptions,
   HistoryState,
+  HistoryPage,
   ImportResult,
   PremiumState,
   ProviderConfig,
@@ -470,6 +471,8 @@ const api = {
   history: {
     get: (): Promise<HistoryState> =>
       ipcRenderer.invoke(Channels.HISTORY_GET),
+    list: (offset?: number, limit?: number): Promise<HistoryPage> =>
+      ipcRenderer.invoke(Channels.HISTORY_LIST, offset, limit),
     search: (query: string) =>
       ipcRenderer.invoke(Channels.HISTORY_SEARCH, query),
     clear: () => ipcRenderer.invoke(Channels.HISTORY_CLEAR),
@@ -479,8 +482,8 @@ const api = {
       ipcRenderer.invoke(Channels.HISTORY_EXPORT_JSON),
     importFile: (): Promise<ImportResult | null> =>
       ipcRenderer.invoke(Channels.HISTORY_IMPORT),
-    onUpdate: (cb: (state: HistoryState) => void): (() => void) => {
-      const handler = (_: unknown, state: HistoryState) => cb(state);
+    onUpdate: (cb: (state: HistoryPage) => void): (() => void) => {
+      const handler = (_: unknown, state: HistoryPage) => cb(state);
       ipcRenderer.on(Channels.HISTORY_UPDATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.HISTORY_UPDATE, handler);

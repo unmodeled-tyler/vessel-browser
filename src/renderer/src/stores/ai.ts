@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import type { AIMessage, AutomationActivityEntry } from "../../../shared/types";
 import type { ResearchClarification } from "../../../shared/research-types";
+import { compactProviderHistory } from "../../../shared/ai-history";
 import {
   appendAutomationActivityChunk,
   finishAutomationActivity,
@@ -58,10 +59,7 @@ function recordRecentQuery(prompt: string): void {
 }
 
 function buildHistory(): AIMessage[] {
-  return messages().map((message) => ({
-    role: message.role,
-    content: message.content,
-  }));
+  return compactProviderHistory(messages());
 }
 
 async function dispatchQuery(prompt: string): Promise<boolean> {

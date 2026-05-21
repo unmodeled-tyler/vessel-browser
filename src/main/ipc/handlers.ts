@@ -32,6 +32,7 @@ import type {
   VesselSettings,
   type ClearDataOptions,
 } from "../../shared/types";
+import { compactProviderHistory } from "../../shared/ai-history";
 import { createLogger } from "../../shared/logger";
 import { errorResult, getErrorMessage } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
@@ -469,7 +470,7 @@ export function registerIpcHandlers(
           () => sendToRendererViews(Channels.AI_STREAM_END, "completed"),
           tabManager,
           runtime,
-          history,
+          compactProviderHistory(history),
           researchOrchestrator,
         );
       } catch (err: unknown) {

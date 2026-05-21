@@ -146,6 +146,29 @@ test("queued prompt retries when the AI stream becomes idle after a busy respons
   assert.deepEqual(mockAI.queryCalls[1]?.history, []);
 });
 
+test("query sends compacted provider history while keeping local transcript", async () => {
+  const mockAI = createMockAI([{ accepted: true }, { accepted: true }]);
+  const store = await loadUseAI(mockAI);
+
+  for (let index = 0; index < 30; index++) {
+    mockAI.emitStreamStart(`Prompt ${index}`);
+    mockAI.emitStreamChunk(`Response ${index} ${"x".repeat(1200)}`);
+    mockAI.emitStreamEnd();
+  }
+
+  const result = await store.query("Next prompt");
+  assert.equal(result, "started");
+  assert.equal(store.messages().length, 60);
+
+  const history = mockAI.queryCalls.at(-1)?.history ?? [];
+  assert.ok(history.length < store.messages().length);
+  assert.match(history[0]?.content ?? "", /Earlier conversation compacted/);
+  assert.equal(history.at(-1)?.content.startsWith("Response 29"), true);
+  assert.ok(
+    history.reduce((total, message) => total + message.content.length, 0) <= 24000,
+  );
+});
+
 test("stream end plus idle only dispatches one queued retry", async () => {
   const mockAI = createMockAI([{ accepted: true }, { accepted: true }]);
   const store = await loadUseAI(mockAI);

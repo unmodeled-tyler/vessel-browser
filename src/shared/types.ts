@@ -526,6 +526,13 @@ export interface HistoryState {
   entries: HistoryEntry[];
 }
 
+export interface HistoryPage {
+  entries: HistoryEntry[];
+  offset: number;
+  limit: number;
+  total: number;
+}
+
 export type PremiumStatus = "free" | "active" | "trialing" | "past_due" | "canceled";
 
 export interface PremiumState {
