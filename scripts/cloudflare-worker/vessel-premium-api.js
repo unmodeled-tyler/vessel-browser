@@ -659,6 +659,7 @@ function handleSuccess(request) {
     gtag('js', new Date());
 
     gtag('config', 'AW-18032196333');
+    gtag('event', 'conversion', {'send_to': 'AW-18032196333/_rztCLq41KEcEO31tZZD'});
   </script>
   <style>
     body { font-family: -apple-system, system-ui, sans-serif; background: #0a0a0e; color: #e4e4e7; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
