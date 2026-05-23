@@ -58,7 +58,7 @@ function modelLikelySupportsOpenAIReasoningEffort(model: string): boolean {
   return /^(?:o\d|o[1-9]|gpt-5|codex|computer-use)/i.test(model.trim());
 }
 
-export function toOpenAIReasoningEffort(
+function toOpenAIReasoningEffort(
   effort: ReasoningEffortLevel | undefined,
   providerId: ProviderId,
   model: string,

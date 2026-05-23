@@ -68,6 +68,16 @@ import type { AgentToolProfile } from "./tool-profile";
 import { formatCompactToolResult } from "./compact-tool-result";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { createLogger } from "../../shared/logger";
+import {
+  clearCartClickState,
+  getCartAddedSummary,
+  hasRecentCartClick,
+  isAddToCartText,
+  isDuplicateCartClick,
+  isProductAlreadyInCart,
+  recordCartClick,
+  recordProductAddedToCart,
+} from "./cart-click-state";
 
 export interface ActionContext {
   tabManager: TabManager;
@@ -1170,34 +1180,6 @@ async function restoreLocaleSnapshot(
   }
 }
 
-const ADD_TO_CART_PATTERNS = [
-  "add to cart",
-  "add to bag",
-  "add to basket",
-  "add to my cart",
-  "add to my bag",
-  "add to my basket",
-  "add item to cart",
-  "add item to bag",
-  "add item to basket",
-];
-
-/**
- * Tracks the most recent add-to-cart click per page URL so we can block
- * accidental duplicate clicks that the model fires before reading the page.
- */
-const recentCartClicks = new Map<string, { text: string; ts: number }>();
-const CART_CLICK_COOLDOWN_MS = 15_000;
-const CART_ADDED_TTL_MS = 30 * 60_000;
-
-/**
- * Tracks product URLs where "Add to Cart" was successfully clicked during this
- * session. Prevents the model from re-visiting the same product page and adding
- * the same item again. This is separate from recentCartClicks which only has a
- * short cooldown per page URL.
- */
-const cartAddedProducts = new Map<string, { title: string; ts: number }>();
-
 /**
  * Tracks consecutive clicks on the same page URL without any verification step
  * (read_page, inspect_element, screenshot). Used to detect when the model is
@@ -1206,31 +1188,6 @@ const cartAddedProducts = new Map<string, { title: string; ts: number }>();
 let clickStreakUrl: string | null = null;
 let clickStreakCount = 0;
 const CLICK_STREAK_THRESHOLD = 3;
-
-function isAddToCartText(text: string): boolean {
-  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
-  return ADD_TO_CART_PATTERNS.some((p) => normalized.includes(p));
-}
-
-function recordCartClick(url: string, text: string): void {
-  recentCartClicks.set(url, { text, ts: Date.now() });
-  // Prune stale entries
-  for (const [key, entry] of recentCartClicks) {
-    if (Date.now() - entry.ts > CART_CLICK_COOLDOWN_MS) {
-      recentCartClicks.delete(key);
-    }
-  }
-}
-
-function isDuplicateCartClick(url: string, text: string): boolean {
-  const recent = recentCartClicks.get(url);
-  if (!recent) return false;
-  if (Date.now() - recent.ts > CART_CLICK_COOLDOWN_MS) {
-    recentCartClicks.delete(url);
-    return false;
-  }
-  return isAddToCartText(text);
-}
 
 /**
  * Extract a meaningful product name from the page, preferring the main H1
@@ -1263,78 +1220,13 @@ async function getProductPageTitle(wc: WebContents): Promise<string> {
   return wc.getTitle() || "";
 }
 
-function normalizeCartProductKey(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
-    return `${parsed.origin}${pathname}`;
-  } catch {
-    return url;
-  }
-}
-
-function pruneCartAddedProducts(now = Date.now()): void {
-  for (const [key, entry] of cartAddedProducts) {
-    if (now - entry.ts > CART_ADDED_TTL_MS) {
-      cartAddedProducts.delete(key);
-    }
-  }
-}
-
-function cartOrigin(url?: string): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).origin;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Record that a product was added to cart at the given URL.
- * The URL is normalized to origin + pathname so different sites do not collide
- * on the same path, and stale entries expire automatically.
- */
-function recordProductAddedToCart(url: string, productName: string): void {
-  pruneCartAddedProducts();
-  cartAddedProducts.set(normalizeCartProductKey(url), {
-    title: productName || url,
-    ts: Date.now(),
-  });
-}
-
-/**
- * Check if the given product URL was already added to cart during this session.
- */
-function isProductAlreadyInCart(url: string): boolean {
-  pruneCartAddedProducts();
-  return cartAddedProducts.has(normalizeCartProductKey(url));
-}
-
-/**
- * Build a summary of products already added to cart, filtered to the current
- * site when a URL is available so unrelated domains do not leak into the prompt.
- */
-function getCartAddedSummary(url?: string): string {
-  pruneCartAddedProducts();
-  const origin = cartOrigin(url);
-  const items = Array.from(cartAddedProducts.entries())
-    .filter(([key]) => !origin || key.startsWith(`${origin}/`))
-    .map(([_path, info]) => `- ${info.title}`)
-    .join("\n");
-  if (!items) return "";
-  const count = items.split("\n").length;
-  return `\nAlready in cart (${count} items):\n${items}`;
-}
-
 /**
  * Clear all in-memory cart and click tracking state. Called when the agent
  * starts a new task (goal changes) so that stale entries from a previous
  * run do not confuse the model with false "already in cart" warnings.
  */
 export function clearCartState(): void {
-  cartAddedProducts.clear();
-  recentCartClicks.clear();
+  clearCartClickState();
   clickStreakUrl = null;
   clickStreakCount = 0;
 }
@@ -1399,7 +1291,7 @@ export async function clickResolvedSelector(
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
     if (idxCartMatch) {
-      recordCartClick(beforeUrl, idxLabel);
+      recordCartClick(beforeUrl);
     }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
@@ -1473,7 +1365,7 @@ export async function clickResolvedSelector(
     if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("click");
     if (typeof result === "string" && result.startsWith("Error")) return result;
     if (shadowCartMatch) {
-      recordCartClick(beforeUrl, shadowLabel);
+      recordCartClick(beforeUrl);
     }
     await waitForPotentialNavigation(wc, beforeUrl);
     const afterUrl = wc.getURL();
@@ -1515,7 +1407,7 @@ export async function clickResolvedSelector(
   }
 
   // Block clicks on background elements while a cart dialog is open
-  if (!cartMatch && recentCartClicks.has(beforeUrl)) {
+  if (!cartMatch && hasRecentCartClick(beforeUrl)) {
     const dialogActions = await getCartDialogActions(wc);
     if (dialogActions) {
       return `Blocked: a cart confirmation dialog is open. Do not click background elements.\n${dialogActions}\nClick one of these dialog actions instead.`;
@@ -1538,7 +1430,7 @@ export async function clickResolvedSelector(
   // Record add-to-cart clicks BEFORE executing so even if overlay detection
   // fails, a second click on the same page will be caught.
   if (cartMatch) {
-    recordCartClick(beforeUrl, elInfo.text);
+    recordCartClick(beforeUrl);
   }
 
   const tagLabel = elInfo.tag && elInfo.tag !== "a" && elInfo.tag !== "button"
@@ -3362,9 +3254,6 @@ export {
   setElementValue,
   pressKey,
   dismissPopup,
-  isAddToCartText,
-  isDuplicateCartClick,
-  recordCartClick,
   clickElementBySelector,
   submitFormBySelector,
   searchPage,

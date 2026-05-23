@@ -6,6 +6,15 @@ import {
   isUndoableAction,
   isUndoableResult,
 } from "../src/main/agent/undo-policy";
+import {
+  clearCartClickState,
+  getCartAddedSummary,
+  isAddToCartText,
+  isDuplicateCartClick,
+  isProductAlreadyInCart,
+  recordCartClick,
+  recordProductAddedToCart,
+} from "../src/main/ai/cart-click-state";
 import { TOOL_DEFINITIONS } from "../src/main/tools/definitions";
 
 function getToolSchema(name: string) {
@@ -73,4 +82,49 @@ test("keeps undo snapshots only for meaningful successful results", () => {
   assert.equal(isUndoableResult("No active tab. Use navigate first."), false);
   assert.equal(isUndoableResult("Nothing to undo."), false);
   assert.equal(isUndoableResult("Action rejected: navigate"), false);
+});
+
+test("cart click state blocks rapid duplicate add-to-cart clicks", () => {
+  clearCartClickState();
+
+  assert.equal(isAddToCartText(" Add   to Cart "), true);
+  assert.equal(
+    isDuplicateCartClick("https://powells.com/book/1", "Add to cart"),
+    false,
+  );
+
+  recordCartClick("https://powells.com/book/1");
+
+  assert.equal(
+    isDuplicateCartClick("https://powells.com/book/1", "Add to cart"),
+    true,
+  );
+  assert.equal(
+    isDuplicateCartClick("https://powells.com/book/2", "Add to cart"),
+    false,
+  );
+  assert.equal(
+    isDuplicateCartClick("https://powells.com/book/1", "Read sample"),
+    false,
+  );
+});
+
+test("cart added state is scoped by origin and normalized path", () => {
+  clearCartClickState();
+
+  recordProductAddedToCart("https://powells.com/book/1?ref=home", "Book One");
+  recordProductAddedToCart("https://example.com/book/2", "Book Two");
+
+  assert.equal(isProductAlreadyInCart("https://powells.com/book/1"), true);
+  assert.equal(
+    isProductAlreadyInCart("https://powells.com/book/1?other=true"),
+    true,
+  );
+  assert.equal(isProductAlreadyInCart("https://powells.com/book/3"), false);
+
+  assert.match(getCartAddedSummary("https://powells.com/search"), /Book One/);
+  assert.doesNotMatch(
+    getCartAddedSummary("https://powells.com/search"),
+    /Book Two/,
+  );
 });

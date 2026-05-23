@@ -1,8 +1,8 @@
 import type { AIMessage } from "./types";
 
-export const MAX_PROVIDER_HISTORY_MESSAGES = 24;
-export const MAX_PROVIDER_HISTORY_CHARS = 24000;
-export const MAX_PROVIDER_HISTORY_MESSAGE_CHARS = 3000;
+const MAX_PROVIDER_HISTORY_MESSAGES = 24;
+const MAX_PROVIDER_HISTORY_CHARS = 24000;
+const MAX_PROVIDER_HISTORY_MESSAGE_CHARS = 3000;
 const MAX_PROVIDER_HISTORY_SUMMARY_CHARS = 2000;
 
 function truncateText(value: string, maxLength: number): string {
