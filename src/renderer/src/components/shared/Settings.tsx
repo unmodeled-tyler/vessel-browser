@@ -1273,6 +1273,10 @@ const Settings: Component = () => {
           box-sizing: border-box;
           line-height: 1.5;
         }
+        .settings-feedback-textarea {
+          margin-top: 8px;
+          min-height: 96px;
+        }
         .settings-input:focus,
         .settings-textarea:focus {
           outline: none;

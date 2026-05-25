@@ -355,6 +355,13 @@ const api = {
         ipcRenderer.removeListener(Channels.SETTINGS_UPDATE, handler);
     },
   },
+  support: {
+    submitFeedback: (
+      email: string,
+      message: string,
+    ): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(Channels.SUPPORT_SUBMIT_FEEDBACK, email, message),
+  },
   bookmarks: {
     get: (): Promise<BookmarksState> =>
       ipcRenderer.invoke(Channels.BOOKMARKS_GET),

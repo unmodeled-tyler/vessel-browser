@@ -17,6 +17,9 @@ const STRIPE_API = "https://api.stripe.com/v1";
 const RESEND_API = "https://api.resend.com/emails";
 const ACTIVATION_CHALLENGE_TTL_MS = 15 * 60 * 1000;
 const PREMIUM_AUTH_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const MAX_FEEDBACK_MESSAGE_LENGTH = 5000;
+const FEEDBACK_SPAM_GUARD_WINDOW_SECONDS = 60 * 60;
+const FEEDBACK_SPAM_GUARD_MAX = 5;
 
 // --- Stripe helpers ---
 
@@ -132,6 +135,16 @@ function base64UrlToString(value) {
   return new TextDecoder().decode(base64UrlToBytes(value));
 }
 
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 async function importHmacKey(secret) {
   return crypto.subtle.importKey(
     "raw",
@@ -240,6 +253,70 @@ async function sendActivationCodeEmail(env, email, code) {
     const body = await response.text();
     throw new Error(body || `Email delivery failed with status ${response.status}`);
   }
+}
+
+async function sendFeedbackEmail(env, email, message, source = "") {
+  const apiKey = getRequiredSecret(env, "RESEND_API_KEY");
+  const from = getRequiredSecret(env, "PREMIUM_FROM_EMAIL");
+  const to = String(env.FEEDBACK_TO_EMAIL || "hello@quantaintellect.com").trim();
+  const sourceLine = source ? `Source: ${source}` : "Source: Vessel";
+  const response = await fetch(RESEND_API, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [to],
+      reply_to: email,
+      subject: `Vessel feedback from ${email}`,
+      text: [
+        "New Vessel feedback",
+        "",
+        `Reply email: ${email}`,
+        sourceLine,
+        "",
+        "Message:",
+        message,
+      ].join("\n"),
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Feedback delivery failed with status ${response.status}`);
+  }
+}
+
+async function checkFeedbackSpamGuard(request, env) {
+  if (!env.ACTIVATION_KV) return null;
+
+  try {
+    const rawClientId =
+      request.headers.get("cf-connecting-ip") ||
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      "unknown";
+    const key = `feedback-rate:${await sha256Hex(rawClientId)}`;
+    const current = Number(await env.ACTIVATION_KV.get(key));
+    const next = Number.isFinite(current) ? current + 1 : 1;
+
+    if (next > FEEDBACK_SPAM_GUARD_MAX) {
+      return corsResponse(
+        request,
+        env,
+        { error: "Too many feedback messages. Try again later." },
+        429,
+      );
+    }
+
+    await env.ACTIVATION_KV.put(key, String(next), {
+      expirationTtl: FEEDBACK_SPAM_GUARD_WINDOW_SECONDS,
+    });
+  } catch (error) {
+    console.warn("Feedback spam guard failed open:", error);
+  }
+  return null;
 }
 
 async function buildPremiumStatus(env, customerId, fallbackEmail = "", preferredSubscription = null) {
@@ -448,6 +525,48 @@ async function handlePortal(request, env) {
   }
 
   return corsResponse(request, env, { url: session.url });
+}
+
+async function handleFeedback(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
+  }
+
+  const email = normalizeEmail(body.email);
+  const message = String(body.message || "").trim();
+  const source = String(body.source || "").trim().slice(0, 100);
+
+  if (!isValidEmail(email)) {
+    return corsResponse(request, env, { error: "A valid reply email is required" }, 400);
+  }
+  if (!message) {
+    return corsResponse(request, env, { error: "Feedback message is required" }, 400);
+  }
+  if (message.length > MAX_FEEDBACK_MESSAGE_LENGTH) {
+    return corsResponse(
+      request,
+      env,
+      { error: `Feedback must be ${MAX_FEEDBACK_MESSAGE_LENGTH} characters or less` },
+      400,
+    );
+  }
+  if (!env.RESEND_API_KEY || !env.PREMIUM_FROM_EMAIL) {
+    return corsResponse(
+      request,
+      env,
+      { error: "Feedback email delivery is not configured yet." },
+      503,
+    );
+  }
+
+  const spamGuardResponse = await checkFeedbackSpamGuard(request, env);
+  if (spamGuardResponse) return spamGuardResponse;
+
+  await sendFeedbackEmail(env, email, message, source);
+  return corsResponse(request, env, { ok: true });
 }
 
 async function handleActivationStart(request, env) {
@@ -751,6 +870,9 @@ export default {
       }
       if (path === "/portal" && request.method === "POST") {
         return handlePortal(request, env);
+      }
+      if (path === "/feedback" && request.method === "POST") {
+        return handleFeedback(request, env);
       }
       if (path === "/activate/start" && request.method === "POST") {
         return handleActivationStart(request, env);

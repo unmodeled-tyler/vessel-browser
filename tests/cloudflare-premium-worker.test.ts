@@ -19,7 +19,27 @@ const env = {
   PREMIUM_TOKEN_SECRET: "test-secret",
   RESEND_API_KEY: "re_test",
   PREMIUM_FROM_EMAIL: "Vessel <premium@example.com>",
+  FEEDBACK_TO_EMAIL: "hello@quantaintellect.com",
 };
+
+function createMemoryKv(): {
+  get: (key: string) => Promise<string | null>;
+  put: (
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ) => Promise<void>;
+} {
+  const store = new Map<string, string>();
+  return {
+    async get(key: string): Promise<string | null> {
+      return store.get(key) ?? null;
+    },
+    async put(key: string, value: string): Promise<void> {
+      store.set(key, value);
+    },
+  };
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -54,6 +74,22 @@ async function postJson(path: string, body: unknown): Promise<Response> {
       body: JSON.stringify(body),
     }),
     env,
+  );
+}
+
+async function postJsonWithEnv(
+  path: string,
+  body: unknown,
+  envOverrides: Record<string, unknown>,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return worker.fetch(
+    new Request(`${WORKER_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    }),
+    { ...env, ...envOverrides },
   );
 }
 
@@ -187,4 +223,133 @@ test("premium worker creates billing portal sessions only for signed premium tok
       );
     },
   );
+});
+
+test("premium worker sends feedback email through Resend", async () => {
+  let resendRequestBody = "";
+
+  await withMockFetch(
+    (url, init) => {
+      assert.equal(url, "https://api.resend.com/emails");
+      resendRequestBody = String(init?.body || "");
+      return { id: "email_test" };
+    },
+    async () => {
+      const response = await postJson("/feedback", {
+        email: "User@Example.com",
+        message: "This is useful, but I found a paper cut.",
+        source: "settings_account",
+      });
+      const data = await response.json() as { ok?: boolean };
+
+      assert.equal(response.status, 200);
+      assert.equal(data.ok, true);
+      assert.match(resendRequestBody, /hello@quantaintellect\.com/);
+      assert.match(resendRequestBody, /user@example\.com/);
+      assert.match(resendRequestBody, /settings_account/);
+      assert.match(resendRequestBody, /paper cut/);
+    },
+  );
+});
+
+test("premium worker validates feedback payloads before sending email", async () => {
+  await withMockFetch(
+    () => {
+      throw new Error("Feedback validation should not call Resend");
+    },
+    async () => {
+      const response = await postJson("/feedback", {
+        email: "not-an-email",
+        message: "hello",
+      });
+      const data = await response.json() as { error?: string };
+
+      assert.equal(response.status, 400);
+      assert.match(data.error || "", /valid reply email/i);
+    },
+  );
+});
+
+test("premium worker rate limits feedback before sending email", async () => {
+  const kv = createMemoryKv();
+  let resendCalls = 0;
+
+  await withMockFetch(
+    (url) => {
+      assert.equal(url, "https://api.resend.com/emails");
+      resendCalls += 1;
+      return { id: `email_${resendCalls}` };
+    },
+    async () => {
+      for (let i = 0; i < 5; i++) {
+        const response = await postJsonWithEnv(
+          "/feedback",
+          {
+            email: "user@example.com",
+            message: `Feedback message ${i}`,
+          },
+          { ACTIVATION_KV: kv },
+          { "cf-connecting-ip": "203.0.113.10" },
+        );
+        assert.equal(response.status, 200);
+      }
+
+      const limitedResponse = await postJsonWithEnv(
+        "/feedback",
+        {
+          email: "user@example.com",
+          message: "One too many",
+        },
+        { ACTIVATION_KV: kv },
+        { "cf-connecting-ip": "203.0.113.10" },
+      );
+      const data = await limitedResponse.json() as { error?: string };
+
+      assert.equal(limitedResponse.status, 429);
+      assert.match(data.error || "", /too many feedback/i);
+      assert.equal(resendCalls, 5);
+    },
+  );
+});
+
+test("premium worker sends feedback when spam guard storage fails", async () => {
+  let resendCalls = 0;
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  const failingKv = {
+    async get(): Promise<string | null> {
+      throw new Error("kv unavailable");
+    },
+    async put(): Promise<void> {
+      throw new Error("kv unavailable");
+    },
+  };
+
+  try {
+    await withMockFetch(
+      (url) => {
+        assert.equal(url, "https://api.resend.com/emails");
+        resendCalls += 1;
+        return { id: "email_test" };
+      },
+      async () => {
+        const response = await postJsonWithEnv(
+          "/feedback",
+          {
+            email: "user@example.com",
+            message: "Please keep the feedback path available.",
+          },
+          { ACTIVATION_KV: failingKv },
+          { "cf-connecting-ip": "203.0.113.10" },
+        );
+        const data = await response.json() as { ok?: boolean };
+
+        assert.equal(response.status, 200);
+        assert.equal(data.ok, true);
+        assert.equal(resendCalls, 1);
+      },
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
 });
