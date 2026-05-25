@@ -76,6 +76,7 @@ import { registerPremiumHandlers } from "./premium";
 import { registerSessionHandlers } from "./sessions";
 import { registerSecurityHandlers } from "./security";
 import { registerCodexHandlers } from "./codex";
+import { submitFeedback } from "../support/feedback";
 import { clearByTimeRange } from "../history/manager";
 import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
 import { clearPermissions, clearPermissionsForOrigin, listPermissions, setPermissionBroadcaster } from "../security/permissions";
@@ -646,6 +647,13 @@ export function registerIpcHandlers(
   ipcMain.handle(Channels.MCP_REGENERATE_TOKEN, (event) => {
     requireTrusted(event);
     return regenerateMcpAuthToken();
+  });
+
+  ipcMain.handle(Channels.SUPPORT_SUBMIT_FEEDBACK, async (event, email: string, message: string) => {
+    requireTrusted(event);
+    assertString(email, "email");
+    assertString(message, "message");
+    return submitFeedback({ email, message, source: "settings_account" });
   });
 
   ipcMain.handle(Channels.SETTINGS_SET, async (event, key: string, value: unknown) => {

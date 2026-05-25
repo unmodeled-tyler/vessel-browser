@@ -58,6 +58,9 @@ export const Channels = {
   SETTINGS_HEALTH_UPDATE: "settings:health:update",
   MCP_REGENERATE_TOKEN: "mcp:regenerate-token",
 
+  // Support
+  SUPPORT_SUBMIT_FEEDBACK: "support:submit-feedback",
+
   // Bookmarks
   BOOKMARKS_GET: "bookmarks:get",
   BOOKMARKS_UPDATE: "bookmarks:update",

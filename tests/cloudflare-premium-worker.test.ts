@@ -19,6 +19,7 @@ const env = {
   PREMIUM_TOKEN_SECRET: "test-secret",
   RESEND_API_KEY: "re_test",
   PREMIUM_FROM_EMAIL: "Vessel <premium@example.com>",
+  FEEDBACK_TO_EMAIL: "hello@quantaintellect.com",
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -185,6 +186,51 @@ test("premium worker creates billing portal sessions only for signed premium tok
         portalRequestBody,
         /return_url=https%3A%2F%2Fpremium\.example%2Fportal-return/,
       );
+    },
+  );
+});
+
+test("premium worker sends feedback email through Resend", async () => {
+  let resendRequestBody = "";
+
+  await withMockFetch(
+    (url, init) => {
+      assert.equal(url, "https://api.resend.com/emails");
+      resendRequestBody = String(init?.body || "");
+      return { id: "email_test" };
+    },
+    async () => {
+      const response = await postJson("/feedback", {
+        email: "User@Example.com",
+        message: "This is useful, but I found a paper cut.",
+        source: "settings_account",
+      });
+      const data = await response.json() as { ok?: boolean };
+
+      assert.equal(response.status, 200);
+      assert.equal(data.ok, true);
+      assert.match(resendRequestBody, /hello@quantaintellect\.com/);
+      assert.match(resendRequestBody, /user@example\.com/);
+      assert.match(resendRequestBody, /settings_account/);
+      assert.match(resendRequestBody, /paper cut/);
+    },
+  );
+});
+
+test("premium worker validates feedback payloads before sending email", async () => {
+  await withMockFetch(
+    () => {
+      throw new Error("Feedback validation should not call Resend");
+    },
+    async () => {
+      const response = await postJson("/feedback", {
+        email: "not-an-email",
+        message: "hello",
+      });
+      const data = await response.json() as { error?: string };
+
+      assert.equal(response.status, 400);
+      assert.match(data.error || "", /valid reply email/i);
     },
   );
 });
