@@ -27,6 +27,7 @@ import SettingsAgent from "./SettingsAgent";
 import SettingsVaults from "./SettingsVaults";
 import SettingsPrivacy from "./SettingsPrivacy";
 import SettingsAccount from "./SettingsAccount";
+import { useProviderAuthSetup } from "./useProviderAuthSetup";
 import type {
   SettingsCategoryId,
   SessionSummary,
@@ -377,7 +378,7 @@ const Settings: Component = () => {
 
   // Chat provider settings
   const [chatEnabled, setChatEnabled] = createSignal(false);
-  const [chatProviderId, setChatProviderId] = createSignal<ProviderId>("anthropic");
+  const [chatProviderId, setChatProviderId] = createSignal<ProviderId>("openrouter");
   const [chatApiKey, setChatApiKey] = createSignal("");
   const [chatHasStoredApiKey, setChatHasStoredApiKey] = createSignal(false);
   const [chatModel, setChatModel] = createSignal("");
@@ -392,9 +393,24 @@ const Settings: Component = () => {
   const [providerModels, setProviderModels] = createSignal<string[]>([]);
   const [modelFetchState, setModelFetchState] = createSignal<"idle" | "loading" | "error">("idle");
   const [modelFetchWarning, setModelFetchWarning] = createSignal<string | null>(null);
-  const [codexAuthStatus, setCodexAuthStatus] = createSignal<"idle" | "waiting" | "exchanging" | "connected" | "error">("idle");
-  const [codexAccountEmail, setCodexAccountEmail] = createSignal("");
-  const [codexAuthError, setCodexAuthError] = createSignal("");
+  const providerAuth = useProviderAuthSetup({
+    onCodexConnected: () => {
+      setChatHasStoredApiKey(true);
+    },
+    onCodexDisconnected: () => {
+      setChatHasStoredApiKey(false);
+    },
+    onOpenRouterConnected: async (result) => {
+      setChatEnabled(true);
+      setChatProviderId("openrouter");
+      setChatApiKey("");
+      setChatHasStoredApiKey(true);
+      setChatModel(result.model || PROVIDERS.openrouter.defaultModel);
+      setChatBaseUrl(PROVIDERS.openrouter.defaultBaseUrl ?? "");
+      setChatReasoningEffort("off");
+      await loadState();
+    },
+  });
 
   const resetProviderModels = () => {
     setProviderModels([]);
@@ -437,32 +453,6 @@ const Settings: Component = () => {
       setModelFetchWarning(null);
       setModelFetchState("error");
     });
-  };
-
-  const startCodexAuth = async () => {
-    setCodexAuthStatus("waiting");
-    setCodexAuthError("");
-    try {
-      const result = await window.vessel.codex.startAuth();
-      if (result.ok) {
-        setCodexAccountEmail(result.accountEmail);
-        setCodexAuthStatus("connected");
-        setChatHasStoredApiKey(true);
-      } else {
-        setCodexAuthStatus("error");
-        setCodexAuthError(result.error);
-      }
-    } catch (err) {
-      setCodexAuthStatus("error");
-      setCodexAuthError(err instanceof Error ? err.message : "Unknown error");
-    }
-  };
-
-  const disconnectCodex = async () => {
-    await window.vessel.codex.disconnect();
-    setCodexAuthStatus("idle");
-    setCodexAccountEmail("");
-    setChatHasStoredApiKey(false);
   };
 
   // Auto-fetch when provider switches or when api key is filled in
@@ -512,9 +502,7 @@ const Settings: Component = () => {
       setChatHasStoredApiKey(false);
       setChatReasoningEffort("off");
     }
-    if (cp?.id === "openai_codex" && cp.hasApiKey) {
-      setCodexAuthStatus("connected");
-    }
+    providerAuth.markProviderConnected(cp?.id, cp?.hasApiKey === true);
     setTelemetryEnabled(settings.telemetryEnabled !== false);
     // Load domain policy
     const dp = settings.domainPolicy ?? { allowedDomains: [], blockedDomains: [] };
@@ -568,20 +556,9 @@ const Settings: Component = () => {
         });
       }
     });
-    const unsubCodex = window.vessel.codex.onAuthStatus((payload) => {
-      if (payload.status === "waiting") {
-        setCodexAuthStatus("waiting");
-      } else if (payload.status === "exchanging") {
-        setCodexAuthStatus("exchanging");
-      } else if (payload.status === "error") {
-        setCodexAuthStatus("error");
-        setCodexAuthError(payload.error || "Unknown error");
-      }
-    });
     onCleanup(() => {
       unsubscribe();
       unsubscribePremium();
-      unsubCodex();
     });
   });
 
@@ -814,14 +791,17 @@ const Settings: Component = () => {
                     modelFetchWarning,
                     doFetchModels,
                     resetProviderModels,
-                    codexAuthStatus,
-                    codexAccountEmail,
-                    setCodexAccountEmail,
-                    codexAuthError,
-                    setCodexAuthError,
+                    codexAuthStatus: providerAuth.codexAuthStatus,
+                    codexAccountEmail: providerAuth.codexAccountEmail,
+                    setCodexAccountEmail: providerAuth.setCodexAccountEmail,
+                    codexAuthError: providerAuth.codexAuthError,
+                    setCodexAuthError: providerAuth.setCodexAuthError,
+                    openRouterAuthStatus: providerAuth.openRouterAuthStatus,
+                    openRouterAuthError: providerAuth.openRouterAuthError,
                     providerType,
-                    startCodexAuth,
-                    disconnectCodex,
+                    startCodexAuth: providerAuth.startCodexAuth,
+                    disconnectCodex: providerAuth.disconnectCodex,
+                    startOpenRouterAuth: providerAuth.startOpenRouterAuth,
                   }}
                   mcpPort={mcpPort}
                   setMcpPort={setMcpPort}

@@ -726,6 +726,24 @@ const api = {
         ipcRenderer.removeListener(Channels.CODEX_AUTH_STATUS, handler);
     },
   },
+  openrouter: {
+    startAuth: (): Promise<
+      { ok: true; providerId: "openrouter"; model: string } | { ok: false; error: string }
+    > => ipcRenderer.invoke(Channels.OPENROUTER_START_AUTH),
+    cancelAuth: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(Channels.OPENROUTER_CANCEL_AUTH),
+    onAuthStatus: (
+      cb: (payload: { status: string; error: string | null }) => void,
+    ): (() => void) => {
+      const handler = (
+        _: unknown,
+        payload: { status: string; error: string | null },
+      ) => cb(payload);
+      ipcRenderer.on(Channels.OPENROUTER_AUTH_STATUS, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.OPENROUTER_AUTH_STATUS, handler);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("vessel", api);

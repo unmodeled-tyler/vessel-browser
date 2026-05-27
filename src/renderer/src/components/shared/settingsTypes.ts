@@ -99,9 +99,12 @@ export interface ChatProps {
   setCodexAccountEmail: Setter<string>;
   codexAuthError: Accessor<string>;
   setCodexAuthError: Setter<string>;
+  openRouterAuthStatus: Accessor<"idle" | "waiting" | "exchanging" | "connected" | "error">;
+  openRouterAuthError: Accessor<string>;
   providerType: Accessor<"direct_sdk" | "compatible" | "codex_oauth" | undefined>;
   startCodexAuth: () => Promise<void>;
   disconnectCodex: () => Promise<void>;
+  startOpenRouterAuth: () => Promise<void>;
 }
 
 export interface VaultProps {

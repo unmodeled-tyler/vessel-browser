@@ -251,6 +251,11 @@ export const Channels = {
   CODEX_AUTH_STATUS: "codex:auth-status",
   CODEX_DISCONNECT: "codex:disconnect",
 
+  // OpenRouter OAuth
+  OPENROUTER_START_AUTH: "openrouter:start-auth",
+  OPENROUTER_CANCEL_AUTH: "openrouter:cancel-auth",
+  OPENROUTER_AUTH_STATUS: "openrouter:auth-status",
+
   // Updates
   UPDATES_CHECK: "updates:check",
   UPDATES_OPEN_DOWNLOAD: "updates:open-download",

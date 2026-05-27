@@ -76,6 +76,7 @@ import { registerPremiumHandlers } from "./premium";
 import { registerSessionHandlers } from "./sessions";
 import { registerSecurityHandlers } from "./security";
 import { registerCodexHandlers } from "./codex";
+import { registerOpenRouterHandlers } from "./openrouter";
 import { submitFeedback } from "../support/feedback";
 import { clearByTimeRange } from "../history/manager";
 import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
@@ -245,6 +246,32 @@ export function registerIpcHandlers(
   const emitHighlightCount = async (): Promise<void> => {
     const count = await getActiveHighlightCountSafe();
     sendToRendererViews(Channels.HIGHLIGHT_COUNT_UPDATE, count);
+  };
+
+  const applySettingChange = async <K extends keyof VesselSettings>(
+    key: K,
+    value: VesselSettings[K],
+  ): Promise<VesselSettings> => {
+    const updatedSettings = setSetting(key, value);
+    trackSettingChanged(key);
+    if (key === "approvalMode") {
+      runtime.setApprovalMode(value as ApprovalMode);
+    }
+    if (key === "mcpPort") {
+      await stopMcpServer();
+      await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
+    }
+    if (key === "chatProvider" && researchOrchestrator) {
+      try {
+        researchOrchestrator.setProvider(createProvider(value as Parameters<typeof createProvider>[0]));
+      } catch {
+        // Provider config is invalid — keep the current provider so
+        // an in-progress research session can finish.
+      }
+    }
+    const rendererSettings = getRendererSettings();
+    sendToRendererViews(Channels.SETTINGS_UPDATE, rendererSettings);
+    return rendererSettings;
   };
 
   runtime.setUpdateListener((state: AgentRuntimeState) => {
@@ -663,27 +690,7 @@ export function registerIpcHandlers(
       throw new Error(`Unknown setting key: ${key}`);
     }
     const settingsKey = key as keyof VesselSettings;
-    const updatedSettings = setSetting(settingsKey, value as VesselSettings[typeof settingsKey]);
-    trackSettingChanged(key);
-    if (key === "approvalMode") {
-      runtime.setApprovalMode(value as ApprovalMode);
-    }
-    if (key === "mcpPort") {
-      await stopMcpServer();
-      await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
-    }
-    // Keep the Research Desk orchestrator's provider in sync with settings.
-    if (key === "chatProvider" && researchOrchestrator) {
-      try {
-        researchOrchestrator.setProvider(createProvider(value as Parameters<typeof createProvider>[0]));
-      } catch {
-        // Provider config is invalid — keep the current provider so
-        // an in-progress research session can finish.
-      }
-    }
-    const rendererSettings = getRendererSettings();
-    sendToRendererViews(Channels.SETTINGS_UPDATE, rendererSettings);
-    return rendererSettings;
+    return applySettingChange(settingsKey, value as VesselSettings[typeof settingsKey]);
   });
 
   // --- Agent runtime handlers ---
@@ -921,6 +928,7 @@ export function registerIpcHandlers(
   registerWindowControlHandlers(mainWindow);
 
   registerCodexHandlers();
+  registerOpenRouterHandlers(applySettingChange);
 
   // --- Automation kits ---
 

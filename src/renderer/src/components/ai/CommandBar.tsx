@@ -2,6 +2,7 @@ import { createSignal, createResource, For, Show, type Component } from 'solid-j
 import { useUI } from '../../stores/ui';
 import { useAI } from '../../stores/ai';
 import { useAnimatedPresence } from '../../lib/useAnimatedPresence';
+import { useProviderAuthSetup } from '../shared/useProviderAuthSetup';
 import './ai.css';
 
 const COMMAND_BAR_EXIT_MS = 200;
@@ -13,11 +14,20 @@ const CommandBar: Component = () => {
   const [input, setInput] = createSignal('');
   let inputRef: HTMLInputElement | undefined;
 
-  const [settings] = createResource(
+  const [settings, { refetch: refetchSettings }] = createResource(
     () => commandBarOpen(),
     async (open) => open ? window.vessel.settings.get() : null,
   );
+  const providerAuth = useProviderAuthSetup({
+    onOpenRouterConnected: async () => {
+      await refetchSettings();
+      setTimeout(() => inputRef?.focus(), 0);
+    },
+  });
   const hasProvider = () => settings()?.chatProvider !== null && settings()?.chatProvider !== undefined;
+  const openRouterWorking = () =>
+    providerAuth.openRouterAuthStatus() === "waiting" ||
+    providerAuth.openRouterAuthStatus() === "exchanging";
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
@@ -91,13 +101,27 @@ const CommandBar: Component = () => {
           </form>
           <Show when={!hasProvider()}>
             <div class="command-bar-no-provider">
-              <p>Configure a chat provider to start using the AI assistant.</p>
+              <p>
+                Start with OpenRouter's free model router, or open Settings for more providers.
+              </p>
               <button
                 class="command-bar-no-provider-btn"
+                disabled={openRouterWorking()}
+                onClick={() => void providerAuth.startOpenRouterAuth()}
+              >
+                <Show when={!openRouterWorking()} fallback="Opening OpenRouter...">
+                  Start free with OpenRouter
+                </Show>
+              </button>
+              <button
+                class="command-bar-no-provider-link"
                 onClick={() => { closeCommandBar(); openSettings(); }}
               >
-                Open Settings <kbd>Ctrl+,</kbd>
+                More options
               </button>
+              <Show when={providerAuth.openRouterAuthStatus() === "error"}>
+                <p class="command-bar-no-provider-error">{providerAuth.openRouterAuthError()}</p>
+              </Show>
             </div>
           </Show>
           <Show when={hasProvider() && recentQueries().length > 0 && !input().trim()}>

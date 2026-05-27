@@ -37,8 +37,9 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
   openrouter: {
     id: 'openrouter',
     name: 'OpenRouter',
-    defaultModel: 'anthropic/claude-sonnet-4',
+    defaultModel: 'openrouter/free',
     models: [
+      'openrouter/free',
       'anthropic/claude-sonnet-4',
       'anthropic/claude-haiku-4',
       'openai/gpt-4o',

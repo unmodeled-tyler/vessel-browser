@@ -1,8 +1,9 @@
-import http from "http";
-import crypto from "crypto";
 import type { CodexOAuthTokens, CodexAuthStatus } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
-import { openExternalAllowlisted } from "../security/external-open";
+import {
+  createLocalPkceOAuthFlow,
+  type PkceCodes,
+} from "./local-pkce-oauth";
 
 const logger = createLogger("CodexOAuth");
 
@@ -14,44 +15,11 @@ const AUTH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const PREFERRED_PORT = 1455;
 const FALLBACK_PORT = 1457;
 
-interface PkceCodes {
-  codeVerifier: string;
-  codeChallenge: string;
-}
-
-interface AuthFlowState {
-  state: string;
-  codeVerifier: string;
-  port: number;
-  server: http.Server;
-  timeout: ReturnType<typeof setTimeout>;
-  onStatus: (status: CodexAuthStatus, error?: string) => void;
-}
-
-let activeFlow: AuthFlowState | null = null;
-
-function base64url(buffer: Buffer): string {
-  return buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function generatePkce(): PkceCodes {
-  // Codex CLI uses 64 random bytes (≈86 chars base64url) for the verifier.
-  const codeVerifier = base64url(crypto.randomBytes(64));
-  const hash = crypto.createHash("sha256").update(codeVerifier).digest();
-  const codeChallenge = base64url(hash);
-  return { codeVerifier, codeChallenge };
-}
-
-function generateState(): string {
-  return base64url(crypto.randomBytes(32));
-}
-
-function buildAuthorizeUrl(port: number, pkce: PkceCodes, state: string): string {
-  const redirectUri = `http://localhost:${port}/auth/callback`;
+function buildAuthorizeUrl(
+  redirectUri: string,
+  pkce: PkceCodes,
+  state: string,
+): string {
   const params = new URLSearchParams({
     response_type: "code",
     client_id: CLIENT_ID,
@@ -270,88 +238,6 @@ async function refreshAccessToken(
   return refreshedTokens;
 }
 
-function startServer(
-  port: number,
-  pkce: PkceCodes,
-  expectedState: string,
-  resolve: (tokens: CodexOAuthTokens) => void,
-  reject: (err: Error) => void,
-): http.Server {
-  const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url || "/", `http://localhost:${port}`);
-
-    if (url.pathname === "/auth/callback") {
-      const state = url.searchParams.get("state");
-      const code = url.searchParams.get("code");
-      const error = url.searchParams.get("error");
-      const errorDescription = url.searchParams.get("error_description");
-
-      if (error) {
-        res.writeHead(400, { "Content-Type": "text/plain", "Connection": "close" });
-        const msg = errorDescription || error;
-        res.end(`Authorization failed: ${msg}`);
-        reject(new Error(msg));
-        return;
-      }
-
-      if (state !== expectedState) {
-        res.writeHead(400, { "Content-Type": "text/plain", "Connection": "close" });
-        res.end("State mismatch. Please try again.");
-        reject(new Error("State mismatch"));
-        return;
-      }
-
-      if (!code) {
-        res.writeHead(400, { "Content-Type": "text/plain", "Connection": "close" });
-        res.end("Missing authorization code.");
-        reject(new Error("Missing authorization code"));
-        return;
-      }
-
-      try {
-        activeFlow?.onStatus("exchanging");
-        const redirectUri = `http://localhost:${activeFlow?.port ?? port}/auth/callback`;
-        const tokens = await exchangeCodeForTokens(code, redirectUri, pkce.codeVerifier);
-
-        res.writeHead(302, {
-          Location: `/success?email=${encodeURIComponent(tokens.accountEmail || tokens.accountId)}`,
-          Connection: "close",
-        });
-        res.end();
-        resolve(tokens);
-      } catch (err) {
-        res.writeHead(400, { "Content-Type": "text/plain", "Connection": "close" });
-        res.end(`Token exchange failed: ${err instanceof Error ? err.message : "Unknown error"}`);
-        reject(err instanceof Error ? err : new Error("Token exchange failed"));
-      }
-      return;
-    }
-
-    if (url.pathname === "/success") {
-      const email = url.searchParams.get("email") || "";
-      res.writeHead(200, { "Content-Type": "text/html", "Connection": "close" });
-      res.end(`<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Vessel — Signed In</title>
-<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#111;color:#eee}</style></head>
-<body><div style="text-align:center"><h1>✓ Signed In</h1>
-<p>Connected as ${escapeHtml(email)}</p><p>You can close this tab.</p></div></body></html>`);
-      return;
-    }
-
-    if (url.pathname === "/cancel") {
-      res.writeHead(200, { "Content-Type": "text/plain", "Connection": "close" });
-      res.end("Login cancelled");
-      reject(new Error("Login cancelled by user"));
-      return;
-    }
-
-    res.writeHead(404, { "Connection": "close" });
-    res.end("Not found");
-  });
-
-  return server;
-}
-
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -360,126 +246,42 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-async function bindServer(server: http.Server): Promise<number> {
-  const allowedPorts = [PREFERRED_PORT, FALLBACK_PORT];
-
-  for (const port of allowedPorts) {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const onError = (err: Error) => {
-          server.off("listening", onListening);
-          reject(err);
-        };
-        const onListening = () => {
-          server.off("error", onError);
-          resolve();
-        };
-        server.once("error", onError);
-        server.once("listening", onListening);
-        server.listen(port, "127.0.0.1");
-      });
-      return port;
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
-        continue;
-      }
-      throw err;
-    }
-  }
-
-  throw new Error(
-    `Could not bind Codex OAuth callback server to registered ports ${allowedPorts.join(", ")}`,
-  );
-}
+const codexOAuth = createLocalPkceOAuthFlow<CodexOAuthTokens>({
+  name: "Codex",
+  logger,
+  preferredPorts: [PREFERRED_PORT, FALLBACK_PORT],
+  timeoutMs: AUTH_TIMEOUT_MS,
+  callbackPath: () => "/auth/callback",
+  readState: (url) => url.searchParams.get("state"),
+  authErrorMessage: (url) =>
+    url.searchParams.get("error_description") || url.searchParams.get("error"),
+  buildAuthorizeUrl: ({ callbackUrl, pkce, state }) =>
+    buildAuthorizeUrl(callbackUrl, pkce, state),
+  exchangeCode: ({ code, callbackUrl, codeVerifier }) =>
+    exchangeCodeForTokens(code, callbackUrl, codeVerifier),
+  successHtml: (tokens) => {
+    const label = escapeHtml(tokens.accountEmail || tokens.accountId);
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Vessel — Signed In</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#111;color:#eee}</style></head>
+<body><div style="text-align:center"><h1>Signed In</h1>
+<p>Connected as ${label}</p><p>You can close this tab.</p></div></body></html>`;
+  },
+  openHosts: ["auth.openai.com"],
+});
 
 export async function startCodexOAuth(
   onStatus: (status: CodexAuthStatus, error?: string) => void,
 ): Promise<CodexOAuthTokens> {
-  if (activeFlow) {
-    throw new Error("Auth flow already in progress");
-  }
-
-  const pkce = generatePkce();
-  const state = generateState();
-
-  return new Promise<CodexOAuthTokens>((resolve, reject) => {
-    let settled = false;
-
-    const safeOnStatus = (status: CodexAuthStatus, error?: string) => {
-      try {
-        onStatus(status, error);
-      } catch {
-        logger.warn("Codex OAuth status callback failed — window may be closed");
-      }
-    };
-
-    const wrappedResolve = (tokens: CodexOAuthTokens) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      safeOnStatus("connected");
-      resolve(tokens);
-    };
-
-    const wrappedReject = (err: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      safeOnStatus("error", err.message);
-      reject(err);
-    };
-
-    const server = startServer(0, pkce, state, wrappedResolve, wrappedReject);
-
-    const timeout = setTimeout(() => {
-      wrappedReject(new Error("Auth flow timed out after 5 minutes"));
-    }, AUTH_TIMEOUT_MS);
-
-    activeFlow = {
-      state,
-      codeVerifier: pkce.codeVerifier,
-      port: 0,
-      server,
-      timeout,
-      onStatus,
-    };
-
-    const cleanup = () => {
-      if (activeFlow?.timeout) clearTimeout(activeFlow.timeout);
-      activeFlow?.server.close();
-      activeFlow = null;
-    };
-
-    bindServer(server)
-      .then((port) => {
-        if (settled) return; // timed out before bind completed
-        activeFlow!.port = port;
-        const authUrl = buildAuthorizeUrl(port, pkce, state);
-        safeOnStatus("waiting");
-
-        // Open in default browser
-        openExternalAllowlisted(authUrl, { hosts: ["auth.openai.com"] }).catch((err: Error) => {
-          logger.warn("Failed to open browser, user will need the URL:", err);
-        });
-      })
-      .catch(wrappedReject);
-  });
+  return codexOAuth.start(onStatus);
 }
 
 export function cancelCodexOAuth(): void {
-  if (!activeFlow) return;
-  activeFlow.server.close();
-  if (activeFlow.timeout) clearTimeout(activeFlow.timeout);
-  try {
-    activeFlow.onStatus("idle");
-  } catch {
-    logger.warn("Codex OAuth cancel status callback failed — window may be closed");
-  }
-  activeFlow = null;
+  codexOAuth.cancel();
 }
 
 export function isCodexAuthInProgress(): boolean {
-  return activeFlow !== null;
+  return codexOAuth.isInProgress();
 }
 
 export { refreshAccessToken };

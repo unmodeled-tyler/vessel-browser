@@ -195,12 +195,39 @@
                 transform var(--duration-fast) var(--ease-out-expo);
 }
 
-.command-bar-no-provider-btn:hover {
+.command-bar-no-provider-btn:hover:not(:disabled) {
     background: var(--button-primary-hover-bg);
 }
 
-.command-bar-no-provider-btn:active {
+.command-bar-no-provider-btn:active:not(:disabled) {
     transform: scale(0.97);
+}
+
+.command-bar-no-provider-btn:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.command-bar-no-provider-link {
+    height: 32px;
+    margin-left: 8px;
+    padding: 0 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.command-bar-no-provider-link:hover {
+    color: var(--text-primary);
+    border-color: var(--border-visible);
+}
+
+.command-bar-no-provider-error {
+    color: var(--status-error) !important;
+    margin-top: 10px !important;
 }
 
 .command-bar-no-provider-btn kbd {

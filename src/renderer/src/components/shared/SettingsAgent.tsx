@@ -31,6 +31,9 @@ const SettingsAgent: Component<SettingsAgentProps> = (props) => {
   const chatMeta = () =>
     CHAT_PROVIDERS.find((p) => p.id === props.chat.providerId()) ??
     CHAT_PROVIDERS[0];
+  const openRouterConnecting = () =>
+    props.chat.openRouterAuthStatus() === "waiting" ||
+    props.chat.openRouterAuthStatus() === "exchanging";
 
   return (
     <div class="settings-category-panel">
@@ -42,6 +45,44 @@ const SettingsAgent: Component<SettingsAgentProps> = (props) => {
           inside Vessel.
         </p>
       </div>
+
+      <Show
+        when={
+          !props.chat.enabled() ||
+          (props.chat.providerId() === "openrouter" && !props.chat.hasStoredApiKey())
+        }
+      >
+        <div class="settings-callout">
+          <div class="settings-callout-title">Start With Free AI</div>
+          <p class="settings-callout-copy">
+            Connect OpenRouter and Vessel will use the free model router automatically.
+          </p>
+          <div class="settings-inline-actions" style="margin-top:12px">
+            <button
+              type="button"
+              class="settings-secondary-btn"
+              disabled={openRouterConnecting()}
+              onClick={() => props.chat.startOpenRouterAuth()}
+            >
+              <Show
+                when={!openRouterConnecting()}
+                fallback={
+                  props.chat.openRouterAuthStatus() === "exchanging"
+                    ? "Finishing setup..."
+                    : "Opening OpenRouter..."
+                }
+              >
+                Start free with OpenRouter
+              </Show>
+            </button>
+          </div>
+          <Show when={props.chat.openRouterAuthStatus() === "error"}>
+            <p class="settings-hint" style="color:var(--error)">
+              {props.chat.openRouterAuthError()}
+            </p>
+          </Show>
+        </div>
+      </Show>
 
       <div class="settings-field">
         <label class="settings-toggle">
