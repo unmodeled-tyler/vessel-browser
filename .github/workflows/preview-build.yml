@@ -15,13 +15,13 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/electron
@@ -40,7 +40,7 @@ jobs:
       - name: Generate checksums
         run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vessel-preview-linux
           retention-days: 14
@@ -63,8 +63,8 @@ jobs:
       WINDOWS_TRUSTED_SIGNING_ENDPOINT: ${{ vars.WINDOWS_TRUSTED_SIGNING_ENDPOINT }}
       WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -146,7 +146,7 @@ jobs:
 
           Set-Content -Path dist\SHASUMS256-win.txt -Value $checksums
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vessel-preview-windows
           retention-days: 14
@@ -163,19 +163,19 @@ jobs:
       contents: write
     steps:
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vessel-preview-linux
           path: dist-linux
 
       - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vessel-preview-windows
           path: dist-windows
 
       - name: Publish rolling preview release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: edge
           target_commitish: ${{ github.sha }}

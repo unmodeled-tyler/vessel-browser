@@ -17,7 +17,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -59,13 +59,13 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/electron
@@ -89,7 +89,7 @@ jobs:
       - name: Generate checksums
         run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: |
@@ -113,8 +113,8 @@ jobs:
       WINDOWS_TRUSTED_SIGNING_ENDPOINT: ${{ vars.WINDOWS_TRUSTED_SIGNING_ENDPOINT }}
       WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -199,7 +199,7 @@ jobs:
 
           Set-Content -Path dist\SHASUMS256-win.txt -Value $checksums
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: |
@@ -213,8 +213,8 @@ jobs:
     env:
       BUILD_STORE_MSIX: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -242,7 +242,7 @@ jobs:
           }
           Set-Content -Path dist\SHASUMS256-win-store.txt -Value $checksums
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows-store
           path: |
@@ -257,8 +257,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
@@ -268,21 +268,21 @@ jobs:
         run: npm ci
 
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-linux
           path: dist-linux
 
       - name: Download Windows artifacts
         if: needs.build-windows.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-windows
           path: dist-windows
 
       - name: Download Windows Store MSIX
         if: needs.build-windows-store.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-windows-store
           path: dist-windows-store
@@ -308,7 +308,7 @@ jobs:
         run: npm publish --access public
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
