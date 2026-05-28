@@ -37,17 +37,17 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Check out vessel-browser
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.tag.outputs.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/electron
@@ -71,7 +71,7 @@ jobs:
         run: npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux deb --publish never
 
       - name: Check out website repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: unmodeled-tyler/quanta-intellect-website
           token: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}

@@ -67,7 +67,7 @@ jobs:
           echo "SHA256: $sha"
 
       - name: Check out Flathub repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: flathub/com.quantaintellect.vessel
           token: ${{ secrets.FLATHUB_TOKEN }}
