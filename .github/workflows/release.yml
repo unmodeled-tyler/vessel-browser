@@ -17,7 +17,7 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -59,13 +59,15 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/electron
@@ -74,22 +76,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-
 
-      - run: npm ci
+      - run: corepack npm ci
       - name: Smoke test
-        run: xvfb-run -a npm run smoke:test
+        run: xvfb-run -a corepack npm run smoke:test
 
       - name: Sync package version
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+        run: corepack npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build & package
-        run: npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux --publish never
+        run: corepack npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux --publish never
 
       - name: Generate checksums
         run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: |
@@ -113,13 +115,16 @@ jobs:
       WINDOWS_TRUSTED_SIGNING_ENDPOINT: ${{ vars.WINDOWS_TRUSTED_SIGNING_ENDPOINT }}
       WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
 
-      - run: npm ci
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
+
+      - run: corepack npm ci
       - name: Validate Windows signing configuration
         shell: pwsh
         run: |
@@ -144,10 +149,10 @@ jobs:
       - name: Sync package version
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
+        run: corepack npm version "$env:VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build & package
-        run: npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
+        run: corepack npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
 
       - name: Verify Windows Authenticode signatures
         shell: pwsh
@@ -199,7 +204,7 @@ jobs:
 
           Set-Content -Path dist\SHASUMS256-win.txt -Value $checksums
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: |
@@ -213,21 +218,24 @@ jobs:
     env:
       BUILD_STORE_MSIX: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
 
-      - run: npm ci
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
+
+      - run: corepack npm ci
 
       - name: Sync package version
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: npm version "$env:VERSION" --no-git-tag-version --allow-same-version
+        run: corepack npm version "$env:VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build & package AppX for Store
-        run: npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
+        run: corepack npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
 
       - name: Generate checksums
         shell: pwsh
@@ -242,7 +250,7 @@ jobs:
           }
           Set-Content -Path dist\SHASUMS256-win-store.txt -Value $checksums
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows-store
           path: |
@@ -257,32 +265,35 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
+
       - name: Install dependencies
-        run: npm ci
+        run: corepack npm ci
 
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-linux
           path: dist-linux
 
       - name: Download Windows artifacts
         if: needs.build-windows.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-windows
           path: dist-windows
 
       - name: Download Windows Store MSIX
         if: needs.build-windows-store.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-windows-store
           path: dist-windows-store
@@ -300,15 +311,15 @@ jobs:
       - name: Sync package.json version
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+        run: corepack npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: corepack npm publish --access public
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true

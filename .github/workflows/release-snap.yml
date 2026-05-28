@@ -21,7 +21,7 @@ jobs:
       ref: ${{ steps.version.outputs.ref }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag == '' && format('refs/heads/{0}', github.event.repository.default_branch) || github.ref }}
@@ -72,17 +72,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.version.outputs.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
+
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
+
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/electron
@@ -92,28 +96,37 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Install dependencies
-        run: npm ci
+        run: corepack npm ci
 
       - name: Smoke test
-        run: xvfb-run -a npm run smoke:test
+        run: xvfb-run -a corepack npm run smoke:test
 
       - name: Sync package metadata
         env:
           VERSION: ${{ needs.version.outputs.version }}
-        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+        run: corepack npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build electron app for snap
-        run: npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux dir --publish never
+        run: corepack npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux dir --publish never
+
+      - name: Install Snapcraft
+        run: sudo snap install snapcraft --classic
 
       - name: Build snap
-        uses: snapcore/action-build@v1
-        id: snapcraft
         env:
           VESSEL_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          snapcraft --version
+          snapcraft pack
+          snap_path="$(find . -maxdepth 1 -type f -name '*.snap' -print -quit)"
+          if [ -z "$snap_path" ]; then
+            echo "No snap artifact was produced." >&2
+            exit 1
+          fi
+          echo "SNAP_PATH=$snap_path" >> "$GITHUB_ENV"
 
       - name: Upload to Snap Store
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
-          SNAP_PATH: ${{ steps.snapcraft.outputs.snap }}
         run: |
           snapcraft upload "$SNAP_PATH" --release=stable

@@ -37,17 +37,19 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Check out vessel-browser
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ steps.tag.outputs.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/electron
@@ -57,21 +59,21 @@ jobs:
             ${{ runner.os }}-electron-
 
       - name: Install dependencies
-        run: npm ci
+        run: corepack npm ci
 
       - name: Smoke test
-        run: xvfb-run -a npm run smoke:test
+        run: xvfb-run -a corepack npm run smoke:test
 
       - name: Sync package version
         env:
           VERSION: ${{ steps.tag.outputs.version }}
-        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+        run: corepack npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Build deb package
-        run: npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux deb --publish never
+        run: corepack npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux deb --publish never
 
       - name: Check out website repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: unmodeled-tyler/quanta-intellect-website
           token: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}

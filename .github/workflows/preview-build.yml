@@ -15,13 +15,15 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
       - name: Cache Electron downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/electron
@@ -30,17 +32,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-
 
-      - run: npm ci
+      - run: corepack npm ci
       - name: Smoke test
-        run: xvfb-run -a npm run smoke:test
+        run: xvfb-run -a corepack npm run smoke:test
 
       - name: Build & package
-        run: npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux --publish never
+        run: corepack npm run build && bash scripts/ci-electron-builder.sh --config electron-builder.config.cjs --linux --publish never
 
       - name: Generate checksums
         run: sha256sum dist/*.AppImage > dist/SHASUMS256-linux.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vessel-preview-linux
           retention-days: 14
@@ -63,13 +65,16 @@ jobs:
       WINDOWS_TRUSTED_SIGNING_ENDPOINT: ${{ vars.WINDOWS_TRUSTED_SIGNING_ENDPOINT }}
       WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_TRUSTED_SIGNING_PUBLISHER_NAME }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
 
-      - run: npm ci
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
+
+      - run: corepack npm ci
       - name: Validate Windows signing configuration for signed preview builds
         if: env.WINDOWS_REQUIRE_CODE_SIGNING == 'true'
         shell: pwsh
@@ -93,7 +98,7 @@ jobs:
           }
 
       - name: Build & package
-        run: npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
+        run: corepack npm run build && npx electron-builder --config electron-builder.config.cjs --win --publish never
 
       - name: Verify Windows Authenticode signatures
         if: env.WINDOWS_REQUIRE_CODE_SIGNING == 'true'
@@ -146,7 +151,7 @@ jobs:
 
           Set-Content -Path dist\SHASUMS256-win.txt -Value $checksums
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vessel-preview-windows
           retention-days: 14
@@ -163,19 +168,19 @@ jobs:
       contents: write
     steps:
       - name: Download Linux artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vessel-preview-linux
           path: dist-linux
 
       - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vessel-preview-windows
           path: dist-windows
 
       - name: Publish rolling preview release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: edge
           target_commitish: ${{ github.sha }}

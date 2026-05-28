@@ -16,31 +16,34 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
           cache: npm
 
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
+
       - name: Install dependencies
-        run: npm ci
+        run: corepack npm ci
 
       - name: Audit production dependencies
-        run: npm run audit:prod
+        run: corepack npm run audit:prod
 
       - name: Audit all dependencies
-        run: npm run audit:all
+        run: corepack npm run audit:all
 
       - name: Typecheck
-        run: npm run typecheck
+        run: corepack npm run typecheck
 
       - name: Unit tests
-        run: npm run test:coverage
+        run: corepack npm run test:coverage
 
       - name: Build
-        run: npm run build
+        run: corepack npm run build
 
       - name: Smoke test
-        run: xvfb-run -a npm run smoke:test
+        run: xvfb-run -a corepack npm run smoke:test
