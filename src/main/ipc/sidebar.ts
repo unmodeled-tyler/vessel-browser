@@ -1,5 +1,9 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import { Channels } from "../../shared/channels";
+import {
+  SIDEBAR_RESIZE_HANDLE_OVERLAP,
+  clampSidebarWidth,
+} from "../../shared/sidebar";
 import { setSetting } from "../config/settings";
 import {
   closeSidebar,
@@ -54,6 +58,8 @@ export function registerSidebarHandlers(
     }, 1200);
   };
 
+  windowState.mainWindow.once("closed", stopSidebarResize);
+
   ipcMain.handle(Channels.SIDEBAR_TOGGLE, (event) => {
     requireTrusted(event);
     return toggleDockedSidebar(windowState, relayout);
@@ -80,11 +86,10 @@ export function registerSidebarHandlers(
     const [width, height] = windowState.mainWindow.getContentSize();
     const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
     const sidebarWidth = windowState.uiState.sidebarWidth;
-    const resizeHandleOverlap = 6;
     windowState.sidebarView.setBounds({
-      x: width - sidebarWidth - resizeHandleOverlap,
+      x: width - sidebarWidth - SIDEBAR_RESIZE_HANDLE_OVERLAP,
       y: chromeHeight,
-      width: sidebarWidth + resizeHandleOverlap,
+      width: sidebarWidth + SIDEBAR_RESIZE_HANDLE_OVERLAP,
       height: height - chromeHeight,
     });
     scheduleSidebarResizeRecovery();
@@ -96,7 +101,7 @@ export function registerSidebarHandlers(
     if (isSidebarDetached(windowState)) {
       return windowState.uiState.sidebarWidth;
     }
-    const clamped = Math.max(240, Math.min(800, Math.round(width)));
+    const clamped = clampSidebarWidth(width);
     windowState.uiState.sidebarWidth = clamped;
     resizeSidebarViews(windowState);
     emitSidebarPanelState(windowState);
@@ -131,9 +136,7 @@ export function registerSidebarHandlers(
     (event, view: "chrome" | "sidebar" | "devtools") => {
       requireTrusted(event);
       if (view !== "sidebar") return;
-      if (windowState.uiState.sidebarPanelMode === "closed") {
-        openDockedSidebar(windowState, relayout);
-      }
+      emitSidebarPanelState(windowState);
     },
   );
 
@@ -141,7 +144,7 @@ export function registerSidebarHandlers(
     requireTrusted(event);
     windowState.uiState.settingsOpen = open;
     if (open) {
-      closeSidebar(windowState, relayout);
+      closeSidebar(windowState, relayout, "temporary");
     } else {
       relayout();
       emitSidebarPanelState(windowState);

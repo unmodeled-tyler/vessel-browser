@@ -17,7 +17,10 @@
     "src/main/telemetry/trace-logger.ts",
     "src/renderer/src/env.d.ts"
   ],
-  "ignoreBinaries": ["scripts/build-macos-icon.sh"],
+  "ignoreBinaries": [
+    "scripts/build-macos-icon.sh",
+    "scripts/verify-macos-universal.sh"
+  ],
   "vite": {
     "config": "electron.vite.config.ts"
   }

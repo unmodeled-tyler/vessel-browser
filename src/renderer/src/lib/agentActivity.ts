@@ -4,6 +4,7 @@ import type {
   AgentRuntimeState,
   AgentTranscriptEntry,
 } from "../../../shared/types";
+import { formatAgentActionName } from "./agentTimeline";
 
 const AGENT_ACTIVITY_WINDOW_MS = 6000;
 const AGENT_RECENT_WINDOW_MS = 30_000;
@@ -42,11 +43,7 @@ function summarizeTranscriptText(entry: AgentTranscriptEntry): string {
 }
 
 function summarizeActionText(action: AgentActionEntry): string {
-  const name = action.name
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  const name = formatAgentActionName(action.name);
 
   if (action.status === "running") {
     return `${name} in progress`;

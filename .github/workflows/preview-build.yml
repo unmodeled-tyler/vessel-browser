@@ -159,10 +159,55 @@ jobs:
             dist/*-setup.exe
             dist/SHASUMS256-win.txt
 
+  # ── macOS universal DMG + ZIP ──
+  build-mac:
+    runs-on: macos-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Set up npm
+        run: corepack prepare npm@11.16.0 --activate
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json', 'electron-builder.config.cjs') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-
+
+      - run: corepack npm ci
+
+      - name: Build & package universal macOS app
+        run: corepack npm run dist:mac
+
+      - name: Verify universal binary
+        run: corepack npm run verify:mac:universal
+
+      - name: Generate checksums
+        run: shasum -a 256 dist/*.dmg dist/*.zip > dist/SHASUMS256-mac.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vessel-preview-mac
+          retention-days: 14
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/SHASUMS256-mac.txt
+
   # ── Publish rolling preview ──
   publish-preview:
     if: github.ref == 'refs/heads/dev'
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-mac]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -178,6 +223,12 @@ jobs:
         with:
           name: vessel-preview-windows
           path: dist-windows
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: vessel-preview-mac
+          path: dist-mac
 
       - name: Publish rolling preview release
         uses: softprops/action-gh-release@v3
@@ -196,3 +247,6 @@ jobs:
             dist-linux/SHASUMS256-linux.txt
             dist-windows/*-setup.exe
             dist-windows/SHASUMS256-win.txt
+            dist-mac/*.dmg
+            dist-mac/*.zip
+            dist-mac/SHASUMS256-mac.txt

@@ -3,9 +3,13 @@ import { existsSync } from "fs";
 import path from "path";
 import { TabManager, type TabStateChangeMeta } from "./tabs/tab-manager";
 import { loadSettings } from "./config/settings";
+import { Channels } from "../shared/channels";
+import { SIDEBAR_RESIZE_HANDLE_OVERLAP } from "../shared/sidebar";
 import type { UIState, TabState } from "../shared/types";
 import { capturePageSnapshot } from "./content/page-diff-monitor";
 import {
+  closeDetachedSidebarWindow,
+  detachSidebar,
   isSidebarAttached,
   layoutDetachedSidebar,
   type SidebarPanelHostState,
@@ -264,8 +268,10 @@ export function createMainWindow(
 
   const settings = loadSettings();
   const uiState: UIState = {
-    sidebarPanelMode: "docked",
+    sidebarPanelMode:
+      settings.sidebarPanelMode === "detached" ? "docked" : settings.sidebarPanelMode,
     sidebarWidth: settings.sidebarWidth,
+    sidebarDetachedBounds: settings.sidebarDetachedBounds,
     focusMode: false,
     settingsOpen: false,
     devtoolsPanelOpen: false,
@@ -300,11 +306,7 @@ export function createMainWindow(
   mainWindow.on("show", () => layoutViews(state));
   mainWindow.on("focus", () => layoutViews(state));
   mainWindow.on("closed", () => {
-    const sidebarWindow = state.sidebarWindow;
-    if (!sidebarWindow) return;
-    state.sidebarWindow = null;
-    state.sidebarWindowClosing = true;
-    sidebarWindow.close();
+    closeDetachedSidebarWindow(state);
   });
   sidebarView.webContents.on("context-menu", (event, params) => {
     event.preventDefault();
@@ -315,6 +317,9 @@ export function createMainWindow(
     );
   });
   layoutViews(state);
+  if (settings.sidebarPanelMode === "detached") {
+    detachSidebar(state, { relayout: () => layoutViews(state), getWindowIconPath });
+  }
 
   return state;
 }
@@ -343,12 +348,11 @@ export function layoutViews(state: WindowState): void {
     chromeView.setBounds({ x: 0, y: 0, width, height: chromeHeight });
   }
 
-  const resizeHandleOverlap = 6;
   if (sidebarAttached) {
     sidebarView.setBounds({
-      x: width - sidebarWidth - resizeHandleOverlap,
+      x: width - sidebarWidth - SIDEBAR_RESIZE_HANDLE_OVERLAP,
       y: chromeHeight,
-      width: sidebarWidth + resizeHandleOverlap,
+      width: sidebarWidth + SIDEBAR_RESIZE_HANDLE_OVERLAP,
       height: height - chromeHeight,
     });
   } else if (uiState.sidebarPanelMode === "closed") {
@@ -403,15 +407,14 @@ export function resizeSidebarViews(state: WindowState): void {
   const devtoolsHeight = uiState.devtoolsPanelOpen
     ? uiState.devtoolsPanelHeight
     : 0;
-  const resizeHandleOverlap = 6;
   const contentWidth = width - sidebarWidth;
 
   if (uiState.sidebarPanelMode !== "detached") {
     // Position sidebar below chrome bar (same as layoutViews)
     sidebarView.setBounds({
-      x: width - sidebarWidth - resizeHandleOverlap,
+      x: width - sidebarWidth - SIDEBAR_RESIZE_HANDLE_OVERLAP,
       y: chromeHeight,
-      width: sidebarWidth + resizeHandleOverlap,
+      width: sidebarWidth + SIDEBAR_RESIZE_HANDLE_OVERLAP,
       height: height - chromeHeight,
     });
   }

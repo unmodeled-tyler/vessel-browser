@@ -96,6 +96,7 @@ module.exports = {
     target: ["dmg", "zip"],
     category: "public.app-category.productivity",
     icon: "vessel-icon.icns",
+    mergeASARs: true,
     artifactName: "${productName}-${version}-${arch}.${ext}",
   },
   dmg: {

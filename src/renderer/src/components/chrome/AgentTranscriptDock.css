@@ -1,0 +1,14 @@
+.agent-transcript-entry.action {
+    border-color: color-mix(in srgb, var(--status-info) 15%, transparent);
+    background: color-mix(in srgb, var(--status-info) 3%, transparent);
+}
+
+.agent-transcript-entry.failed {
+    border-color: color-mix(in srgb, var(--status-error) 24%, transparent);
+    background: color-mix(in srgb, var(--status-error) 5%, transparent);
+}
+
+.agent-transcript-entry.waiting-approval {
+    border-color: color-mix(in srgb, var(--status-warning) 26%, transparent);
+    background: color-mix(in srgb, var(--status-warning) 5%, transparent);
+}

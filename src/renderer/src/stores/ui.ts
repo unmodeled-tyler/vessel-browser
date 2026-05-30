@@ -1,9 +1,8 @@
 import { createSignal } from "solid-js";
+import { clampSidebarWidth } from "../../../shared/sidebar";
 import type { SidebarPanelState } from "../../../shared/types";
 
 const DEFAULT_SIDEBAR_WIDTH = 400;
-const MIN_SIDEBAR = 240;
-const MAX_SIDEBAR = 800;
 
 const [sidebarOpen, setSidebarOpen] = createSignal(true);
 const [sidebarWidth, setSidebarWidth] = createSignal(DEFAULT_SIDEBAR_WIDTH);
@@ -14,13 +13,13 @@ const [sidebarDetached, setSidebarDetached] = createSignal(false);
 // instead of using the hardcoded default.
 window.vessel?.settings?.get().then((settings: { sidebarWidth?: number }) => {
   if (settings?.sidebarWidth && typeof settings.sidebarWidth === "number") {
-    setSidebarWidth(
-      Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, settings.sidebarWidth)),
-    );
+    setSidebarWidth(clampSidebarWidth(settings.sidebarWidth));
   }
 }).catch(() => {/* settings unavailable — keep default */});
 const [focusMode, setFocusMode] = createSignal(false);
 const [commandBarOpen, setCommandBarOpen] = createSignal(false);
+const [browserCommandPaletteOpen, setBrowserCommandPaletteOpen] =
+  createSignal(false);
 const [settingsOpen, setSettingsOpen] = createSignal(false);
 const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
 
@@ -28,10 +27,6 @@ const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
 let lastIpcTime = 0;
 const IPC_THROTTLE_MS = 8; // ~120fps max for IPC (layout is already 60fps via RAF)
 let sidebarStateListenerInitialized = false;
-
-function clampSidebarWidth(width: number): number {
-  return Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, Math.round(width)));
-}
 
 function applySidebarState(result: SidebarPanelState): void {
   setSidebarOpen(result.open);
@@ -53,6 +48,7 @@ export function useUI() {
     sidebarDetached,
     focusMode,
     commandBarOpen,
+    browserCommandPaletteOpen,
     settingsOpen,
     devtoolsPanelOpen,
     toggleSidebar: async () => {
@@ -95,6 +91,8 @@ export function useUI() {
     },
     openCommandBar: () => setCommandBarOpen(true),
     closeCommandBar: () => setCommandBarOpen(false),
+    openBrowserCommandPalette: () => setBrowserCommandPaletteOpen(true),
+    closeBrowserCommandPalette: () => setBrowserCommandPaletteOpen(false),
     openSettings: async () => {
       setSidebarOpen(false);
       setSettingsOpen(true);

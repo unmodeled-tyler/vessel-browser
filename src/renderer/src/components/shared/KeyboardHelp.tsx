@@ -1,34 +1,12 @@
 import { Show, type Component } from "solid-js";
 import { useAnimatedPresence } from "../../lib/useAnimatedPresence";
+import { getBrowserCommandShortcutHelp } from "../../lib/browserCommands";
 
 interface KeyboardHelpProps {
   open: boolean;
   onClose: () => void;
   privateMode?: boolean;
 }
-
-const SHORTCUTS = [
-  { keys: "Ctrl+L", action: "AI Command Bar", privateMode: false },
-  { keys: "Ctrl+Shift+L", action: "Toggle AI Sidebar", privateMode: false },
-  { keys: "Ctrl+Shift+F", action: "Toggle Focus Mode", privateMode: false },
-  { keys: "F12", action: "Toggle Dev Tools Panel", privateMode: false },
-  { keys: "Ctrl+N", action: "New Window" },
-  { keys: "Ctrl+T", action: "New Tab" },
-  { keys: "Ctrl+W", action: "Close Tab" },
-  { keys: "Ctrl+Shift+T", action: "Reopen Closed Tab" },
-  { keys: "Ctrl+F", action: "Find in Page" },
-  { keys: "Ctrl++ / Ctrl+=", action: "Zoom In" },
-  { keys: "Ctrl+-", action: "Zoom Out" },
-  { keys: "Ctrl+0", action: "Reset Zoom" },
-  { keys: "Ctrl+Shift+N", action: "New Private Window" },
-  { keys: "Ctrl+P", action: "Print Page" },
-  { keys: "Ctrl+Shift+P", action: "Save Page as PDF" },
-  { keys: "Ctrl+Shift+I", action: "Toggle Picture-in-Picture", privateMode: false },
-  { keys: "Ctrl+Shift+Delete", action: "Clear Browsing Data", privateMode: false },
-  { keys: "Ctrl+,", action: "Settings", privateMode: false },
-  { keys: "Ctrl+H", action: "Capture Highlight", privateMode: false },
-  { keys: "?", action: "This help overlay" },
-];
 
 function shortcutParts(keys: string): string[][] {
   return keys.split(" / ").map((combo) =>
@@ -42,10 +20,7 @@ function shortcutParts(keys: string): string[][] {
 
 const KeyboardHelp: Component<KeyboardHelpProps> = (props) => {
   const { visible, closing } = useAnimatedPresence(() => props.open, 200);
-  const shortcuts = () =>
-    props.privateMode
-      ? SHORTCUTS.filter((shortcut) => shortcut.privateMode !== false)
-      : SHORTCUTS;
+  const shortcuts = () => getBrowserCommandShortcutHelp(props.privateMode);
 
   return (
     <Show when={visible()}>
