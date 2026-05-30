@@ -10,7 +10,13 @@ import {
 import { useRuntime } from "../../stores/runtime";
 import { useScrollFade } from "../../lib/useScrollFade";
 import { formatTime } from "../../lib/format-time";
+import {
+  buildAgentTimelineItems,
+  formatAgentTimelineDuration,
+  isLiveAgentTimelineItem,
+} from "../../lib/agentTimeline";
 import type { AgentTranscriptDisplayMode } from "../../../../shared/types";
+import "./AgentTranscriptDock.css";
 import "./chrome.css";
 
 const AgentTranscriptDock: Component = () => {
@@ -29,12 +35,10 @@ const AgentTranscriptDock: Component = () => {
     onCleanup(unsubscribe);
   });
 
-  const visibleEntries = createMemo(() =>
-    runtimeState().transcript.slice(-6).reverse(),
-  );
+  const timelineItems = createMemo(() => buildAgentTimelineItems(runtimeState()));
 
   const hasStreamingEntry = createMemo(() =>
-    visibleEntries().some((entry) => entry.status === "streaming"),
+    timelineItems().some(isLiveAgentTimelineItem),
   );
 
   const hideDock = async () => {
@@ -44,12 +48,12 @@ const AgentTranscriptDock: Component = () => {
 
   const isSummary = createMemo(() => mode() === "summary");
   const latestEntry = createMemo(() => {
-    const entries = visibleEntries();
+    const entries = timelineItems();
     return entries.length > 0 ? entries[0] : null;
   });
 
   return (
-    <Show when={mode() !== "off" && visibleEntries().length > 0}>
+    <Show when={mode() !== "off" && timelineItems().length > 0}>
       <Show when={isSummary()}>
         <div class="agent-summary-hud">
           <Show when={latestEntry()}>
@@ -59,7 +63,10 @@ const AgentTranscriptDock: Component = () => {
                   <span class="agent-summary-live-dot" aria-hidden="true" />
                 </Show>
                 <span class="agent-summary-text">
-                  {entry().title || entry().kind}: {entry().text.length > 80 ? entry().text.slice(0, 77) + "..." : entry().text}
+                  {entry().label}:{" "}
+                  {entry().detail.length > 80
+                    ? entry().detail.slice(0, 77) + "..."
+                    : entry().detail}
                 </span>
               </>
             )}
@@ -67,61 +74,76 @@ const AgentTranscriptDock: Component = () => {
         </div>
       </Show>
       <Show when={!isSummary()}>
-      <aside
-        class="agent-transcript-dock"
-        classList={{ collapsed: collapsed() }}
-      >
-        <div class="agent-transcript-header">
-          <div class="agent-transcript-title-row">
-            <span class="agent-transcript-title">Agent Transcript</span>
-            <Show when={hasStreamingEntry()}>
-              <span class="agent-transcript-live">
-                <span class="agent-transcript-live-dot" aria-hidden="true" />
-                Live
-              </span>
-            </Show>
+        <aside
+          class="agent-transcript-dock"
+          classList={{ collapsed: collapsed() }}
+        >
+          <div class="agent-transcript-header">
+            <div class="agent-transcript-title-row">
+              <span class="agent-transcript-title">Agent Timeline</span>
+              <Show when={hasStreamingEntry()}>
+                <span class="agent-transcript-live">
+                  <span class="agent-transcript-live-dot" aria-hidden="true" />
+                  Live
+                </span>
+              </Show>
+            </div>
+            <div class="agent-transcript-actions">
+              <button
+                class="agent-transcript-icon"
+                onClick={() => setCollapsed((value) => !value)}
+                data-tooltip={collapsed() ? "Expand" : "Collapse"}
+              >
+                {collapsed() ? "▴" : "▾"}
+              </button>
+              <button
+                class="agent-transcript-icon"
+                onClick={() => void hideDock()}
+                data-tooltip="Hide"
+              >
+                ×
+              </button>
+            </div>
           </div>
-          <div class="agent-transcript-actions">
-            <button
-              class="agent-transcript-icon"
-              onClick={() => setCollapsed((value) => !value)}
-              data-tooltip={collapsed() ? "Expand" : "Collapse"}
-            >
-              {collapsed() ? "▴" : "▾"}
-            </button>
-            <button
-              class="agent-transcript-icon"
-              onClick={() => void hideDock()}
-              data-tooltip="Hide"
-            >
-              ×
-            </button>
-          </div>
-        </div>
 
-        <Show when={!collapsed()}>
-          <div class="agent-transcript-list" ref={(el) => useScrollFade(el)}>
-            <For each={visibleEntries()}>
-              {(entry) => (
-                <article
-                  class={`agent-transcript-entry ${entry.kind}`}
-                  classList={{ streaming: entry.status === "streaming" }}
-                >
-                  <div class="agent-transcript-meta">
-                    <span class="agent-transcript-badge">
-                      {entry.title || entry.kind}
-                    </span>
-                    <span class="agent-transcript-time">
-                      {formatTime(entry.updatedAt)}
-                    </span>
-                  </div>
-                  <div class="agent-transcript-text">{entry.text}</div>
-                </article>
-              )}
-            </For>
-          </div>
-        </Show>
-      </aside>
+          <Show when={!collapsed()}>
+            <div class="agent-transcript-list" ref={(el) => useScrollFade(el)}>
+              <For each={timelineItems()}>
+                {(entry) => {
+                  const duration = () =>
+                    entry.type === "action"
+                      ? formatAgentTimelineDuration(entry.durationMs)
+                      : null;
+
+                  return (
+                    <article
+                      class={`agent-transcript-entry ${entry.kind}`}
+                      classList={{
+                        streaming: isLiveAgentTimelineItem(entry),
+                        failed: entry.status === "failed",
+                        "waiting-approval":
+                          entry.status === "waiting-approval",
+                      }}
+                    >
+                      <div class="agent-transcript-meta">
+                        <span class="agent-transcript-badge">
+                          {entry.label}
+                        </span>
+                        <span class="agent-transcript-time">
+                          {formatTime(entry.timestamp)}
+                          <Show when={duration()}>
+                            {(value) => <> · {value()}</>}
+                          </Show>
+                        </span>
+                      </div>
+                      <div class="agent-transcript-text">{entry.detail}</div>
+                    </article>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </aside>
       </Show>
     </Show>
   );

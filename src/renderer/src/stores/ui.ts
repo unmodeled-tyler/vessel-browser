@@ -18,6 +18,8 @@ window.vessel?.settings?.get().then((settings: { sidebarWidth?: number }) => {
 }).catch(() => {/* settings unavailable — keep default */});
 const [focusMode, setFocusMode] = createSignal(false);
 const [commandBarOpen, setCommandBarOpen] = createSignal(false);
+const [browserCommandPaletteOpen, setBrowserCommandPaletteOpen] =
+  createSignal(false);
 const [settingsOpen, setSettingsOpen] = createSignal(false);
 const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
 
@@ -46,6 +48,7 @@ export function useUI() {
     sidebarDetached,
     focusMode,
     commandBarOpen,
+    browserCommandPaletteOpen,
     settingsOpen,
     devtoolsPanelOpen,
     toggleSidebar: async () => {
@@ -88,6 +91,8 @@ export function useUI() {
     },
     openCommandBar: () => setCommandBarOpen(true),
     closeCommandBar: () => setCommandBarOpen(false),
+    openBrowserCommandPalette: () => setBrowserCommandPaletteOpen(true),
+    closeBrowserCommandPalette: () => setBrowserCommandPaletteOpen(false),
     openSettings: async () => {
       setSidebarOpen(false);
       setSettingsOpen(true);

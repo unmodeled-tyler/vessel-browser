@@ -447,6 +447,13 @@ export interface AgentRuntimeState {
 
 export type SidebarPanelMode = "closed" | "docked" | "detached";
 
+export interface SidebarDetachedBounds {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+}
+
 export interface SidebarPanelState {
   open: boolean;
   width: number;
@@ -456,6 +463,7 @@ export interface SidebarPanelState {
 export interface UIState {
   sidebarPanelMode: SidebarPanelMode;
   sidebarWidth: number;
+  sidebarDetachedBounds: SidebarDetachedBounds | null;
   focusMode: boolean;
   settingsOpen: boolean;
   devtoolsPanelOpen: boolean;
@@ -566,7 +574,9 @@ export const SEARCH_ENGINE_PRESETS: Record<Exclude<SearchEngineId, "none">, { la
 export interface VesselSettings {
   defaultUrl: string;
   theme: "dark" | "light";
+  sidebarPanelMode: SidebarPanelMode;
   sidebarWidth: number;
+  sidebarDetachedBounds: SidebarDetachedBounds | null;
   mcpPort: number;
   autoRestoreSession: boolean;
   clearBookmarksOnLaunch: boolean;

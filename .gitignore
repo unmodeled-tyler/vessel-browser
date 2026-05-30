@@ -64,6 +64,7 @@ tests/*.test.ts
 !tests/automation-kit-constants.test.ts
 !tests/bookmark-context.test.ts
 !tests/bookmark-page-source.test.ts
+!tests/browser-qol-refactors.test.ts
 !tests/cloudflare-premium-worker.test.ts
 !tests/dom-selectors.test.ts
 !tests/input-coercion.test.ts

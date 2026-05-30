@@ -1,6 +1,13 @@
 import { BaseWindow, type WebContentsView } from "electron";
 import { Channels } from "../shared/channels";
+import {
+  DETACHED_SIDEBAR_DEFAULT_HEIGHT,
+  DETACHED_SIDEBAR_DEFAULT_WIDTH,
+  DETACHED_SIDEBAR_MIN_HEIGHT,
+  DETACHED_SIDEBAR_MIN_WIDTH,
+} from "../shared/sidebar";
 import type { SidebarPanelState, UIState } from "../shared/types";
+import { setSetting } from "./config/settings";
 
 export type SidebarPanelHostState = {
   mainWindow: BaseWindow;
@@ -16,10 +23,31 @@ type SidebarPanelHooks = {
   getWindowIconPath: () => string | undefined;
 };
 
-const DETACHED_WINDOW_MIN_WIDTH = 360;
-const DETACHED_WINDOW_MIN_HEIGHT = 480;
-const DETACHED_WINDOW_DEFAULT_WIDTH = 420;
-const DETACHED_WINDOW_DEFAULT_HEIGHT = 760;
+type SidebarPanelTransitionReason = "user" | "temporary";
+
+function setSidebarPanelMode(
+  state: SidebarPanelHostState,
+  mode: UIState["sidebarPanelMode"],
+  reason: SidebarPanelTransitionReason = "user",
+): void {
+  state.uiState.sidebarPanelMode = mode;
+  if (reason === "user") {
+    setSetting("sidebarPanelMode", mode);
+  }
+}
+
+function persistDetachedBounds(state: SidebarPanelHostState): void {
+  const sidebarWindow = state.sidebarWindow;
+  if (!sidebarWindow || sidebarWindow.isDestroyed()) return;
+  const bounds = sidebarWindow.getBounds();
+  state.uiState.sidebarDetachedBounds = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  };
+  setSetting("sidebarDetachedBounds", state.uiState.sidebarDetachedBounds);
+}
 
 export function closeDetachedSidebarWindow(
   state: SidebarPanelHostState,
@@ -78,12 +106,13 @@ export function isSidebarDetached(state: SidebarPanelHostState): boolean {
 export function closeSidebar(
   state: SidebarPanelHostState,
   relayout: () => void,
+  reason: SidebarPanelTransitionReason = "user",
 ): SidebarPanelState {
   if (state.sidebarWindow) {
     moveSidebarToMainWindow(state);
     closeDetachedSidebarWindow(state);
   }
-  state.uiState.sidebarPanelMode = "closed";
+  setSidebarPanelMode(state, "closed", reason);
   relayout();
   return emitSidebarPanelState(state);
 }
@@ -92,7 +121,7 @@ export function openDockedSidebar(
   state: SidebarPanelHostState,
   relayout: () => void,
 ): SidebarPanelState {
-  state.uiState.sidebarPanelMode = "docked";
+  setSidebarPanelMode(state, "docked");
   relayout();
   return emitSidebarPanelState(state);
 }
@@ -105,8 +134,10 @@ export function toggleDockedSidebar(
     state.sidebarWindow?.focus();
     return getSidebarPanelState(state);
   }
-  state.uiState.sidebarPanelMode =
-    state.uiState.sidebarPanelMode === "docked" ? "closed" : "docked";
+  setSidebarPanelMode(
+    state,
+    state.uiState.sidebarPanelMode === "docked" ? "closed" : "docked",
+  );
   relayout();
   return emitSidebarPanelState(state);
 }
@@ -126,11 +157,19 @@ export function detachSidebar(
     return getSidebarPanelState(state);
   }
 
+  const detachedBounds = state.uiState.sidebarDetachedBounds;
+  const detachedWidth =
+    detachedBounds?.width ??
+    Math.max(DETACHED_SIDEBAR_DEFAULT_WIDTH, state.uiState.sidebarWidth);
+  const detachedHeight =
+    detachedBounds?.height ?? DETACHED_SIDEBAR_DEFAULT_HEIGHT;
   const sidebarWindow = new BaseWindow({
-    width: Math.max(DETACHED_WINDOW_DEFAULT_WIDTH, state.uiState.sidebarWidth),
-    height: DETACHED_WINDOW_DEFAULT_HEIGHT,
-    minWidth: DETACHED_WINDOW_MIN_WIDTH,
-    minHeight: DETACHED_WINDOW_MIN_HEIGHT,
+    ...(typeof detachedBounds?.x === "number" ? { x: detachedBounds.x } : {}),
+    ...(typeof detachedBounds?.y === "number" ? { y: detachedBounds.y } : {}),
+    width: Math.max(DETACHED_SIDEBAR_MIN_WIDTH, Math.round(detachedWidth)),
+    height: Math.max(DETACHED_SIDEBAR_MIN_HEIGHT, Math.round(detachedHeight)),
+    minWidth: DETACHED_SIDEBAR_MIN_WIDTH,
+    minHeight: DETACHED_SIDEBAR_MIN_HEIGHT,
     frame: true,
     show: false,
     backgroundColor: "#1a1a1e",
@@ -141,9 +180,13 @@ export function detachSidebar(
   state.mainWindow.contentView.removeChildView(state.sidebarView);
   sidebarWindow.contentView.addChildView(state.sidebarView);
   state.sidebarWindow = sidebarWindow;
-  state.uiState.sidebarPanelMode = "detached";
+  setSidebarPanelMode(state, "detached");
 
-  sidebarWindow.on("resize", () => layoutDetachedSidebar(state));
+  sidebarWindow.on("resize", () => {
+    layoutDetachedSidebar(state);
+    persistDetachedBounds(state);
+  });
+  sidebarWindow.on("move", () => persistDetachedBounds(state));
   sidebarWindow.on("close", (event) => {
     if (state.sidebarWindowClosing) return;
     event.preventDefault();
@@ -152,7 +195,7 @@ export function detachSidebar(
   sidebarWindow.on("closed", () => {
     if (state.sidebarWindow !== sidebarWindow) return;
     state.sidebarWindow = null;
-    state.uiState.sidebarPanelMode = "docked";
+    setSidebarPanelMode(state, "docked");
     state.mainWindow.contentView.addChildView(state.sidebarView);
     hooks.relayout();
     emitSidebarPanelState(state);
@@ -171,12 +214,12 @@ export function dockSidebar(
 ): SidebarPanelState {
   const sidebarWindow = state.sidebarWindow;
   if (!sidebarWindow) {
-    state.uiState.sidebarPanelMode = "docked";
+    setSidebarPanelMode(state, "docked");
     hooks.relayout();
     return emitSidebarPanelState(state);
   }
 
-  state.uiState.sidebarPanelMode = "docked";
+  setSidebarPanelMode(state, "docked");
   moveSidebarToMainWindow(state);
   hooks.relayout();
   closeDetachedSidebarWindow(state);

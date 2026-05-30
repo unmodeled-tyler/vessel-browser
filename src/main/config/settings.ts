@@ -9,11 +9,17 @@ import type {
   VesselSettings,
 } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
+import {
+  sanitizeSidebarDetachedBounds,
+  sanitizeSidebarPanelMode,
+} from "../../shared/sidebar";
 
 const defaults: VesselSettings = {
   defaultUrl: "https://start.duckduckgo.com",
   theme: "dark",
+  sidebarPanelMode: "docked",
   sidebarWidth: 400,
+  sidebarDetachedBounds: null,
   mcpPort: 3100,
   autoRestoreSession: true,
   clearBookmarksOnLaunch: false,
@@ -291,6 +297,10 @@ export function loadSettings(): VesselSettings {
         mergeChatProviderSecret(parsed.chatProvider ?? null),
       ),
       mcpPort: sanitizePort(parsed.mcpPort ?? defaults.mcpPort),
+      sidebarPanelMode: sanitizeSidebarPanelMode(parsed.sidebarPanelMode),
+      sidebarDetachedBounds: sanitizeSidebarDetachedBounds(
+        parsed.sidebarDetachedBounds,
+      ),
       sourceDoNotAllowList: sanitizeStringList(
         parsed.sourceDoNotAllowList ?? defaults.sourceDoNotAllowList,
       ),
@@ -356,6 +366,10 @@ export function setSetting<K extends keyof VesselSettings>(
   loadSettings();
   if (key === "mcpPort") {
     settings!.mcpPort = sanitizePort(value);
+  } else if (key === "sidebarPanelMode") {
+    settings!.sidebarPanelMode = sanitizeSidebarPanelMode(value);
+  } else if (key === "sidebarDetachedBounds") {
+    settings!.sidebarDetachedBounds = sanitizeSidebarDetachedBounds(value);
   } else if (key === "sourceDoNotAllowList") {
     settings!.sourceDoNotAllowList = sanitizeStringList(value);
   } else if (key === "chatProvider") {

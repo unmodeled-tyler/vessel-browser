@@ -9,6 +9,7 @@ import DownloadsPanel from "./components/chrome/DownloadsPanel";
 import FindBar from "./components/chrome/FindBar";
 import FlowProgress from "./components/chrome/FlowProgress";
 import AgentTranscriptDock from "./components/chrome/AgentTranscriptDock";
+import BrowserCommandPalette from "./components/chrome/BrowserCommandPalette";
 import CommandBar from "./components/ai/CommandBar";
 import Sidebar from "./components/ai/Sidebar";
 import DevToolsPanel from "./components/devtools/DevToolsPanel";
@@ -39,6 +40,7 @@ const App: Component = () => {
   const isChromeOnlyWindow = isPrivateWindow || isSecondaryWindow;
   const {
     openCommandBar,
+    openBrowserCommandPalette,
     toggleSidebar,
     toggleFocusMode,
     openSettings,
@@ -123,6 +125,9 @@ const App: Component = () => {
 
     const cleanupKeys = setupKeybindings({
       openCommandBar: isChromeOnlyWindow ? undefined : openCommandBar,
+      openBrowserCommandPalette: isChromeOnlyWindow
+        ? undefined
+        : openBrowserCommandPalette,
       toggleSidebar: isChromeOnlyWindow ? undefined : toggleSidebar,
       toggleFocusMode: isChromeOnlyWindow ? undefined : toggleFocusMode,
       newTab: () => createTab(),
@@ -212,6 +217,12 @@ const App: Component = () => {
         </Show>
       </div>
       <Show when={!isChromeOnlyWindow}>
+        <BrowserCommandPalette
+          onOpenClearData={() => setClearDataOpen(true)}
+          onToggleKeyboardHelp={() => setKeyboardHelpOpen((v) => !v)}
+          onCaptureHighlight={captureHighlight}
+          onOpenDownloads={() => setDownloadsOpen(true)}
+        />
         <CommandBar />
         <Settings />
       </Show>

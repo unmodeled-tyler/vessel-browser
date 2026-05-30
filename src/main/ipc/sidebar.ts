@@ -136,9 +136,7 @@ export function registerSidebarHandlers(
     (event, view: "chrome" | "sidebar" | "devtools") => {
       requireTrusted(event);
       if (view !== "sidebar") return;
-      if (windowState.uiState.sidebarPanelMode === "closed") {
-        openDockedSidebar(windowState, relayout);
-      }
+      emitSidebarPanelState(windowState);
     },
   );
 
@@ -146,7 +144,7 @@ export function registerSidebarHandlers(
     requireTrusted(event);
     windowState.uiState.settingsOpen = open;
     if (open) {
-      closeSidebar(windowState, relayout);
+      closeSidebar(windowState, relayout, "temporary");
     } else {
       relayout();
       emitSidebarPanelState(windowState);

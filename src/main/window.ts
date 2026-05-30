@@ -9,6 +9,7 @@ import type { UIState, TabState } from "../shared/types";
 import { capturePageSnapshot } from "./content/page-diff-monitor";
 import {
   closeDetachedSidebarWindow,
+  detachSidebar,
   isSidebarAttached,
   layoutDetachedSidebar,
   type SidebarPanelHostState,
@@ -267,8 +268,10 @@ export function createMainWindow(
 
   const settings = loadSettings();
   const uiState: UIState = {
-    sidebarPanelMode: "docked",
+    sidebarPanelMode:
+      settings.sidebarPanelMode === "detached" ? "docked" : settings.sidebarPanelMode,
     sidebarWidth: settings.sidebarWidth,
+    sidebarDetachedBounds: settings.sidebarDetachedBounds,
     focusMode: false,
     settingsOpen: false,
     devtoolsPanelOpen: false,
@@ -314,6 +317,9 @@ export function createMainWindow(
     );
   });
   layoutViews(state);
+  if (settings.sidebarPanelMode === "detached") {
+    detachSidebar(state, { relayout: () => layoutViews(state), getWindowIconPath });
+  }
 
   return state;
 }
