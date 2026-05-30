@@ -22,6 +22,7 @@ import {
   getBookmarkSearchMatch,
   normalizeBookmarkSearchText,
 } from "../../../../shared/bookmark-search";
+import { clampSidebarWidth } from "../../../../shared/sidebar";
 import type {
   Bookmark,
   BookmarkFolder,
@@ -588,7 +589,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
       // Calculate width based on total delta from start (not incremental)
       const totalDelta = startX - state.currentX;
       const targetWidth = startWidth + totalDelta;
-      const newWidth = Math.max(240, Math.min(800, Math.round(targetWidth)));
+      const newWidth = clampSidebarWidth(targetWidth);
       resizeSidebar(newWidth);
     };
 
