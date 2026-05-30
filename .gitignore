@@ -92,3 +92,6 @@ tests/*.scratch.ts
 .webui_secret_key
 scripts/cloudflare-worker/wrangler.toml
 scripts/cloudflare-worker/vessel-premium-api.js
+
+# macOS Finder metadata
+.DS_Store
