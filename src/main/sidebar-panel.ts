@@ -21,6 +21,26 @@ const DETACHED_WINDOW_MIN_HEIGHT = 480;
 const DETACHED_WINDOW_DEFAULT_WIDTH = 420;
 const DETACHED_WINDOW_DEFAULT_HEIGHT = 760;
 
+export function closeDetachedSidebarWindow(
+  state: SidebarPanelHostState,
+): boolean {
+  const sidebarWindow = state.sidebarWindow;
+  if (!sidebarWindow) return false;
+
+  state.sidebarWindow = null;
+  state.sidebarWindowClosing = true;
+  sidebarWindow.once("closed", () => {
+    state.sidebarWindowClosing = false;
+  });
+  sidebarWindow.close();
+  return true;
+}
+
+function moveSidebarToMainWindow(state: SidebarPanelHostState): void {
+  state.sidebarWindow?.contentView.removeChildView(state.sidebarView);
+  state.mainWindow.contentView.addChildView(state.sidebarView);
+}
+
 export function getSidebarPanelState(
   state: SidebarPanelHostState,
 ): SidebarPanelState {
@@ -59,16 +79,9 @@ export function closeSidebar(
   state: SidebarPanelHostState,
   relayout: () => void,
 ): SidebarPanelState {
-  const sidebarWindow = state.sidebarWindow;
-  if (sidebarWindow) {
-    state.sidebarWindow = null;
-    sidebarWindow.contentView.removeChildView(state.sidebarView);
-    state.mainWindow.contentView.addChildView(state.sidebarView);
-    state.sidebarWindowClosing = true;
-    sidebarWindow.once("closed", () => {
-      state.sidebarWindowClosing = false;
-    });
-    sidebarWindow.close();
+  if (state.sidebarWindow) {
+    moveSidebarToMainWindow(state);
+    closeDetachedSidebarWindow(state);
   }
   state.uiState.sidebarPanelMode = "closed";
   relayout();
@@ -163,17 +176,10 @@ export function dockSidebar(
     return emitSidebarPanelState(state);
   }
 
-  state.sidebarWindow = null;
   state.uiState.sidebarPanelMode = "docked";
-  sidebarWindow.contentView.removeChildView(state.sidebarView);
-  state.mainWindow.contentView.addChildView(state.sidebarView);
+  moveSidebarToMainWindow(state);
   hooks.relayout();
-
-  state.sidebarWindowClosing = true;
-  sidebarWindow.once("closed", () => {
-    state.sidebarWindowClosing = false;
-  });
-  sidebarWindow.close();
+  closeDetachedSidebarWindow(state);
   state.mainWindow.focus();
   return emitSidebarPanelState(state);
 }
