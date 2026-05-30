@@ -59,11 +59,14 @@ npm run build
 # Smoke-test the MVP release path
 npm run smoke:test
 
-# Package an unpacked macOS app bundle (run on macOS)
+# Package an unpacked universal macOS app bundle (run on macOS)
 npm run dist:mac:dir
 
-# Package macOS DMG + ZIP artifacts (run on macOS)
+# Package universal macOS DMG + ZIP artifacts (run on macOS)
 npm run dist:mac
+
+# Verify a universal macOS build contains Intel and Apple Silicon slices
+npm run verify:mac:universal
 
 # Package signed macOS DMG + ZIP artifacts (run on macOS with signing set up)
 npm run dist:mac:signed
@@ -74,8 +77,11 @@ Notes:
 - `npm run dev` still launches the stock Electron binary, so Linux may continue showing the default Electron gear icon in development
 - packaged builds created with `npm run dist` or `npm run dist:dir` use the Vessel app icon
 - `npm run build:icon:mac` regenerates `resources/vessel-icon.icns` from `resources/vessel-icon.png`
-- `npm run dist:mac` and `npm run dist:mac:dir` intentionally disable auto-signing for repeatable local packaging
-- `npm run dist:mac:signed` and `npm run dist:mac:dir:signed` use `electron-builder` signing; if your login keychain has duplicate Apple certs, clean those up or use a dedicated keychain before running the signed path
+- `npm run dist:mac` and `npm run dist:mac:dir` build universal macOS artifacts by default, so the same app runs natively on Intel and Apple Silicon Macs
+- `npm run dist:mac:x64` and `npm run dist:mac:arm64` are available when you need smaller architecture-specific test artifacts
+- `npm run verify:mac:universal` uses `lipo` to confirm the packaged app executable and Electron framework include both `x86_64` and `arm64` slices
+- `npm run dist:mac`, `npm run dist:mac:dir`, `npm run dist:mac:x64`, and `npm run dist:mac:arm64` intentionally disable auto-signing for repeatable local packaging
+- `npm run dist:mac:signed` and `npm run dist:mac:dir:signed` build universal artifacts and use `electron-builder` signing; if your login keychain has duplicate Apple certs, clean those up or use a dedicated keychain before running the signed path
 - signed macOS packages are not notarized by default in this repo
 - the tracked smoke test runs typecheck, build, the MCP stdio proxy regression check, and the Electron navigation regression harness
 - for headless CI, run the smoke test under `xvfb-run -a npm run smoke:test`
