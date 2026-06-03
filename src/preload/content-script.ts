@@ -789,6 +789,23 @@ function classifyOverlayKind(args: {
   return "overlay";
 }
 
+const MAX_OVERLAY_CANDIDATES = 2000;
+
+function forEachOverlayCandidate(
+  maxCandidates: number,
+  visitor: (node: HTMLElement) => void,
+): void {
+  if (!document.body) return;
+
+  let visited = 0;
+  for (const node of document.body.querySelectorAll("*")) {
+    if (!(node instanceof HTMLElement)) continue;
+    if (visited >= maxCandidates) break;
+    visited++;
+    visitor(node);
+  }
+}
+
 function detectOverlays(): OverlayCandidate[] {
   if (!document.body) return [];
 
@@ -800,8 +817,8 @@ function detectOverlays(): OverlayCandidate[] {
   const overlays: OverlayCandidate[] = [];
   const seen = new Set<HTMLElement>();
 
-  Array.from(document.body.querySelectorAll("*")).forEach((node) => {
-    if (!(node instanceof HTMLElement) || seen.has(node)) return;
+  forEachOverlayCandidate(MAX_OVERLAY_CANDIDATES, (node) => {
+    if (seen.has(node)) return;
     if (!isElementVisible(node)) return;
 
     const style = window.getComputedStyle(node);
@@ -927,8 +944,7 @@ function detectDormantOverlays(): Array<{
     text?: string;
   }> = [];
 
-  Array.from(document.body.querySelectorAll("*")).forEach((node) => {
-    if (!(node instanceof HTMLElement)) return;
+  forEachOverlayCandidate(MAX_OVERLAY_CANDIDATES, (node) => {
     if (isElementVisible(node)) return;
     if (!isLikelyDormantOverlay(node)) return;
 
