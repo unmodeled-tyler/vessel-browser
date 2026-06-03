@@ -91,380 +91,33 @@ import * as humanVault from "../vault/human-vault";
 import { requestHumanVaultConsent } from "../vault/human-consent";
 import { trackVaultAction } from "../telemetry/posthog";
 import { assertToolUnlocked } from "../premium/manager";
-let httpServer: http.Server | null = null;
-let mcpAuthToken: string | null = null;
+import {
+  getMcpAuthToken,
+  regenerateMcpAuthToken,
+  getPersistentMcpAuthToken,
+  writeMcpAuthFile,
+  clearMcpAuthFile,
+} from "./mcp-auth";
+import type { McpServerStartResult } from "./mcp-auth";
+import { mcpRuntimeState } from "./mcp-state";
+import {
+  asTextResponse,
+  asErrorTextResponse,
+  asNoActiveTabResponse,
+  getPremiumToolGateResponse,
+  asPromptResponse,
+  isDangerousMcpAction,
+  requiresExplicitMcpApproval,
+  getActiveTabSummary,
+  getPostActionState,
+  withAction,
+  waitForConditionMcp,
+} from "./mcp-helpers";
+
 const logger = createLogger("MCP");
-
-// Well-known path where external MCP clients (e.g. Hermes) can read the
-// current auth token and endpoint. Written on successful start. The token is
-// persisted across restarts so external MCP client configs remain valid.
-const MCP_AUTH_FILENAME = "mcp-auth.json";
-
-type McpAuthState = {
-  endpoint?: string;
-  token?: string;
-  pid?: number | null;
-};
-
-function getMcpAuthFilePath(): string {
-  // Electron stores userData at ~/.config/<appName> on Linux.  We resolve the
-  // same directory via the XDG convention without importing `app` (which may
-  // not be available during tests).
-  const configDir =
-    process.env.VESSEL_CONFIG_DIR ||
-    path.join(
-      process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
-      "vessel",
-    );
-  return path.join(configDir, MCP_AUTH_FILENAME);
-}
-
-function readMcpAuthFile(): McpAuthState | null {
-  try {
-    const raw = fs.readFileSync(getMcpAuthFilePath(), "utf8");
-    const parsed = JSON.parse(raw) as McpAuthState;
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-const MIN_TOKEN_LENGTH = 32;
-
-function getPersistentMcpAuthToken(): string {
-  const existingToken = readMcpAuthFile()?.token?.trim();
-  if (existingToken && existingToken.length >= MIN_TOKEN_LENGTH) {
-    return existingToken;
-  }
-  return crypto.randomBytes(32).toString("hex");
-}
-
-function writeMcpAuthFile(endpoint: string, token: string): void {
-  try {
-    const filePath = getMcpAuthFilePath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify({ endpoint, token, pid: process.pid }, null, 2) + "\n",
-      { mode: 0o600 },
-    );
-    fs.chmodSync(filePath, 0o600);
-  } catch (err) {
-    logger.warn("Failed to write auth file:", err);
-  }
-}
-
-function clearMcpAuthFile(): void {
-  const existingToken = readMcpAuthFile()?.token?.trim();
-  if (!existingToken) {
-    try {
-      fs.unlinkSync(getMcpAuthFilePath());
-    } catch {
-      // File may not exist — that's fine.
-    }
-    return;
-  }
-  try {
-    const filePath = getMcpAuthFilePath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify(
-        { endpoint: "", token: existingToken, pid: null },
-        null,
-        2,
-      ) + "\n",
-      { mode: 0o600 },
-    );
-    fs.chmodSync(filePath, 0o600);
-  } catch (err) {
-    logger.warn("Failed to clear auth file:", err);
-  }
-}
-
-/** Returns the current MCP auth token. */
-export function getMcpAuthToken(): string | null {
-  return mcpAuthToken;
-}
-
-export function regenerateMcpAuthToken(): { endpoint: string } | null {
-  const endpoint = getRuntimeHealth().mcp.endpoint;
-  if (!httpServer || !endpoint) return null;
-  mcpAuthToken = crypto.randomBytes(32).toString("hex");
-  writeMcpAuthFile(endpoint, mcpAuthToken);
-  return { endpoint };
-}
-
-export interface McpServerStartResult {
-  ok: boolean;
-  configuredPort: number;
-  activePort: number | null;
-  endpoint: string | null;
-  authToken: string | null;
-  error?: string;
-}
-
-function asTextResponse(text: string) {
-  return { content: [{ type: "text" as const, text }] };
-}
-
-function asErrorTextResponse(message: string) {
-  return asTextResponse(`Error: ${message}`);
-}
-
-function asNoActiveTabResponse() {
-  return asErrorTextResponse("No active tab");
-}
-
-function getPremiumToolGateResponse(toolName: string) {
-  try {
-    assertToolUnlocked(toolName);
-    return null;
-  } catch (error) {
-    return asTextResponse(getErrorMessage(error));
-  }
-}
-
-function asPromptResponse(text: string) {
-  return {
-    messages: [
-      {
-        role: "user" as const,
-        content: {
-          type: "text" as const,
-          text,
-        },
-      },
-    ],
-  };
-}
-
-function isDangerousMcpAction(name: string): boolean {
-  return name === "close_tab" || isDangerousAction(name);
-}
-
-export function requiresExplicitMcpApproval(name: string, args: Record<string, unknown>): boolean {
-  if (name === "delete_session" || name === "close_tab" || name === "load_session") return true;
-  if (name === "remove_bookmark_folder" && args.delete_contents === true) return true;
-  return false;
-}
-
-function getActiveTabSummary(tabManager: TabManager) {
-  const activeTab = tabManager.getActiveTab();
-  const activeTabId = tabManager.getActiveTabId();
-  if (!activeTab || !activeTabId) return null;
-  const state = activeTab.state;
-  return {
-    tabId: activeTabId,
-    title: state.title,
-    url: state.url,
-    isLoading: state.isLoading,
-    canGoBack: state.canGoBack,
-    canGoForward: state.canGoForward,
-    adBlockingEnabled: state.adBlockingEnabled,
-    humanFocused: true,
-  };
-}
-
-async function getPostActionState(
-  tabManager: TabManager,
-  name: string,
-): Promise<string> {
-  // Append state context for navigation/interaction actions
-  const tab = tabManager.getActiveTab();
-  if (!tab) return "";
-
-  const wc = tab.view.webContents;
-  const navActions = [
-    "navigate",
-    "go_back",
-    "go_forward",
-    "click",
-    "submit_form",
-    "reload",
-    "press_key",
-  ];
-  const interactActions = [
-    "type",
-    "type_text",
-    "select_option",
-    "hover",
-    "focus",
-  ];
-  const tabActions = ["create_tab", "switch_tab", "close_tab"];
-
-  if (navActions.includes(name)) {
-    let warning = "";
-
-    try {
-      const page = await extractContent(wc);
-      const issue = getRecoverableAccessIssue(page);
-      if (issue) {
-        const blockedUrl = wc.getURL();
-        const canRecover =
-          [
-            "navigate",
-            "open_bookmark",
-            "click",
-            "submit_form",
-            "reload",
-            "press_key",
-          ].includes(name) && tab.canGoBack();
-
-        if (canRecover && tab.goBack()) {
-          await waitForLoad(wc);
-          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""} Automatically returned to ${wc.getURL()} after landing on ${blockedUrl}.]`;
-        } else {
-          warning = `\n[warning: ${issue.summary} ${issue.recommendation ?? ""}${tab.canGoBack() ? "" : " No previous page was available for automatic recovery."}]`;
-        }
-      }
-    } catch (err) {
-      logger.warn("Failed to compute post-action state warning:", err);
-    }
-
-    return `${warning}\n[state: url=${wc.getURL()}, canGoBack=${tab.canGoBack()}, canGoForward=${tab.canGoForward()}, loading=${wc.isLoading()}]`;
-  }
-
-  if (interactActions.includes(name)) {
-    return `\n[state: url=${wc.getURL()}, title=${JSON.stringify(wc.getTitle() || "")}, tabId=${tabManager.getActiveTabId()}]`;
-  }
-
-  if (tabActions.includes(name)) {
-    const activeId = tabManager.getActiveTabId();
-    const active = getActiveTabSummary(tabManager);
-    const count = tabManager.getAllStates().length;
-    return `\n[state: activeTab=${activeId}, title=${JSON.stringify(active?.title ?? "")}, url=${active?.url ?? ""}, totalTabs=${count}]`;
-  }
-
-  return "";
-}
-
-async function withAction(
-  runtime: AgentRuntime,
-  tabManager: TabManager,
-  name: string,
-  args: Record<string, unknown>,
-  executor: () => Promise<string>,
-): Promise<{ content: Array<{ type: "text"; text: string }> }> {
-  const premiumGate = getPremiumToolGateResponse(name);
-  if (premiumGate) return premiumGate;
-
-  try {
-    const result = await runtime.runControlledAction({
-      source: "mcp",
-      name,
-      args,
-      tabId: tabManager.getActiveTabId(),
-      dangerous: isDangerousMcpAction(name),
-      requiresApproval: requiresExplicitMcpApproval(name, args),
-      executor,
-    });
-    const stateInfo = await getPostActionState(tabManager, name);
-    const flowCtx = runtime.getFlowContext();
-    return asTextResponse(result + stateInfo + flowCtx);
-  } catch (error) {
-    return asErrorTextResponse(getErrorMessage(error));
-  }
-}
-
-async function waitForConditionMcp(
-  wc: Electron.WebContents,
-  text?: string,
-  selector?: string,
-  timeoutMs?: number,
-): Promise<string> {
-  const effectiveTimeout = Math.max(250, timeoutMs || 5000);
-  const expectedText = (text || "").trim();
-  const expectedSelector = (selector || "").trim();
-  const startedAt = Date.now();
-
-  const result = await waitForCondition(
-    wc,
-    expectedText,
-    expectedSelector,
-    effectiveTimeout,
-  );
-  const elapsedMs = Date.now() - startedAt;
-
-  if (result === "Error: wait_for requires text or selector") {
-    return JSON.stringify({
-      matched: false,
-      error: "wait_for requires text or selector",
-    });
-  }
-
-  if (result.startsWith("Error: Invalid selector ")) {
-    return JSON.stringify({
-      matched: false,
-      error: result.slice("Error: ".length),
-    });
-  }
-
-  if (result.startsWith("Error: Page is still busy; wait_for timed out")) {
-    return JSON.stringify({
-      matched: false,
-      error: result.slice("Error: ".length),
-      elapsed_ms: elapsedMs,
-      timeout_ms: effectiveTimeout,
-    });
-  }
-
-  if (expectedSelector && result === `Matched selector ${expectedSelector}`) {
-    return JSON.stringify({
-      matched: true,
-      type: "selector",
-      value: expectedSelector,
-      elapsed_ms: elapsedMs,
-    });
-  }
-
-  const matchedTextPrefix = 'Matched text "';
-  if (result.startsWith(matchedTextPrefix) && result.endsWith('"')) {
-    return JSON.stringify({
-      matched: true,
-      type: "text",
-      value: result.slice(matchedTextPrefix.length, -1),
-      elapsed_ms: elapsedMs,
-    });
-  }
-
-  const timeoutPayload: {
-    matched: false;
-    type: "selector" | "text";
-    value: string;
-    elapsed_ms: number;
-    timeout_ms: number;
-    diagnostic?: string;
-  } = {
-    matched: false,
-    type: expectedSelector ? "selector" : "text",
-    value: expectedSelector || expectedText.slice(0, 80),
-    elapsed_ms: elapsedMs,
-    timeout_ms: effectiveTimeout,
-  };
-
-  if (expectedSelector) {
-  const diagnostic = await wc.executeJavaScript(`
-      (function() {
-        try {
-          var count = document.querySelectorAll(${JSON.stringify(expectedSelector)}).length;
-          return count > 0 ? 'found ' + count + ' after timeout' : 'not found (page has ' + document.querySelectorAll('*').length + ' elements)';
-        } catch (e) {
-          return 'selector error: ' + e.message;
-        }
-      })()
-    `).catch((err) => {
-      logger.warn("Failed to gather wait_for timeout diagnostic:", err);
-      return null;
-    });
-    if (typeof diagnostic === "string" && diagnostic.trim()) {
-      timeoutPayload.diagnostic = diagnostic;
-    }
-  }
-
-  return JSON.stringify(timeoutPayload);
-}
-
+export { getMcpAuthToken, regenerateMcpAuthToken } from "./mcp-auth";
+export type { McpServerStartResult } from "./mcp-auth";
+export { requiresExplicitMcpApproval } from "./mcp-helpers";
 function registerTools(
   server: McpServer,
   tabManager: TabManager,
@@ -4815,7 +4468,7 @@ export function startMcpServer(
     message: `Starting MCP server on port ${port}.`,
   });
 
-  mcpAuthToken = getPersistentMcpAuthToken();
+  mcpRuntimeState.authToken = getPersistentMcpAuthToken();
 
   return new Promise((resolve) => {
     const server = http.createServer(async (req, res) => {
@@ -4853,7 +4506,7 @@ export function startMcpServer(
       // Validate bearer token on all non-OPTIONS requests (constant-time
       // comparison to prevent timing side-channel attacks on persistent tokens).
       const authHeader = req.headers.authorization;
-      const expected = `Bearer ${mcpAuthToken}`;
+      const expected = `Bearer ${mcpRuntimeState.authToken}`;
       const headerBuf = Buffer.from(authHeader ?? "");
       const expectedBuf = Buffer.from(expected);
       const tokenValid =
@@ -4906,8 +4559,8 @@ export function startMcpServer(
         status: "error",
         message,
       });
-      if (httpServer === server) {
-        httpServer = null;
+      if (mcpRuntimeState.httpServer === server) {
+        mcpRuntimeState.httpServer = null;
       }
       finish(errorResult(message, {
         configuredPort: port,
@@ -4918,7 +4571,7 @@ export function startMcpServer(
     });
 
     server.listen(port, "127.0.0.1", () => {
-      httpServer = server;
+      mcpRuntimeState.httpServer = server;
       const address = server.address();
       const actualPort =
         address && typeof address === "object" ? address.port : port;
@@ -4933,15 +4586,15 @@ export function startMcpServer(
       if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
         logger.info(`Server listening on ${endpoint} (auth enabled)`);
       }
-      if (mcpAuthToken) {
-        writeMcpAuthFile(endpoint, mcpAuthToken);
+      if (mcpRuntimeState.authToken) {
+        writeMcpAuthFile(endpoint, mcpRuntimeState.authToken);
       }
       finish({
         ok: true,
         configuredPort: port,
         activePort: actualPort,
         endpoint,
-        authToken: mcpAuthToken,
+        authToken: mcpRuntimeState.authToken,
       });
     });
   });
@@ -4949,7 +4602,7 @@ export function startMcpServer(
 
 export function stopMcpServer(): Promise<void> {
   return new Promise((resolve) => {
-    if (!httpServer) {
+    if (!mcpRuntimeState.httpServer) {
       setMcpHealth({
         activePort: null,
         endpoint: null,
@@ -4960,9 +4613,9 @@ export function stopMcpServer(): Promise<void> {
       return;
     }
 
-    const server = httpServer;
-    httpServer = null;
-    mcpAuthToken = null;
+    const server = mcpRuntimeState.httpServer;
+    mcpRuntimeState.httpServer = null;
+    mcpRuntimeState.authToken = null;
     clearMcpAuthFile();
     server.close(() => {
       setMcpHealth({

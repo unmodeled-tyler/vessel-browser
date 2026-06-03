@@ -1,80 +1,24 @@
-import { app, ipcMain, session } from "electron";
-import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import { app, ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
-import { extractContent } from "../content/extractor";
-import { generateReaderHTML } from "../content/reader-mode";
+import { loadSettings } from "../config/settings";
+import { createProvider } from "../ai/provider";
+import { layoutViews, type WindowState } from "../window";
 import {
-  getRendererSettings,
-  loadSettings,
-  setSetting,
-  SETTABLE_KEYS,
-} from "../config/settings";
-import {
-  layoutViews,
-  MIN_DEVTOOLS_PANEL,
-  MAX_DEVTOOLS_PANEL,
-  type WindowState,
-} from "../window";
-import {
-  getRuntimeHealth,
-  onRuntimeHealthChange,
-} from "../health/runtime-health";
-import {
-  trackProviderConfigured,
-  trackSettingChanged,
-  trackApprovalModeChanged,
-} from "../telemetry/posthog";
-import { createProvider, fetchProviderModels } from "../ai/provider";
-import type { AIProvider } from "../ai/provider";
-import { handleAIQuery } from "../ai/commands";
-import { endAIStream, onAIStreamIdle, tryBeginAIStream } from "../ai/stream-lock";
-import type {
-  AIMessage,
-  ApprovalMode,
-  AgentRuntimeState,
-  SessionSnapshot,
-  TabGroupColor,
-  VesselSettings,
-  type ClearDataOptions,
-} from "../../shared/types";
-import { compactProviderHistory } from "../../shared/ai-history";
-import { createLogger } from "../../shared/logger";
-import { errorResult, getErrorMessage } from "../../shared/result";
-import type { AgentRuntime } from "../agent/runtime";
-import {
-  highlightOnPage,
-  getHighlightCount,
-  scrollToHighlight,
-  removeHighlightAtIndex,
-  clearAllHighlightElements,
-} from "../highlights/inject";
-import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlights/capture";
-import { regenerateMcpAuthToken, startMcpServer, stopMcpServer } from "../mcp/server";
-import {
-  getInstalledKits,
-  installKitFromFile,
-  uninstallKit,
-} from "../automation/kit-registry";
-import { registerScheduleHandlers, getScheduledKitIds } from "../automation/scheduler";
-import {
-  assertNumber,
-  assertString,
   assertTrustedIpcSender,
-  getActiveTabInfo,
   registerTrustedIpcSender,
+  sendSafe,
   type SendToRendererViews,
 } from "./common";
-import { registerAutofillHandlers } from "./autofill";
-import { registerPageDiffHandlers } from "./page-diff";
-import { registerResearchHandlers } from "./research";
+import type { AgentRuntime } from "../agent/runtime";
 import { ResearchOrchestrator } from "../agent/research/orchestrator";
-import { registerVaultHandlers } from "./vault";
-import { registerHumanVaultHandlers } from "./human-vault";
-import { registerWindowControlHandlers } from "./window-controls";
-import { createPrivateWindow } from "../private/window";
-import { createSecondaryWindow } from "../secondary/window";
-import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
-import { createFindInPageBridge } from "../tabs/find-bridge";
+
+import { registerTabHandlers } from "./tabs";
+import { registerAIHandlers } from "./ai";
+import { registerContentHandlers } from "./content";
+import { registerHighlightHandlers } from "./highlights";
+import { registerAgentRuntimeHandlers } from "./agent-runtime";
+import { registerSettingsHandlers } from "./settings";
+import { registerSystemHandlers } from "./system";
 import { registerBookmarkHandlers } from "./bookmarks";
 import { registerHistoryHandlers } from "./history";
 import { registerPremiumHandlers } from "./premium";
@@ -83,49 +27,15 @@ import { registerSecurityHandlers } from "./security";
 import { registerCodexHandlers } from "./codex";
 import { registerOpenRouterHandlers } from "./openrouter";
 import { registerSidebarHandlers } from "./sidebar";
-import { submitFeedback } from "../support/feedback";
-import { clearByTimeRange } from "../history/manager";
-import { clearDownloads, listDownloads, openDownload, setDownloadBroadcaster, showDownloadInFolder } from "../network/download-manager";
-import { clearPermissions, clearPermissionsForOrigin, listPermissions, setPermissionBroadcaster } from "../security/permissions";
-import { checkForUpdates, openUpdateDownload } from "../updates/checker";
-import { loadInternalDataURL, loadPermittedNavigationURL } from "../network/url-safety";
+import { registerVaultHandlers } from "./vault";
+import { registerHumanVaultHandlers } from "./human-vault";
+import { registerWindowControlHandlers } from "./window-controls";
+import { registerAutofillHandlers } from "./autofill";
+import { registerPageDiffHandlers } from "./page-diff";
+import { registerResearchHandlers } from "./research";
+import { registerScheduleHandlers } from "../automation/scheduler";
 
-let activeChatProvider: AIProvider | null = null;
-const logger = createLogger("IPC");
-
-const VALID_APPROVAL_MODES = ["auto", "confirm-dangerous", "manual"] as const;
-type ValidApprovalMode = typeof VALID_APPROVAL_MODES[number];
-
-export async function togglePictureInPicture(
-  tabManager: WindowState["tabManager"],
-): Promise<boolean> {
-  const info = getActiveTabInfo(tabManager);
-  if (!info) return false;
-  const { wc } = info;
-  try {
-    return await wc.executeJavaScript(`
-      (async function() {
-        const video = document.querySelector('video');
-        if (!video) return false;
-        if (!document.pictureInPictureEnabled || typeof video.requestPictureInPicture !== 'function') {
-          return false;
-        }
-        if (document.pictureInPictureElement) {
-          await document.exitPictureInPicture();
-          return false;
-        }
-        try {
-          await video.requestPictureInPicture();
-          return true;
-        } catch {
-          return false;
-        }
-      })()
-    `);
-  } catch {
-    return false;
-  }
-}
+export { togglePictureInPicture } from "./picture-in-picture";
 
 export function registerIpcHandlers(
   windowState: WindowState,
@@ -136,11 +46,13 @@ export function registerIpcHandlers(
   registerTrustedIpcSender(sidebarView.webContents);
   registerTrustedIpcSender(devtoolsPanelView.webContents);
 
-  const requireTrusted = (event: IpcMainEvent | IpcMainInvokeEvent) => {
-    assertTrustedIpcSender(event);
+  const sendToRendererViews: SendToRendererViews = (channel, ...args) => {
+    sendSafe(chromeView.webContents, channel, ...args);
+    sendSafe(sidebarView.webContents, channel, ...args);
+    sendSafe(devtoolsPanelView.webContents, channel, ...args);
   };
 
-  // --- Research Desk ---
+  // --- Research Desk orchestrator (shared by AI and settings) ---
   let researchOrchestrator: ResearchOrchestrator | null = null;
 
   const getResearchOrchestrator = (): ResearchOrchestrator => {
@@ -156,769 +68,42 @@ export function registerIpcHandlers(
     }
     return researchOrchestrator;
   };
+  const getExistingResearchOrchestrator = (): ResearchOrchestrator | null =>
+    researchOrchestrator;
 
-  // Private browsing
-  ipcMain.handle(Channels.OPEN_PRIVATE_WINDOW, (event) => {
-    requireTrusted(event);
-    createPrivateWindow();
-  });
-
-  ipcMain.handle(Channels.OPEN_NEW_WINDOW, (event) => {
-    requireTrusted(event);
-    createSecondaryWindow();
-  });
-
-  ipcMain.handle(Channels.IS_PRIVATE_MODE, (event) => {
-    requireTrusted(event);
-    return false;
-  });
-
-  let runtimeUpdateTimer: NodeJS.Timeout | null = null;
-  let pendingRuntimeState: AgentRuntimeState | null = null;
-
-  const flushRuntimeUpdate = () => {
-    runtimeUpdateTimer = null;
-    if (!pendingRuntimeState) return;
-    if (!chromeView.webContents.isDestroyed()) {
-      chromeView.webContents.send(
-        Channels.AGENT_RUNTIME_UPDATE,
-        pendingRuntimeState,
-      );
-    }
-    if (!sidebarView.webContents.isDestroyed()) {
-      sidebarView.webContents.send(
-        Channels.AGENT_RUNTIME_UPDATE,
-        pendingRuntimeState,
-      );
-    }
-    pendingRuntimeState = null;
-  };
-
-  const scheduleRuntimeUpdate = (state: AgentRuntimeState) => {
-    pendingRuntimeState = state;
-    if (runtimeUpdateTimer) return;
-    runtimeUpdateTimer = setTimeout(() => {
-      flushRuntimeUpdate();
-    }, 32);
-  };
-
-  app.on("before-quit", () => {
-    if (runtimeUpdateTimer) {
-      clearTimeout(runtimeUpdateTimer);
-      runtimeUpdateTimer = null;
-    }
-    flushRuntimeUpdate();
-  });
-
-  const sendToRendererViews: SendToRendererViews = (channel, ...args) => {
-    chromeView.webContents.send(channel, ...args);
-    sidebarView.webContents.send(channel, ...args);
-    devtoolsPanelView.webContents.send(channel, ...args);
-  };
-
-  const getActiveHighlightCountSafe = async (): Promise<number> => {
-    const info = getActiveTabInfo(tabManager);
-    if (!info) return 0;
-    try {
-      return (await getHighlightCount(info.wc)) ?? 0;
-    } catch (err) {
-      logger.warn("Failed to get active highlight count:", err);
-      return 0;
-    }
-  };
-
-  const emitHighlightCount = async (): Promise<void> => {
-    const count = await getActiveHighlightCountSafe();
-    sendToRendererViews(Channels.HIGHLIGHT_COUNT_UPDATE, count);
-  };
-
-  const applySettingChange = async <K extends keyof VesselSettings>(
-    key: K,
-    value: VesselSettings[K],
-  ): Promise<VesselSettings> => {
-    const updatedSettings = setSetting(key, value);
-    trackSettingChanged(key);
-    if (key === "approvalMode") {
-      runtime.setApprovalMode(value as ApprovalMode);
-    }
-    if (key === "mcpPort") {
-      await stopMcpServer();
-      await startMcpServer(tabManager, runtime, updatedSettings.mcpPort);
-    }
-    if (key === "chatProvider" && researchOrchestrator) {
-      try {
-        researchOrchestrator.setProvider(createProvider(value as Parameters<typeof createProvider>[0]));
-      } catch {
-        // Provider config is invalid — keep the current provider so
-        // an in-progress research session can finish.
-      }
-    }
-    const rendererSettings = getRendererSettings();
-    sendToRendererViews(Channels.SETTINGS_UPDATE, rendererSettings);
-    return rendererSettings;
-  };
-
-  runtime.setUpdateListener((state: AgentRuntimeState) => {
-    scheduleRuntimeUpdate(state);
-  });
-
-  onRuntimeHealthChange((health) => {
-    sendToRendererViews(Channels.SETTINGS_HEALTH_UPDATE, health);
-  });
-
-  onAIStreamIdle(() => {
-    sendToRendererViews(Channels.AI_STREAM_IDLE);
-  });
-
-  // --- Tab handlers ---
-
-  ipcMain.handle(Channels.TAB_CREATE, (event, url?: string) => {
-    requireTrusted(event);
-    const id = tabManager.createTab(url || loadSettings().defaultUrl);
-    layoutViews(windowState);
-    return id;
-  });
-
-  ipcMain.handle(Channels.TAB_CLOSE, (event, id: string) => {
-    requireTrusted(event);
-    tabManager.closeTab(id);
-    layoutViews(windowState);
-  });
-
-  ipcMain.handle(Channels.TAB_SWITCH, (event, id: string) => {
-    requireTrusted(event);
-    tabManager.switchTab(id);
-    layoutViews(windowState);
-  });
-
-  ipcMain.handle(
-    Channels.TAB_NAVIGATE,
-    (event, id: string, url: string, postBody?: Record<string, string>) => {
-      requireTrusted(event);
-      assertString(id, "tabId");
-      assertString(url, "url");
-      return tabManager.navigateTab(id, url, postBody);
-    },
+  // --- Domain-specific IPC handlers ---
+  registerTabHandlers(windowState, sendToRendererViews);
+  registerAIHandlers(tabManager, runtime, sendToRendererViews, getResearchOrchestrator);
+  registerContentHandlers(windowState);
+  registerHighlightHandlers(windowState, sendToRendererViews);
+  registerAgentRuntimeHandlers(
+    runtime,
+    chromeView.webContents,
+    sidebarView.webContents,
+    sendToRendererViews,
   );
 
-  ipcMain.handle(Channels.TAB_BACK, (event, id: string) => {
-    requireTrusted(event);
-    tabManager.goBack(id);
-  });
-
-  ipcMain.handle(Channels.TAB_FORWARD, (event, id: string) => {
-    requireTrusted(event);
-    tabManager.goForward(id);
-  });
-
-  ipcMain.handle(Channels.TAB_RELOAD, (event, id: string) => {
-    requireTrusted(event);
-    tabManager.reloadTab(id);
-  });
-
-  ipcMain.handle(Channels.TAB_TOGGLE_AD_BLOCK, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    const tab = tabManager.getTab(id);
-    if (!tab) return null;
-    const newState = !tab.state.adBlockingEnabled;
-    tab.setAdBlockingEnabled(newState);
-    return newState;
-  });
-
-  ipcMain.handle(Channels.TAB_ZOOM_IN, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    tabManager.zoomIn(id);
-  });
-
-  ipcMain.handle(Channels.TAB_ZOOM_OUT, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    tabManager.zoomOut(id);
-  });
-
-  ipcMain.handle(Channels.TAB_ZOOM_RESET, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    tabManager.zoomReset(id);
-  });
-
-  ipcMain.handle(Channels.TAB_REOPEN_CLOSED, (event) => {
-    requireTrusted(event);
-    const id = tabManager.reopenClosedTab();
-    if (id) layoutViews(windowState);
-    return id;
-  });
-
-  ipcMain.handle(Channels.TAB_DUPLICATE, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    const newId = tabManager.duplicateTab(id);
-    if (newId) layoutViews(windowState);
-    return newId;
-  });
-
-  ipcMain.handle(Channels.TAB_PIN, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    tabManager.pinTab(id);
-  });
-
-  ipcMain.handle(Channels.TAB_UNPIN, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    tabManager.unpinTab(id);
-  });
-
-  ipcMain.handle(Channels.TAB_GROUP_CREATE, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    return tabManager.createGroupFromTab(id);
-  });
-
-  ipcMain.handle(Channels.TAB_GROUP_ADD_TAB, (event, id: string, groupId: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    assertString(groupId, "groupId");
-    tabManager.assignTabToGroup(id, groupId);
-  });
-
-  ipcMain.handle(Channels.TAB_GROUP_REMOVE_TAB, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    tabManager.removeTabFromGroup(id);
-  });
-
-  ipcMain.handle(Channels.TAB_GROUP_TOGGLE_COLLAPSED, (event, groupId: string) => {
-    requireTrusted(event);
-    assertString(groupId, "groupId");
-    return tabManager.toggleGroupCollapsed(groupId);
-  });
-
-  ipcMain.handle(
-    Channels.TAB_GROUP_SET_COLOR,
-    (event, groupId: string, color: TabGroupColor) => {
-      requireTrusted(event);
-      assertString(groupId, "groupId");
-      assertString(color, "color");
-      tabManager.setGroupColor(groupId, color);
-    },
-  );
-
-  ipcMain.handle(Channels.TAB_TOGGLE_MUTE, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    return tabManager.toggleMuted(id);
-  });
-
-  ipcMain.handle(Channels.TAB_PRINT, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    tabManager.printTab(id);
-  });
-
-  ipcMain.handle(Channels.TAB_PRINT_TO_PDF, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    return tabManager.saveTabAsPdf(id);
-  });
-
-  ipcMain.on(Channels.TAB_CONTEXT_MENU, (event, id: string) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    showTabContextMenu(tabManager, id, mainWindow, () => layoutViews(windowState));
-  });
-
-  ipcMain.on(Channels.TAB_GROUP_CONTEXT_MENU, (event, groupId: string) => {
-    requireTrusted(event);
-    assertString(groupId, "groupId");
-    showGroupContextMenu(tabManager, groupId, mainWindow);
-  });
-
-  ipcMain.handle(Channels.TAB_STATE_GET, (event) => {
-    requireTrusted(event);
-    return {
-      tabs: tabManager.getAllStates(),
-      activeId: tabManager.getActiveTabId() || "",
-    };
-  });
-
-  // --- AI handlers ---
-
-  ipcMain.handle(Channels.AI_QUERY, async (event, query: string, history?: AIMessage[]) => {
-    requireTrusted(event);
-    const settings = loadSettings();
-    const chatConfig = settings.chatProvider;
-
-    if (!chatConfig) {
-      sendToRendererViews(Channels.AI_STREAM_START, query);
-      sendToRendererViews(
-        Channels.AI_STREAM_CHUNK,
-        "Chat provider not configured. Open Settings (Ctrl+,) to choose a provider.",
-      );
-      sendToRendererViews(Channels.AI_STREAM_END, "failed");
-      return { accepted: true as const };
-    }
-
-    if (!tryBeginAIStream("manual")) {
-      return { accepted: false as const, reason: "busy" as const };
-    }
-
-    sendToRendererViews(Channels.AI_STREAM_START, query);
-
-    // Fire-and-forget: run the stream in the background so the IPC call
-    // resolves immediately and the renderer can clear the input field.
-    (async () => {
-      try {
-        activeChatProvider = createProvider(chatConfig);
-        trackProviderConfigured(chatConfig.id);
-        const activeTab = tabManager.getActiveTab();
-        await handleAIQuery(
-          query,
-          activeChatProvider,
-          activeTab?.view.webContents,
-          (chunk) => sendToRendererViews(Channels.AI_STREAM_CHUNK, chunk),
-          () => sendToRendererViews(Channels.AI_STREAM_END, "completed"),
-          tabManager,
-          runtime,
-          compactProviderHistory(history),
-          researchOrchestrator,
-        );
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        sendToRendererViews(Channels.AI_STREAM_CHUNK, `\n[Error: ${msg}]`);
-        sendToRendererViews(Channels.AI_STREAM_END, "failed");
-      } finally {
-        activeChatProvider = null;
-        endAIStream("manual");
-      }
-    })();
-
-    return { accepted: true as const };
-  });
-
-  ipcMain.handle(Channels.AI_CANCEL, (event) => {
-    requireTrusted(event);
-    activeChatProvider?.cancel();
-  });
-
-  ipcMain.handle(Channels.AI_FETCH_MODELS, async (event, config: unknown) => {
-    requireTrusted(event);
-    try {
-      if (!config || typeof config !== "object" || !("id" in config)) {
-        return errorResult("Invalid provider configuration", { models: [] });
-      }
-      return await fetchProviderModels(
-        config as Parameters<typeof fetchProviderModels>[0],
-      );
-    } catch (err: unknown) {
-      return errorResult(getErrorMessage(err), { models: [] });
-    }
-  });
-
-  // --- Content handlers ---
-
-  ipcMain.handle(Channels.CONTENT_EXTRACT, async (event) => {
-    requireTrusted(event);
-    const activeTab = tabManager.getActiveTab();
-    if (!activeTab) return null;
-    return extractContent(activeTab.view.webContents);
-  });
-
-  ipcMain.handle(Channels.READER_MODE_TOGGLE, async (event) => {
-    requireTrusted(event);
-    const activeTab = tabManager.getActiveTab();
-    if (!activeTab) return;
-
-    if (activeTab.state.isReaderMode) {
-      const originalUrl = activeTab.readerOriginalUrl;
-      activeTab.setReaderMode(false);
-      if (originalUrl) {
-        void loadPermittedNavigationURL(activeTab.view.webContents, originalUrl);
-      }
-    } else {
-      const originalUrl = activeTab.state.url;
-      const content = await extractContent(activeTab.view.webContents);
-      const html = generateReaderHTML(content);
-      activeTab.setReaderMode(true, originalUrl);
-      void loadInternalDataURL(
-        activeTab.view.webContents,
-        `data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
-      );
-    }
-  });
-
-  ipcMain.handle(Channels.FOCUS_MODE_TOGGLE, (event) => {
-    requireTrusted(event);
-    windowState.uiState.focusMode = !windowState.uiState.focusMode;
-    layoutViews(windowState);
-    return windowState.uiState.focusMode;
-  });
-
-  // --- Settings handlers ---
-
-  ipcMain.handle(Channels.SETTINGS_GET, (event) => {
-    requireTrusted(event);
-    return getRendererSettings();
-  });
-
-  ipcMain.handle(Channels.SETTINGS_HEALTH_GET, (event) => {
-    requireTrusted(event);
-    return getRuntimeHealth();
-  });
-
-  ipcMain.handle(Channels.MCP_REGENERATE_TOKEN, (event) => {
-    requireTrusted(event);
-    return regenerateMcpAuthToken();
-  });
-
-  ipcMain.handle(Channels.SUPPORT_SUBMIT_FEEDBACK, async (event, email: string, message: string) => {
-    requireTrusted(event);
-    assertString(email, "email");
-    assertString(message, "message");
-    return submitFeedback({ email, message, source: "settings_account" });
-  });
-
-  ipcMain.handle(Channels.SETTINGS_SET, async (event, key: string, value: unknown) => {
-    requireTrusted(event);
-    assertString(key, "key");
-    if (!SETTABLE_KEYS.has(key)) {
-      throw new Error(`Unknown setting key: ${key}`);
-    }
-    const settingsKey = key as keyof VesselSettings;
-    return applySettingChange(settingsKey, value as VesselSettings[typeof settingsKey]);
-  });
-
-  // --- Agent runtime handlers ---
-
-  ipcMain.handle(Channels.AGENT_RUNTIME_GET, (event) => {
-    requireTrusted(event);
-    return runtime.getState();
-  });
-
-  ipcMain.handle(Channels.AGENT_PAUSE, (event) => { requireTrusted(event); return runtime.pause(); });
-
-  ipcMain.handle(Channels.AGENT_RESUME, (event) => { requireTrusted(event); return runtime.resume(); });
-
-  ipcMain.handle(
-    Channels.AGENT_SET_APPROVAL_MODE,
-    (event, mode: ApprovalMode): AgentRuntimeState => {
-      requireTrusted(event);
-      assertString(mode, "mode");
-      if (!VALID_APPROVAL_MODES.includes(mode as ValidApprovalMode)) {
-        throw new Error(`Invalid approval mode: ${mode}`);
-      }
-      trackApprovalModeChanged(mode);
-      setSetting("approvalMode", mode);
-      return runtime.setApprovalMode(mode);
-    },
-  );
-
-  ipcMain.handle(
-    Channels.AGENT_APPROVAL_RESOLVE,
-    (event, approvalId: string, approved: boolean) => {
-      requireTrusted(event);
-      return runtime.resolveApproval(approvalId, approved);
-    },
-  );
-
-  ipcMain.handle(
-    Channels.AGENT_CHECKPOINT_CREATE,
-    (event, name?: string, note?: string) => {
-      requireTrusted(event);
-      return runtime.createCheckpoint(name, note);
-    },
-  );
-
-  ipcMain.handle(Channels.AGENT_CHECKPOINT_RESTORE, (event, checkpointId: string) => {
-    requireTrusted(event);
-    return runtime.restoreCheckpoint(checkpointId);
-  });
-
-  ipcMain.handle(Channels.AGENT_CHECKPOINT_UPDATE_NOTE, (event, checkpointId: string, note?: string) => {
-    requireTrusted(event);
-    return runtime.updateCheckpointNote(checkpointId, note || "");
-  });
-
-  ipcMain.handle(Channels.AGENT_UNDO_LAST_ACTION, (event) => {
-    requireTrusted(event);
-    return runtime.undoLastAction();
-  });
-
-  ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (event, note?: string) => {
-    requireTrusted(event);
-    return runtime.captureSession(note);
-  });
-
-  ipcMain.handle(
-    Channels.AGENT_SESSION_RESTORE,
-    (event, snapshot?: SessionSnapshot | null) => {
-      requireTrusted(event);
-      return runtime.restoreSession(snapshot);
-    },
+  const applySettingChange = registerSettingsHandlers(
+    tabManager,
+    runtime,
+    sendToRendererViews,
+    getExistingResearchOrchestrator,
   );
 
   registerBookmarkHandlers();
-
-  // --- Highlight capture (user Ctrl+H) ---
-
-  // Handle capture from chrome keybinding (when chrome view has focus)
-  ipcMain.handle(Channels.HIGHLIGHT_CAPTURE, async (event) => {
-    requireTrusted(event);
-    try {
-      const activeTab = tabManager.getActiveTab();
-      if (!activeTab) {
-        return { success: false, message: "No active tab" };
-      }
-      const wc = activeTab.view.webContents;
-      const result = await captureSelectionHighlight(wc);
-      if (result.success && result.text) {
-        await highlightOnPage(wc, null, result.text, undefined, undefined, "yellow").catch((err) =>
-          logger.warn("Failed to highlight captured selection:", err),
-        );
-        await emitHighlightCount();
-      }
-      return result;
-    } catch (err) {
-      logger.warn("Failed to capture highlight from active tab:", err);
-      return { success: false, message: "Could not capture selection" };
-    }
-  });
-
-  // Forward context-menu highlight captures to the chrome view for toast
-  tabManager.onHighlightCapture((result) => {
-    if (result.success) {
-      void emitHighlightCount();
-    }
-    if (!chromeView.webContents.isDestroyed()) {
-      chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
-    }
-  });
-
-  // Handle auto-highlight selections from highlight mode (sent from page via preload)
-  // Visual marking is already done in-page by the mouseup handler — this just persists
-  ipcMain.on(Channels.HIGHLIGHT_SELECTION, (event, text: string) => {
-    try {
-      const wc = event.sender;
-      if (wc.isDestroyed()) return;
-
-      const tab = tabManager.findTabByWebContentsId(wc.id);
-      if (!tab || !tab.highlightModeActive) return;
-
-      void persistAndMarkHighlight(wc, text).then((result) => {
-        if (result.success && !chromeView.webContents.isDestroyed()) {
-          void emitHighlightCount();
-          chromeView.webContents.send(Channels.HIGHLIGHT_CAPTURE_RESULT, result);
-        }
-      });
-    } catch (err) {
-      logger.warn("Failed to persist auto-highlight selection:", err);
-    }
-  });
-
-  // --- Highlight navigation ---
-
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_COUNT, (event) => {
-    requireTrusted(event);
-    return getActiveHighlightCountSafe();
-  });
-
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (event, index: number) => {
-    requireTrusted(event);
-    const info = getActiveTabInfo(tabManager);
-    if (!info) return false;
-    try {
-      return scrollToHighlight(info.wc, index);
-    } catch (err) {
-      logger.warn("Failed to scroll to highlight:", err);
-      return false;
-    }
-  });
-
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (event, index: number) => {
-    requireTrusted(event);
-    const info = getActiveTabInfo(tabManager);
-    if (!info) return false;
-    try {
-      const removed = await removeHighlightAtIndex(info.wc, index);
-      if (removed) {
-        await emitHighlightCount();
-      }
-      return removed;
-    } catch (err) {
-      logger.warn("Failed to remove highlight at index:", err);
-      return false;
-    }
-  });
-
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_CLEAR, async (event) => {
-    requireTrusted(event);
-    const info = getActiveTabInfo(tabManager);
-    if (!info) return false;
-    try {
-      const cleared = await clearAllHighlightElements(info.wc);
-      if (cleared) {
-        await emitHighlightCount();
-      }
-      return cleared;
-    } catch (err) {
-      logger.warn("Failed to clear highlight elements:", err);
-      return false;
-    }
-  });
-
-  // --- Find in page ---
-
-  const findBridge = createFindInPageBridge(tabManager, chromeView);
-
-  ipcMain.handle(Channels.FIND_IN_PAGE_START, (event, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
-    requireTrusted(event);
-    return findBridge.start(text, options);
-  });
-
-  ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (event, forward?: boolean) => {
-    requireTrusted(event);
-    return findBridge.next(forward);
-  });
-
-  ipcMain.handle(Channels.FIND_IN_PAGE_STOP, (event, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
-    requireTrusted(event);
-    findBridge.stop(action);
-  });
-
   registerHistoryHandlers();
-
-  // --- DevTools panel ---
-
-  ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, (event) => {
-    requireTrusted(event);
-    windowState.uiState.devtoolsPanelOpen = !windowState.uiState.devtoolsPanelOpen;
-    layoutViews(windowState);
-    return { open: windowState.uiState.devtoolsPanelOpen };
-  });
-
-  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE, (event, height: number) => {
-    requireTrusted(event);
-    const clamped = Math.max(MIN_DEVTOOLS_PANEL, Math.min(MAX_DEVTOOLS_PANEL, Math.round(height)));
-    windowState.uiState.devtoolsPanelHeight = clamped;
-    layoutViews(windowState);
-    return clamped;
-  });
-
-  // --- Security indicator ---
-
-  registerSecurityHandlers(tabManager);
-
-  // --- Premium subscription ---
-
   registerPremiumHandlers(tabManager, sendToRendererViews);
-
-  // --- Named sessions ---
-
   registerSessionHandlers(tabManager);
-
-  registerVaultHandlers();
-
-  registerHumanVaultHandlers();
-
-  registerWindowControlHandlers(mainWindow);
-
+  registerSecurityHandlers(tabManager);
   registerCodexHandlers();
   registerOpenRouterHandlers(applySettingChange);
-  registerSidebarHandlers(windowState, requireTrusted);
-
-  // --- Automation kits ---
-
-  ipcMain.handle(Channels.AUTOMATION_GET_INSTALLED, (event) => {
-    requireTrusted(event);
-    return getInstalledKits();
-  });
-
-  ipcMain.handle(Channels.AUTOMATION_INSTALL_FROM_FILE, async (event) => {
-    requireTrusted(event);
-    return await installKitFromFile();
-  });
-
-  ipcMain.handle(Channels.AUTOMATION_UNINSTALL, (event, id: unknown) => {
-    requireTrusted(event);
-    assertString(id, "id");
-    return uninstallKit(id, getScheduledKitIds());
-  });
-
-  // --- Scheduled jobs ---
-
-  registerScheduleHandlers(windowState, runtime, sendToRendererViews);
-
+  registerSidebarHandlers(windowState, (event) => assertTrustedIpcSender(event));
+  registerVaultHandlers();
+  registerHumanVaultHandlers();
+  registerWindowControlHandlers(mainWindow);
   registerAutofillHandlers(windowState);
   registerPageDiffHandlers(windowState, sendToRendererViews);
-
-  // Research Desk handlers
   registerResearchHandlers(() => getResearchOrchestrator());
-
-  // --- Clear browsing data ---
-
-  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (event, options: ClearDataOptions) => {
-    requireTrusted(event);
-    const { cache, cookies, history, localStorage: clearLs, timeRange } = options;
-
-    // Note: cache and cookies/storage clearing ignore timeRange — Electron's
-    // APIs don't support time-range filtering for these. Only history respects it.
-    if (cache) {
-      await session.defaultSession.clearCache();
-    }
-
-    const storages: Array<"cookies" | "localstorage"> = [];
-    if (cookies) storages.push("cookies");
-    if (clearLs) storages.push("localstorage");
-
-    if (storages.length > 0) {
-      await session.defaultSession.clearStorageData({ storages });
-    }
-
-    if (history) {
-      clearByTimeRange(timeRange);
-    }
-  });
-
-  // --- Picture-in-Picture ---
-
-  setDownloadBroadcaster(sendToRendererViews);
-  setPermissionBroadcaster(sendToRendererViews);
-  ipcMain.handle(Channels.DOWNLOADS_GET, (event) => {
-    requireTrusted(event);
-    return listDownloads();
-  });
-  ipcMain.handle(Channels.DOWNLOADS_CLEAR, (event) => {
-    requireTrusted(event);
-    clearDownloads();
-    return true;
-  });
-  ipcMain.handle(Channels.DOWNLOADS_OPEN, (event, id: string) => { requireTrusted(event); return openDownload(id); });
-  ipcMain.handle(Channels.DOWNLOADS_SHOW_IN_FOLDER, (event, id: string) => { requireTrusted(event); return showDownloadInFolder(id); });
-  ipcMain.handle(Channels.PERMISSIONS_GET, (event) => {
-    requireTrusted(event);
-    return listPermissions();
-  });
-  ipcMain.handle(Channels.PERMISSIONS_CLEAR, (event) => {
-    requireTrusted(event);
-    clearPermissions();
-    return true;
-  });
-  ipcMain.handle(Channels.PERMISSIONS_CLEAR_ORIGIN, (event, origin: string) => {
-    requireTrusted(event);
-    clearPermissionsForOrigin(origin);
-    return true;
-  });
-
-  ipcMain.handle(Channels.UPDATES_CHECK, (event) => {
-    requireTrusted(event);
-    return checkForUpdates();
-  });
-  ipcMain.handle(Channels.UPDATES_OPEN_DOWNLOAD, (event) => { requireTrusted(event); return openUpdateDownload(); });
-
-  ipcMain.handle(Channels.TAB_TOGGLE_PIP, async (event) => {
-    requireTrusted(event);
-    return togglePictureInPicture(tabManager);
-  });
+  registerScheduleHandlers(windowState, runtime, sendToRendererViews);
+  registerSystemHandlers(windowState, sendToRendererViews);
 }

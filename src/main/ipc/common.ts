@@ -1,6 +1,7 @@
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import type { Tab } from "../tabs/tab";
 import type { WebContents } from "electron";
+import { z } from "zod";
 
 const trustedIpcSenderIds = new Set<number>();
 
@@ -22,6 +23,24 @@ export function isManagedTabIpcSender(
   tabManager: { findTabByWebContentsId(webContentsId: number): unknown },
 ): boolean {
   return Boolean(tabManager.findTabByWebContentsId(event.sender.id));
+}
+
+/**
+ * Parse an IPC payload with a Zod schema. Throws a clean error on invalid input.
+ */
+export function parseIpc<T>(
+  schema: z.ZodSchema<T>,
+  value: unknown,
+  label?: string,
+): T {
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    const message = result.error.issues.map((i) => i.message).join("; ");
+    throw new Error(
+      label ? `Invalid ${label}: ${message}` : `Invalid input: ${message}`,
+    );
+  }
+  return result.data;
 }
 
 export function assertString(
@@ -78,3 +97,20 @@ export type SendToRendererViews = (
   channel: string,
   ...args: unknown[]
 ) => void;
+
+/**
+ * Safely send an IPC message to a WebContents if it exists and is not destroyed.
+ * Logs a debug warning if the target is destroyed.
+ */
+export function sendSafe(
+  wc: WebContents | undefined,
+  channel: string,
+  ...args: unknown[]
+): void {
+  if (!wc || wc.isDestroyed()) return;
+  try {
+    wc.send(channel, ...args);
+  } catch {
+    // Swallow — sender may have been destroyed between check and send
+  }
+}

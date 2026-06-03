@@ -6,6 +6,7 @@ import { trackExtractionFailed } from "../telemetry/posthog";
 import { selectorHelpersJS } from "../../shared/dom/selector-helpers-js";
 import { inferPageSchema } from "../../shared/page-schema";
 import { createLogger } from "../../shared/logger";
+import { BoundedCache } from "./bounded-cache";
 import {
   DEFAULT_PAGE_SCRIPT_TIMEOUT_MS,
   EXTRACT_SCRIPT_TIMEOUT_MS,
@@ -17,18 +18,13 @@ const logger = createLogger("Extractor");
 const EXTRACTION_CACHE_TTL_MS = 1500;
 const MAX_EXTRACTION_CACHE_ENTRIES = 50;
 
-const extractionCache = new Map<
-  string,
-  { capturedAt: number; content: PageContent }
->();
+const extractionCache = new BoundedCache<PageContent>(
+  EXTRACTION_CACHE_TTL_MS,
+  MAX_EXTRACTION_CACHE_ENTRIES,
+);
 
 export function invalidateExtractionCache(webContents: WebContents): void {
-  const prefix = `${webContents.id}:`;
-  for (const key of extractionCache.keys()) {
-    if (key.startsWith(prefix)) {
-      extractionCache.delete(key);
-    }
-  }
+  extractionCache.invalidateByPrefix(`${webContents.id}:`);
 }
 
 const EMPTY_PAGE_CONTENT: PageContent = {
@@ -1003,8 +999,8 @@ export async function extractContent(
 ): Promise<PageContent> {
   const cacheKey = `${webContents.id}:${webContents.getURL() || ""}`;
   const cached = extractionCache.get(cacheKey);
-  if (cached && Date.now() - cached.capturedAt < EXTRACTION_CACHE_TTL_MS) {
-    return structuredClone(cached.content);
+  if (cached) {
+    return structuredClone(cached);
   }
 
   try {
@@ -1018,14 +1014,7 @@ export async function extractContent(
         ),
       ),
     ]);
-    extractionCache.set(cacheKey, {
-      capturedAt: Date.now(),
-      content: structuredClone(content),
-    });
-    if (extractionCache.size > MAX_EXTRACTION_CACHE_ENTRIES) {
-      const oldestKey = extractionCache.keys().next().value;
-      if (oldestKey) extractionCache.delete(oldestKey);
-    }
+    extractionCache.set(cacheKey, structuredClone(content));
     return content;
   } catch (err) {
     const url = webContents.getURL() || "";

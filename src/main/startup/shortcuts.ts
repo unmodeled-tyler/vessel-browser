@@ -12,6 +12,7 @@ export function registerHighlightShortcut(
   mainWindow: Electron.BrowserWindow,
   tabManager: TabManager,
 ): () => void {
+  let warnedUnavailable = false;
   const register = () => {
     globalShortcut.unregister("CommandOrControl+H");
     const success = globalShortcut.register("CommandOrControl+H", () => {
@@ -19,8 +20,11 @@ export function registerHighlightShortcut(
       if (!activeTab) return;
       tabManager.captureHighlightFromActiveTab();
     });
-    if (!success) {
-      logger.warn("Failed to register Ctrl+H shortcut");
+    if (!success && !warnedUnavailable) {
+      warnedUnavailable = true;
+      logger.warn(
+        "Ctrl+H global shortcut unavailable; another app or the OS may already own it.",
+      );
     }
   };
 
