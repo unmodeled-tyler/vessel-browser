@@ -65,6 +65,26 @@ test("tool name resolution maps hallucinated google calls onto search", () => {
   );
 });
 
+test("tool name resolution repairs repeated available tool names", () => {
+  assert.equal(
+    resolveToolCallName(
+      "highlighthighlighthighlighthighlighthighlight",
+      { text: "Sale price" },
+      new Set(["highlight", "clear_highlights", "read_page"]),
+    ),
+    "highlight",
+  );
+
+  assert.equal(
+    resolveToolCallName(
+      "clear_highlightsclear_highlights",
+      {},
+      new Set(["highlight", "clear_highlights", "read_page"]),
+    ),
+    "clear_highlights",
+  );
+});
+
 test("tool arg coercion and signatures normalize search and navigate variants", () => {
   assert.deepEqual(
     coerceToolArgsForExecution("search", { text: "best sellers" }),

@@ -15,6 +15,25 @@ function normalizeToolToken(value: string): string {
   return value.trim().toLowerCase().replace(/[.\s/-]+/g, '_');
 }
 
+function repeatedToolTokenMatch(value: string, token: string): boolean {
+  if (value === token) return true;
+  if (token.length === 0 || value.length <= token.length) return false;
+  if (value.length % token.length !== 0) return false;
+  return token.repeat(value.length / token.length) === value;
+}
+
+function resolveRepeatedAvailableToolName(
+  normalized: string,
+  availableToolNames: Set<string>,
+): string | null {
+  for (const toolName of availableToolNames) {
+    if (repeatedToolTokenMatch(normalized, normalizeToolToken(toolName))) {
+      return toolName;
+    }
+  }
+  return null;
+}
+
 function canonicalizeUrlLike(value: string): string {
   try {
     const url = new URL(value.trim());
@@ -342,6 +361,12 @@ export function resolveToolCallName(
 
   const normalized = normalizeToolToken(rawName);
   if (availableToolNames.has(normalized)) return normalized;
+
+  const repeatedAvailableName = resolveRepeatedAvailableToolName(
+    normalized,
+    availableToolNames,
+  );
+  if (repeatedAvailableName) return repeatedAvailableName;
 
   const hasUrl = typeof args.url === 'string' && args.url.trim().length > 0;
   if (
