@@ -30,7 +30,11 @@ const SecurityPopup: Component<SecurityPopupProps> = (props) => {
   );
 
   const loadPermissions = async () => {
-    try { setPermissions(await window.vessel.permissions.getAll()); } catch {}
+    try {
+      setPermissions(await window.vessel.permissions.getAll());
+    } catch (err) {
+      console.warn("Failed to load permissions:", err);
+    }
   };
 
   const handleLearnMore = () => {

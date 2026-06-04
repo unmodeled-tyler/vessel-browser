@@ -56,6 +56,10 @@ let settingsIssues: RuntimeHealthIssue[] = [];
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let saveDirty = false;
 
+function isMissingFileError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+}
+
 function getUserDataPath(): string {
   if (typeof app?.getPath === "function") {
     return app.getPath("userData");
@@ -79,7 +83,8 @@ type StoredProviderSecret = {
 function canUseSafeStorage(): boolean {
   try {
     return safeStorage.isEncryptionAvailable();
-  } catch {
+  } catch (err) {
+    logger.warn("safeStorage.isEncryptionAvailable() failed, assuming unavailable:", err);
     return false;
   }
 }
@@ -88,8 +93,8 @@ function writePrivateFile(filePath: string, data: string | Buffer): void {
   fs.writeFileSync(filePath, data, { mode: 0o600 });
   try {
     fs.chmodSync(filePath, 0o600);
-  } catch {
-    // Best effort on platforms/filesystems without POSIX permissions.
+  } catch (err) {
+    logger.debug("Could not chmod private file (non-POSIX filesystem):", err);
   }
 }
 
@@ -113,8 +118,10 @@ function readStoredProviderSecret(): StoredProviderSecret | null {
     ) {
       return parsed;
     }
-  } catch {
-    // Ignore missing or unreadable secrets.
+  } catch (err) {
+    if (!isMissingFileError(err)) {
+      logger.warn("Could not read stored provider secret:", err);
+    }
   }
   return null;
 }
@@ -131,8 +138,10 @@ function writeStoredProviderSecret(secret: StoredProviderSecret): void {
 function clearStoredProviderSecret(): void {
   try {
     fs.unlinkSync(getChatProviderSecretPath());
-  } catch {
-    // Secret file may not exist.
+  } catch (err) {
+    if (!isMissingFileError(err)) {
+      logger.warn("Could not delete provider secret file:", err);
+    }
   }
 }
 
@@ -154,8 +163,10 @@ export function readStoredCodexTokens(): CodexOAuthTokens | null {
     ) {
       return parsed;
     }
-  } catch {
-    // Ignore missing or unreadable tokens.
+  } catch (err) {
+    if (!isMissingFileError(err)) {
+      logger.warn("Could not read stored Codex tokens:", err);
+    }
   }
   return null;
 }
@@ -172,8 +183,10 @@ export function writeStoredCodexTokens(tokens: CodexOAuthTokens): void {
 export function clearStoredCodexTokens(): void {
   try {
     fs.unlinkSync(getCodexTokensPath());
-  } catch {
-    // Token file may not exist.
+  } catch (err) {
+    if (!isMissingFileError(err)) {
+      logger.warn("Could not delete Codex token file:", err);
+    }
   }
 }
 

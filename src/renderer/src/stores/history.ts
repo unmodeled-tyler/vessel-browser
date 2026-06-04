@@ -40,10 +40,15 @@ export function useHistory() {
   void init();
   const loadMore = async (limit = HISTORY_PAGE_SIZE): Promise<HistoryPage> => {
     const current = historyState().entries;
-    const page = await window.vessel.history.list(current.length, limit);
-    setHistoryState({ entries: [...current, ...page.entries] });
-    setHistoryTotal(page.total);
-    return page;
+    try {
+      const page = await window.vessel.history.list(current.length, limit);
+      setHistoryState({ entries: [...current, ...page.entries] });
+      setHistoryTotal(page.total);
+      return page;
+    } catch (err) {
+      logger.error("Failed to load more history entries:", err);
+      return { entries: [], total: historyTotal() };
+    }
   };
 
   return {

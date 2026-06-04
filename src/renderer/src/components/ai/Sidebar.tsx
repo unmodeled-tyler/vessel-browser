@@ -2638,8 +2638,8 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                     cx="6"
                     cy="6"
                     r="3"
-                    fill="rgba(196, 160, 90, 0.6)"
-                    stroke="rgba(196, 160, 90, 0.9)"
+                    fill="var(--accent-primary)"
+                    stroke="var(--accent-primary)"
                     stroke-width="1"
                   />
                 </svg>
