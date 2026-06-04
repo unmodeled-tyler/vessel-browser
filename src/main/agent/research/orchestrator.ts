@@ -11,7 +11,6 @@ import type {
   SourcedClaim,
   ResearchThreadProgressStatus,
 } from "../../../shared/research-types";
-import { buildOrchestratorSystemPrompt } from "./orchestrator-prompt";
 import { buildSubAgentSystemPrompt } from "./sub-agent-prompt";
 import { buildSynthesisPrompt } from "./synthesis-prompt";
 import type { AIProvider } from "../../ai/provider";

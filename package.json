@@ -42,6 +42,10 @@
     "deps:check": "npm outdated",
     "release:checksums": "node scripts/generate-checksums.mjs",
     "prepublishOnly": "npm run build",
+    "lint": "eslint src/main/ai/scripts eslint.config.mjs --config eslint.config.mjs",
+    "lint:fix": "eslint src/main/ai/scripts eslint.config.mjs --config eslint.config.mjs --fix",
+    "format": "prettier --write \"src/main/ai/scripts/**/*.ts\" \".prettierrc\" \"eslint.config.mjs\"",
+    "format:check": "prettier --check \"src/main/ai/scripts/**/*.ts\" \".prettierrc\" \"eslint.config.mjs\"",
     "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
     "test:mcp-proxy": "node scripts/test-mcp-stdio-proxy.mjs",
     "smoke:test": "node scripts/smoke-test.mjs",
@@ -77,17 +81,22 @@
     "electron": ">=30.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^25.9.1",
     "c8": "^11.0.0",
     "electron": "^42.3.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
     "knip": "^6.14.2",
     "linkedom": "^0.18.12",
     "lucide-solid": "^1.17.0",
+    "prettier": "^3.8.3",
     "solid-js": "^1.9.13",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1",
     "vite-plugin-solid": "^2.11.12"
   },
   "dependencies": {

@@ -1,8 +1,7 @@
-import { app, ipcMain } from "electron";
 import { Channels } from "../../shared/channels";
 import { loadSettings } from "../config/settings";
 import { createProvider } from "../ai/provider";
-import { layoutViews, type WindowState } from "../window";
+import { type WindowState } from "../window";
 import {
   assertTrustedIpcSender,
   registerTrustedIpcSender,
