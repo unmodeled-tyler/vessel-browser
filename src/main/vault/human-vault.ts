@@ -28,7 +28,7 @@ const KEY_FILENAME = "vessel-human-vault.key";
 const AUDIT_MAX_ENTRIES = 2000;
 
 const { encrypt, decrypt } = createEncryptDecrypt(KEY_FILENAME);
-const { loadVault, saveVault, resetCache } = createVaultIO<HumanCredentialEntry>(
+const { loadVault, saveVault } = createVaultIO<HumanCredentialEntry>(
   VAULT_FILENAME,
   encrypt,
   decrypt,

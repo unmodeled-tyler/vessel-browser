@@ -26,7 +26,7 @@ const VAULT_FILENAME = "vessel-vault.enc";
 const KEY_FILENAME = "vessel-vault.key";
 
 const { encrypt, decrypt } = createEncryptDecrypt(KEY_FILENAME);
-const { loadVault, saveVault, resetCache } = createVaultIO<VaultEntry>(
+const { loadVault, saveVault } = createVaultIO<VaultEntry>(
   VAULT_FILENAME,
   encrypt,
   decrypt,

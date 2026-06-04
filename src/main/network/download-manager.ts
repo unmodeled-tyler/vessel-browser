@@ -47,7 +47,7 @@ function parse(raw: unknown): { items: DownloadRecord[] } {
   return { items };
 }
 
-let state = loadJsonFile({ filePath: filePath(), fallback: { items: [] }, parse });
+const state = loadJsonFile({ filePath: filePath(), fallback: { items: [] }, parse });
 const persistence = createDebouncedJsonPersistence({
   debounceMs: 250,
   filePath: filePath(),

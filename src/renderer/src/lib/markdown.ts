@@ -31,7 +31,7 @@ function sanitizeUrl(url: string): string | null {
 
 function applyInlineMarkdown(text: string): string {
   const codeSpans: string[] = [];
-  let withCodeTokens = text.replace(/`([^`]+)`/g, (_, code: string) => {
+  const withCodeTokens = text.replace(/`([^`]+)`/g, (_, code: string) => {
     const token = `\x00CS${codeSpans.length}\x00`;
     codeSpans.push(`<code>${escapeHtml(code)}</code>`);
     return token;
@@ -53,7 +53,7 @@ function applyInlineMarkdown(text: string): string {
   html = html
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-    .replace(/(^|[^\*])\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[^*])\*(?!\s)([^*\n]+?)(?<!\s)\*/g, "$1<em>$2</em>")
     .replace(/(^|[^_])_(?!\s)([^_\n]+?)(?<!\s)_/g, "$1<em>$2</em>");
 
   return codeSpans.reduce(

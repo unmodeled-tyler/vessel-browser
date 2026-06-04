@@ -7,11 +7,11 @@ import { Channels } from "../shared/channels";
 import { SIDEBAR_RESIZE_HANDLE_OVERLAP } from "../shared/sidebar";
 import type { UIState, TabState } from "../shared/types";
 import { capturePageSnapshot } from "./content/page-diff-monitor";
+import { sendSafe } from "./ipc/common";
 import {
   closeDetachedSidebarWindow,
   detachSidebar,
   isSidebarAttached,
-  layoutDetachedSidebar,
   type SidebarPanelHostState,
 } from "./sidebar-panel";
 
@@ -281,8 +281,8 @@ export function createMainWindow(
   const tabManager = new TabManager(mainWindow, onTabStateChange);
 
   const sendToRendererViews = (channel: string, ...args: unknown[]) => {
-    chromeView.webContents.send(channel, ...args);
-    sidebarView.webContents.send(channel, ...args);
+    sendSafe(chromeView.webContents, channel, ...args);
+    sendSafe(sidebarView.webContents, channel, ...args);
   };
 
   tabManager.onPageLoad((url, wc) => {

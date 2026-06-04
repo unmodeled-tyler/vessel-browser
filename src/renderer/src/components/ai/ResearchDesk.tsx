@@ -111,7 +111,7 @@ function extractFollowUpOptions(prompt: string): QuickReplyOption[] {
     // Already handled by explicit bullet extraction
     if (EXPLICIT_OPTION_PREFIX.test(nextLine)) continue;
     // Only extract if the next line looks like a list (delimiters or "or")
-    if (!/[,;\/|]|\bor\b/.test(nextLine)) continue;
+    if (!/[,;/|]|\bor\b/.test(nextLine)) continue;
 
     options.push(...extractDelimitedOptions(nextLine));
   }
@@ -143,7 +143,7 @@ function extractInlineOptions(prompt: string): QuickReplyOption[] {
       continue;
     }
 
-    const hasDelimiters = /[,;\/|]|\bor\b/.test(afterQuestion);
+    const hasDelimiters = /[,;/|]|\bor\b/.test(afterQuestion);
     const hasDashList = /\s+-\s+/.test(afterQuestion);
 
     if (!hasDelimiters && !hasDashList) continue;
@@ -196,7 +196,7 @@ function extractImplicitOptions(prompt: string): QuickReplyOption[] {
     if (SENTENCE_STARTER.test(line)) break;
     // Skip overly long lines (likely a paragraph, not an option),
     // unless they contain clear option delimiters.
-    const hasDelimiters = /[,;\/|]|\bor\b/.test(line);
+    const hasDelimiters = /[,;/|]|\bor\b/.test(line);
     if (line.length > 80 && !hasDelimiters) break;
 
     candidates.push(line);

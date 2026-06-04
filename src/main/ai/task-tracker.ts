@@ -206,19 +206,6 @@ function stepIndexMatching(
   return steps.findIndex((step) => pattern.test(step.label.toLowerCase()));
 }
 
-function activateSpecificStep(
-  state: TaskTrackerState,
-  stepIndex: number,
-): TaskTrackerState {
-  if (stepIndex < 0 || stepIndex >= state.steps.length) return state;
-  return {
-    ...state,
-    steps: setActiveStep(state.steps.map((step) => ({ ...step })), stepIndex),
-    currentStepIndex: stepIndex,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 function finalizeShoppingTracker(
   state: TaskTrackerState,
   detail: string,

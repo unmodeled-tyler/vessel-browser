@@ -606,7 +606,7 @@ const AddressBar: Component<{
             onClick={() => void openDiffTimeline()}
             title="Open the What Changed timeline"
           >
-            <span class="agent-status-dot" style="background: #f59e0b;" aria-hidden="true" />
+            <span class="agent-status-dot" style="background: var(--status-warning-amber);" aria-hidden="true" />
             <span class="agent-status-text">What Changed?</span>
           </button>
         </Show>

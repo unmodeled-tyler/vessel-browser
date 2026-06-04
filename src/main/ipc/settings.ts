@@ -3,7 +3,6 @@ import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import {
   getRendererSettings,
-  loadSettings,
   setSetting,
   SETTABLE_KEYS,
 } from "../config/settings";

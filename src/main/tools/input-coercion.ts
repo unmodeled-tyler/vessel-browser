@@ -54,7 +54,9 @@ export function coerceStringArray(value: unknown): string[] | undefined {
     if (Array.isArray(parsed)) {
       return parsed.map(normalizeArrayItem).filter(Boolean);
     }
-  } catch {}
+  } catch {
+    // Not valid JSON — fall through to line splitting below
+  }
 
   const lines = normalized
     .split(/\r?\n/)

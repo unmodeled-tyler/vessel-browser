@@ -36,6 +36,7 @@ import { getHighlightCount } from "./highlights/inject";
 import type { RuntimeHealthIssue, VesselSettings } from "../shared/types";
 import * as highlightsManager from "./highlights/manager";
 import { createLogger } from "../shared/logger";
+import { sendSafe } from "./ipc/common";
 
 const logger = createLogger("Bootstrap");
 import * as autofillManager from "./autofill/manager";
@@ -157,25 +158,12 @@ async function bootstrap(): Promise<void> {
         count = 0;
       }
     }
-    if (!state.chromeView.webContents.isDestroyed()) {
-      state.chromeView.webContents.send(Channels.HIGHLIGHT_COUNT_UPDATE, count);
-    }
-    if (!state.sidebarView.webContents.isDestroyed()) {
-      state.sidebarView.webContents.send(Channels.HIGHLIGHT_COUNT_UPDATE, count);
-    }
-    if (!state.devtoolsPanelView.webContents.isDestroyed()) {
-      state.devtoolsPanelView.webContents.send(
-        Channels.HIGHLIGHT_COUNT_UPDATE,
-        count,
-      );
-    }
+    sendSafe(state.chromeView.webContents, Channels.HIGHLIGHT_COUNT_UPDATE, count);
+    sendSafe(state.sidebarView.webContents, Channels.HIGHLIGHT_COUNT_UPDATE, count);
+    sendSafe(state.devtoolsPanelView.webContents, Channels.HIGHLIGHT_COUNT_UPDATE, count);
   };
   const windowState = createMainWindow((tabs, activeId, meta) => {
-    windowState.chromeView.webContents.send(
-      Channels.TAB_STATE_UPDATE,
-      tabs,
-      activeId,
-    );
+    sendSafe(windowState.chromeView.webContents, Channels.TAB_STATE_UPDATE, tabs, activeId);
     void syncActiveHighlightCount(windowState);
     layoutViews(windowState);
     if (meta.persistSession) {
@@ -204,21 +192,15 @@ async function bootstrap(): Promise<void> {
 
   // Wire devtools panel state updates to the devtools panel renderer view
   setDevToolsPanelListener((state) => {
-    if (!devtoolsPanelView.webContents.isDestroyed()) {
-      devtoolsPanelView.webContents.send(Channels.DEVTOOLS_PANEL_STATE, state);
-    }
+    sendSafe(devtoolsPanelView.webContents, Channels.DEVTOOLS_PANEL_STATE, state);
   });
 
   registerIpcHandlers(windowState, runtime);
 
   // Wire security state updates to renderer views
   tabManager.onSecurityStateChange((tabId, state) => {
-    if (!chromeView.webContents.isDestroyed()) {
-      chromeView.webContents.send(Channels.SECURITY_STATE_UPDATE, { tabId, state });
-    }
-    if (!sidebarView.webContents.isDestroyed()) {
-      sidebarView.webContents.send(Channels.SECURITY_STATE_UPDATE, { tabId, state });
-    }
+    sendSafe(chromeView.webContents, Channels.SECURITY_STATE_UPDATE, { tabId, state });
+    sendSafe(sidebarView.webContents, Channels.SECURITY_STATE_UPDATE, { tabId, state });
   });
 
   // Register Ctrl+H highlight capture shortcut
@@ -256,9 +238,7 @@ async function bootstrap(): Promise<void> {
       }
     },
     clearBrowsingData: () => {
-      if (!chromeView.webContents.isDestroyed()) {
-        chromeView.webContents.send(Channels.CLEAR_BROWSING_DATA_OPEN);
-      }
+      sendSafe(chromeView.webContents, Channels.CLEAR_BROWSING_DATA_OPEN);
     },
     togglePictureInPicture: () => {
       void togglePictureInPicture(tabManager);
@@ -266,13 +246,13 @@ async function bootstrap(): Promise<void> {
   });
 
   bookmarkManager.subscribe((state) => {
-    chromeView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
-    sidebarView.webContents.send(Channels.BOOKMARKS_UPDATE, state);
+    sendSafe(chromeView.webContents, Channels.BOOKMARKS_UPDATE, state);
+    sendSafe(sidebarView.webContents, Channels.BOOKMARKS_UPDATE, state);
   });
 
   historyManager.subscribe((state) => {
-    chromeView.webContents.send(Channels.HISTORY_UPDATE, state);
-    sidebarView.webContents.send(Channels.HISTORY_UPDATE, state);
+    sendSafe(chromeView.webContents, Channels.HISTORY_UPDATE, state);
+    sendSafe(sidebarView.webContents, Channels.HISTORY_UPDATE, state);
   });
 
   installDownloadHandler(chromeView);

@@ -121,7 +121,7 @@ const ConsoleView: Component<{ entries: ConsoleEntry[] }> = (props) => {
 
   createEffect(() => {
     // Re-run when entries change
-    props.entries.length;
+    void props.entries.length;
     if (autoScroll && scrollRef) {
       requestAnimationFrame(() => {
         scrollRef!.scrollTop = scrollRef!.scrollHeight;
@@ -169,7 +169,7 @@ const NetworkView: Component<{ entries: NetworkEntry[] }> = (props) => {
   };
 
   createEffect(() => {
-    props.entries.length;
+    void props.entries.length;
     if (autoScroll && scrollRef) {
       requestAnimationFrame(() => {
         scrollRef!.scrollTop = scrollRef!.scrollHeight;

@@ -8,6 +8,7 @@ import {
 } from "../shared/sidebar";
 import type { SidebarPanelState, UIState } from "../shared/types";
 import { setSetting } from "./config/settings";
+import { sendSafe } from "./ipc/common";
 
 export type SidebarPanelHostState = {
   mainWindow: BaseWindow;
@@ -83,15 +84,8 @@ export function emitSidebarPanelState(
   state: SidebarPanelHostState,
 ): SidebarPanelState {
   const panelState = getSidebarPanelState(state);
-  if (!state.chromeView.webContents.isDestroyed()) {
-    state.chromeView.webContents.send(Channels.SIDEBAR_STATE_UPDATE, panelState);
-  }
-  if (!state.sidebarView.webContents.isDestroyed()) {
-    state.sidebarView.webContents.send(
-      Channels.SIDEBAR_STATE_UPDATE,
-      panelState,
-    );
-  }
+  sendSafe(state.chromeView.webContents, Channels.SIDEBAR_STATE_UPDATE, panelState);
+  sendSafe(state.sidebarView.webContents, Channels.SIDEBAR_STATE_UPDATE, panelState);
   return panelState;
 }
 

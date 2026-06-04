@@ -34,18 +34,10 @@ export interface TabStateChangeMeta {
   persistSession: boolean;
 }
 
-function sanitizePdfFilename(title: string): string {
+function sanitizeFilename(title: string, ext: string): string {
   const clean = title
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const base = (clean || "Vessel Page").replace(/\.pdf$/i, "");
-  return `${base}.pdf`;
-}
-
-function sanitizePageFilename(title: string, ext: string): string {
-  const clean = title
-    .replace(/[<>:\"/\\|?*\x00-\x1f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   const escapedExt = ext.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -344,7 +336,7 @@ export class TabManager {
 
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: "Save Page as PDF",
-      defaultPath: sanitizePdfFilename(tab.state.title || "Vessel Page"),
+      defaultPath: sanitizeFilename(tab.state.title || "Vessel Page", "pdf"),
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     });
     if (canceled || !filePath) return null;
@@ -366,7 +358,7 @@ export class TabManager {
     const ext = format === "MHTML" ? "mhtml" : "html";
     const { canceled, filePath } = await dialog.showSaveDialog({
       title: "Save Page As",
-      defaultPath: sanitizePageFilename(
+      defaultPath: sanitizeFilename(
         tab.state.title || "Vessel Page",
         ext,
       ),

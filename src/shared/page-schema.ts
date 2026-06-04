@@ -201,7 +201,7 @@ function getOfferPrice(
 function extractPrimaryEntity(
   pageType: PageType,
   structuredData: StructuredDataEntity[] | undefined,
-  metaTags: Record<string, string> | undefined,
+  _metaTags: Record<string, string> | undefined,
 ): PrimaryEntity | undefined {
   if (pageType === "product") {
     const product = structuredData?.find((e) =>

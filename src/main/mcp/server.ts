@@ -8,7 +8,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import type { PageContent, TabGroupColor } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
-import { errorResult, getErrorMessage } from "../../shared/result";
+import { errorResult } from "../../shared/result";
 import type { AgentRuntime } from "../agent/runtime";
 import {
   buildStructuredContext,
@@ -19,7 +19,6 @@ import {
 } from "../ai/context-builder";
 import { TOOL_DEFINITIONS } from "../tools/definitions";
 import { extractContent } from "../content/extractor";
-import { getRecoverableAccessIssue } from "../content/page-access-issues";
 import {
   validateLinkDestination,
 } from "../network/link-validation";
@@ -31,14 +30,12 @@ import {
   focusElement,
   getTabByMatch,
   hoverElement,
-  isDangerousAction,
   pressKeyDirect as pressKey,
   scrollPage,
   selectOptionDirect as selectOption,
   setElementValue,
   submitFormDirect as submitForm,
   typeKeystroke,
-  waitForConditionDirect as waitForCondition,
 } from "../ai/page-actions";
 import {
   coerceOptionalNumber,
@@ -67,7 +64,7 @@ import {
   searchMemoryNotes,
   writeMemoryNote,
 } from "../memory/obsidian";
-import { getRuntimeHealth, setMcpHealth } from "../health/runtime-health";
+import { setMcpHealth } from "../health/runtime-health";
 import { MAX_MCP_NAV_CONTENT_LENGTH } from "../ai/content-limits";
 import { registerDevTools } from "../devtools/tools";
 import { registerBookmarkTools } from "./tools/bookmarks";
@@ -82,10 +79,7 @@ import { appendAuditEntry } from "../vault/audit";
 import * as humanVault from "../vault/human-vault";
 import { requestHumanVaultConsent } from "../vault/human-consent";
 import { trackVaultAction } from "../telemetry/posthog";
-import { assertToolUnlocked } from "../premium/manager";
 import {
-  getMcpAuthToken,
-  regenerateMcpAuthToken,
   getPersistentMcpAuthToken,
   writeMcpAuthFile,
   clearMcpAuthFile,
@@ -98,10 +92,6 @@ import {
   asNoActiveTabResponse,
   getPremiumToolGateResponse,
   asPromptResponse,
-  isDangerousMcpAction,
-  requiresExplicitMcpApproval,
-  getActiveTabSummary,
-  getPostActionState,
   withAction,
   waitForConditionMcp,
 } from "./mcp-helpers";
@@ -2143,7 +2133,6 @@ function registerTools(
       }
 
       // Page intent analysis
-      const url = page.url.toLowerCase();
       const hasPasswordField = page.forms.some((f) =>
         f.fields.some((el) => el.inputType === "password"),
       );

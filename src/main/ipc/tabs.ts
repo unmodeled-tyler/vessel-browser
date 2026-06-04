@@ -21,7 +21,7 @@ const FindActionSchema = z.enum(["clearSelection", "keepSelection", "activateSel
 
 export function registerTabHandlers(
   windowState: WindowState,
-  sendToRendererViews: SendToRendererViews,
+  _sendToRendererViews: SendToRendererViews,
 ): void {
   const { tabManager, mainWindow } = windowState;
 

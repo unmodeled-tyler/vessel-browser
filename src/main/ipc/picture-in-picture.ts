@@ -1,4 +1,3 @@
-import type { WebContents } from "electron";
 import { getActiveTabInfo } from "./common";
 import type { WindowState } from "../window";
 

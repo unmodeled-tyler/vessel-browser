@@ -7,6 +7,7 @@ import {
   generateStableSelector,
   escapeSelectorValue,
 } from "../shared/dom/selectors";
+import { createLogger } from "../shared/logger";
 import type {
   SelectOption,
   InteractiveElement,
@@ -16,6 +17,8 @@ import type {
   PageOverlay,
   PageContent,
 } from "../shared/types";
+
+const logger = createLogger("ContentScript");
 
 interface OverlayCandidate extends PageOverlay {
   element: HTMLElement;
@@ -44,7 +47,7 @@ function looksLikeCorrectOption(value?: string): boolean | undefined {
 
 let elementIndex = 0;
 const elementSelectors: Record<number, string> = {};
-let indexedElements = new WeakMap<Element, number>();
+const indexedElements = new WeakMap<Element, number>();
 // Direct element references for shadow DOM support — CSS selectors can't cross shadow boundaries
 const indexedElementRefs: Record<number, Element> = {};
 let activeOverlays: OverlayCandidate[] = [];
@@ -1897,7 +1900,7 @@ function vesselExtractContent(): PageContent {
     const article = reader.parse();
     return extractStructuredContent(article || undefined);
   } catch (error) {
-    console.error("Vessel content extraction error:", error);
+    logger.error("Vessel content extraction error:", error);
     return extractStructuredContent();
   }
 }

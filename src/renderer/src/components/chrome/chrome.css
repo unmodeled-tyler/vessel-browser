@@ -637,7 +637,7 @@
     border-radius: 0 0 var(--radius-md) var(--radius-md);
     max-height: 280px;
     overflow-y: auto;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px var(--shadow-color-strong);
 }
 
 .autocomplete-item {
@@ -1769,39 +1769,39 @@
     height: 24px;
     border: none;
     background: transparent;
-    color: #9ca3af;
+    color: var(--status-muted-gray);
     cursor: pointer;
     border-radius: 4px;
     transition: background 0.15s;
 }
 
 .security-indicator:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--surface-hover);
 }
 
 .security-indicator.secure {
-    color: #4ade80;
+    color: var(--status-success);
 }
 
 .security-indicator.insecure {
-    color: #9ca3af;
+    color: var(--status-muted-gray);
 }
 
 .security-indicator.error {
-    color: #f87171;
+    color: var(--status-error);
 }
 
 .security-popup {
     position: absolute;
     top: calc(100% + 6px);
     left: 0;
-    background: #1e1e24;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-popup-bg);
+    border: 1px solid var(--border-glass);
     border-radius: 8px;
     padding: 12px 16px;
     min-width: 280px;
     z-index: 100;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px var(--shadow-color-strong);
 }
 
 .security-popup-content {
@@ -1812,14 +1812,14 @@
 
 .security-popup-text {
     font-size: 12px;
-    color: #e0e0e0;
+    color: var(--text-popup);
     line-height: 1.5;
     margin: 0;
 }
 
 .security-popup-link {
     font-size: 12px;
-    color: #60a5fa;
+    color: var(--status-info-blue);
     background: none;
     border: none;
     cursor: pointer;
@@ -1829,25 +1829,25 @@
 }
 
 .security-popup-link:hover {
-    color: #93c5fd;
+    color: var(--status-info-blue-hover);
 }
 
 .security-popup-section {
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-glass);
     padding-top: 8px;
     margin-top: 2px;
 }
 
 .security-popup-section-title {
     font-size: 11px;
-    color: #9ca3af;
+    color: var(--status-muted-gray);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     margin-bottom: 6px;
 }
 
 .security-popup-muted {
-    color: #9ca3af;
+    color: var(--status-muted-gray);
     font-size: 12px;
     margin: 0;
 }
@@ -1857,12 +1857,12 @@
     justify-content: space-between;
     gap: 14px;
     font-size: 12px;
-    color: #e5e7eb;
+    color: var(--text-primary);
     margin: 4px 0;
 }
 
-.security-popup-permission-row strong.allow { color: #86efac; }
-.security-popup-permission-row strong.deny { color: #fca5a5; }
+.security-popup-permission-row strong.allow { color: var(--status-allow-green); }
+.security-popup-permission-row strong.deny { color: var(--status-deny-red); }
 
 .security-popup-actions {
     display: flex;
@@ -1872,36 +1872,36 @@
 
 .security-popup-action-proceed {
     font-size: 11px;
-    color: #fbbf24;
-    background: rgba(251, 191, 36, 0.1);
-    border: 1px solid rgba(251, 191, 36, 0.3);
+    color: var(--status-warning-amber);
+    background: var(--status-warning-amber-bg);
+    border: 1px solid var(--status-warning-amber-border);
     border-radius: 4px;
     cursor: pointer;
     padding: 4px 8px;
 }
 
 .security-popup-action-proceed:hover {
-    background: rgba(251, 191, 36, 0.2);
+    background: var(--status-warning-amber-hover-bg);
 }
 
 .security-popup-action-back {
     font-size: 11px;
-    color: #9ca3af;
-    background: rgba(156, 163, 175, 0.1);
-    border: 1px solid rgba(156, 163, 175, 0.2);
+    color: var(--status-muted-gray);
+    background: var(--status-muted-gray-bg);
+    border: 1px solid var(--status-muted-gray-border);
     border-radius: 4px;
     cursor: pointer;
     padding: 4px 8px;
 }
 
 .security-popup-action-back:hover {
-    background: rgba(156, 163, 175, 0.2);
+    background: var(--status-muted-gray-hover-bg);
 }
 
 .clear-data-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1915,7 +1915,7 @@
     padding: 24px;
     min-width: 380px;
     max-width: 440px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 32px var(--shadow-color-strong);
 }
 
 .clear-data-header {
@@ -2034,7 +2034,7 @@
     padding: 7px 16px;
     font-size: 13px;
     background: var(--error);
-    color: #fff;
+    color: var(--bg-primary);
     border: none;
     border-radius: var(--radius-sm);
     cursor: pointer;

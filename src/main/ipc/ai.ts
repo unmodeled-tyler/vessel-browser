@@ -7,7 +7,6 @@ import { handleAIQuery } from "../ai/commands";
 import { endAIStream, onAIStreamIdle, tryBeginAIStream } from "../ai/stream-lock";
 import type { AIMessage } from "../../shared/types";
 import { compactProviderHistory } from "../../shared/ai-history";
-import { createLogger } from "../../shared/logger";
 import { errorResult, getErrorMessage } from "../../shared/result";
 import {
   assertTrustedIpcSender,
@@ -18,7 +17,6 @@ import type { ResearchOrchestrator } from "../agent/research/orchestrator";
 import type { TabManager } from "../tabs/tab-manager";
 
 let activeChatProvider: AIProvider | null = null;
-const logger = createLogger("AI-IPC");
 
 export function registerAIHandlers(
   tabManager: TabManager,

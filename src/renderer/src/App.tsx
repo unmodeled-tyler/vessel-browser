@@ -99,7 +99,9 @@ const App: Component = () => {
     document.documentElement.setAttribute("data-theme", theme);
     try {
       localStorage.setItem("vessel:theme", theme);
-    } catch {}
+    } catch (err) {
+      console.warn("Failed to persist theme to localStorage:", err);
+    }
   };
 
   const loadAndApplyTheme = async () => {

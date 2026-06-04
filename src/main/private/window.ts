@@ -12,6 +12,7 @@ import { resolveRendererFile } from "../startup/renderer";
 import { loadTrustedAppURL } from "../network/url-safety";
 import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
 import { createFindInPageBridge } from "../tabs/find-bridge";
+import { sendSafe } from "../ipc/common";
 
 const logger = createLogger("PrivateWindow");
 
@@ -194,9 +195,8 @@ function registerPrivateIpcHandlers(state: PrivateWindowState): void {
     createPrivateWindow();
   });
 
-  ipc.handle(Channels.OPEN_NEW_WINDOW, () => {
-    const { createSecondaryWindow } =
-      require("../secondary/window") as typeof import("../secondary/window");
+  ipc.handle(Channels.OPEN_NEW_WINDOW, async () => {
+    const { createSecondaryWindow } = await import("../secondary/window");
     createSecondaryWindow();
   });
 
@@ -273,9 +273,7 @@ export function createPrivateWindow(): PrivateWindowState {
   const tabManager = new TabManager(
     win,
     (tabs, activeId) => {
-      if (!chromeView.webContents.isDestroyed()) {
-        chromeView.webContents.send(Channels.TAB_STATE_UPDATE, tabs, activeId);
-      }
+      sendSafe(chromeView.webContents, Channels.TAB_STATE_UPDATE, tabs, activeId);
       layoutPrivateViews(state);
     },
     { isPrivate: true, sessionPartition: privateSessionPartition },

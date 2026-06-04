@@ -17,6 +17,7 @@ import { CHROME_HEIGHT } from "../window";
 import { resolveRendererFile } from "../startup/renderer";
 import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
 import { createFindInPageBridge } from "../tabs/find-bridge";
+import { sendSafe } from "../ipc/common";
 
 interface SecondaryWindowState {
   window: BaseWindow;
@@ -138,9 +139,8 @@ function registerSecondaryIpcHandlers(state: SecondaryWindowState): void {
   );
 
   ipc.handle(Channels.OPEN_NEW_WINDOW, () => createSecondaryWindow());
-  ipc.handle(Channels.OPEN_PRIVATE_WINDOW, () => {
-    const { createPrivateWindow } =
-      require("../private/window") as typeof import("../private/window");
+  ipc.handle(Channels.OPEN_PRIVATE_WINDOW, async () => {
+    const { createPrivateWindow } = await import("../private/window");
     createPrivateWindow();
   });
   ipc.handle(Channels.IS_PRIVATE_MODE, () => false);
@@ -196,9 +196,7 @@ export function createSecondaryWindow(): SecondaryWindowState {
   win.contentView.addChildView(chromeView);
 
   const tabManager = new TabManager(win, (tabs, activeId) => {
-    if (!chromeView.webContents.isDestroyed()) {
-      chromeView.webContents.send(Channels.TAB_STATE_UPDATE, tabs, activeId);
-    }
+    sendSafe(chromeView.webContents, Channels.TAB_STATE_UPDATE, tabs, activeId);
     layoutSecondaryViews(state);
   });
 
