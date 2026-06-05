@@ -99,6 +99,22 @@ export type SendToRendererViews = (
 ) => void;
 
 /**
+ * Factory for the common 3-view broadcast pattern (chrome + sidebar + devtools).
+ * Eliminates copy-pasted inline definitions across IPC modules.
+ */
+export function createWindowStateMessenger(
+  chromeView: Electron.WebContentsView,
+  sidebarView: Electron.WebContentsView,
+  devtoolsPanelView: Electron.WebContentsView,
+): SendToRendererViews {
+  return (channel, ...args) => {
+    sendSafe(chromeView.webContents, channel, ...args);
+    sendSafe(sidebarView.webContents, channel, ...args);
+    sendSafe(devtoolsPanelView.webContents, channel, ...args);
+  };
+}
+
+/**
  * Safely send an IPC message to a WebContents if it exists and is not destroyed.
  * Logs a debug warning if the target is destroyed.
  */
@@ -110,7 +126,11 @@ export function sendSafe(
   if (!wc || wc.isDestroyed()) return;
   try {
     wc.send(channel, ...args);
-  } catch {
+  } catch (err) {
     // Swallow — sender may have been destroyed between check and send
+    // Keep silent unless VESSEL_DEBUG is on
+    if (process.env.VESSEL_DEBUG === "1" || process.env.VESSEL_DEBUG === "true") {
+      console.debug("sendSafe failed for channel", channel, err);
+    }
   }
 }

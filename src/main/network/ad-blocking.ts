@@ -31,15 +31,15 @@ export function installAdBlocking(tabManager: TabManager): void {
       return;
     }
 
-    const manager = [...defaultSessionTabManagers].find((candidate) =>
-      candidate.findTabByWebContentsId(webContentsId),
-    );
-    callback(
-      getRequestFilterDecision(
-        details,
-        manager?.isAdBlockingEnabledForWebContents(webContentsId) ?? false,
-      ) ?? {},
-    );
+    // Direct iteration avoids array allocation from Set iterator on every request.
+    let enabled = false;
+    for (const candidate of defaultSessionTabManagers) {
+      if (candidate.findTabByWebContentsId(webContentsId)) {
+        enabled = candidate.isAdBlockingEnabledForWebContents(webContentsId);
+        break;
+      }
+    }
+    callback(getRequestFilterDecision(details, enabled) ?? {});
   });
 }
 

@@ -5,7 +5,7 @@ import { type WindowState } from "../window";
 import {
   assertTrustedIpcSender,
   registerTrustedIpcSender,
-  sendSafe,
+  createWindowStateMessenger,
   type SendToRendererViews,
 } from "./common";
 import type { AgentRuntime } from "../agent/runtime";
@@ -45,11 +45,11 @@ export function registerIpcHandlers(
   registerTrustedIpcSender(sidebarView.webContents);
   registerTrustedIpcSender(devtoolsPanelView.webContents);
 
-  const sendToRendererViews: SendToRendererViews = (channel, ...args) => {
-    sendSafe(chromeView.webContents, channel, ...args);
-    sendSafe(sidebarView.webContents, channel, ...args);
-    sendSafe(devtoolsPanelView.webContents, channel, ...args);
-  };
+  const sendToRendererViews: SendToRendererViews = createWindowStateMessenger(
+    chromeView,
+    sidebarView,
+    devtoolsPanelView,
+  );
 
   // --- Research Desk orchestrator (shared by AI and settings) ---
   let researchOrchestrator: ResearchOrchestrator | null = null;

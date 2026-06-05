@@ -74,6 +74,7 @@ export function registerPremiumHandlers(
       try {
         parsed = new URL(rawUrl);
       } catch {
+        // Not a valid URL — skip premium checkout handling.
         return;
       }
 

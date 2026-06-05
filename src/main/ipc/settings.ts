@@ -48,9 +48,10 @@ export function registerSettingsHandlers(
     if (key === "chatProvider" && researchOrchestrator) {
       try {
         researchOrchestrator.setProvider(createProvider(value as Parameters<typeof createProvider>[0]));
-      } catch {
+      } catch (err) {
         // Provider config is invalid — keep the current provider so
         // an in-progress research session can finish.
+        console.warn("Research provider config invalid, retaining current provider:", err);
       }
     }
     const rendererSettings = getRendererSettings();

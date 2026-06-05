@@ -224,6 +224,7 @@ export class AgentRuntime {
       -MAX_CHECKPOINTS,
     );
     this.emit();
+    void this.flushPersist();
     return clone(checkpoint);
   }
 

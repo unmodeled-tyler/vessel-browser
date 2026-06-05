@@ -27,7 +27,8 @@ export async function togglePictureInPicture(
         }
       })()
     `);
-  } catch {
+  } catch (err) {
+    console.warn("Picture-in-picture toggle failed:", err);
     return false;
   }
 }

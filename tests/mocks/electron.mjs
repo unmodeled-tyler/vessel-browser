@@ -1,0 +1,10 @@
+import cjs from "./electron.cjs";
+export const app = cjs.app;
+export const safeStorage = cjs.safeStorage;
+export const BaseWindow = cjs.BaseWindow;
+export const WebContentsView = cjs.WebContentsView;
+export const clipboard = cjs.clipboard;
+export const Menu = cjs.Menu;
+export const MenuItem = cjs.MenuItem;
+export const session = cjs.session;
+export default cjs;
