@@ -1,0 +1,16 @@
+export const BookmarkChannels = {
+  BOOKMARKS_GET: "bookmarks:get",
+  BOOKMARKS_UPDATE: "bookmarks:update",
+  BOOKMARK_SAVE: "bookmarks:save",
+  BOOKMARK_UPDATE: "bookmarks:update-item",
+  BOOKMARK_REMOVE: "bookmarks:remove",
+  BOOKMARKS_EXPORT_HTML: "bookmarks:export-html",
+  BOOKMARKS_EXPORT_JSON: "bookmarks:export-json",
+  BOOKMARKS_IMPORT_HTML: "bookmarks:import-html",
+  BOOKMARKS_IMPORT_JSON: "bookmarks:import-json",
+  BOOKMARK_ADD_CONTEXT_TO_CHAT: "bookmarks:add-context-to-chat",
+  FOLDER_CREATE: "bookmarks:folder-create",
+  FOLDER_REMOVE: "bookmarks:folder-remove",
+  FOLDER_RENAME: "bookmarks:folder-rename",
+  FOLDER_EXPORT_HTML: "bookmarks:folder-export-html",
+} as const;
