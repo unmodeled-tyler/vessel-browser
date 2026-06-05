@@ -711,119 +711,44 @@
     opacity: 0.8;
 }
 
-.agent-status-badge {
+.page-diff-trigger {
     display: flex;
     align-items: center;
     gap: 6px;
     height: 30px;
-    padding: 0 6px 0 10px;
+    padding: 0 10px;
     min-width: 0;
-    max-width: min(280px, 26vw);
+    max-width: min(160px, 18vw);
     border-left: 1px solid var(--border-glass);
     border-radius: 0;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 10.5px;
+    background: color-mix(in srgb, var(--status-warning) 3%, transparent);
+    color: var(--text-secondary);
+    font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.02em;
     white-space: nowrap;
     flex-shrink: 0;
+    cursor: pointer;
     transition:
         border-color var(--duration-normal) var(--ease-in-out),
         background var(--duration-normal) var(--ease-in-out),
         color var(--duration-slow) var(--ease-in-out);
+    border-left-color: color-mix(in srgb, var(--status-warning) 14%, transparent);
 }
 
-.agent-status-text {
+.page-diff-trigger-text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
 }
 
-.agent-status-dismiss {
-    width: 18px;
-    height: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-    opacity: 0.72;
-    transition:
-        background var(--duration-fast) var(--ease-in-out),
-        color var(--duration-fast) var(--ease-in-out),
-        opacity var(--duration-fast) var(--ease-in-out);
-}
-
-.agent-status-dismiss:hover {
-    background: color-mix(in srgb, var(--text-primary) 10%, transparent);
-    color: var(--text-primary);
-    opacity: 1;
-}
-
-/* Active — green: agent is actively using tools */
-.agent-status-badge.active {
-    border-left-color: color-mix(in srgb, var(--status-info) 18%, transparent);
-    background: color-mix(in srgb, var(--status-info) 5%, transparent);
-    color: var(--text-primary);
-}
-
-.agent-status-badge.active .agent-status-text {
-    background: linear-gradient(
-        90deg,
-        var(--text-primary) 0%,
-        var(--text-primary) 40%,
-        var(--status-info) 50%,
-        var(--text-primary) 60%,
-        var(--text-primary) 100%
-    );
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: status-shimmer 3s ease-in-out infinite;
-}
-
-@keyframes status-shimmer {
-    0% { background-position: 100% 0; }
-    100% { background-position: -100% 0; }
-}
-
-/* Recent — amber/yellow: MCP connected or recently active */
-.agent-status-badge.recent {
-    border-left-color: color-mix(in srgb, var(--status-warning) 14%, transparent);
-    background: color-mix(in srgb, var(--status-warning) 3%, transparent);
-    color: var(--text-secondary);
-}
-
-/* Idle — gray: no connection */
-.agent-status-badge.idle {
-    border-left-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
-}
-
-.agent-status-dot {
+.page-diff-trigger-dot {
     width: 6px;
     height: 6px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--text-muted) 50%, transparent);
+    background: var(--status-warning-amber);
     flex-shrink: 0;
-    transition:
-        background var(--duration-slow) var(--ease-in-out),
-        box-shadow var(--duration-slow) var(--ease-in-out);
-}
-
-/* Green pulsing dot for active */
-.agent-status-badge.active .agent-status-dot {
-    background: var(--status-info);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-info) 32%, transparent);
-    animation: agent-status-pulse-green 1.8s ease-out infinite;
-}
-
-/* Steady amber dot for recent/connected */
-.agent-status-badge.recent .agent-status-dot {
-    background: var(--status-warning);
 }
 
 .toolbar-actions {
@@ -1225,49 +1150,6 @@
 /* ═══════════════════════════════════════
    Agent transcript dock — floating panel
    ═══════════════════════════════════════ */
-
-.agent-summary-hud {
-    position: absolute;
-    right: 14px;
-    bottom: 14px;
-    z-index: 40;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border: 1px solid color-mix(in srgb, var(--accent-primary) 14%, transparent);
-    border-radius: var(--radius-lg);
-    background: linear-gradient(
-        180deg,
-        var(--glass-gradient-start),
-        var(--glass-gradient-end)
-    );
-    box-shadow:
-        0 2px 8px var(--shadow-color),
-        0 8px 24px var(--shadow-color);
-    backdrop-filter: blur(16px);
-    animation: toast-enter var(--duration-enter) var(--ease-out-expo) both;
-    max-width: min(420px, calc(100vw - 28px));
-}
-
-.agent-summary-live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent-primary);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--accent-primary) 50%, transparent);
-    animation: agent-transcript-live-pulse 2s ease-in-out infinite;
-    flex-shrink: 0;
-}
-
-.agent-summary-text {
-    color: var(--text-secondary);
-    font-size: 11.5px;
-    line-height: 1.45;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
 
 .agent-transcript-dock {
     position: absolute;

@@ -4,13 +4,9 @@ import type {
   AgentRuntimeState,
   AgentTranscriptEntry,
 } from "../../../shared/types";
-import { formatAgentActionName } from "./agentTimeline";
 
 const AGENT_ACTIVITY_WINDOW_MS = 6000;
-const AGENT_RECENT_WINDOW_MS = 30_000;
 export const AGENT_RUNNING_STALE_WINDOW_MS = 5 * 60_000;
-
-export type AgentPresence = "active" | "recent" | "idle";
 
 function isAgentActionSource(source: ActionSource): boolean {
   return source === "ai" || source === "mcp";
@@ -32,36 +28,6 @@ function isAgentTranscriptActive(
   if (Number.isNaN(updatedAt)) return false;
 
   return currentTime - updatedAt < AGENT_ACTIVITY_WINDOW_MS;
-}
-
-function summarizeTranscriptText(entry: AgentTranscriptEntry): string {
-  const raw = `${entry.title ? `${entry.title}: ` : ""}${entry.text}`.trim();
-  const singleLine = raw.replace(/\s+/g, " ").trim();
-  return singleLine.length > 96
-    ? `${singleLine.slice(0, 93).trimEnd()}...`
-    : singleLine;
-}
-
-function summarizeActionText(action: AgentActionEntry): string {
-  const name = formatAgentActionName(action.name);
-
-  if (action.status === "running") {
-    return `${name} in progress`;
-  }
-  if (action.status === "waiting-approval") {
-    return `${name} waiting for approval`;
-  }
-  if (action.status === "completed" && action.resultSummary) {
-    const singleLine = action.resultSummary.replace(/\s+/g, " ").trim();
-    return singleLine.length > 96
-      ? `${singleLine.slice(0, 93).trimEnd()}...`
-      : singleLine;
-  }
-  if (action.status === "failed" && action.error) {
-    const singleLine = action.error.replace(/\s+/g, " ").trim();
-    return `${name} failed: ${singleLine.length > 72 ? `${singleLine.slice(0, 69).trimEnd()}...` : singleLine}`;
-  }
-  return name;
 }
 
 function isAgentActionActive(
@@ -90,16 +56,6 @@ function isAgentActionActive(
   return currentTime - finishedAt < AGENT_ACTIVITY_WINDOW_MS;
 }
 
-function hasRecentAgentActivity(
-  state: AgentRuntimeState,
-  currentTime = Date.now(),
-): boolean {
-  return (
-    state.actions.some((action) => isAgentActionActive(action, currentTime)) ||
-    state.transcript.some((entry) => isAgentTranscriptActive(entry, currentTime))
-  );
-}
-
 export function getAgentActiveTabIds(
   state: AgentRuntimeState,
   currentTime = Date.now(),
@@ -115,78 +71,4 @@ export function getAgentActiveTabIds(
   }
 
   return activeTabIds;
-}
-
-export function getLatestAgentStatusMessage(
-  state: AgentRuntimeState,
-  currentTime = Date.now(),
-): string | null {
-  const recentTranscript = [...state.transcript]
-    .filter((entry) => isAgentTranscriptActive(entry, currentTime))
-    .sort(
-      (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
-    )[0];
-
-  if (recentTranscript) {
-    const summary = summarizeTranscriptText(recentTranscript);
-    if (summary) return summary;
-  }
-
-  const recentAction = [...state.actions]
-    .filter((action) => isAgentActionActive(action, currentTime))
-    .sort((left, right) => {
-      const leftTime = new Date(
-        left.finishedAt || left.startedAt,
-      ).getTime();
-      const rightTime = new Date(
-        right.finishedAt || right.startedAt,
-      ).getTime();
-      return rightTime - leftTime;
-    })[0];
-
-  return recentAction ? summarizeActionText(recentAction) : null;
-}
-
-function hasRecentActivity(
-  state: AgentRuntimeState,
-  windowMs: number,
-  currentTime: number,
-): boolean {
-  for (const action of state.actions) {
-    if (!isAgentActionSource(action.source)) continue;
-    if (isAgentActionActive(action, currentTime)) return true;
-    const ts = action.finishedAt
-      ? new Date(action.finishedAt).getTime()
-      : new Date(action.startedAt).getTime();
-    if (!Number.isNaN(ts) && currentTime - ts < windowMs) return true;
-  }
-  for (const entry of state.transcript) {
-    if (!isAgentActionSource(entry.source)) continue;
-    const ts = new Date(entry.updatedAt).getTime();
-    if (!Number.isNaN(ts) && currentTime - ts < windowMs) return true;
-  }
-  return false;
-}
-
-export function getAgentPresence(
-  state: AgentRuntimeState,
-  currentTime = Date.now(),
-): AgentPresence {
-  // Green: actively using tools right now
-  if (hasRecentAgentActivity(state, currentTime)) {
-    return "active";
-  }
-
-  // Yellow: MCP connected (agent is "there"), or had recent activity within 30s
-  const mcpConnected = state.mcpStatus === "ready";
-  if (
-    mcpConnected ||
-    hasRecentActivity(state, AGENT_RECENT_WINDOW_MS, currentTime)
-  ) {
-    return "recent";
-  }
-
-  // Gray: no connection, no recent activity
-  return "idle";
 }

@@ -13,7 +13,6 @@ import {
 import { useTabs } from "../../stores/tabs";
 import { useSecurity } from "../../stores/security";
 import SecurityPopup from "./SecurityPopup";
-import { useNow } from "../../stores/clock";
 import { useRuntime } from "../../stores/runtime";
 import { useUI } from "../../stores/ui";
 import { useHistory } from "../../stores/history";
@@ -26,11 +25,7 @@ import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
 } from "../../../../shared/types";
-import { Trash2, X } from "lucide-solid";
-import {
-  getAgentPresence,
-  getLatestAgentStatusMessage,
-} from "../../lib/agentActivity";
+import { Trash2 } from "lucide-solid";
 import "./chrome.css";
 
 interface AutocompleteItem {
@@ -56,10 +51,6 @@ const AddressBar: Component<{
   const [searchEngine, setSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
   const [showSecurityPopup, setShowSecurityPopup] = createSignal(false);
   const [hasEditedAddress, setHasEditedAddress] = createSignal(false);
-  const [dismissedAgentStatusKey, setDismissedAgentStatusKey] = createSignal<
-    string | null
-  >(null);
-  const now = useNow();
   let inputRef: HTMLInputElement | undefined;
   let addressBlurTimer: ReturnType<typeof setTimeout> | null = null;
   let skipNextAddressBlurSync = false;
@@ -73,28 +64,6 @@ const AddressBar: Component<{
   const securityState = createMemo(() => {
     const tabId = activeTabId();
     return tabId ? getSecurityState(tabId) : undefined;
-  });
-
-  const agentPresence = createMemo(() =>
-    getAgentPresence(runtimeState(), now()),
-  );
-  const agentStatusMessage = createMemo(() =>
-    getLatestAgentStatusMessage(runtimeState(), now()),
-  );
-  const agentStatusKey = createMemo(() => {
-    const message = agentStatusMessage();
-    if (!message) return null;
-    return `${agentPresence()}:${message}`;
-  });
-  const showAgentStatusBadge = createMemo(() => {
-    const key = agentStatusKey();
-    return !!key && dismissedAgentStatusKey() !== key;
-  });
-
-  createEffect(() => {
-    if (!agentStatusKey()) {
-      setDismissedAgentStatusKey(null);
-    }
   });
 
   const pendingApprovalCount = createMemo(
@@ -573,41 +542,14 @@ const AddressBar: Component<{
           </div>
         </Show>
 
-        <Show when={!isPrivateWindow && showAgentStatusBadge()}>
-          <div
-            class={`agent-status-badge ${agentPresence()}`}
-            title={
-              agentStatusMessage() || "Agent is using the browser"
-            }
-          >
-            <span class="agent-status-dot" aria-hidden="true" />
-            <span class="agent-status-text">
-              {agentStatusMessage()}
-            </span>
-            <button
-              type="button"
-              class="agent-status-dismiss"
-              onClick={(event) => {
-                event.stopPropagation();
-                setDismissedAgentStatusKey(agentStatusKey());
-              }}
-              aria-label="Dismiss agent status"
-              title="Dismiss"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        </Show>
-
         <Show when={pageDiff()}>
           <button
-            class="agent-status-badge recent"
-            style="cursor: pointer; font-size: 11px;"
+            class="page-diff-trigger"
             onClick={() => void openDiffTimeline()}
             title="Open the What Changed timeline"
           >
-            <span class="agent-status-dot" style="background: var(--status-warning-amber);" aria-hidden="true" />
-            <span class="agent-status-text">What Changed?</span>
+            <span class="page-diff-trigger-dot" aria-hidden="true" />
+            <span class="page-diff-trigger-text">What Changed?</span>
           </button>
         </Show>
       </div>

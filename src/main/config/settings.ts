@@ -25,7 +25,7 @@ const defaults: VesselSettings = {
   clearBookmarksOnLaunch: false,
   obsidianVaultPath: "",
   approvalMode: "confirm-dangerous",
-  agentTranscriptMode: "summary",
+  agentTranscriptMode: "off",
   chatProvider: null,
   maxToolIterations: 200,
   domainPolicy: { allowedDomains: [], blockedDomains: [] },
@@ -290,6 +290,15 @@ function sanitizeChatProvider(
     : null;
 }
 
+function sanitizeAgentTranscriptMode(
+  mode: unknown,
+  legacyEnabled: unknown,
+): VesselSettings["agentTranscriptMode"] {
+  if (mode === "full") return "full";
+  if (mode === "off" || mode === "summary") return "off";
+  return legacyEnabled === true ? "full" : "off";
+}
+
 export function loadSettings(): VesselSettings {
   if (settings) return settings;
   settingsIssues = [];
@@ -317,14 +326,10 @@ export function loadSettings(): VesselSettings {
       sourceDoNotAllowList: sanitizeStringList(
         parsed.sourceDoNotAllowList ?? defaults.sourceDoNotAllowList,
       ),
-      agentTranscriptMode:
-        parsed.agentTranscriptMode === "off" ||
-        parsed.agentTranscriptMode === "summary" ||
-        parsed.agentTranscriptMode === "full"
-          ? parsed.agentTranscriptMode
-          : parsed.showAgentTranscript === false
-            ? "off"
-            : defaults.agentTranscriptMode,
+      agentTranscriptMode: sanitizeAgentTranscriptMode(
+        parsed.agentTranscriptMode,
+        parsed.showAgentTranscript,
+      ),
     };
   } catch (error) {
     if (fs.existsSync(getSettingsPath())) {

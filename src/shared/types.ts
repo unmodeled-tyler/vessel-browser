@@ -385,7 +385,7 @@ export interface AgentTranscriptEntry {
   streamId?: string;
 }
 
-export type AgentTranscriptDisplayMode = "off" | "summary" | "full";
+export type AgentTranscriptDisplayMode = "off" | "full";
 
 export type McpConnectionStatus = "starting" | "ready" | "error" | "stopped";
 

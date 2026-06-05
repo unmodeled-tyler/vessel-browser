@@ -72,7 +72,7 @@ const Settings: Component = () => {
   const [mcpPort, setMcpPort] = createSignal("3100");
   const [maxToolIterations, setMaxToolIterations] = createSignal("200");
   const [agentTranscriptMode, setAgentTranscriptMode] =
-    createSignal<AgentTranscriptDisplayMode>("summary");
+    createSignal<AgentTranscriptDisplayMode>("off");
   const [health, setHealth] = createSignal<RuntimeHealthState | null>(null);
   const [defaultUrl, setDefaultUrl] = createSignal("https://start.duckduckgo.com");
   const [defaultSearchEngine, setDefaultSearchEngine] = createSignal<SearchEngineId>("duckduckgo");
@@ -488,7 +488,7 @@ const Settings: Component = () => {
     setObsidianVaultPath(settings.obsidianVaultPath ?? "");
     setMcpPort(String(settings.mcpPort ?? 3100));
     setMaxToolIterations(String(settings.maxToolIterations ?? 200));
-    setAgentTranscriptMode(settings.agentTranscriptMode ?? "summary");
+    setAgentTranscriptMode(settings.agentTranscriptMode ?? "off");
     setHealth(runtimeHealth);
     const cp = settings.chatProvider ?? null;
     setChatEnabled(cp !== null);

@@ -477,15 +477,13 @@ const SettingsAgent: Component<SettingsAgentProps> = (props) => {
           }
         >
           <option value="off">Off</option>
-          <option value="summary">Summary HUD</option>
           <option value="full">Full transcript</option>
         </select>
         <p class="settings-hint">
           Controls the in-browser transcript monitor when an external harness
           publishes reasoning or status updates into Vessel via the{" "}
-          <code>vessel_publish_transcript</code> MCP tool. Summary HUD shows a
-          compact 2-line status surface; Full transcript shows the recent entry
-          list.
+          <code>vessel_publish_transcript</code> MCP tool. Full transcript
+          shows the recent entry list.
         </p>
       </div>
 

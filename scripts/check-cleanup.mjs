@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const allowedRepeatedBlankLines = new Set(["README.md", "docs/architecture.md"]);
 
@@ -30,6 +30,7 @@ function isGeneratedOrBuildOutput(file) {
 
 for (const file of files) {
   if (isGeneratedOrBuildOutput(file)) continue;
+  if (!existsSync(file)) continue;
 
   const buffer = readFileSync(file);
   if (isBinary(buffer)) continue;
