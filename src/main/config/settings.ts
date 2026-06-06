@@ -362,7 +362,9 @@ function persistNow(): Promise<void> {
         { encoding: "utf-8", mode: 0o600 },
       ),
     )
-    .then(() => fs.promises.chmod(getSettingsPath(), 0o600).catch(() => undefined))
+    .then(() => fs.promises.chmod(getSettingsPath(), 0o600).catch((err) => {
+      logger.warn("Failed to chmod settings file:", err);
+    }))
     .catch((err) => logger.error("Failed to save settings:", err));
 }
 

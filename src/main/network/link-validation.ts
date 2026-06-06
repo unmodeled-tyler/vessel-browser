@@ -1,3 +1,7 @@
+import { createLogger } from "../../shared/logger";
+
+const logger = createLogger("LinkValidation");
+
 export interface LinkValidationResult {
   status: "live" | "dead" | "unknown";
   checkedUrl: string;
@@ -35,7 +39,9 @@ async function requestUrl(
         "user-agent": "Vessel/0.1.0 (+https://github.com/unmodeled-tyler/vessel-browser)",
       },
     });
-    await response.body?.cancel().catch(() => undefined);
+    await response.body?.cancel().catch((err) => {
+      logger.debug("Failed to cancel response body:", err);
+    });
     return response;
   } finally {
     clearTimeout(timer);

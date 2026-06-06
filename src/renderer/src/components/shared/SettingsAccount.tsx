@@ -1,5 +1,6 @@
 import { createSignal, For, Show, type Component } from "solid-js";
 import type { SettingsAccountProps } from "./settingsTypes";
+import { STATUS_MESSAGE_CLEAR_MS, STATUS_MESSAGE_LONG_CLEAR_MS } from "../../../../shared/ui-constants";
 
 const SettingsAccount: Component<SettingsAccountProps> = (props) => {
   const p = props.premium;
@@ -309,7 +310,7 @@ const SettingsAccount: Component<SettingsAccountProps> = (props) => {
                       kind: "error",
                       text: result.error || "Could not open billing portal.",
                     });
-                    setTimeout(() => p.setMessage(null), 5000);
+                    setTimeout(() => p.setMessage(null), STATUS_MESSAGE_LONG_CLEAR_MS);
                   }
                 }}
               >
@@ -369,7 +370,7 @@ const SettingsAccount: Component<SettingsAccountProps> = (props) => {
                 s.setSaveName("");
                 await s.loadList();
                 props.setStatus({ kind: "success", text: "Session saved." });
-                setTimeout(() => props.setStatus(null), 3000);
+                setTimeout(() => props.setStatus(null), STATUS_MESSAGE_CLEAR_MS);
               } catch (err) {
                 props.setStatus({ kind: "error", text: String(err) });
               }
@@ -399,7 +400,7 @@ const SettingsAccount: Component<SettingsAccountProps> = (props) => {
                         try {
                           await window.vessel.sessions.load(session.name);
                           props.setStatus({ kind: "success", text: `Session "${session.name}" restored.` });
-                          setTimeout(() => props.setStatus(null), 3000);
+                          setTimeout(() => props.setStatus(null), STATUS_MESSAGE_CLEAR_MS);
                         } catch (err) {
                           props.setStatus({ kind: "error", text: String(err) });
                         }

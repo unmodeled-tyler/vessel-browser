@@ -109,7 +109,10 @@ const AddressBar: Component<{
           setSearchEngine(settings.defaultSearchEngine ?? "duckduckgo");
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        // Log and ignore — settings may not be available during early bootstrap
+        console.warn("AddressBar failed to load settings:", err);
+      });
     const unsubscribe = window.vessel.settings.onUpdate((settings) => {
       setSearchEngine(settings.defaultSearchEngine ?? "duckduckgo");
     });

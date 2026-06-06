@@ -10,6 +10,7 @@ import { DownloadChannels } from "./download-channels";
 import { HighlightChannels } from "./highlight-channels";
 import { HistoryChannels } from "./history-channels";
 import { HumanVaultChannels } from "./human-vault-channels";
+import { McpChannels } from "./mcp-channels";
 import { OpenRouterChannels } from "./openrouter-channels";
 import { PermissionChannels } from "./permission-channels";
 import { PremiumChannels } from "./premium-channels";
@@ -17,6 +18,7 @@ import { ResearchChannels } from "./research-channels";
 import { SecurityChannels } from "./security-channels";
 import { SessionChannels } from "./session-channels";
 import { SettingsChannels } from "./settings-channels";
+import { SupportChannels } from "./support-channels";
 import { TabChannels } from "./tab-channels";
 import { UIChannels } from "./ui-channels";
 import { UpdateChannels } from "./update-channels";
@@ -42,6 +44,7 @@ export const Channels = {
   ...HighlightChannels,
   ...HistoryChannels,
   ...HumanVaultChannels,
+  ...McpChannels,
   ...OpenRouterChannels,
   ...PermissionChannels,
   ...PremiumChannels,
@@ -49,6 +52,7 @@ export const Channels = {
   ...SecurityChannels,
   ...SessionChannels,
   ...SettingsChannels,
+  ...SupportChannels,
   ...TabChannels,
   ...UIChannels,
   ...UpdateChannels,
@@ -71,6 +75,7 @@ export {
   HighlightChannels,
   HistoryChannels,
   HumanVaultChannels,
+  McpChannels,
   OpenRouterChannels,
   PermissionChannels,
   PremiumChannels,
@@ -78,6 +83,7 @@ export {
   SecurityChannels,
   SessionChannels,
   SettingsChannels,
+  SupportChannels,
   TabChannels,
   UIChannels,
   UpdateChannels,

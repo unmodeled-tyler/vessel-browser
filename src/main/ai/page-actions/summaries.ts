@@ -129,7 +129,9 @@ export async function getPostNavSummary(wc: WebContents): Promise<string> {
             signals.push('consent-banner:' + consentSelectors[i]);
             break;
           }
-        } catch(e) {}
+        } catch {
+          // Swallow — cross-origin frames may block selector access
+        }
       }
       var vw = window.innerWidth || 0;
       var vh = window.innerHeight || 0;

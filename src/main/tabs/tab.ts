@@ -772,7 +772,9 @@ export class Tab {
                     range.insertNode(mark);
                   }
                 }
-              } catch(e) {}
+              } catch {
+                // Swallow — complex cross-node selections may fail to wrap
+              }
               sel.removeAllRanges();
               // Notify main process for persistence
               window.__vessel.notifyHighlightSelection(text);

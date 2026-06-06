@@ -2,9 +2,13 @@ import {
   errorResult,
   getErrorMessage,
   okResult,
+  safeJsonParse,
   type Result,
 } from "../../shared/result";
 import { isAirGapped } from "../config/air-gapped";
+import { createLogger } from "../../shared/logger";
+
+const logger = createLogger("Feedback");
 
 const SUPPORT_API =
   process.env.VESSEL_SUPPORT_API ||
@@ -59,7 +63,11 @@ export async function submitFeedback(
       }),
     });
 
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    const data = safeJsonParse(
+      await res.json().catch(() => ({})),
+      {} as { error?: string },
+      (msg) => logger.warn("Failed to parse feedback response:", msg),
+    );
     if (!res.ok) {
       return errorResult(data.error || `HTTP ${res.status}`);
     }

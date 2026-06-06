@@ -2,6 +2,7 @@ import { ipcMain, dialog } from "electron";
 import { writeFile } from "fs/promises";
 import { Channels } from "../../shared/channels";
 import { createLogger } from "../../shared/logger";
+import { assertTrustedIpcSender } from "./common";
 import type { ResearchOrchestrator } from "../agent/research/orchestrator";
 import { renderReportAsMarkdown } from "../agent/research/export";
 import { isToolGated } from "../premium/manager";
@@ -11,13 +12,15 @@ const logger = createLogger("ResearchIPC");
 export function registerResearchHandlers(
   getOrchestrator: () => ResearchOrchestrator,
 ): void {
-  ipcMain.handle(Channels.RESEARCH_STATE_GET, () => {
+  ipcMain.handle(Channels.RESEARCH_STATE_GET, (event) => {
+    assertTrustedIpcSender(event);
     return getOrchestrator().getState();
   });
 
   ipcMain.handle(
     Channels.RESEARCH_START_BRIEF,
-    async (_event, query: string) => {
+    async (event, query: string) => {
+      assertTrustedIpcSender(event);
       try {
         const trimmedQuery = query.trim();
         if (!trimmedQuery) {
@@ -35,7 +38,8 @@ export function registerResearchHandlers(
     },
   );
 
-  ipcMain.handle(Channels.RESEARCH_CONFIRM_BRIEF, () => {
+  ipcMain.handle(Channels.RESEARCH_CONFIRM_BRIEF, (event) => {
+    assertTrustedIpcSender(event);
     try {
       if (isToolGated("research_confirm_brief")) {
         return { accepted: false, reason: "premium" as const };
@@ -55,12 +59,13 @@ export function registerResearchHandlers(
   ipcMain.handle(
     Channels.RESEARCH_APPROVE_OBJECTIVES,
     (
-      _event,
+      event,
       options: {
         supervisionMode?: "walk-away" | "interactive";
         includeTraces?: boolean;
       },
     ) => {
+      assertTrustedIpcSender(event);
       try {
         if (isToolGated("research_approve_objectives")) {
           return { accepted: false, reason: "premium" as const };
@@ -88,27 +93,32 @@ export function registerResearchHandlers(
 
   ipcMain.handle(
     Channels.RESEARCH_SET_MODE,
-    (_event, mode: "walk-away" | "interactive") => {
+    (event, mode: "walk-away" | "interactive") => {
+      assertTrustedIpcSender(event);
       getOrchestrator().setSupervisionMode(mode);
     },
   );
 
   ipcMain.handle(
     Channels.RESEARCH_SET_TRACES,
-    (_event, include: boolean) => {
+    (event, include: boolean) => {
+      assertTrustedIpcSender(event);
       getOrchestrator().setIncludeTraces(include);
     },
   );
 
-  ipcMain.handle(Channels.RESEARCH_CANCEL, () => {
+  ipcMain.handle(Channels.RESEARCH_CANCEL, (event) => {
+    assertTrustedIpcSender(event);
     getOrchestrator().cancel();
   });
 
-  ipcMain.handle(Channels.RESEARCH_STOP_AND_SYNTHESIZE, () => {
+  ipcMain.handle(Channels.RESEARCH_STOP_AND_SYNTHESIZE, (event) => {
+    assertTrustedIpcSender(event);
     getOrchestrator().stopAndSynthesizeCurrentFindings();
   });
 
-  ipcMain.handle(Channels.RESEARCH_EXPORT_REPORT, async () => {
+  ipcMain.handle(Channels.RESEARCH_EXPORT_REPORT, async (event) => {
+    assertTrustedIpcSender(event);
     try {
       if (isToolGated("research_export_report")) {
         return { accepted: false, reason: "premium" as const };

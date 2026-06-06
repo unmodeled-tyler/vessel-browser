@@ -28,6 +28,7 @@ import SettingsVaults from "./SettingsVaults";
 import SettingsPrivacy from "./SettingsPrivacy";
 import SettingsAccount from "./SettingsAccount";
 import { useProviderAuthSetup } from "./useProviderAuthSetup";
+import { STATUS_MESSAGE_CLEAR_MS } from "../../../../shared/ui-constants";
 import type {
   SettingsCategoryId,
   SessionSummary,
@@ -226,7 +227,7 @@ const Settings: Component = () => {
       setAutofillState(""); setAutofillZip(""); setAutofillCountry("");
       setAutofillAdding(false);
       setAutofillMessage({ kind: "success", text: "Profile saved." });
-      setTimeout(() => setAutofillMessage(null), 3000);
+      setTimeout(() => setAutofillMessage(null), STATUS_MESSAGE_CLEAR_MS);
       await loadAutofillProfiles();
     } catch (err) {
       setAutofillMessage({ kind: "error", text: String(err) });
@@ -246,7 +247,7 @@ const Settings: Component = () => {
       } else {
         setAutofillMessage({ kind: "error", text: "No matching fields found on this page." });
       }
-      setTimeout(() => setAutofillMessage(null), 3000);
+      setTimeout(() => setAutofillMessage(null), STATUS_MESSAGE_CLEAR_MS);
     } catch (err) {
       setAutofillMessage({ kind: "error", text: String(err) });
     }

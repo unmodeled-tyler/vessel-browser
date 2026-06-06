@@ -99,7 +99,9 @@ export function createDebouncedJsonPersistence<T>({
             : { mode: 0o600 },
         ),
       )
-      .then(() => fs.promises.chmod(filePath, 0o600).catch(() => undefined))
+      .then(() => fs.promises.chmod(filePath, 0o600).catch((err) => {
+        logger.warn(`Failed to chmod ${logLabel}:`, err);
+      }))
       .catch((err) => logger.error(`Failed to save ${logLabel}:`, err));
   };
 
