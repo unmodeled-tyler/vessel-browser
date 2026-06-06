@@ -1,7 +1,2 @@
-/**
- * UI timing constants shared between main and renderer processes.
- */
-
-export const TOAST_DURATION_MS = 3000;
 export const STATUS_MESSAGE_CLEAR_MS = 3000;
 export const STATUS_MESSAGE_LONG_CLEAR_MS = 5000;

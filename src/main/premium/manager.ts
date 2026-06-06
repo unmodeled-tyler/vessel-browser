@@ -6,9 +6,9 @@ import {
   errorResult,
   getErrorMessage,
   okResult,
-  safeJsonParse,
   type Result,
 } from "../../shared/result";
+import { readJsonResponse } from "../network/json-response";
 
 const logger = createLogger("Premium");
 
@@ -331,8 +331,8 @@ export async function requestActivationCode(
       body: JSON.stringify({ email: normalizedEmail }),
     });
 
-    const data = safeJsonParse(
-      await res.json().catch(() => "{}"),
+    const data = await readJsonResponse(
+      res,
       {} as { challengeToken?: string; error?: string },
       (msg) => logger.warn("Failed to parse premium activation response:", msg),
     );
@@ -388,8 +388,8 @@ export async function verifyActivationCode(
       }),
     });
 
-    const data = safeJsonParse(
-      await res.json().catch(() => ({})),
+    const data = await readJsonResponse(
+      res,
       {} as Partial<PremiumVerificationResponse> & { error?: string },
       (msg) => logger.warn("Failed to parse premium verification response:", msg),
     );

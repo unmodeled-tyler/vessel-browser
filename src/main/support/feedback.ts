@@ -2,11 +2,11 @@ import {
   errorResult,
   getErrorMessage,
   okResult,
-  safeJsonParse,
   type Result,
 } from "../../shared/result";
 import { isAirGapped } from "../config/air-gapped";
 import { createLogger } from "../../shared/logger";
+import { readJsonResponse } from "../network/json-response";
 
 const logger = createLogger("Feedback");
 
@@ -63,8 +63,8 @@ export async function submitFeedback(
       }),
     });
 
-    const data = safeJsonParse(
-      await res.json().catch(() => ({})),
+    const data = await readJsonResponse(
+      res,
       {} as { error?: string },
       (msg) => logger.warn("Failed to parse feedback response:", msg),
     );

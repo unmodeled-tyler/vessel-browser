@@ -67,6 +67,7 @@ tests/*.test.ts
 !tests/bookmark-page-source.test.ts
 !tests/browser-qol-refactors.test.ts
 !tests/cloudflare-premium-worker.test.ts
+!tests/channel-contract.test.ts
 !tests/dom-selectors.test.ts
 !tests/input-coercion.test.ts
 !tests/link-validation.test.ts
