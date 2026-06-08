@@ -481,6 +481,16 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    background: var(--bg-secondary);
+    contain: layout paint;
+    isolation: isolate;
+    transform: translateZ(0);
+}
+
+.sidebar-messages.scroll-fade::after {
+    display: none;
 }
 
 /* Fade-in when tab content switches */
@@ -1362,6 +1372,8 @@
     word-break: break-word;
     user-select: text;
     animation: message-enter 300ms var(--ease-out-expo) both;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 80px;
 }
 
 @keyframes message-enter {
