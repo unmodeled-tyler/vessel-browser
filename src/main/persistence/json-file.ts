@@ -54,7 +54,8 @@ export function loadJsonFile<T>({
     const raw = fs.readFileSync(filePath);
     const decoded = decodeStoredData(raw, secure);
     return parse(JSON.parse(decoded));
-  } catch {
+  } catch (err) {
+    logger.warn(`Failed to load ${filePath}, using fallback:`, err);
     return fallback;
   }
 }

@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import {
   listNamedSessions,
@@ -6,8 +7,10 @@ import {
   loadNamedSession,
   deleteNamedSession,
 } from "../sessions/manager";
-import { assertString, assertTrustedIpcSender } from "./common";
+import { assertTrustedIpcSender, parseIpc } from "./common";
 import type { TabManager } from "../tabs/tab-manager";
+
+const SessionNameSchema = z.string().min(1);
 
 export function registerSessionHandlers(tabManager: TabManager): void {
   ipcMain.handle(Channels.SESSION_LIST, (event) => {
@@ -15,21 +18,21 @@ export function registerSessionHandlers(tabManager: TabManager): void {
     return listNamedSessions();
   });
 
-  ipcMain.handle(Channels.SESSION_SAVE, async (event, name: string) => {
+  ipcMain.handle(Channels.SESSION_SAVE, async (event, name: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(name, "name");
-    return await saveNamedSession(tabManager, name);
+    const validatedName = parseIpc(SessionNameSchema, name, "name");
+    return await saveNamedSession(tabManager, validatedName);
   });
 
-  ipcMain.handle(Channels.SESSION_LOAD, async (event, name: string) => {
+  ipcMain.handle(Channels.SESSION_LOAD, async (event, name: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(name, "name");
-    return await loadNamedSession(tabManager, name);
+    const validatedName = parseIpc(SessionNameSchema, name, "name");
+    return await loadNamedSession(tabManager, validatedName);
   });
 
-  ipcMain.handle(Channels.SESSION_DELETE, (event, name: string) => {
+  ipcMain.handle(Channels.SESSION_DELETE, (event, name: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(name, "name");
-    return deleteNamedSession(name);
+    const validatedName = parseIpc(SessionNameSchema, name, "name");
+    return deleteNamedSession(validatedName);
   });
 }

@@ -50,7 +50,7 @@ export function coerceStringArray(value: unknown): string[] | undefined {
   if (!normalized) return [];
 
   try {
-    const parsed = JSON.parse(normalized) as unknown;
+    const parsed: unknown = JSON.parse(normalized);
     if (Array.isArray(parsed)) {
       return parsed.map(normalizeArrayItem).filter(Boolean);
     }

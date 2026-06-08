@@ -1,5 +1,3 @@
-import { app } from "electron";
-import path from "path";
 import { randomUUID } from "crypto";
 import type {
   HighlightColor,
@@ -7,62 +5,21 @@ import type {
   HighlightsState,
   StoredHighlight,
 } from "../../shared/types";
-import {
-  createDebouncedJsonPersistence,
-  loadJsonFile,
-} from "../persistence/json-file";
+import { StoredHighlightSchema, parseArrayStateWithFallback } from "../../shared/persistence-schemas";
+import { PersistentState } from "../persistence/persistent-state";
 
-let state: HighlightsState | null = null;
-const listeners = new Set<(state: HighlightsState) => void>();
-const SAVE_DEBOUNCE_MS = 250;
+const HIGHLIGHTS_FALLBACK: HighlightsState = { highlights: [] };
 
-function getHighlightsPath(): string {
-  return path.join(app.getPath("userData"), "vessel-highlights.json");
-}
-
-function createPersistence() {
-  return createDebouncedJsonPersistence({
-    debounceMs: SAVE_DEBOUNCE_MS,
-    filePath: getHighlightsPath(),
-    getValue: () => state,
-    logLabel: "highlights",
-    resetOnSchedule: true,
-  });
-}
-
-let persistence: ReturnType<typeof createPersistence> | null = null;
-
-function getPersistence(): ReturnType<typeof createPersistence> {
-  persistence ??= createPersistence();
-  return persistence;
-}
-
-function load(): HighlightsState {
-  if (state) return state;
-  state = loadJsonFile({
-    filePath: getHighlightsPath(),
-    fallback: { highlights: [] },
-    parse: (raw) => {
-      const parsed = raw as Partial<HighlightsState>;
-      return {
-        highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
-      };
-    },
-  });
-  return state;
-}
-
-function save(): void {
-  getPersistence().schedule();
-}
-
-function emit(): void {
-  if (!state) return;
-  const snapshot = { highlights: [...state.highlights] };
-  for (const listener of listeners) {
-    listener(snapshot);
-  }
-}
+const store = new PersistentState<HighlightsState>({
+  filename: "vessel-highlights.json",
+  fallback: HIGHLIGHTS_FALLBACK,
+  parse: (raw: unknown) =>
+    parseArrayStateWithFallback(StoredHighlightSchema, raw, "highlights", HIGHLIGHTS_FALLBACK, "highlights"),
+  logLabel: "highlights",
+  debounceMs: 250,
+  resetOnSchedule: true,
+  snapshot: (s) => ({ highlights: [...s.highlights] }),
+});
 
 export function normalizeUrl(rawUrl: string): string {
   try {
@@ -75,23 +32,19 @@ export function normalizeUrl(rawUrl: string): string {
 }
 
 export function getState(): HighlightsState {
-  load();
-  return { highlights: [...state!.highlights] };
+  const s = store.getState();
+  return { highlights: [...s.highlights] };
 }
 
 export function subscribe(
   listener: (state: HighlightsState) => void,
 ): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return store.subscribe(listener);
 }
 
 export function getHighlightsForUrl(url: string): StoredHighlight[] {
-  load();
   const normalized = normalizeUrl(url);
-  return state!.highlights.filter((h) => h.url === normalized);
+  return store.getState().highlights.filter((h) => h.url === normalized);
 }
 
 export function addHighlight(
@@ -102,7 +55,6 @@ export function addHighlight(
   color?: HighlightColor,
   source?: HighlightSource,
 ): StoredHighlight {
-  load();
   const highlight: StoredHighlight = {
     id: randomUUID(),
     url: normalizeUrl(url),
@@ -113,24 +65,30 @@ export function addHighlight(
     source: source || undefined,
     createdAt: new Date().toISOString(),
   };
-  state!.highlights.push(highlight);
-  save();
-  emit();
+  store.mutate((s) => {
+    s.highlights.push(highlight);
+  });
   return highlight;
 }
 
 export function getHighlight(id: string): StoredHighlight | null {
-  load();
-  return state!.highlights.find((h) => h.id === id) ?? null;
+  return store.getState().highlights.find((h) => h.id === id) ?? null;
 }
 
 export function removeHighlight(id: string): StoredHighlight | null {
-  load();
-  const index = state!.highlights.findIndex((h) => h.id === id);
-  if (index === -1) return null;
-  const [removed] = state!.highlights.splice(index, 1);
-  save();
-  emit();
+  const removed = store.mutate((s) => {
+    const index = s.highlights.findIndex((h) => h.id === id);
+    if (index === -1) return null;
+    const [removed] = s.highlights.splice(index, 1);
+    return removed;
+  }, {
+    save: false,
+    emit: false,
+  });
+  if (removed) {
+    store.save();
+    store.emit();
+  }
   return removed;
 }
 
@@ -138,10 +96,9 @@ export function findHighlightByText(
   url: string,
   text: string,
 ): StoredHighlight | null {
-  load();
   const normalized = normalizeUrl(url);
   return (
-    state!.highlights.find(
+    store.getState().highlights.find(
       (h) => h.url === normalized && h.text && h.text === text,
     ) ?? null
   );
@@ -151,28 +108,38 @@ export function updateHighlightColor(
   id: string,
   color: HighlightColor,
 ): StoredHighlight | null {
-  load();
-  const highlight = state!.highlights.find((h) => h.id === id);
-  if (!highlight) return null;
-  highlight.color = color;
-  save();
-  emit();
+  const highlight = store.mutate((s) => {
+    const item = s.highlights.find((h) => h.id === id) ?? null;
+    if (item) item.color = color;
+    return item;
+  }, {
+    save: false,
+    emit: false,
+  });
+  if (highlight) {
+    store.save();
+    store.emit();
+  }
   return highlight;
 }
 
 export function clearHighlightsForUrl(url: string): number {
-  load();
   const normalized = normalizeUrl(url);
-  const before = state!.highlights.length;
-  state!.highlights = state!.highlights.filter((h) => h.url !== normalized);
-  const removed = before - state!.highlights.length;
+  const removed = store.mutate((s) => {
+    const before = s.highlights.length;
+    s.highlights = s.highlights.filter((h) => h.url !== normalized);
+    return before - s.highlights.length;
+  }, {
+    save: false,
+    emit: false,
+  });
   if (removed > 0) {
-    save();
-    emit();
+    store.save();
+    store.emit();
   }
   return removed;
 }
 
 export function flushPersist(): Promise<void> {
-  return getPersistence().flush();
+  return store.flushPersist();
 }

@@ -1,12 +1,12 @@
-import { app, dialog, shell } from "electron";
+import { dialog, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Channels } from "../../shared/channels";
 import type { DownloadRecord } from "../../shared/types";
-import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
+import { DownloadRecordSchema, parseArrayStateWithFallback } from "../../shared/persistence-schemas";
+import { PersistentState } from "../persistence/persistent-state";
 
-const filePath = () => path.join(app.getPath("userData"), "vessel-downloads.json");
 const EXECUTABLE_EXTENSIONS = new Set([
   ".appimage",
   ".bat",
@@ -19,6 +19,8 @@ const EXECUTABLE_EXTENSIONS = new Set([
   ".scr",
   ".sh",
 ]);
+
+const DOWNLOADS_FALLBACK = { items: [] as DownloadRecord[] };
 
 function hasMisleadingDoubleExtension(filename: string): boolean {
   return /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|txt|zip)\.(exe|msi|bat|cmd|ps1|sh|scr|appimage)$/i.test(filename);
@@ -39,27 +41,16 @@ function executableWarningDetail(item: DownloadRecord): string {
   ].filter(Boolean).join("\n");
 }
 
-function parse(raw: unknown): { items: DownloadRecord[] } {
-  if (!raw || typeof raw !== "object") return { items: [] };
-  const items = Array.isArray((raw as { items?: unknown }).items)
-    ? ((raw as { items: DownloadRecord[] }).items)
-    : [];
-  return { items };
-}
-
-const state = loadJsonFile({ filePath: filePath(), fallback: { items: [] }, parse });
-const persistence = createDebouncedJsonPersistence({
-  debounceMs: 250,
-  filePath: filePath(),
-  getValue: () => state,
+const store = new PersistentState<{ items: DownloadRecord[] }>({
+  filename: "vessel-downloads.json",
+  fallback: DOWNLOADS_FALLBACK,
+  parse: (raw: unknown) =>
+    parseArrayStateWithFallback(DownloadRecordSchema, raw, "items", DOWNLOADS_FALLBACK, "downloads"),
   logLabel: "downloads",
+  debounceMs: 250,
 });
-let broadcaster: ((channel: string, payload: unknown) => void) | null = null;
 
-function persist(): void {
-  state.items = state.items.slice(0, 200);
-  persistence.schedule();
-}
+let broadcaster: ((channel: string, payload: unknown) => void) | null = null;
 
 function emit(): void {
   broadcaster?.(Channels.DOWNLOADS_UPDATE, listDownloads());
@@ -70,33 +61,36 @@ export function setDownloadBroadcaster(fn: (channel: string, payload: unknown) =
 }
 
 export function listDownloads(): DownloadRecord[] {
-  return state.items.map((item) => ({ ...item }));
+  return store.getState().items.map((item) => ({ ...item }));
 }
 
 export function upsertDownload(input: Omit<DownloadRecord, "id" | "startedAt" | "updatedAt">): DownloadRecord {
   const now = new Date().toISOString();
-  const existing = state.items.find((item) => item.savePath === input.savePath);
-  if (existing) {
-    Object.assign(existing, input, { updatedAt: now });
-    persist();
-    emit();
-    return existing;
-  }
-  const record: DownloadRecord = { id: randomUUID(), ...input, startedAt: now, updatedAt: now };
-  state.items = [record, ...state.items];
-  persist();
+  const result = store.mutate((s) => {
+    const existing = s.items.find((item) => item.savePath === input.savePath);
+    if (existing) {
+      Object.assign(existing, input, { updatedAt: now });
+      return existing;
+    } else {
+      const record: DownloadRecord = { id: randomUUID(), ...input, startedAt: now, updatedAt: now };
+      s.items = [record, ...s.items];
+      s.items = s.items.slice(0, 200);
+      return record;
+    }
+  });
   emit();
-  return record;
+  return result;
 }
 
 export function clearDownloads(): void {
-  state.items = [];
-  persist();
+  store.mutate((s) => {
+    s.items = [];
+  });
   emit();
 }
 
 export async function openDownload(id: string): Promise<boolean> {
-  const item = state.items.find((d) => d.id === id);
+  const item = store.getState().items.find((d) => d.id === id);
   if (!item || item.state !== "completed" || !fs.existsSync(item.savePath)) return false;
   if (isExecutableDownload(item.savePath)) {
     const result = dialog.showMessageBoxSync({
@@ -114,8 +108,12 @@ export async function openDownload(id: string): Promise<boolean> {
 }
 
 export async function showDownloadInFolder(id: string): Promise<boolean> {
-  const item = state.items.find((d) => d.id === id);
+  const item = store.getState().items.find((d) => d.id === id);
   if (!item || !fs.existsSync(item.savePath)) return false;
   shell.showItemInFolder(item.savePath);
   return true;
+}
+
+export function flushPersist(): Promise<void> {
+  return store.flushPersist();
 }

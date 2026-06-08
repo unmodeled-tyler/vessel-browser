@@ -36,7 +36,7 @@ import type {
   PageDiff,
   PageDiffHistoryItem,
 } from "../shared/page-diff-types";
-import type { DevToolsPanelState } from "../main/devtools/types";
+import type { DevToolsPanelState } from "../shared/devtools-types";
 import type {
   ResearchClarification,
   ResearchState,

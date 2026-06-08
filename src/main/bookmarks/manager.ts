@@ -18,6 +18,7 @@ import {
 } from "../persistence/json-file";
 import { normalizeBookmarkMetadataUpdate } from "./metadata";
 import { createLogger } from "../../shared/logger";
+import { unixNow } from "../../shared/time";
 
 const logger = createLogger("BookmarkManager");
 
@@ -134,9 +135,9 @@ function escapeBookmarkHtml(value: string): string {
 }
 
 function toNetscapeTimestamp(value?: string): number {
-  if (!value) return Math.floor(Date.now() / 1000);
+  if (!value) return unixNow();
   const time = Date.parse(value);
-  return Number.isNaN(time) ? Math.floor(Date.now() / 1000) : Math.floor(time / 1000);
+  return Number.isNaN(time) ? unixNow() : Math.floor(time / 1000);
 }
 
 function getBookmarkDescription(bookmark: Bookmark): string {
@@ -188,7 +189,7 @@ export function exportBookmarksHtml(
   const resolvedOptions: Required<BookmarkHtmlExportOptions> = {
     includeNotes: options.includeNotes ?? false,
   };
-  const now = Math.floor(Date.now() / 1000);
+  const now = unixNow();
   const folders = [
     { id: UNSORTED_ID, name: "Vessel Bookmarks", createdAt: "", summary: "" },
     ...current.folders,
@@ -237,7 +238,7 @@ export function exportBookmarkFolderHtml(
   const resolvedOptions: Required<BookmarkHtmlExportOptions> = {
     includeNotes: options.includeNotes ?? false,
   };
-  const now = Math.floor(Date.now() / 1000);
+  const now = unixNow();
   const items = current.bookmarks.filter(
     (bookmark) => bookmark.folderId === folder.id,
   );

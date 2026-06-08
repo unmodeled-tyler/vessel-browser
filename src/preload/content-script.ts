@@ -20,6 +20,31 @@ import type {
 
 const logger = createLogger("ContentScript");
 
+// --- Context size limits (character counts for AI context) ---
+// These constants define truncation boundaries for page content sent to the AI.
+// Changing them affects token usage and context quality — adjust with care.
+
+/** Max characters for visible text extraction (page-level) */
+const MAX_VISIBLE_TEXT = 500;
+/** Max characters for link/anchor hrefs */
+const MAX_HREF_LENGTH = 500;
+/** Max characters for attribute text (e.g., alt, title) */
+const MAX_ATTR_TEXT = 200;
+/** Max characters for element descriptions and labels */
+const MAX_DESCRIPTION_LENGTH = 160;
+/** Max characters for short labels (buttons, options, form fields) */
+const MAX_LABEL_LENGTH = 100;
+/** Max characters for brief context snippets (diff signatures, etc.) */
+const MAX_SHORT_TEXT = 60;
+/** Max number of heading/option results returned */
+const MAX_RESULT_COUNT = 10;
+/** Max headings included in diff signatures */
+const MAX_DIFF_HEADINGS = 8;
+/** Max selectable options shown per select element */
+const MAX_OPTIONS_PER_SELECT = 8;
+/** Max selectable options shown per field */
+const MAX_OPTIONS_DISPLAY = 25;
+
 interface OverlayCandidate extends PageOverlay {
   element: HTMLElement;
   zIndex: number;
@@ -87,7 +112,7 @@ function collectBoundedVisibleText(root: Element | null, maxLength: number): str
 function getPageDiffSignature(): string {
   const title = normalizeSignatureText(document.title);
   const headings = Array.from(document.querySelectorAll("h1, h2, h3"))
-    .slice(0, 8)
+    .slice(0, MAX_DIFF_HEADINGS)
     .map((el) => normalizeSignatureText(el.textContent))
     .filter(Boolean)
     .join(" | ");
@@ -566,7 +591,7 @@ function looksLikeDrawer(
 }
 
 function looksLikeCartConfirmation(el: HTMLElement): boolean {
-  const text = (el.textContent || "").slice(0, 500).toLowerCase();
+  const text = (el.textContent || "").slice(0, MAX_VISIBLE_TEXT).toLowerCase();
   const signals = [
     "added to cart",
     "added to bag",
@@ -688,7 +713,7 @@ function collectOverlayRadioOptions(root: HTMLElement): OverlayRadioOption[] {
         (node instanceof HTMLInputElement ? node.checked : false);
 
       options.push({
-        label: data.text.slice(0, 100),
+        label: data.text.slice(0, MAX_LABEL_LENGTH),
         selector,
         checked,
         labelSource: data.source,
@@ -696,7 +721,7 @@ function collectOverlayRadioOptions(root: HTMLElement): OverlayRadioOption[] {
       });
     });
 
-  return options.slice(0, 8);
+  return options.slice(0, MAX_OPTIONS_PER_SELECT);
 }
 
 function collectOverlayActions(root: HTMLElement): OverlayAction[] {
@@ -742,7 +767,7 @@ function collectOverlayActions(root: HTMLElement): OverlayAction[] {
 
       seen.add(selector);
       actions.push({
-        label: data.text.slice(0, 100),
+        label: data.text.slice(0, MAX_LABEL_LENGTH),
         selector,
         kind: getOverlayActionKind(node, data.text),
         disabled: isElementDisabled(node),
@@ -751,15 +776,15 @@ function collectOverlayActions(root: HTMLElement): OverlayAction[] {
 
   return actions
     .sort((a, b) => getOverlayActionPriority(b) - getOverlayActionPriority(a))
-    .slice(0, 10);
+    .slice(0, MAX_RESULT_COUNT);
 }
 
 function getOverlayMessage(el: HTMLElement): string | undefined {
   const heading = el.querySelector("h1, h2, h3, h4, h5, h6");
   return (
-    getTrimmedText(heading?.textContent)?.slice(0, 160) ||
-    getNodeTextByIds(el.getAttribute("aria-describedby"))?.slice(0, 160) ||
-    getTrimmedText(el.textContent)?.slice(0, 160)
+    getTrimmedText(heading?.textContent)?.slice(0, MAX_DESCRIPTION_LENGTH) ||
+    getNodeTextByIds(el.getAttribute("aria-describedby"))?.slice(0, MAX_DESCRIPTION_LENGTH) ||
+    getTrimmedText(el.textContent)?.slice(0, MAX_DESCRIPTION_LENGTH)
   );
 }
 
@@ -875,7 +900,7 @@ function detectOverlays(): OverlayCandidate[] {
       role: getTrimmedText(node.getAttribute("role")) || undefined,
       label: getOverlayLabel(node),
       selector: generateSelector(node),
-      text: getTrimmedText(node.textContent)?.slice(0, 160),
+      text: getTrimmedText(node.textContent)?.slice(0, MAX_DESCRIPTION_LENGTH),
       message: getOverlayMessage(node),
       blocksInteraction: blockingSurface,
       dismissSelector: actions.find((action) => action.kind === "dismiss")
@@ -925,7 +950,7 @@ function isLikelyDormantOverlay(el: HTMLElement): boolean {
   }
 
   return /cookie|consent|privacy|gdpr|ccpa|onetrust|ot-sdk|trustarc|didomi|sp_message|qc-cmp|cmp|newsletter|subscribe/.test(
-    `${attrs} ${text.slice(0, 200)}`,
+    `${attrs} ${text.slice(0, MAX_ATTR_TEXT)}`,
   );
 }
 
@@ -960,11 +985,11 @@ function detectDormantOverlays(): Array<{
       role: getTrimmedText(node.getAttribute("role")) || undefined,
       label: getOverlayLabel(node),
       selector,
-      text: getTrimmedText(node.textContent)?.slice(0, 160),
+      text: getTrimmedText(node.textContent)?.slice(0, MAX_DESCRIPTION_LENGTH),
     });
   });
 
-  return matches.slice(0, 10);
+  return matches.slice(0, MAX_RESULT_COUNT);
 }
 
 function samplePointForRect(rect: DOMRect): { x: number; y: number } | null {
@@ -1256,7 +1281,7 @@ function getSelectOptions(el: HTMLSelectElement): SelectOption[] | undefined {
       value: option.value,
     }))
     .filter((o) => o.label || o.value)
-    .slice(0, 25);
+    .slice(0, MAX_OPTIONS_DISPLAY);
   return options.length > 0 ? options : undefined;
 }
 
@@ -1329,8 +1354,8 @@ function extractNavigation(): InteractiveElement[] {
 
       navigation.push({
         type: "link",
-        text: text.slice(0, 100),
-        href: anchor.href.slice(0, 500),
+        text: text.slice(0, MAX_LABEL_LENGTH),
+        href: anchor.href.slice(0, MAX_HREF_LENGTH),
         ...buildBaseMetadata(anchor),
         context: "nav",
       });
@@ -1385,7 +1410,7 @@ function extractInteractiveElements(): InteractiveElement[] {
 
     elements.push({
       type: "button",
-      text: text?.slice(0, 100),
+      text: text?.slice(0, MAX_LABEL_LENGTH),
       labelSource: source,
       ...buildBaseMetadata(btn),
       role,
@@ -1402,8 +1427,8 @@ function extractInteractiveElements(): InteractiveElement[] {
 
     elements.push({
       type: "link",
-      text: text.slice(0, 100),
-      href: anchor.href.slice(0, 500),
+      text: text.slice(0, MAX_LABEL_LENGTH),
+      href: anchor.href.slice(0, MAX_HREF_LENGTH),
       ...buildBaseMetadata(anchor),
       context,
     });
@@ -1432,7 +1457,7 @@ function extractInteractiveElements(): InteractiveElement[] {
     elements.push({
       type:
         tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
-      label: label.label?.slice(0, 100),
+      label: label.label?.slice(0, MAX_LABEL_LENGTH),
       labelSource: label.source,
       inputType: element.getAttribute("type") || undefined,
       placeholder: element.getAttribute("placeholder") || undefined,
@@ -1444,7 +1469,7 @@ function extractInteractiveElements(): InteractiveElement[] {
           : undefined,
       ...buildBaseMetadata(input),
       role,
-      text: radioText?.slice(0, 100),
+      text: radioText?.slice(0, MAX_LABEL_LENGTH),
       looksCorrect:
         radioText || label.label
           ? looksLikeCorrectOption(radioText || label.label)
@@ -1518,7 +1543,7 @@ function extractForms(): Array<{
               : tag === "textarea"
                 ? "textarea"
                 : "input",
-          label: label.label?.slice(0, 100),
+          label: label.label?.slice(0, MAX_LABEL_LENGTH),
           labelSource: label.source,
           inputType: element.getAttribute("type") || undefined,
           placeholder: element.getAttribute("placeholder") || undefined,
@@ -1530,7 +1555,7 @@ function extractForms(): Array<{
               : undefined,
           ...buildBaseMetadata(input),
           role,
-          text: radioText?.slice(0, 100),
+          text: radioText?.slice(0, MAX_LABEL_LENGTH),
           looksCorrect:
             radioText || label.label
               ? looksLikeCorrectOption(radioText || label.label)
@@ -1549,7 +1574,7 @@ function extractForms(): Array<{
         const { text, source } = getButtonTextWithSource(btn);
         fields.push({
           type: "button",
-          text: text?.slice(0, 100),
+          text: text?.slice(0, MAX_LABEL_LENGTH),
           labelSource: source,
           ...buildBaseMetadata(btn),
         });
@@ -1613,7 +1638,7 @@ function extractLandmarks(): Array<{
           getTrimmedText(el.getAttribute("aria-label")) ||
           getNodeTextByIds(el.getAttribute("aria-labelledby")) ||
           getTrimmedText(el.id),
-        text: getTrimmedText(el.textContent)?.slice(0, 200),
+        text: getTrimmedText(el.textContent)?.slice(0, MAX_ATTR_TEXT),
       });
     });
   });
@@ -1994,7 +2019,7 @@ function interactByIndex(
     return (
       "Clicked: " +
       (el.getAttribute("aria-label") ||
-        el.textContent?.trim().slice(0, 60) ||
+        el.textContent?.trim().slice(0, MAX_SHORT_TEXT) ||
         el.tagName.toLowerCase()) +
       (href ? "\nhref: " + href : "")
     );
@@ -2005,7 +2030,7 @@ function interactByIndex(
     return (
       "Focused: " +
       (el.getAttribute("aria-label") ||
-        el.textContent?.trim().slice(0, 60) ||
+        el.textContent?.trim().slice(0, MAX_SHORT_TEXT) ||
         el.tagName.toLowerCase())
     );
   }

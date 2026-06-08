@@ -1,121 +1,98 @@
-import { app } from "electron";
-import path from "path";
 import type { ClearDataTimeRange, HistoryEntry, HistoryPage, HistoryState, ImportResult } from "../../shared/types";
 import {
-  createDebouncedJsonPersistence,
-  loadJsonFile,
-} from "../persistence/json-file";
+  HistoryImportStateSchema,
+  HistoryEntrySchema,
+  parseArrayStateWithFallback,
+} from "../../shared/persistence-schemas";
+import { PersistentState } from "../persistence/persistent-state";
 
 const MAX_HISTORY_ENTRIES = 5000;
-const SAVE_DEBOUNCE_MS = 250;
 
-let state: HistoryState | null = null;
-const listeners = new Set<(state: HistoryPage) => void>();
+const HISTORY_FALLBACK: HistoryState = { entries: [] };
 
-function getHistoryPath(): string {
-  return path.join(app.getPath("userData"), "vessel-history.json");
-}
-
-function load(): HistoryState {
-  if (state) return state;
-  state = loadJsonFile({
-    filePath: getHistoryPath(),
-    fallback: { entries: [] },
-    parse: (raw) => {
-      const parsed = raw as Partial<HistoryState>;
-      return {
-        entries: Array.isArray(parsed.entries) ? parsed.entries : [],
-      };
-    },
-  });
-  return state;
-}
-
-const persistence = createDebouncedJsonPersistence({
-  debounceMs: SAVE_DEBOUNCE_MS,
-  filePath: getHistoryPath(),
-  getValue: () => state,
+const store = new PersistentState<HistoryState, HistoryPage>({
+  filename: "vessel-history.json",
+  fallback: HISTORY_FALLBACK,
+  parse: (raw: unknown) =>
+    parseArrayStateWithFallback(HistoryEntrySchema, raw, "entries", HISTORY_FALLBACK, "history"),
   logLabel: "history",
+  debounceMs: 250,
+  snapshot: (s) => {
+    const entries = s.entries.slice(0, 200);
+    return {
+      entries,
+      offset: 0,
+      limit: entries.length,
+      total: s.entries.length,
+    };
+  },
 });
 
-function save(): void {
-  persistence.schedule();
-}
-
-function emit(): void {
-  if (!state) return;
-  const snapshot = listEntries();
-  for (const listener of listeners) {
-    listener(snapshot);
-  }
-}
-
-export function getState(): HistoryState {
-  load();
-  return { entries: [...state!.entries] };
-}
-
 export function listEntries(offset = 0, limit = 200): HistoryPage {
-  load();
+  const s = store.getState();
   const safeOffset = Math.max(0, Math.floor(offset));
   const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
   return {
-    entries: state!.entries.slice(safeOffset, safeOffset + safeLimit),
+    entries: s.entries.slice(safeOffset, safeOffset + safeLimit),
     offset: safeOffset,
     limit: safeLimit,
-    total: state!.entries.length,
+    total: s.entries.length,
   };
+}
+
+export function getState(): HistoryState {
+  const s = store.getState();
+  return { entries: [...s.entries] };
 }
 
 export function subscribe(
   listener: (state: HistoryPage) => void,
 ): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return store.subscribe(listener);
 }
 
 export function addEntry(url: string, title: string): void {
   if (!url || url === "about:blank") return;
 
-  load();
-
-  // Don't record duplicate consecutive visits to the same URL
-  const last = state!.entries[0];
-  if (last && last.url === url) {
-    // Update title if it changed
-    if (title && title !== last.title) {
-      last.title = title;
-      save();
-      emit();
+  const changed = store.mutate((s) => {
+    // Don't record duplicate consecutive visits to the same URL
+    const last = s.entries[0];
+    if (last && last.url === url) {
+      // Update title if it changed
+      if (title && title !== last.title) {
+        last.title = title;
+        return true;
+      }
+      return false;
     }
-    return;
+
+    const entry: HistoryEntry = {
+      url,
+      title: title || url,
+      visitedAt: new Date().toISOString(),
+    };
+
+    s.entries.unshift(entry);
+
+    // Cap history size
+    if (s.entries.length > MAX_HISTORY_ENTRIES) {
+      s.entries = s.entries.slice(0, MAX_HISTORY_ENTRIES);
+    }
+    return true;
+  }, { save: false, emit: false });
+
+  if (changed) {
+    store.save();
+    store.emit();
   }
-
-  const entry: HistoryEntry = {
-    url,
-    title: title || url,
-    visitedAt: new Date().toISOString(),
-  };
-
-  state!.entries.unshift(entry);
-
-  // Cap history size
-  if (state!.entries.length > MAX_HISTORY_ENTRIES) {
-    state!.entries = state!.entries.slice(0, MAX_HISTORY_ENTRIES);
-  }
-
-  save();
-  emit();
 }
 
 export function search(query: string, limit = 50): HistoryEntry[] {
-  load();
-  if (!query.trim()) return state!.entries.slice(0, limit);
+  const s = store.getState();
+  if (!query.trim()) return s.entries.slice(0, limit);
 
   const normalized = query.toLowerCase();
-  return state!.entries
+  return s.entries
     .filter(
       (e) =>
         e.url.toLowerCase().includes(normalized) ||
@@ -125,25 +102,24 @@ export function search(query: string, limit = 50): HistoryEntry[] {
 }
 
 export function clearAll(): void {
-  state = { entries: [] };
-  save();
-  emit();
+  store.mutate((s) => {
+    s.entries = [];
+  });
 }
 
 export function clearByTimeRange(timeRange: ClearDataTimeRange): void {
-  load();
   if (timeRange === "all") {
     clearAll();
     return;
   }
   const now = Date.now();
   const cutoff = new Date(now - timeRangeToMs(timeRange));
-  state!.entries = state!.entries.filter((entry) => {
-    const visitedAt = new Date(entry.visitedAt).getTime();
-    return Number.isNaN(visitedAt) || visitedAt < cutoff.getTime();
+  store.mutate((s) => {
+    s.entries = s.entries.filter((entry) => {
+      const visitedAt = new Date(entry.visitedAt).getTime();
+      return Number.isNaN(visitedAt) || visitedAt < cutoff.getTime();
+    });
   });
-  save();
-  emit();
 }
 
 function timeRangeToMs(range: ClearDataTimeRange): number {
@@ -194,12 +170,13 @@ export function importHistoryFromJson(content: string): ImportResult {
   let skipped = 0;
   let errors = 0;
   try {
-    const parsed = JSON.parse(content) as Partial<HistoryState>;
-    const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
-    load();
-    const existingUrls = new Set(state!.entries.map((e) => e.url));
+    const parsed = HistoryImportStateSchema.safeParse(JSON.parse(content));
+    const entries = parsed.success ? parsed.data.entries : [];
+    if (!parsed.success) errors++;
+    const s = store.getState();
+    const existingUrls = new Set(s.entries.map((e) => e.url));
     for (const entry of entries) {
-      if (!entry?.url || typeof entry.url !== "string") {
+      if (!entry.url) {
         errors++;
         continue;
       }
@@ -207,22 +184,29 @@ export function importHistoryFromJson(content: string): ImportResult {
         skipped++;
         continue;
       }
-      state!.entries.push({
-        url: entry.url,
-        title: typeof entry.title === "string" ? entry.title : entry.url,
-        visitedAt: typeof entry.visitedAt === "string" ? entry.visitedAt : new Date().toISOString(),
-      });
       existingUrls.add(entry.url);
       imported++;
     }
-    state!.entries.sort(
-      (a, b) => new Date(b.visitedAt).getTime() - new Date(a.visitedAt).getTime(),
-    );
-    if (state!.entries.length > MAX_HISTORY_ENTRIES) {
-      state!.entries = state!.entries.slice(0, MAX_HISTORY_ENTRIES);
+    if (imported > 0) {
+      store.mutate((state) => {
+        const urlSet = new Set(state.entries.map((e) => e.url));
+        for (const entry of entries) {
+          if (!entry.url || urlSet.has(entry.url)) continue;
+          state.entries.push({
+            url: entry.url,
+            title: entry.title || entry.url,
+            visitedAt: entry.visitedAt || new Date().toISOString(),
+          });
+          urlSet.add(entry.url);
+        }
+        state.entries.sort(
+          (a, b) => new Date(b.visitedAt).getTime() - new Date(a.visitedAt).getTime(),
+        );
+        if (state.entries.length > MAX_HISTORY_ENTRIES) {
+          state.entries = state.entries.slice(0, MAX_HISTORY_ENTRIES);
+        }
+      });
     }
-    save();
-    emit();
   } catch {
     errors++;
   }
@@ -233,9 +217,10 @@ export function importHistoryFromHtml(content: string): ImportResult {
   let imported = 0;
   let skipped = 0;
   let errors = 0;
-  load();
-  const existingUrls = new Set(state!.entries.map((e) => e.url));
+  const s = store.getState();
+  const existingUrls = new Set(s.entries.map((e) => e.url));
   const hrefRegex = /<A\s+[^>]*HREF="([^"]+)"[^>]*>([^<]*)<\/A>/gi;
+  const newEntries: HistoryEntry[] = [];
   let match: RegExpExecArray | null;
   while ((match = hrefRegex.exec(content)) !== null) {
     const url = match[1];
@@ -245,25 +230,24 @@ export function importHistoryFromHtml(content: string): ImportResult {
       else errors++;
       continue;
     }
-    state!.entries.push({
-      url,
-      title,
-      visitedAt: new Date().toISOString(),
-    });
+    newEntries.push({ url, title, visitedAt: new Date().toISOString() });
     existingUrls.add(url);
     imported++;
   }
-  state!.entries.sort(
-    (a, b) => new Date(b.visitedAt).getTime() - new Date(a.visitedAt).getTime(),
-  );
-  if (state!.entries.length > MAX_HISTORY_ENTRIES) {
-    state!.entries = state!.entries.slice(0, MAX_HISTORY_ENTRIES);
+  if (newEntries.length > 0) {
+    store.mutate((state) => {
+      state.entries.push(...newEntries);
+      state.entries.sort(
+        (a, b) => new Date(b.visitedAt).getTime() - new Date(a.visitedAt).getTime(),
+      );
+      if (state.entries.length > MAX_HISTORY_ENTRIES) {
+        state.entries = state.entries.slice(0, MAX_HISTORY_ENTRIES);
+      }
+    });
   }
-  save();
-  emit();
   return { imported, skipped, errors };
 }
 
 export function flushPersist(): Promise<void> {
-  return persistence.flush();
+  return store.flushPersist();
 }

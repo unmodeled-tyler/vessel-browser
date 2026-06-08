@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { app, BrowserWindow } from "electron";
 import { createLogger } from "../shared/logger";
+import { escapeHtml } from "../shared/html-escape";
 
 const logger = createLogger("Splash");
 
@@ -27,7 +28,7 @@ function buildSplashHTML(iconSrc: string): string {
   // iconSrc is a data: URI embedded directly in the img src attribute —
   // this is just HTML file content, no URL-length restrictions apply.
   const imgTag = iconSrc
-    ? `<img class="logo" src="${iconSrc}" alt="" />`
+    ? `<img class="logo" src="${escapeHtml(iconSrc)}" alt="" />`
     : `<div class="logo-fallback">V</div>`;
 
   return `<!DOCTYPE html>
@@ -174,8 +175,8 @@ export function createSplashWindow(): BrowserWindow {
     splash.once("closed", () => {
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup only.
+      } catch (err) {
+        logger.debug("Failed to clean up splash temp dir:", err);
       }
     });
     fs.writeFileSync(tmpPath, html, "utf-8");

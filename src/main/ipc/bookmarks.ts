@@ -1,10 +1,35 @@
 import { dialog, ipcMain } from "electron";
 import { promises as fs } from "fs";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import * as bookmarkManager from "../bookmarks/manager";
 import { normalizeBookmarkMetadata } from "../bookmarks/metadata";
 import { trackBookmarkAction } from "../telemetry/posthog";
-import { assertTrustedIpcSender } from "./common";
+import { assertTrustedIpcSender, parseIpc } from "./common";
+
+// --- Zod schemas for IPC validation ---
+
+const FolderNameSchema = z.string().min(1);
+const BookmarkUrlSchema = z.string().min(1);
+const BookmarkIdSchema = z.string().min(1);
+const OptionalStringSchema = z.string().optional();
+const OptionalStringArraySchema = z.array(z.string()).optional();
+const OptionalRecordSchema = z.record(z.string(), z.string()).optional();
+const OptionalBooleanSchema = z.boolean().optional();
+
+const BookmarkUpdateSchema = z.object({
+  title: z.string().optional(),
+  note: z.string().optional(),
+  folderId: z.string().optional(),
+  intent: z.string().optional(),
+  expectedContent: z.string().optional(),
+  keyFields: z.array(z.string()).optional(),
+  agentHints: z.record(z.string(), z.string()).optional(),
+});
+
+const ExportOptionsSchema = z.object({
+  includeNotes: z.boolean().optional(),
+}).optional();
 
 function getSafeBookmarkExportName(name: string): string {
   const safeName = name
@@ -23,10 +48,12 @@ export function registerBookmarkHandlers(): void {
 
   ipcMain.handle(
     Channels.FOLDER_CREATE,
-    (event, name: string, summary?: string) => {
+    (event, name: unknown, summary?: unknown) => {
       assertTrustedIpcSender(event);
+      const validatedName = parseIpc(FolderNameSchema, name, "name");
+      const validatedSummary = parseIpc(OptionalStringSchema, summary, "summary");
       trackBookmarkAction("folder_create");
-      return bookmarkManager.createFolderWithSummary(name, summary);
+      return bookmarkManager.createFolderWithSummary(validatedName, validatedSummary);
     },
   );
 
@@ -34,25 +61,34 @@ export function registerBookmarkHandlers(): void {
     Channels.BOOKMARK_SAVE,
     (
       event,
-      url: string,
-      title: string,
-      folderId?: string,
-      note?: string,
-      intent?: string,
-      expectedContent?: string,
-      keyFields?: string[],
-      agentHints?: Record<string, string>,
+      url: unknown,
+      title: unknown,
+      folderId?: unknown,
+      note?: unknown,
+      intent?: unknown,
+      expectedContent?: unknown,
+      keyFields?: unknown,
+      agentHints?: unknown,
     ) => {
       assertTrustedIpcSender(event);
+      const validatedUrl = parseIpc(BookmarkUrlSchema, url, "url");
+      const validatedTitle = parseIpc(z.string(), title, "title");
+      const validatedFolderId = parseIpc(OptionalStringSchema, folderId, "folderId");
+      const validatedNote = parseIpc(OptionalStringSchema, note, "note");
+      const validatedIntent = parseIpc(OptionalStringSchema, intent, "intent");
+      const validatedExpectedContent = parseIpc(OptionalStringSchema, expectedContent, "expectedContent");
+      const validatedKeyFields = parseIpc(OptionalStringArraySchema, keyFields, "keyFields");
+      const validatedAgentHints = parseIpc(OptionalRecordSchema, agentHints, "agentHints");
+
       trackBookmarkAction("save");
-      const result = bookmarkManager.saveBookmarkWithPolicy(url, title, folderId, note, {
+      const result = bookmarkManager.saveBookmarkWithPolicy(validatedUrl, validatedTitle, validatedFolderId, validatedNote, {
         onDuplicate: "update",
         extra: {
           ...normalizeBookmarkMetadata({
-            intent,
-            expectedContent,
-            keyFields,
-            agentHints,
+            intent: validatedIntent,
+            expectedContent: validatedExpectedContent,
+            keyFields: validatedKeyFields,
+            agentHints: validatedAgentHints,
           }),
         },
       });
@@ -67,33 +103,29 @@ export function registerBookmarkHandlers(): void {
     Channels.BOOKMARK_UPDATE,
     (
       event,
-      id: string,
-      updates: {
-        title?: string;
-        note?: string;
-        folderId?: string;
-        intent?: string;
-        expectedContent?: string;
-        keyFields?: string[];
-        agentHints?: Record<string, string>;
-      },
+      id: unknown,
+      updates: unknown,
     ) => {
       assertTrustedIpcSender(event);
+      const validatedId = parseIpc(BookmarkIdSchema, id, "id");
+      const validatedUpdates = parseIpc(BookmarkUpdateSchema, updates, "updates");
       trackBookmarkAction("save");
-      return bookmarkManager.updateBookmark(id, updates);
+      return bookmarkManager.updateBookmark(validatedId, validatedUpdates);
     },
   );
 
-  ipcMain.handle(Channels.BOOKMARK_REMOVE, (event, id: string) => {
+  ipcMain.handle(Channels.BOOKMARK_REMOVE, (event, id: unknown) => {
     assertTrustedIpcSender(event);
+    const validatedId = parseIpc(BookmarkIdSchema, id, "id");
     trackBookmarkAction("remove");
-    return bookmarkManager.removeBookmark(id);
+    return bookmarkManager.removeBookmark(validatedId);
   });
 
   ipcMain.handle(
     Channels.BOOKMARKS_EXPORT_HTML,
-    async (event, options?: { includeNotes?: boolean }) => {
+    async (event, options?: unknown) => {
       assertTrustedIpcSender(event);
+      const validatedOptions = parseIpc(ExportOptionsSchema, options, "options");
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: "Export Bookmarks",
         defaultPath: "vessel-bookmarks.html",
@@ -102,7 +134,7 @@ export function registerBookmarkHandlers(): void {
       if (canceled || !filePath) return null;
 
       const content = bookmarkManager.exportBookmarksHtml({
-        includeNotes: options?.includeNotes ?? false,
+        includeNotes: validatedOptions?.includeNotes ?? false,
       });
       await fs.writeFile(filePath, content, "utf-8");
       trackBookmarkAction("export");
@@ -133,9 +165,11 @@ export function registerBookmarkHandlers(): void {
 
   ipcMain.handle(
     Channels.FOLDER_EXPORT_HTML,
-    async (event, folderId: string, options?: { includeNotes?: boolean }) => {
+    async (event, folderId: unknown, options?: unknown) => {
       assertTrustedIpcSender(event);
-      const folder = bookmarkManager.getFolder(folderId);
+      const validatedFolderId = parseIpc(BookmarkIdSchema, folderId, "folderId");
+      const validatedOptions = parseIpc(ExportOptionsSchema, options, "options");
+      const folder = bookmarkManager.getFolder(validatedFolderId);
       if (!folder) return null;
 
       const { canceled, filePath } = await dialog.showSaveDialog({
@@ -145,8 +179,8 @@ export function registerBookmarkHandlers(): void {
       });
       if (canceled || !filePath) return null;
 
-      const result = bookmarkManager.exportBookmarkFolderHtml(folderId, {
-        includeNotes: options?.includeNotes ?? true,
+      const result = bookmarkManager.exportBookmarkFolderHtml(validatedFolderId, {
+        includeNotes: validatedOptions?.includeNotes ?? true,
       });
       if (!result) return null;
 
@@ -189,17 +223,26 @@ export function registerBookmarkHandlers(): void {
     return bookmarkManager.importBookmarksFromJson(content);
   });
 
-  ipcMain.handle(Channels.FOLDER_REMOVE, (event, id: string, deleteContents?: boolean) => {
+  ipcMain.handle(Channels.FOLDER_REMOVE, (event, id: unknown, deleteContents?: unknown) => {
     assertTrustedIpcSender(event);
+    const validatedId = parseIpc(BookmarkIdSchema, id, "id");
+    const validatedDeleteContents = parseIpc(
+      OptionalBooleanSchema,
+      deleteContents,
+      "deleteContents",
+    );
     trackBookmarkAction("folder_remove");
-    return bookmarkManager.removeFolder(id, deleteContents ?? false);
+    return bookmarkManager.removeFolder(validatedId, validatedDeleteContents ?? false);
   });
 
   ipcMain.handle(
     Channels.FOLDER_RENAME,
-    (event, id: string, newName: string, summary?: string) => {
+    (event, id: unknown, newName: unknown, summary?: unknown) => {
       assertTrustedIpcSender(event);
-      return bookmarkManager.renameFolder(id, newName, summary);
+      const validatedId = parseIpc(BookmarkIdSchema, id, "id");
+      const validatedName = parseIpc(FolderNameSchema, newName, "newName");
+      const validatedSummary = parseIpc(OptionalStringSchema, summary, "summary");
+      return bookmarkManager.renameFolder(validatedId, validatedName, validatedSummary);
     },
   );
 }

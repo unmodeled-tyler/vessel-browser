@@ -3,6 +3,7 @@ import TitleBar from "./components/chrome/TitleBar";
 import TabBar from "./components/chrome/TabBar";
 import AddressBar from "./components/chrome/AddressBar";
 import BookmarkNotifications from "./components/chrome/BookmarkNotifications";
+import { MAX_PREVIEW_TEXT, TRUNCATE_KEEP } from "../../shared/ui-constants";
 import HighlightNotifications from "./components/chrome/HighlightNotifications";
 import DownloadToast from "./components/chrome/DownloadToast";
 import DownloadsPanel from "./components/chrome/DownloadsPanel";
@@ -72,7 +73,7 @@ const App: Component = () => {
   }) => {
     if (result.success && result.text) {
       const preview =
-        result.text.length > 60 ? result.text.slice(0, 57) + "..." : result.text;
+        result.text.length > MAX_PREVIEW_TEXT ? result.text.slice(0, TRUNCATE_KEEP) + "..." : result.text;
       setHighlightToast({ title: "Highlight saved", message: preview });
     } else {
       setHighlightToast({

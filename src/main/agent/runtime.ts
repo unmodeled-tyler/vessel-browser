@@ -633,7 +633,8 @@ export class AgentRuntime {
       const raw = fs.readFileSync(getRuntimeStatePath(), "utf-8");
       const parsed = JSON.parse(raw) as RuntimePersistenceShape;
       return sanitizePersistence(parsed);
-    } catch {
+    } catch (err) {
+      logger.warn("Failed to load persisted runtime state, starting fresh:", err);
       return sanitizePersistence(null);
     }
   }

@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createLogger } from "../../shared/logger";
+import { unixNow } from "../../shared/time";
 
 const logger = createLogger("VaultShared");
 
@@ -174,7 +175,7 @@ export function domainMatches(pattern: string, hostname: string): boolean {
 // --- TOTP ---
 
 export function generateTotpCode(secret: string): string {
-  const epoch = Math.floor(Date.now() / 1000);
+  const epoch = unixNow();
   const counter = Math.floor(epoch / 30);
 
   const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -238,8 +239,8 @@ export function createAuditLog<T extends Record<string, unknown>>(
           });
           fs.chmodSync(auditPath, 0o600);
         }
-      } catch {
-        // Non-critical — don't fail the operation
+      } catch (err) {
+        logger.warn("Failed to trim audit log:", err);
       }
     } catch (err) {
       logger.error("Failed to write audit log:", err);

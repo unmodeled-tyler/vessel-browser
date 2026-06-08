@@ -8,6 +8,9 @@ import type {
   PersistedCookie,
 } from "../../shared/types";
 import type { TabManager } from "../tabs/tab-manager";
+import { createLogger } from "../../shared/logger";
+
+const logger = createLogger("Sessions");
 import { waitForLoad } from "../utils/webcontents-utils";
 
 const SESSION_VERSION = 1;
@@ -112,7 +115,8 @@ function readSessionFile(filePath: string): NamedSessionData | null {
               capturedAt: new Date().toISOString(),
             },
     };
-  } catch {
+  } catch (err) {
+    logger.warn(`Failed to read session file ${filePath}:`, err);
     return null;
   }
 }
@@ -209,7 +213,8 @@ async function captureLocalStorageForOrigin(
         ),
       );
     }
-  } catch {
+  } catch (err) {
+    logger.debug(`Failed to capture localStorage for origin ${origin}:`, err);
     return {};
   }
   return {};
@@ -326,7 +331,8 @@ export async function loadNamedSession(
   for (const cookie of saved.cookies) {
     try {
       await session.defaultSession.cookies.set(cookieSetDetails(cookie));
-    } catch {
+    } catch (err) {
+      logger.debug(`Skipping cookie ${cookie.name} for ${cookie.domain}:`, err);
       continue;
     }
   }

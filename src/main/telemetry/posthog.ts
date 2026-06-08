@@ -184,7 +184,7 @@ export function trackApprovalModeChanged(mode: string): void {
 }
 
 export function trackBookmarkAction(
-  action: "save" | "remove" | "folder_create" | "folder_remove" | "export",
+  action: "save" | "remove" | "folder_create" | "folder_remove" | "export" | "import",
 ): void {
   trackEvent("bookmark_action", { action });
 }
