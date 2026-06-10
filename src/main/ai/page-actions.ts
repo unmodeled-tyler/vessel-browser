@@ -2971,6 +2971,97 @@ async function locateSearchTarget(
   );
 }
 
+async function locateImplicitTextTarget(
+  wc: WebContents,
+): Promise<string | null | typeof PAGE_SCRIPT_TIMEOUT> {
+  return executePageScript<string | null>(
+    wc,
+    `
+      (function() {
+        function normalize(value) {
+          return value == null ? "" : String(value).trim().toLowerCase();
+        }
+
+        function isVisible(el) {
+          if (!(el instanceof HTMLElement)) return true;
+          const style = window.getComputedStyle(el);
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+          if (el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true") return false;
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        }
+
+        function inViewport(el) {
+          if (!(el instanceof HTMLElement)) return true;
+          const rect = el.getBoundingClientRect();
+          const vw = window.innerWidth || document.documentElement?.clientWidth || 0;
+          const vh = window.innerHeight || document.documentElement?.clientHeight || 0;
+          return rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw;
+        }
+
+        function isFillable(el) {
+          if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return false;
+          if (el.disabled || el.readOnly || el.getAttribute("aria-disabled") === "true") return false;
+          const type = el instanceof HTMLTextAreaElement ? "text" : normalize(el.getAttribute("type") || el.type || "text");
+          return ["", "search", "text", "email", "url", "tel", "number", "password"].includes(type);
+        }
+
+        function nearestSearchScope(input) {
+          return input.closest('[role="search"], form, header, nav, [class*="search" i], [id*="search" i]');
+        }
+
+        ${selectorHelpersJS(["data-testid", "name", "form", "aria-label", "placeholder"])}
+
+        const active = document.activeElement;
+        if (active && isFillable(active) && isVisible(active) && inViewport(active)) {
+          return selectorFor(active);
+        }
+
+        const candidates = Array.from(
+          document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea')
+        ).filter((el) => isFillable(el) && isVisible(el));
+
+        let best = null;
+        let bestScore = -1;
+        for (const el of candidates) {
+          let score = 0;
+          if (inViewport(el)) score += 100;
+          const rect = el.getBoundingClientRect();
+          score += Math.max(0, 36 - Math.min(36, Math.floor(Math.max(0, rect.top) / 22)));
+
+          const type = el instanceof HTMLTextAreaElement ? "text" : normalize(el.getAttribute("type") || el.type);
+          const name = normalize(el.getAttribute("name"));
+          const placeholder = normalize(el.getAttribute("placeholder"));
+          const aria = normalize(el.getAttribute("aria-label"));
+          const role = normalize(el.getAttribute("role"));
+          const id = normalize(el.getAttribute("id"));
+
+          if (type === "search") score += 80;
+          if (role === "searchbox") score += 70;
+          if (name === "q" || name === "query" || name === "search") score += 65;
+          if (placeholder.includes("search")) score += 55;
+          if (aria.includes("search")) score += 55;
+          if (id.includes("search")) score += 35;
+
+          const scope = nearestSearchScope(el);
+          if (scope) score += 35;
+
+          if (score > bestScore) {
+            best = el;
+            bestScore = score;
+          }
+        }
+
+        return best ? selectorFor(best) : null;
+      })()
+    `,
+    {
+      timeoutMs: 2200,
+      label: "find implicit text input",
+    },
+  );
+}
+
 async function searchPage(
   wc: WebContents,
   args: Record<string, unknown>,
@@ -3572,8 +3663,19 @@ export async function executeAction(
 
         case "type_text": {
           if (!wc) return "Error: No active tab";
-          const selector = await resolveSelector(wc, args.index, args.selector);
-          if (!selector) return "Error: No element index or selector provided";
+          let selector = await resolveSelector(wc, args.index, args.selector);
+          if (selector === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("type_text");
+          }
+          if (!selector) {
+            selector = await locateImplicitTextTarget(wc);
+          }
+          if (selector === PAGE_SCRIPT_TIMEOUT) {
+            return pageBusyError("type_text");
+          }
+          if (!selector) {
+            return "Error: No element index or selector provided, and no focused or visible text input could be found.";
+          }
           const mode = typeof args.mode === "string" ? args.mode : "default";
           if (mode === "keystroke") {
             return typeKeystroke(wc, selector, String(args.text || ""));

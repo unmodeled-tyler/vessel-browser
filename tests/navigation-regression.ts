@@ -9,6 +9,7 @@ import { extractContent } from "../src/main/content/extractor";
 import {
   clickElementBySelector,
   dismissPopup,
+  executeAction,
   fillFormFields,
   pressKey,
   searchPage,
@@ -84,6 +85,20 @@ async function waitForCondition(
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out after ${timeoutMs}ms waiting for condition`);
+}
+
+function buildActionContextForTab(tab: Tab): Parameters<typeof executeAction>[2] {
+  return {
+    tabManager: {
+      getActiveTab: () => tab,
+      getActiveTabId: () => tab.id,
+      switchTab: () => true,
+    },
+    runtime: {
+      runControlledAction: async (input: { executor: () => Promise<string> }) =>
+        input.executor(),
+    },
+  } as Parameters<typeof executeAction>[2];
 }
 
 async function main(): Promise<void> {
@@ -894,6 +909,31 @@ async function main(): Promise<void> {
     );
     completedScenarios.push(
       "trusted Enter key presses trigger focused input handlers",
+    );
+
+    await runScenario(
+      "type_text without selector targets the focused search box",
+      async () => {
+        await withTab(`${harness.baseUrl}/focused-search`, async (tab) => {
+          const wc = tab.view.webContents;
+          const query = "Vessel Browser AI agent";
+
+          const result = await executeAction(
+            "type_text",
+            { text: query },
+            buildActionContextForTab(tab),
+          );
+
+          assert.match(result, /Typed into: Search with DuckDuckGo/);
+          const value = await wc.executeJavaScript(
+            "document.getElementById('focused-search-input')?.value",
+          );
+          assert.equal(value, query);
+        });
+      },
+    );
+    completedScenarios.push(
+      "type_text without selector targets the focused search box",
     );
 
     await runScenario(
