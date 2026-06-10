@@ -19,6 +19,12 @@ import {
   Star,
   Zap,
   Clock,
+  ChevronRight,
+  Eye,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
   type IconProps,
 } from "lucide-solid";
 import { BUNDLED_KIT_IDS } from "../../../../shared/automation-kit-constants";
@@ -100,8 +106,65 @@ function toLocalDateTimeInput(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function createSkillId(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug ? `custom-${slug}` : `custom-skill-${Date.now()}`;
+}
+
+const SIMPLE_TASK_PROMPT_SUFFIX = "\n\nTask:\n{{task}}";
+
+function isSimpleTaskSkill(kit: AutomationKit): boolean {
+  return (
+    kit.inputs.length === 1 &&
+    kit.inputs[0]?.key === "task" &&
+    kit.inputs[0]?.type === "textarea"
+  );
+}
+
+function getEditableInstructions(kit: AutomationKit): string {
+  if (isSimpleTaskSkill(kit) && kit.promptTemplate.endsWith(SIMPLE_TASK_PROMPT_SUFFIX)) {
+    return kit.promptTemplate.slice(0, -SIMPLE_TASK_PROMPT_SUFFIX.length);
+  }
+  return kit.promptTemplate;
+}
+
+function buildSkillDraft(
+  name: string,
+  description: string,
+  instructions: string,
+  existing?: AutomationKit,
+): AutomationKit {
+  const simpleTaskSkill = !existing || isSimpleTaskSkill(existing);
+  return {
+    id: existing?.id ?? createSkillId(name),
+    name,
+    description: description || "Custom agent skill.",
+    category: existing?.category ?? "productivity",
+    icon: existing?.icon ?? "Zap",
+    estimatedMinutes: existing?.estimatedMinutes ?? 3,
+    inputs: simpleTaskSkill
+      ? [
+          {
+            key: "task",
+            label: "Task",
+            type: "textarea",
+            placeholder: "What should the agent do with this skill?",
+            required: true,
+          },
+        ]
+      : existing.inputs,
+    promptTemplate: simpleTaskSkill
+      ? `${instructions}${SIMPLE_TASK_PROMPT_SUFFIX}`
+      : instructions,
+  };
+}
+
 interface AutomationTabProps {
-  /** Called after launching a kit so the parent can switch to the supervisor tab */
+  /** Called after launching a skill so the parent can switch to the supervisor tab */
   onRun: () => void;
 }
 
@@ -111,6 +174,13 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
   const [selectedKit, setSelectedKit] = createSignal<AutomationKit | null>(null);
   const [fieldValues, setFieldValues] = createSignal<Record<string, string>>({});
   const [installError, setInstallError] = createSignal<string | null>(null);
+  const [createEditorOpen, setCreateEditorOpen] = createSignal(false);
+  const [createName, setCreateName] = createSignal("");
+  const [createDescription, setCreateDescription] = createSignal("");
+  const [createInstructions, setCreateInstructions] = createSignal("");
+  const [createError, setCreateError] = createSignal<string | null>(null);
+  const [savingSkill, setSavingSkill] = createSignal(false);
+  const [editingSkill, setEditingSkill] = createSignal<AutomationKit | null>(null);
 
   // Schedule form state
   const [scheduleEnabled, setScheduleEnabled] = createSignal(false);
@@ -152,6 +222,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
       if (e.key === "Escape") {
         setOpenMenuJobId(null);
         setEditingJob(null);
+        closeCreateEditor();
       }
     };
     document.addEventListener("keydown", onKeyDown);
@@ -283,6 +354,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
 
   const handleInstall = async () => {
     setInstallError(null);
+    setCreateError(null);
     const result = await window.vessel.automation.installFromFile();
     if (!result.ok) {
       if (result.error !== "canceled") {
@@ -293,11 +365,103 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
     void refetchInstalled();
   };
 
+  const openCreateEditor = () => {
+    setInstallError(null);
+    setCreateError(null);
+    setSavingSkill(false);
+    setEditingSkill(null);
+    setCreateName("");
+    setCreateDescription("");
+    setCreateInstructions("");
+    setCreateEditorOpen(true);
+  };
+
+  const closeCreateEditor = () => {
+    setCreateEditorOpen(false);
+    setCreateError(null);
+    setSavingSkill(false);
+    setEditingSkill(null);
+  };
+
+  const clearCreateDraft = () => {
+    setCreateName("");
+    setCreateDescription("");
+    setCreateInstructions("");
+  };
+
+  const resetCreateDraft = () => {
+    const skill = editingSkill();
+    setCreateName(skill?.name ?? "");
+    setCreateDescription(skill?.description ?? "");
+    setCreateInstructions(skill ? getEditableInstructions(skill) : "");
+    setCreateError(null);
+  };
+
+  const handleOpenEditSkill = (e: MouseEvent, kit: AutomationKit) => {
+    e.stopPropagation();
+    if (BUNDLED_KIT_IDS.has(kit.id)) return;
+    setInstallError(null);
+    setCreateError(null);
+    setEditingSkill(kit);
+    setCreateName(kit.name);
+    setCreateDescription(kit.description);
+    setCreateInstructions(getEditableInstructions(kit));
+    setCreateEditorOpen(true);
+  };
+
+  const handleSaveSkill = async () => {
+    if (savingSkill()) return;
+    setInstallError(null);
+    setCreateError(null);
+    const name = createName().trim();
+    const instructions = createInstructions().trim();
+    if (!name || !instructions) {
+      setCreateError("Add a skill name and instructions before saving.");
+      return;
+    }
+
+    const existing = editingSkill() ?? undefined;
+    const skill = buildSkillDraft(
+      name,
+      createDescription().trim(),
+      instructions,
+      existing,
+    );
+
+    setSavingSkill(true);
+    try {
+      const source = JSON.stringify(skill);
+      const automationApi = window.vessel.automation as typeof window.vessel.automation & {
+        updateFromText?: (
+          id: string,
+          source: string,
+        ) => Promise<{ ok: boolean; kit?: AutomationKit; error?: string }>;
+      };
+      const result = existing && automationApi.updateFromText
+        ? await automationApi.updateFromText(existing.id, source)
+        : await window.vessel.automation.createFromText(source);
+
+      if (!result.ok) {
+        setCreateError(result.error ?? "Could not save skill.");
+        return;
+      }
+
+      setCreateEditorOpen(false);
+      setEditingSkill(null);
+      clearCreateDraft();
+      void refetchInstalled();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Could not save skill.");
+    } finally {
+      setSavingSkill(false);
+    }
+  };
+
   const handleUninstall = async (e: MouseEvent, id: string) => {
     e.stopPropagation();
     const result = await window.vessel.automation.uninstall(id);
     if (!result.ok) {
-      setInstallError(result.error ?? "Could not remove kit.");
+      setInstallError(result.error ?? "Could not remove skill.");
       return;
     }
     void refetchInstalled();
@@ -391,8 +555,8 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
           </div>
           <p class="kit-upsell-title">Vessel Premium</p>
           <p class="kit-upsell-body">
-            Automation Kits are a premium feature. Upgrade to unlock pre-built
-            workflows you can launch with one click.
+            Skills are a premium feature. Upgrade to import, inspect, and run
+            reusable agent capabilities.
           </p>
           <button
             class="agent-primary-button kit-upsell-btn"
@@ -404,19 +568,31 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
         </div>
       </Show>
 
-      {/* ── Kit list ── */}
+      {/* ── Skill list ── */}
       <Show when={isPremium() && selectedKit() === null}>
         <div class="kit-list-header">
-          <span class="agent-panel-title">Automation Kits <span class="kit-beta-tag">Beta</span></span>
+          <span class="agent-panel-title">Skills</span>
           <div class="kit-list-header-actions">
-            <span class="kit-list-count">{allKits().length} kits</span>
+            <span class="kit-list-count">{allKits().length} skills</span>
             <button
               class="kit-install-btn"
               type="button"
-              title="Install a kit from a .kit.json file"
-              onClick={() => void handleInstall()}
+              title="Create a skill from text"
+              onClick={openCreateEditor}
+              aria-label="Create skill"
             >
-              + Install
+              <Plus size={12} aria-hidden="true" />
+              Create
+            </button>
+            <button
+              class="kit-install-btn"
+              type="button"
+              title="Import a skill from a .skill.json file"
+              onClick={() => void handleInstall()}
+              aria-label="Import skill"
+            >
+              <Upload size={12} aria-hidden="true" />
+              Import
             </button>
           </div>
         </div>
@@ -435,61 +611,180 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
           </div>
         </Show>
 
-        <div class="kit-list">
-          <For each={allKits()}>
-            {(kit) => (
-              <div
-                class="kit-card"
-                role="button"
-                tabIndex={0}
-                onClick={() => selectKit(kit)}
-                onKeyDown={(e) => e.key === "Enter" && selectKit(kit)}
+        <Show when={createEditorOpen()}>
+          <div class="kit-create-panel">
+            <div class="kit-create-header">
+              <span class="kit-create-title">
+                {editingSkill() ? "Edit Skill" : "Create Skill"}
+              </span>
+              <button
+                class="kit-install-error-dismiss"
+                type="button"
+                onClick={closeCreateEditor}
+                aria-label="Close create skill"
               >
-                <span class="kit-card-icon" aria-hidden="true">
-                  <KitIcon name={kit.icon} size={18} />
-                </span>
-                <div class="kit-card-body">
-                  <div class="kit-card-name">{kit.name}</div>
-                  <div class="kit-card-desc">{kit.description}</div>
-                  <Show when={kit.estimatedMinutes !== undefined}>
-                    <div class="kit-card-meta">~{kit.estimatedMinutes} min</div>
+                ×
+              </button>
+            </div>
+            <input
+              class="kit-form-input"
+              type="text"
+              placeholder="Skill name"
+              value={createName()}
+              onInput={(e) => setCreateName(e.currentTarget.value)}
+            />
+            <input
+              class="kit-form-input"
+              type="text"
+              placeholder="Short description"
+              value={createDescription()}
+              onInput={(e) => setCreateDescription(e.currentTarget.value)}
+            />
+            <textarea
+              class="kit-create-textarea"
+              placeholder="Write the skill instructions the agent should follow. Example: Research the topic carefully, compare trustworthy sources, then summarize the answer with links."
+              value={createInstructions()}
+              onInput={(e) => setCreateInstructions(e.currentTarget.value)}
+            />
+            <Show when={createError() !== null}>
+              <div class="kit-install-error">
+                <span>{createError()}</span>
+                <button
+                  class="kit-install-error-dismiss"
+                  type="button"
+                  onClick={() => setCreateError(null)}
+                  aria-label="Dismiss"
+                >
+                  ×
+                </button>
+              </div>
+            </Show>
+            <div class="kit-create-actions">
+              <button
+                class="kit-back-btn"
+                type="button"
+                onClick={resetCreateDraft}
+              >
+                Reset
+              </button>
+              <button
+                class="kit-back-btn"
+                type="button"
+                onClick={closeCreateEditor}
+              >
+                Cancel
+              </button>
+              <button
+                class="agent-primary-button kit-create-save"
+                type="button"
+                disabled={savingSkill()}
+                onClick={() => void handleSaveSkill()}
+              >
+                {savingSkill()
+                  ? "Saving..."
+                  : editingSkill()
+                    ? "Save Changes"
+                    : "Save Skill"}
+              </button>
+            </div>
+          </div>
+        </Show>
+
+        <Show
+          when={allKits().length > 0}
+          fallback={
+            <div class="kit-empty-state">
+              <div class="kit-empty-title">No skills imported</div>
+              <p class="kit-empty-copy">
+                Import a skill definition to make it available to the agent.
+              </p>
+              <div class="kit-empty-actions">
+                <button
+                  class="kit-install-btn"
+                  type="button"
+                  onClick={openCreateEditor}
+                >
+                  <Plus size={12} aria-hidden="true" />
+                  Create
+                </button>
+                <button
+                  class="kit-install-btn"
+                  type="button"
+                  onClick={() => void handleInstall()}
+                >
+                  <Upload size={12} aria-hidden="true" />
+                  Import
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div class="kit-list">
+            <For each={allKits()}>
+              {(kit) => (
+                <div
+                  class="kit-card"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => selectKit(kit)}
+                  onKeyDown={(e) => e.key === "Enter" && selectKit(kit)}
+                >
+                  <span class="kit-card-icon" aria-hidden="true">
+                    <KitIcon name={kit.icon} size={18} />
+                  </span>
+                  <div class="kit-card-body">
+                    <div class="kit-card-name">{kit.name}</div>
+                    <div class="kit-card-desc">{kit.description}</div>
+                    <Show when={kit.estimatedMinutes !== undefined}>
+                      <div class="kit-card-meta">~{kit.estimatedMinutes} min</div>
+                    </Show>
+                  </div>
+                  <Show
+                    when={!BUNDLED_KIT_IDS.has(kit.id)}
+                    fallback={
+                      <ChevronRight
+                        class="kit-card-caret"
+                        size={14}
+                        aria-hidden="true"
+                      />
+                    }
+                  >
+                    <button
+                      class="kit-card-action-btn"
+                      type="button"
+                      title={`Edit ${kit.name}`}
+                      onClick={(e) => handleOpenEditSkill(e, kit)}
+                      aria-label={`Edit ${kit.name}`}
+                    >
+                      <Pencil size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      class="kit-card-action-btn"
+                      type="button"
+                      title={`View ${kit.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        selectKit(kit);
+                      }}
+                      aria-label={`View ${kit.name}`}
+                    >
+                      <Eye size={13} aria-hidden="true" />
+                    </button>
+                    <button
+                      class="kit-remove-btn"
+                      type="button"
+                      title={`Delete ${kit.name}`}
+                      onClick={(e) => void handleUninstall(e, kit.id)}
+                      aria-label={`Delete ${kit.name}`}
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </button>
                   </Show>
                 </div>
-                <Show
-                  when={!BUNDLED_KIT_IDS.has(kit.id)}
-                  fallback={
-                    <svg
-                      class="kit-card-caret"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 14 14"
-                      fill="none"
-                      aria-hidden="true"
-                    >
-                      <path
-                        d="M5 3l4 4-4 4"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  }
-                >
-                  <button
-                    class="kit-remove-btn"
-                    type="button"
-                    title={`Remove ${kit.name}`}
-                    onClick={(e) => void handleUninstall(e, kit.id)}
-                    aria-label={`Remove ${kit.name}`}
-                  >
-                    ×
-                  </button>
-                </Show>
-              </div>
-            )}
-          </For>
-        </div>
+              )}
+            </For>
+          </div>
+        </Show>
 
         {/* ── Scheduled jobs section ── */}
         <Show when={scheduledJobs().length > 0}>
@@ -636,7 +931,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
         </Show>
       </Show>
 
-      {/* ── Kit form ── */}
+      {/* ── Skill form ── */}
       <Show when={isPremium() && selectedKit() !== null}>
         <>
           <div class="kit-form-header">
@@ -644,7 +939,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
               class="kit-back-btn"
               type="button"
               onClick={() => { setSelectedKit(null); setEditingTaskJobId(null); }}
-              title="Back to kits"
+              title="Back to skills"
             >
               <svg
                 width="14"
@@ -742,7 +1037,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                 </>
               }
             >
-              Run Kit
+              Run Skill
             </Show>
           </button>
 
@@ -839,7 +1134,7 @@ const AutomationTab: Component<AutomationTabProps> = (props) => {
                   disabled={!canSchedule()}
                   onClick={() => void handleSchedule()}
                 >
-                  {editingTaskJobId() ? "Save Changes" : "Schedule Kit"}
+                  {editingTaskJobId() ? "Save Changes" : "Schedule Skill"}
                 </button>
               </div>
             </Show>

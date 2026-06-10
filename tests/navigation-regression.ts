@@ -8,7 +8,9 @@ import { buildScopedContext } from "../src/main/ai/context-builder";
 import { extractContent } from "../src/main/content/extractor";
 import {
   clickElementBySelector,
+  clearOverlays,
   dismissPopup,
+  executeAction,
   fillFormFields,
   pressKey,
   searchPage,
@@ -84,6 +86,20 @@ async function waitForCondition(
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out after ${timeoutMs}ms waiting for condition`);
+}
+
+function buildActionContextForTab(tab: Tab): Parameters<typeof executeAction>[2] {
+  return {
+    tabManager: {
+      getActiveTab: () => tab,
+      getActiveTabId: () => tab.id,
+      switchTab: () => true,
+    },
+    runtime: {
+      runControlledAction: async (input: { executor: () => Promise<string> }) =>
+        input.executor(),
+    },
+  } as Parameters<typeof executeAction>[2];
 }
 
 async function main(): Promise<void> {
@@ -897,6 +913,73 @@ async function main(): Promise<void> {
     );
 
     await runScenario(
+      "type_text without selector targets the focused search box",
+      async () => {
+        await withTab(`${harness.baseUrl}/focused-search`, async (tab) => {
+          const wc = tab.view.webContents;
+          const query = "Vessel Browser AI agent";
+
+          const result = await executeAction(
+            "type_text",
+            { text: query },
+            buildActionContextForTab(tab),
+          );
+
+          assert.match(result, /Typed into: Search with DuckDuckGo/);
+          const value = await wc.executeJavaScript(
+            "document.getElementById('focused-search-input')?.value",
+          );
+          assert.equal(value, query);
+        });
+      },
+    );
+    completedScenarios.push(
+      "type_text without selector targets the focused search box",
+    );
+
+    await runScenario(
+      "read_page summary uses fast article text before heavy extraction",
+      async () => {
+        await withTab(`${harness.baseUrl}/article-summary`, async (tab) => {
+          const result = await executeAction(
+            "read_page",
+            { mode: "summary" },
+            buildActionContextForTab(tab),
+          );
+
+          assert.match(result, /\[read_page mode=summary — fast article text/);
+          assert.match(result, /Artificial intelligence is a field/);
+          assert.match(result, /Researchers study reliability/);
+        });
+      },
+    );
+    completedScenarios.push(
+      "read_page summary uses fast article text before heavy extraction",
+    );
+
+    await runScenario(
+      "read_page summary falls back to network article text when page scripts are blocked",
+      async () => {
+        await withTab(`${harness.baseUrl}/article-script-blocked`, async (tab) => {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+
+          const result = await executeAction(
+            "read_page",
+            { mode: "summary" },
+            buildActionContextForTab(tab),
+          );
+
+          assert.match(result, /\[read_page mode=summary — network article fallback/);
+          assert.match(result, /Renderer independent extraction keeps readable page content available/);
+          assert.doesNotMatch(result, /page JS thread is completely blocked/);
+        });
+      },
+    );
+    completedScenarios.push(
+      "read_page summary falls back to network article text when page scripts are blocked",
+    );
+
+    await runScenario(
       "search prefers the visible desktop search box and nearby button",
       async () => {
         await withTab(`${harness.baseUrl}/search-visibility`, async (tab) => {
@@ -964,6 +1047,59 @@ async function main(): Promise<void> {
       },
     );
     completedScenarios.push("popup dismissal avoids locale-switch controls");
+
+    await runScenario(
+      "clear_overlays falls back to popup dismissal for centered dialogs",
+      async () => {
+        await withTab(`${harness.baseUrl}/language-popup`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const result = await clearOverlays(wc);
+          const modalExists = await wc.executeJavaScript(
+            "Boolean(document.getElementById('language-modal'))",
+          );
+          const lang = await wc.executeJavaScript(
+            "document.documentElement.lang",
+          );
+
+          assert.doesNotMatch(result, /extractContent is not defined/);
+          assert.equal(modalExists, false);
+          assert.equal(lang, "en");
+        });
+      },
+    );
+    completedScenarios.push(
+      "clear_overlays falls back to popup dismissal for centered dialogs",
+    );
+
+    await runScenario(
+      "accept_cookies verifies ambiguous consent banners are actually dismissed",
+      async () => {
+        await withTab(`${harness.baseUrl}/cookie-banner-ambiguous`, async (tab) => {
+          const wc = tab.view.webContents;
+
+          const result = await executeAction(
+            "accept_cookies",
+            {},
+            buildActionContextForTab(tab),
+          );
+          const bannerExists = await wc.executeJavaScript(
+            "Boolean(document.getElementById('cookie-consent-banner'))",
+          );
+          const infoClicks = await wc.executeJavaScript(
+            "window.__consentInfoClicks || 0",
+          );
+
+          assert.match(result, /Dismissed cookie banner/);
+          assert.match(result, /Accept all/i);
+          assert.equal(bannerExists, false);
+          assert.equal(infoClicks, 0);
+        });
+      },
+    );
+    completedScenarios.push(
+      "accept_cookies verifies ambiguous consent banners are actually dismissed",
+    );
 
     console.log(
       `\nNavigation regression suite passed against ${harness.baseUrl}\nScenarios: ${completedScenarios.join("; ")}`,

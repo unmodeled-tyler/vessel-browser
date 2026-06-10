@@ -147,10 +147,29 @@ export function matchesPageSnapshotUrl(left: string, right: string): boolean {
   return buildPageSnapshotKey(left) === buildPageSnapshotKey(right);
 }
 
+export function isDocumentViewerUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const pathname = decodeURIComponent(url.pathname).toLowerCase();
+    if (/\.(pdf|epub|mobi|cbz|cbr)(?:$|[?#])/.test(pathname)) {
+      return true;
+    }
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "archive.org") {
+      return /^\/(details|stream|download)\//.test(pathname);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function isTrackablePageUrl(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl);
-    return url.protocol === "http:" || url.protocol === "https:";
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return !isDocumentViewerUrl(rawUrl);
   } catch {
     return false;
   }

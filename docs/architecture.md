@@ -64,12 +64,12 @@ src/
 │   └── src/
 │       ├── components/
 │       │   ├── chrome/   # TitleBar, TabBar, AddressBar, transcript dock
-│       │   ├── ai/       # CommandBar, Sidebar, Automation, Changes
+│       │   ├── ai/       # CommandBar, Sidebar, Skills, Changes
 │       │   ├── devtools/ # Console, network, and agent activity panel
 │       │   └── shared/   # Settings panel
 │       ├── stores/       # SolidJS signal stores
 │       ├── styles/       # Theme and global CSS
-│       └── lib/          # Keybindings, markdown, automation kit helpers
+│       └── lib/          # Keybindings, markdown, skill helpers
 └── shared/               # Types and IPC channel constants
 ```
 

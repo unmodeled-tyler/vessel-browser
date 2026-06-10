@@ -200,7 +200,7 @@ test("automation prompt activity starts on stream start and keeps failure status
 
   const result = await store.runAutomationPrompt("Run this kit", {
     id: "adhoc:test:1",
-    title: "Research & Collect",
+    title: "Imported Skill",
     icon: "BookOpen",
   });
   assert.equal(result, "started");
@@ -225,7 +225,7 @@ test("queued automation prompt does not leak metadata into a later unrelated str
 
   const result = await store.runAutomationPrompt("Run this kit later", {
     id: "adhoc:test:queued",
-    title: "Price Scout",
+    title: "Queued Skill",
     icon: "Tag",
   });
   assert.equal(result, "queued");
@@ -247,7 +247,7 @@ test("queued automation prompt starts its activity when the retried prompt actua
 
   const result = await store.runAutomationPrompt("Run this kit later", {
     id: "adhoc:test:retry",
-    title: "Price Scout",
+    title: "Queued Skill",
     icon: "Tag",
   });
   assert.equal(result, "queued");

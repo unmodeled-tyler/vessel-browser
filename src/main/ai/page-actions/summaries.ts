@@ -1,10 +1,50 @@
 import type { WebContents } from "electron";
+import { Readability } from "@mozilla/readability";
+import { parseHTML } from "linkedom";
 import { extractContent } from "../../content/extractor";
 import { waitForLoad } from "../../utils/webcontents-utils";
+import { assertSafeURL } from "../../network/url-safety";
 import { buildScopedContext, chooseAgentReadMode, type ExtractMode } from "../context-builder";
 import { buildCompactScopedContext } from "../compact-context";
 import { getGlanceExtractScript } from "../scripts/glance-extract";
 import { executePageScript, logger, PAGE_SCRIPT_TIMEOUT } from "./core";
+
+interface FastArticleTextResult {
+  title: string;
+  url: string;
+  headings: string[];
+  text: string;
+}
+
+function cleanArticleText(value: string): string {
+  return value
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/(\n\s*){3,}/g, "\n\n")
+    .trim();
+}
+
+function articleTextResultToOutput(
+  result: FastArticleTextResult,
+  mode: "summary" | "text_only",
+  source: string,
+  elapsedMs: number,
+): string {
+  const sections = [
+    `# ${result.title || "(untitled)"}`,
+    `URL: ${result.url}`,
+    "",
+    `[read_page mode=${mode} — ${source}, ${elapsedMs}ms]`,
+  ];
+
+  if (result.headings.length > 0) {
+    sections.push("", "## Headings", ...result.headings);
+  }
+
+  sections.push("", "## Article Text", "", result.text);
+  return sections.join("\n");
+}
 
 /**
  * Ultra-fast viewport scan — shows what a human would see on the screen.
@@ -74,6 +114,197 @@ export async function glanceExtract(wc: WebContents): Promise<string> {
   }
 
   return sections.join("\n");
+}
+
+export async function fastArticleTextExtract(
+  wc: WebContents,
+  mode: "summary" | "text_only",
+): Promise<string | null> {
+  const startMs = Date.now();
+  const result = await executePageScript<FastArticleTextResult | null>(
+    wc,
+    `(function() {
+      function clean(value) {
+        return String(value || '').replace(/[ \\t]+/g, ' ').replace(/(\\n\\s*){3,}/g, '\\n\\n').trim();
+      }
+
+      var rootSelectors = [
+        '#mw-content-text .mw-parser-output',
+        '#mw-content-text',
+        'main article',
+        'article',
+        'main',
+        '[role="main"]',
+        '#content'
+      ];
+      var root = null;
+      for (var i = 0; i < rootSelectors.length; i++) {
+        var candidate = document.querySelector(rootSelectors[i]);
+        if (candidate && clean(candidate.textContent).length > 300) {
+          root = candidate;
+          break;
+        }
+      }
+      if (!root) return null;
+
+      var unwantedSelector = [
+        'script',
+        'style',
+        'noscript',
+        'nav',
+        'header',
+        'footer',
+        'aside',
+        '.mw-editsection',
+        '.reference',
+        '.reflist',
+        '.navbox',
+        '.infobox',
+        '.metadata',
+        '.ambox',
+        '.toc',
+        '#toc'
+      ].join(',');
+
+      var headings = [];
+      var parts = [];
+      var nodes = root.querySelectorAll('h1, h2, h3, p, li');
+      for (var j = 0; j < nodes.length && parts.length < 180; j++) {
+        var node = nodes[j];
+        if (node.closest && node.closest(unwantedSelector)) continue;
+        var tag = String(node.tagName || '').toLowerCase();
+        var text = clean(node.textContent);
+        if (!text) continue;
+        if (/^h[1-3]$/.test(tag)) {
+          if (text.length < 180) headings.push(tag + ': ' + text);
+          parts.push('\\n## ' + text);
+          continue;
+        }
+        if (text.length < 40) continue;
+        parts.push(text);
+      }
+
+      var articleText = clean(parts.join('\\n\\n'));
+      if (articleText.length < 300) {
+        articleText = clean(root.textContent).slice(0, 12000);
+      }
+      if (articleText.length < 300) return null;
+
+      return {
+        title: document.title || '',
+        url: location.href,
+        headings: headings.slice(0, 18),
+        text: articleText.slice(0, ${mode === "summary" ? 9000 : 14000}),
+      };
+    })()`,
+    {
+      timeoutMs: 1800,
+      label: "fast article text",
+    },
+  );
+
+  if (!result || result === PAGE_SCRIPT_TIMEOUT || !result.text.trim()) {
+    return null;
+  }
+
+  return articleTextResultToOutput(
+    {
+      title: result.title || wc.getTitle() || "(untitled)",
+      url: result.url || wc.getURL(),
+      headings: result.headings,
+      text: result.text,
+    },
+    mode,
+    "fast article text",
+    Date.now() - startMs,
+  );
+}
+
+export async function fetchArticleTextExtract(
+  wc: WebContents,
+  mode: "summary" | "text_only",
+): Promise<string | null> {
+  const startMs = Date.now();
+  const url = wc.getURL();
+  try {
+    assertSafeURL(url);
+  } catch {
+    return null;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4500);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": "VesselBrowser/0.1 read-page-fallback",
+      },
+    });
+    if (!response.ok) return null;
+
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType && !/text\/html|application\/xhtml\+xml/i.test(contentType)) {
+      return null;
+    }
+
+    const contentLength = Number(response.headers.get("content-length") || "0");
+    if (contentLength > 5_000_000) return null;
+
+    const html = await response.text();
+    if (html.trim().length < 300) return null;
+
+    const { document } = parseHTML(html);
+    const readable = new Readability(document as unknown as Document, {
+      charThreshold: 300,
+    }).parse();
+
+    const title =
+      cleanArticleText(readable?.title || document.title || wc.getTitle()) ||
+      wc.getTitle() ||
+      "(untitled)";
+    const headings = Array.from(document.querySelectorAll("h1, h2, h3"))
+      .map((node) => {
+        const tag = String(node.tagName || "").toLowerCase();
+        const text = cleanArticleText(node.textContent || "");
+        return text.length > 0 && text.length < 180 ? `${tag}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .slice(0, 18);
+
+    const fallbackRoot =
+      document.querySelector("article") ||
+      document.querySelector("main") ||
+      document.querySelector('[role="main"]') ||
+      document.body;
+    const text = cleanArticleText(
+      readable?.textContent || fallbackRoot?.textContent || "",
+    );
+    if (text.length < 300) return null;
+
+    return articleTextResultToOutput(
+      {
+        title,
+        url,
+        headings,
+        text: text.slice(0, mode === "summary" ? 9000 : 14000),
+      },
+      mode,
+      "network article fallback",
+      Date.now() - startMs,
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      logger.warn("Network article fallback timed out:", url);
+    } else {
+      logger.warn("Network article fallback failed:", err);
+    }
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function normalizeReadPageMode(

@@ -165,6 +165,7 @@ function notifyPageDiffActivity(): void {
 function startPageDiffObserver(): void {
   if (typeof MutationObserver === "undefined") return;
   if (!document.documentElement) return;
+  if (isDocumentViewerPage()) return;
 
   lastPageDiffSignature = getPageDiffSignature();
 
@@ -219,6 +220,31 @@ function startPageDiffObserver(): void {
       pageDiffMutationTimer = null;
     }
   });
+}
+
+function isDocumentViewerPage(): boolean {
+  const contentType = document.contentType?.toLowerCase() || "";
+  if (contentType.includes("application/pdf")) return true;
+
+  try {
+    const url = new URL(window.location.href);
+    const pathname = decodeURIComponent(url.pathname).toLowerCase();
+    if (/\.(pdf|epub|mobi|cbz|cbr)$/.test(pathname)) return true;
+
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (
+      host === "archive.org" &&
+      /^\/(details|stream|download)\//.test(pathname)
+    ) {
+      return true;
+    }
+  } catch {
+    // Ignore unparsable URLs and keep normal observer behavior.
+  }
+
+  return !!document.querySelector(
+    "#BookReader, ia-bookreader, bookreader, embed[type='application/pdf'], object[type='application/pdf']",
+  );
 }
 
 /**

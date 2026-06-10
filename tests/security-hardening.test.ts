@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -10,6 +13,10 @@ import {
   loadInternalDataURL,
   loadTrustedAppURL,
 } from "../src/main/network/url-safety";
+import {
+  resolveDownloadPath,
+  sanitizeDownloadFilename,
+} from "../src/main/network/downloads";
 import { openExternalAllowlisted } from "../src/main/security/external-open";
 import {
   getAirGapBlockReason,
@@ -297,6 +304,11 @@ test("premium assertions block gated tools and features for free users", async (
       "human_vault_list",
       "human_vault_fill",
       "human_vault_remove",
+      "memory_note_create",
+      "memory_note_append",
+      "memory_note_list",
+      "memory_note_search",
+      "memory_page_capture",
     ]) {
       assert.throws(
         () => assertToolUnlocked(toolName),
@@ -311,6 +323,18 @@ test("premium assertions block gated tools and features for free users", async (
     assert.throws(
       () => assertFeatureUnlocked("human_vault", "Passwords"),
       /Passwords requires Vessel Premium/,
+    );
+    assert.throws(
+      () => assertFeatureUnlocked("obsidian", "Obsidian memory"),
+      /Obsidian memory requires Vessel Premium/,
+    );
+    assert.throws(
+      () => assertFeatureUnlocked("devtools", "DevTools"),
+      /DevTools requires Vessel Premium/,
+    );
+    assert.throws(
+      () => assertFeatureUnlocked("automation_kits", "Skills"),
+      /Skills requires Vessel Premium/,
     );
     assert.doesNotThrow(() => assertToolUnlocked("navigate"));
   } finally {
@@ -330,9 +354,38 @@ test("premium assertions allow gated tools and features for active premium users
     assert.doesNotThrow(() =>
       assertFeatureUnlocked("human_vault", "Passwords"),
     );
+    assert.doesNotThrow(() =>
+      assertFeatureUnlocked("obsidian", "Obsidian memory"),
+    );
+    assert.doesNotThrow(() =>
+      assertFeatureUnlocked("devtools", "DevTools"),
+    );
+    assert.doesNotThrow(() =>
+      assertFeatureUnlocked("automation_kits", "Skills"),
+    );
   } finally {
     setPremiumStatusForTest("free", "");
     await flushPersist();
+  }
+});
+
+test("download filenames are flattened and contained in the download directory", () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vessel-downloads-"));
+  try {
+    assert.equal(sanitizeDownloadFilename("../secrets.txt"), "secrets.txt");
+    assert.equal(sanitizeDownloadFilename("nested\\report.pdf"), "report.pdf");
+    assert.equal(sanitizeDownloadFilename(".."), "download");
+
+    const resolved = resolveDownloadPath(tempDir, "../../.ssh/authorized_keys");
+    assert.equal(path.dirname(resolved), path.resolve(tempDir));
+    assert.equal(path.basename(resolved), "authorized_keys");
+
+    fs.writeFileSync(path.join(tempDir, "authorized_keys"), "existing");
+    const collision = resolveDownloadPath(tempDir, "../../.ssh/authorized_keys");
+    assert.equal(path.dirname(collision), path.resolve(tempDir));
+    assert.equal(path.basename(collision), "authorized_keys (1)");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 

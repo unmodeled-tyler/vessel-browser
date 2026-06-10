@@ -94,6 +94,7 @@ async function postJsonWithEnv(
 }
 
 async function createPremiumToken(customerId = "cus_test"): Promise<string> {
+  const kv = createMemoryKv();
   return withMockFetch(
     (url) => {
       if (url === `${STRIPE_API}/checkout/sessions/cs_test`) {
@@ -113,7 +114,11 @@ async function createPremiumToken(customerId = "cus_test"): Promise<string> {
       throw new Error(`Unexpected fetch: ${url}`);
     },
     async () => {
-      const response = await postJson("/verify", { identifier: "cs_test" });
+      const response = await postJsonWithEnv(
+        "/verify",
+        { identifier: "cs_test" },
+        { ACTIVATION_KV: kv },
+      );
       const data = await response.json() as { verificationToken?: string };
       assert.equal(response.status, 200);
       assert.equal(typeof data.verificationToken, "string");
@@ -123,6 +128,7 @@ async function createPremiumToken(customerId = "cus_test"): Promise<string> {
 }
 
 test("premium worker verifies checkout sessions using the exact session subscription", async () => {
+  const kv = createMemoryKv();
   await withMockFetch(
     (url) => {
       if (url === `${STRIPE_API}/checkout/sessions/cs_test`) {
@@ -142,7 +148,11 @@ test("premium worker verifies checkout sessions using the exact session subscrip
       throw new Error(`Unexpected fetch: ${url}`);
     },
     async () => {
-      const response = await postJson("/verify", { identifier: "cs_test" });
+      const response = await postJsonWithEnv(
+        "/verify",
+        { identifier: "cs_test" },
+        { ACTIVATION_KV: kv },
+      );
       const data = await response.json() as {
         status?: string;
         customerId?: string;
@@ -155,6 +165,51 @@ test("premium worker verifies checkout sessions using the exact session subscrip
       assert.equal(data.customerId, "cus_test");
       assert.equal(data.email, "premium@example.com");
       assert.match(data.verificationToken || "", /^[^.]+\.[^.]+\.[^.]+$/);
+    },
+  );
+});
+
+test("premium worker rejects replayed checkout session identifiers", async () => {
+  const kv = createMemoryKv();
+  let checkoutSessionFetches = 0;
+
+  await withMockFetch(
+    (url) => {
+      if (url === `${STRIPE_API}/checkout/sessions/cs_replay`) {
+        checkoutSessionFetches += 1;
+        return { customer: "cus_test", subscription: "sub_trial" };
+      }
+      if (url === `${STRIPE_API}/subscriptions/sub_trial`) {
+        return {
+          id: "sub_trial",
+          status: "trialing",
+          trial_end: nowSeconds() + 7 * 24 * 60 * 60,
+          current_period_end: nowSeconds() + 30 * 24 * 60 * 60,
+        };
+      }
+      if (url === `${STRIPE_API}/customers/cus_test`) {
+        return { id: "cus_test", email: "premium@example.com" };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    },
+    async () => {
+      const first = await postJsonWithEnv(
+        "/verify",
+        { identifier: "cs_replay" },
+        { ACTIVATION_KV: kv },
+      );
+      assert.equal(first.status, 200);
+
+      const replay = await postJsonWithEnv(
+        "/verify",
+        { identifier: "cs_replay" },
+        { ACTIVATION_KV: kv },
+      );
+      const data = await replay.json() as { error?: string };
+
+      assert.equal(replay.status, 409);
+      assert.match(data.error || "", /already been redeemed/i);
+      assert.equal(checkoutSessionFetches, 1);
     },
   );
 });
@@ -227,6 +282,7 @@ test("premium worker creates billing portal sessions only for signed premium tok
 
 test("premium worker sends feedback email through Resend", async () => {
   let resendRequestBody = "";
+  const kv = createMemoryKv();
 
   await withMockFetch(
     (url, init) => {
@@ -235,11 +291,15 @@ test("premium worker sends feedback email through Resend", async () => {
       return { id: "email_test" };
     },
     async () => {
-      const response = await postJson("/feedback", {
-        email: "User@Example.com",
-        message: "This is useful, but I found a paper cut.",
-        source: "settings_account",
-      });
+      const response = await postJsonWithEnv(
+        "/feedback",
+        {
+          email: "User@Example.com",
+          message: "This is useful, but I found a paper cut.",
+          source: "settings_account",
+        },
+        { ACTIVATION_KV: kv },
+      );
       const data = await response.json() as { ok?: boolean };
 
       assert.equal(response.status, 200);
@@ -312,7 +372,7 @@ test("premium worker rate limits feedback before sending email", async () => {
   );
 });
 
-test("premium worker sends feedback when spam guard storage fails", async () => {
+test("premium worker blocks feedback when spam guard storage fails", async () => {
   let resendCalls = 0;
   const originalWarn = console.warn;
   console.warn = () => {};
@@ -342,14 +402,142 @@ test("premium worker sends feedback when spam guard storage fails", async () => 
           { ACTIVATION_KV: failingKv },
           { "cf-connecting-ip": "203.0.113.10" },
         );
-        const data = await response.json() as { ok?: boolean };
+        const data = await response.json() as { error?: string };
 
-        assert.equal(response.status, 200);
-        assert.equal(data.ok, true);
-        assert.equal(resendCalls, 1);
+        assert.equal(response.status, 503);
+        assert.match(data.error || "", /feedback submission is temporarily unavailable/i);
+        assert.equal(resendCalls, 0);
       },
     );
   } finally {
     console.warn = originalWarn;
   }
+});
+
+test("premium worker locks activation challenges after repeated invalid codes", async () => {
+  const kv = createMemoryKv();
+  let sentCode = "";
+
+  await withMockFetch(
+    (url, init) => {
+      if (url === `${STRIPE_API}/customers?email=premium%40example.com&limit=1`) {
+        return { data: [{ id: "cus_test", email: "premium@example.com" }] };
+      }
+      if (url === "https://api.resend.com/emails") {
+        const body = JSON.parse(String(init?.body || "{}")) as { text?: string };
+        sentCode = body.text?.match(/\b\d{6}\b/)?.[0] || "";
+        return { id: "email_test" };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    },
+    async () => {
+      const start = await postJsonWithEnv(
+        "/activate/start",
+        { email: "premium@example.com" },
+        { ACTIVATION_KV: kv },
+      );
+      const startData = await start.json() as { challengeToken?: string };
+      assert.equal(start.status, 200);
+      assert.match(sentCode, /^\d{6}$/);
+      assert.equal(typeof startData.challengeToken, "string");
+
+      for (let i = 0; i < 5; i++) {
+        const response = await postJsonWithEnv(
+          "/activate/verify",
+          {
+            email: "premium@example.com",
+            code: "000000" === sentCode ? "111111" : "000000",
+            challengeToken: startData.challengeToken,
+          },
+          { ACTIVATION_KV: kv },
+        );
+        assert.equal(response.status, 403);
+      }
+
+      const locked = await postJsonWithEnv(
+        "/activate/verify",
+        {
+          email: "premium@example.com",
+          code: sentCode,
+          challengeToken: startData.challengeToken,
+        },
+        { ACTIVATION_KV: kv },
+      );
+      const lockedData = await locked.json() as { error?: string };
+
+      assert.equal(locked.status, 429);
+      assert.match(lockedData.error || "", /too many verification attempts/i);
+    },
+  );
+});
+
+test("premium worker verifies activation codes before the attempt limit", async () => {
+  const kv = createMemoryKv();
+  let sentCode = "";
+
+  await withMockFetch(
+    (url, init) => {
+      if (url === `${STRIPE_API}/customers?email=premium%40example.com&limit=1`) {
+        return { data: [{ id: "cus_test", email: "premium@example.com" }] };
+      }
+      if (url === "https://api.resend.com/emails") {
+        const body = JSON.parse(String(init?.body || "{}")) as { text?: string };
+        sentCode = body.text?.match(/\b\d{6}\b/)?.[0] || "";
+        return { id: "email_test" };
+      }
+      if (url === `${STRIPE_API}/customers/cus_test`) {
+        return { id: "cus_test", email: "premium@example.com" };
+      }
+      if (url === `${STRIPE_API}/subscriptions?customer=cus_test&status=all&limit=10`) {
+        return {
+          data: [
+            {
+              id: "sub_active",
+              status: "active",
+              current_period_end: nowSeconds() + 30 * 24 * 60 * 60,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    },
+    async () => {
+      const start = await postJsonWithEnv(
+        "/activate/start",
+        { email: "premium@example.com" },
+        { ACTIVATION_KV: kv },
+      );
+      const startData = await start.json() as { challengeToken?: string };
+      assert.equal(start.status, 200);
+
+      const verify = await postJsonWithEnv(
+        "/activate/verify",
+        {
+          email: "premium@example.com",
+          code: sentCode,
+          challengeToken: startData.challengeToken,
+        },
+        { ACTIVATION_KV: kv },
+      );
+      const data = await verify.json() as {
+        status?: string;
+        verificationToken?: string;
+      };
+
+      assert.equal(verify.status, 200);
+      assert.equal(data.status, "active");
+      assert.match(data.verificationToken || "", /^[^.]+\.[^.]+\.[^.]+$/);
+
+      const replay = await postJsonWithEnv(
+        "/activate/verify",
+        {
+          email: "premium@example.com",
+          code: sentCode,
+          challengeToken: startData.challengeToken,
+        },
+        { ACTIVATION_KV: kv },
+      );
+      assert.equal(replay.status, 403);
+    },
+  );
 });

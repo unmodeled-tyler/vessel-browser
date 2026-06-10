@@ -659,7 +659,7 @@ export interface BookmarkExportResult {
   count: number;
 }
 
-// --- Automation Kits ---
+// --- Agent Skills ---
 
 export type KitInputType = "text" | "url" | "number" | "textarea";
 

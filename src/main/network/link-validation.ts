@@ -1,4 +1,5 @@
 import { createLogger } from "../../shared/logger";
+import { assertPermittedNavigationURL } from "./url-safety";
 
 const logger = createLogger("LinkValidation");
 
@@ -93,6 +94,17 @@ export async function validateLinkDestination(
       status: "unknown",
       checkedUrl: url,
       detail: "Non-HTTP URL",
+    };
+  }
+
+  try {
+    assertPermittedNavigationURL(url);
+  } catch (error) {
+    return {
+      status: "unknown",
+      checkedUrl: url,
+      detail:
+        error instanceof Error ? error.message : "Navigation policy blocked URL",
     };
   }
 

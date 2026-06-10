@@ -7,11 +7,7 @@ export const VALID_KIT_CATEGORIES: ReadonlySet<KitCategory> = new Set([
   "forms",
 ]);
 
-export const BUNDLED_KIT_IDS: ReadonlySet<string> = new Set([
-  "research-collect",
-  "price-scout",
-  "form-filler",
-]);
+export const BUNDLED_KIT_IDS: ReadonlySet<string> = new Set();
 
 const KIT_ID_UNSAFE_CHAR_PATTERN = /[/\\\0]/;
 

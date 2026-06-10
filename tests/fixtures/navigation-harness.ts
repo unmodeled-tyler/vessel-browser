@@ -29,10 +29,14 @@ function renderPage(title: string, body: string): string {
       <a href="/external-submit">External submit</a>
 	      <a href="/same-page-action">Same-page action</a>
 	      <a href="/page-diff">Page diff</a>
-	      <a href="/trusted-enter-source">Trusted Enter</a>
+      <a href="/trusted-enter-source">Trusted Enter</a>
       <a href="/search-visibility">Search visibility</a>
+      <a href="/focused-search">Focused search</a>
+      <a href="/article-summary">Article summary</a>
+      <a href="/article-script-blocked">Script-blocked article</a>
       <a href="/search-no-shortcut">Search no shortcut</a>
       <a href="/language-popup">Language popup</a>
+      <a href="/cookie-banner-ambiguous">Cookie banner</a>
     </nav>
     <main>
       ${body}
@@ -755,6 +759,74 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
       return;
     }
 
+    if (method === "GET" && url.pathname === "/focused-search") {
+      sendHtml(
+        res,
+        renderPage(
+          "focused-search",
+          `
+            <h1>Focused Search</h1>
+            <form role="search" aria-label="Duck search">
+              <input id="focused-search-input" type="search" name="q" aria-label="Search with DuckDuckGo" autofocus />
+            </form>
+
+            <script>
+              window.addEventListener('DOMContentLoaded', () => {
+                document.getElementById('focused-search-input')?.focus();
+              });
+            </script>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/article-summary") {
+      sendHtml(
+        res,
+        renderPage(
+          "article-summary",
+          `
+            <main>
+              <article>
+                <h1>Artificial intelligence</h1>
+                <p>Artificial intelligence is a field of computer science focused on systems that can perform tasks associated with human intelligence, including reasoning, learning, planning, perception, and language use.</p>
+                <h2>Applications</h2>
+                <p>AI systems are used in search engines, recommendation systems, speech recognition, medical analysis, robotics, software development, and many other areas where pattern recognition and decision support are useful.</p>
+                <h2>Research challenges</h2>
+                <p>Researchers study reliability, interpretability, alignment, robustness, and social impacts so that increasingly capable systems can be evaluated and deployed responsibly.</p>
+              </article>
+            </main>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/article-script-blocked") {
+      sendHtml(
+        res,
+        renderPage(
+          "article-script-blocked",
+          `
+            <article>
+              <h1>Renderer independent article</h1>
+              <p>Renderer independent extraction keeps readable page content available even when the page JavaScript thread stops responding.</p>
+              <h2>Why it matters</h2>
+              <p>Static article pages should remain readable to the agent because the main process can fetch and parse the current document URL without asking the page to run scripts.</p>
+              <p>This mirrors encyclopedia pages and long-form articles where the HTML is available but renderer-side script execution can become unreliable during navigation or loading.</p>
+            </article>
+            <script>
+              setTimeout(() => {
+                while (true) {}
+              }, 50);
+            </script>
+          `,
+        ),
+      );
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/search-visibility-result") {
       const value = url.searchParams.get("term") || "";
       sendHtml(
@@ -863,6 +935,44 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
                 </button>
               </div>
             </section>
+          `,
+        ),
+      );
+      return;
+    }
+
+    if (method === "GET" && url.pathname === "/cookie-banner-ambiguous") {
+      sendHtml(
+        res,
+        renderPage(
+          "cookie-banner-ambiguous",
+          `
+            <h1>Cookie Banner</h1>
+            <p>The visible consent link should not be mistaken for a dismiss action.</p>
+            <aside
+              id="cookie-consent-banner"
+              class="cookie-consent-banner"
+              role="dialog"
+              aria-label="Cookie consent"
+              style="position: fixed; left: 0; right: 0; bottom: 0; min-height: 220px; padding: 24px; background: white; border-top: 1px solid #ccc; box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18); z-index: 100;"
+            >
+              <h2>Cookie consent</h2>
+              <p>We use cookies for analytics and personalised advertising.</p>
+              <button
+                id="consent-info"
+                type="button"
+                onclick="window.__consentInfoClicks = (window.__consentInfoClicks || 0) + 1;"
+              >
+                Consent
+              </button>
+              <button
+                id="accept-all-cookies"
+                type="button"
+                onclick="document.getElementById('cookie-consent-banner').remove();"
+              >
+                Accept all
+              </button>
+            </aside>
           `,
         ),
       );

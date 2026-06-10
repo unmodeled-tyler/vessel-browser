@@ -29,6 +29,7 @@ tmp/
 .agents/
 .gitnexus
 .security-audit-ignore
+*.hermes/*
 
 # Superpowers (local brainstorm state)
 .superpowers/
@@ -74,6 +75,7 @@ tests/*.test.ts
 !tests/overlay-context.test.ts
 !tests/page-access-issues.test.ts
 !tests/page-diff-display.test.ts
+!tests/page-url.test.ts
 !tests/prompt-cache.test.ts
 !tests/provider-openai-tools.test.ts
 !tests/results-only-context.test.ts

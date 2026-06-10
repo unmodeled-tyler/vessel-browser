@@ -4,6 +4,7 @@
  */
 
 import { checkDomainPolicy } from "./domain-policy";
+import { getAirGapBlockReason } from "../config/air-gapped";
 import type { WebContents } from "electron";
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
@@ -40,6 +41,10 @@ export function assertSafeURL(url: string): void {
  */
 export function assertPermittedNavigationURL(url: string): void {
   assertSafeURL(url);
+  const airGapError = getAirGapBlockReason(url);
+  if (airGapError) {
+    throw new Error(airGapError);
+  }
   const policyError = checkDomainPolicy(url);
   if (policyError) {
     throw new Error(policyError);

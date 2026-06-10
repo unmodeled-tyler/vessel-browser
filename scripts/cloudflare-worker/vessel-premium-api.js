@@ -11,12 +11,16 @@
  *   PREMIUM_TOKEN_SECRET — random string used to sign premium auth tokens
  *   RESEND_API_KEY       — API key for transactional activation emails
  *   PREMIUM_FROM_EMAIL   — verified sender, e.g. Vessel <premium@example.com>
+ *   ACTIVATION_KV        — KV binding for activation attempts, checkout redemption, and feedback spam guard
  */
 
 const STRIPE_API = "https://api.stripe.com/v1";
 const RESEND_API = "https://api.resend.com/emails";
 const ACTIVATION_CHALLENGE_TTL_MS = 15 * 60 * 1000;
+const ACTIVATION_CHALLENGE_TTL_SECONDS = Math.ceil(ACTIVATION_CHALLENGE_TTL_MS / 1000);
+const MAX_ACTIVATION_CODE_ATTEMPTS = 5;
 const PREMIUM_AUTH_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const CHECKOUT_REDEMPTION_TTL_SECONDS = Math.ceil(PREMIUM_AUTH_TTL_MS / 1000);
 const MAX_FEEDBACK_MESSAGE_LENGTH = 5000;
 const FEEDBACK_SPAM_GUARD_WINDOW_SECONDS = 60 * 60;
 const FEEDBACK_SPAM_GUARD_MAX = 5;
@@ -143,6 +147,17 @@ async function sha256Hex(value) {
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function missingKvResponse(request, env, capability) {
+  return corsResponse(
+    request,
+    env,
+    {
+      error: `${capability} is temporarily unavailable. Try again later.`,
+    },
+    503,
+  );
 }
 
 async function importHmacKey(secret) {
@@ -290,7 +305,9 @@ async function sendFeedbackEmail(env, email, message, source = "") {
 }
 
 async function checkFeedbackSpamGuard(request, env) {
-  if (!env.ACTIVATION_KV) return null;
+  if (!env.ACTIVATION_KV) {
+    return missingKvResponse(request, env, "Feedback submission");
+  }
 
   try {
     const rawClientId =
@@ -314,9 +331,101 @@ async function checkFeedbackSpamGuard(request, env) {
       expirationTtl: FEEDBACK_SPAM_GUARD_WINDOW_SECONDS,
     });
   } catch (error) {
-    console.warn("Feedback spam guard failed open:", error);
+    console.warn("Feedback spam guard failed closed:", error);
+    return missingKvResponse(request, env, "Feedback submission");
   }
   return null;
+}
+
+async function consumeActivationAttempt(request, env, challengeToken) {
+  if (!env.ACTIVATION_KV) {
+    return {
+      response: missingKvResponse(request, env, "Premium email verification"),
+    };
+  }
+
+  try {
+    const key = `activation-attempts:${await sha256Hex(challengeToken)}`;
+    const current = await env.ACTIVATION_KV.get(key);
+    if (current === "redeemed") {
+      return {
+        response: corsResponse(
+          request,
+          env,
+          { error: "Code verification expired. Request a new code." },
+          403,
+        ),
+      };
+    }
+
+    const attempts = Number(current);
+    const next = Number.isFinite(attempts) ? attempts + 1 : 1;
+    if (next > MAX_ACTIVATION_CODE_ATTEMPTS) {
+      return {
+        response: corsResponse(
+          request,
+          env,
+          { error: "Too many verification attempts. Request a new code." },
+          429,
+        ),
+      };
+    }
+
+    await env.ACTIVATION_KV.put(key, String(next), {
+      expirationTtl: ACTIVATION_CHALLENGE_TTL_SECONDS,
+    });
+    return { key };
+  } catch (error) {
+    console.warn("Activation attempt guard failed closed:", error);
+    return {
+      response: missingKvResponse(request, env, "Premium email verification"),
+    };
+  }
+}
+
+async function markActivationChallengeRedeemed(env, key) {
+  await env.ACTIVATION_KV.put(key, "redeemed", {
+    expirationTtl: ACTIVATION_CHALLENGE_TTL_SECONDS,
+  });
+}
+
+async function getCheckoutRedemptionKey(sessionId) {
+  return `checkout-session-redeemed:${await sha256Hex(sessionId)}`;
+}
+
+async function assertCheckoutSessionRedeemable(request, env, sessionId) {
+  if (!env.ACTIVATION_KV) {
+    return {
+      response: missingKvResponse(request, env, "Checkout verification"),
+    };
+  }
+
+  try {
+    const key = await getCheckoutRedemptionKey(sessionId);
+    const redeemed = await env.ACTIVATION_KV.get(key);
+    if (redeemed) {
+      return {
+        response: corsResponse(
+          request,
+          env,
+          { error: "Checkout session has already been redeemed. Verify by email or use the stored premium token." },
+          409,
+        ),
+      };
+    }
+    return { key };
+  } catch (error) {
+    console.warn("Checkout redemption guard failed closed:", error);
+    return {
+      response: missingKvResponse(request, env, "Checkout verification"),
+    };
+  }
+}
+
+async function markCheckoutSessionRedeemed(env, key) {
+  await env.ACTIVATION_KV.put(key, String(Date.now()), {
+    expirationTtl: CHECKOUT_REDEMPTION_TTL_SECONDS,
+  });
 }
 
 async function buildPremiumStatus(env, customerId, fallbackEmail = "", preferredSubscription = null) {
@@ -582,13 +691,13 @@ async function handleActivationStart(request, env) {
     return corsResponse(request, env, { error: "A valid email is required" }, 400);
   }
 
-  if (!env.RESEND_API_KEY || !env.PREMIUM_FROM_EMAIL || !env.PREMIUM_TOKEN_SECRET) {
+  if (!env.RESEND_API_KEY || !env.PREMIUM_FROM_EMAIL || !env.PREMIUM_TOKEN_SECRET || !env.ACTIVATION_KV) {
     return corsResponse(
       request,
       env,
       {
         error:
-          "Premium email verification is not configured yet. Set RESEND_API_KEY, PREMIUM_FROM_EMAIL, and PREMIUM_TOKEN_SECRET in the worker environment.",
+          "Premium email verification is not configured yet. Set RESEND_API_KEY, PREMIUM_FROM_EMAIL, PREMIUM_TOKEN_SECRET, and ACTIVATION_KV in the worker environment.",
       },
       503,
     );
@@ -649,6 +758,9 @@ async function handleActivationVerify(request, env) {
     );
   }
 
+  const attempt = await consumeActivationAttempt(request, env, challengeToken);
+  if (attempt.response) return attempt.response;
+
   const expectedDigest = await buildActivationCodeDigest(
     env,
     email,
@@ -675,7 +787,9 @@ async function handleActivationVerify(request, env) {
     );
   }
 
-  return corsResponse(request, env, await buildPremiumStatus(env, customer.id, email));
+  const status = await buildPremiumStatus(env, customer.id, email);
+  await markActivationChallengeRedeemed(env, attempt.key);
+  return corsResponse(request, env, status);
 }
 
 async function handleVerify(request, env) {
@@ -697,6 +811,9 @@ async function handleVerify(request, env) {
   }
 
   if (identifier.startsWith("cs_")) {
+    const redemption = await assertCheckoutSessionRedeemable(request, env, identifier);
+    if (redemption.response) return redemption.response;
+
     const session = await stripeRequest(env, "GET", `/checkout/sessions/${identifier}`);
     if (session.error || !session.customer) {
       return corsResponse(request, env, {
@@ -717,7 +834,11 @@ async function handleVerify(request, env) {
         ? session.subscription
         : session.subscription?.id;
     const subscription = await getSubscriptionById(env, subscriptionId);
-    return corsResponse(request, env, await buildPremiumStatus(env, customerId, "", subscription));
+    const status = await buildPremiumStatus(env, customerId, "", subscription);
+    if (status.status === "active" || status.status === "trialing") {
+      await markCheckoutSessionRedeemed(env, redemption.key);
+    }
+    return corsResponse(request, env, status);
   }
 
   const token = await verifySignedToken(env, identifier, "premium-access");

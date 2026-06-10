@@ -1,6 +1,8 @@
 export const AutomationChannels = {
   AUTOMATION_GET_INSTALLED: "automation:get-installed",
   AUTOMATION_INSTALL_FROM_FILE: "automation:install-from-file",
+  AUTOMATION_CREATE_FROM_TEXT: "automation:create-from-text",
+  AUTOMATION_UPDATE_FROM_TEXT: "automation:update-from-text",
   AUTOMATION_UNINSTALL: "automation:uninstall",
   AUTOMATION_ACTIVITY_START: "automation:activity-start",
   AUTOMATION_ACTIVITY_CHUNK: "automation:activity-chunk",

@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { AgentRuntime } from "../agent/runtime";
+import { assertFeatureUnlocked } from "../premium/manager";
 import type { TabManager } from "../tabs/tab-manager";
 import { getOrCreateSession, getSession } from "./manager";
 import type { DevToolsActivityEntry, DevToolsPanelState } from "./types";
@@ -50,6 +51,14 @@ async function withDevToolsAction(
   args: Record<string, unknown>,
   executor: () => Promise<string>,
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  try {
+    assertFeatureUnlocked("devtools", "DevTools");
+  } catch (error) {
+    return asTextResponse(
+      `Error: ${error instanceof Error ? error.message : "DevTools require Vessel Premium."}`,
+    );
+  }
+
   const activityEntry: DevToolsActivityEntry = {
     id: ++activityCounter,
     timestamp: new Date().toISOString(),

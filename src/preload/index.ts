@@ -587,6 +587,10 @@ const api = {
       ipcRenderer.invoke(Channels.AUTOMATION_GET_INSTALLED),
     installFromFile: (): Promise<{ ok: boolean; kit?: AutomationKit; error?: string }> =>
       ipcRenderer.invoke(Channels.AUTOMATION_INSTALL_FROM_FILE),
+    createFromText: (source: string): Promise<{ ok: boolean; kit?: AutomationKit; error?: string }> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_CREATE_FROM_TEXT, source),
+    updateFromText: (id: string, source: string): Promise<{ ok: boolean; kit?: AutomationKit; error?: string }> =>
+      ipcRenderer.invoke(Channels.AUTOMATION_UPDATE_FROM_TEXT, id, source),
     uninstall: (id: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(Channels.AUTOMATION_UNINSTALL, id),
   },

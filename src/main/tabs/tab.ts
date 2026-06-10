@@ -11,8 +11,7 @@ import {
 import path from "path";
 import type { HighlightColor, SecurityState, SecurityStatus, TabRole, TabState } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
-import { checkDomainPolicy } from "../network/domain-policy";
-import { assertSafeURL } from "../network/url-safety";
+import { assertPermittedNavigationURL } from "../network/url-safety";
 
 const MAX_CUSTOM_HISTORY = 50;
 const READER_MODE_DATA_URL_PREFIX = "data:text/html;charset=utf-8,";
@@ -96,11 +95,11 @@ export class Tab {
       return null;
     }
     try {
-      assertSafeURL(url);
+      assertPermittedNavigationURL(url);
     } catch (error) {
       return error instanceof Error ? error.message : "Blocked unsafe navigation";
     }
-    return checkDomainPolicy(url);
+    return null;
   }
 
   private guardedLoadURL(

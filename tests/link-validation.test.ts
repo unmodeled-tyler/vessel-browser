@@ -85,3 +85,31 @@ test("validateLinkDestination falls back to GET when HEAD is unsupported", async
   assert.equal(result.status, "dead");
   assert.equal(result.statusCode, 404);
 });
+
+test("validateLinkDestination does not fetch URLs blocked by navigation policy", async () => {
+  let fetched = false;
+  const originalFetch = globalThis.fetch;
+  const originalAirGapped = process.env.VESSEL_AIR_GAPPED;
+  process.env.VESSEL_AIR_GAPPED = "1";
+  globalThis.fetch = async () => {
+    fetched = true;
+    return new Response("", { status: 200 });
+  };
+
+  try {
+    const result = await validateLinkDestination("javascript:alert(1)");
+    assert.equal(result.status, "unknown");
+
+    const blocked = await validateLinkDestination("https://not-real.invalid");
+    assert.equal(blocked.status, "unknown");
+    assert.match(blocked.detail || "", /Air-gapped mode blocked/);
+    assert.equal(fetched, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalAirGapped === undefined) {
+      delete process.env.VESSEL_AIR_GAPPED;
+    } else {
+      process.env.VESSEL_AIR_GAPPED = originalAirGapped;
+    }
+  }
+});

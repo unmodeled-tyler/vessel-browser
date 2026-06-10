@@ -16,6 +16,14 @@ import { useTabs } from "../../stores/tabs";
 import { useHistory } from "../../stores/history";
 import { useBookmarks } from "../../stores/bookmarks";
 import { buildAndRememberBookmarkContext } from "../../lib/bookmark-context";
+import {
+  BUNDLED_KITS,
+  buildSlashSkillValues,
+  getSkillCommandTokens,
+  getSkillSlashSuggestions,
+  parseSkillSlashInvocation,
+  renderKitPrompt,
+} from "../../lib/automation-kits";
 import { renderMarkdown } from "../../lib/markdown";
 import { isPremiumStatus } from "../../lib/premium";
 import {
@@ -26,6 +34,7 @@ import { clampSidebarWidth } from "../../../../shared/sidebar";
 import type {
   Bookmark,
   BookmarkFolder,
+  AutomationKit,
   PremiumState,
 } from "../../../../shared/types";
 import { useScrollFade } from "../../lib/useScrollFade";
@@ -119,6 +128,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     clearPendingQueries,
     clearHistory,
     query,
+    runAutomationPrompt,
     cancel,
   } = useAI();
   const {
@@ -169,6 +179,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     | "research"
   >("supervisor");
   const [chatInput, setChatInput] = createSignal("");
+  const [chatCommandError, setChatCommandError] = createSignal<string | null>(null);
+  const [installedSkillKits, setInstalledSkillKits] = createSignal<AutomationKit[]>([]);
+  const [slashSuggestionIndex, setSlashSuggestionIndex] = createSignal(0);
   const [highlightCount, setHighlightCount] = createSignal(0);
   const [highlightIndex, setHighlightIndex] = createSignal(-1);
   const [premiumState, setPremiumState] = createSignal<PremiumState>({
@@ -182,6 +195,39 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const trackedPremiumContexts = new Set<string>();
 
   const isPremium = () => isPremiumStatus(premiumState().status);
+  const allSkillKits = createMemo(() => [
+    ...BUNDLED_KITS,
+    ...installedSkillKits(),
+  ]);
+  const slashSuggestions = createMemo(() =>
+    getSkillSlashSuggestions(chatInput(), allSkillKits()),
+  );
+  const recognizedSkillInvocation = createMemo(() => {
+    const input = chatInput().trimStart();
+    if (!input.startsWith("/")) return null;
+    return parseSkillSlashInvocation(input, allSkillKits());
+  });
+  const recognizedSkillInputParts = createMemo(() => {
+    if (recognizedSkillInvocation() === null) return null;
+    const match = chatInput().match(/^(\s*)(\/\S+)([\s\S]*)$/);
+    if (!match) return null;
+    return {
+      leading: match[1],
+      command: match[2],
+      rest: match[3],
+    };
+  });
+
+  const loadInstalledSkillKits = async (): Promise<AutomationKit[]> => {
+    try {
+      const kits = await window.vessel.automation.getInstalled();
+      setInstalledSkillKits(kits);
+      return kits;
+    } catch {
+      setInstalledSkillKits([]);
+      return [];
+    }
+  };
 
   const trackPremiumContext = (
     step:
@@ -219,6 +265,12 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
     });
     const cleanup = window.vessel.premium.onUpdate(setPremiumState);
     onCleanup(cleanup);
+    void loadInstalledSkillKits();
+  });
+
+  createEffect(() => {
+    slashSuggestions();
+    setSlashSuggestionIndex(0);
   });
 
   const syncHighlightCount = async () => {
@@ -361,10 +413,81 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const handleChatSend = async () => {
     const prompt = chatInput().trim();
     if (!prompt) return;
+    setChatCommandError(null);
+
+    if (prompt.startsWith("/")) {
+      const installedKits = await loadInstalledSkillKits();
+      const kits = [...BUNDLED_KITS, ...installedKits];
+      const invocation = parseSkillSlashInvocation(prompt, kits);
+      if (invocation) {
+        if (!invocation.task) {
+          const [command] = prompt.split(/\s+/);
+          setChatCommandError(`Add instructions after ${command}.`);
+          return;
+        }
+
+        const { values, missingLabels } = buildSlashSkillValues(
+          invocation.kit,
+          invocation.task,
+        );
+        if (missingLabels.length > 0) {
+          setChatCommandError(
+            `${invocation.kit.name} needs ${missingLabels.join(", ")}. Open Skills to run it with all fields.`,
+          );
+          return;
+        }
+
+        const renderedPrompt = renderKitPrompt(invocation.kit, values);
+        const result = await runAutomationPrompt(renderedPrompt, {
+          id: `slash:${invocation.kit.id}:${Date.now()}`,
+          title: invocation.kit.name,
+          icon: invocation.kit.icon,
+        });
+        if (result !== "rejected") {
+          setChatInput("");
+        }
+        return;
+      }
+
+      if (prompt.startsWith("/skill ")) {
+        setChatCommandError("No matching skill found for that command.");
+        return;
+      }
+    }
+
     const result = await query(prompt);
     if (result !== "rejected") {
       setChatInput("");
     }
+  };
+
+  const applySkillSuggestion = (kit: AutomationKit) => {
+    const token = getSkillCommandTokens(kit)[0] ?? kit.id;
+    setChatInput(`/${token} `);
+    setChatCommandError(null);
+    setSlashSuggestionIndex(0);
+    queueMicrotask(() => {
+      chatInputRef?.focus();
+      const length = chatInputRef?.value.length ?? 0;
+      chatInputRef?.setSelectionRange(length, length);
+    });
+  };
+
+  const applyActiveSkillSuggestion = (): boolean => {
+    const suggestions = slashSuggestions();
+    if (suggestions.length === 0) return false;
+    const index = Math.max(
+      0,
+      Math.min(slashSuggestionIndex(), suggestions.length - 1),
+    );
+    applySkillSuggestion(suggestions[index]);
+    return true;
+  };
+
+  const moveSlashSuggestion = (delta: number) => {
+    const count = slashSuggestions().length;
+    if (count === 0) return;
+    setSlashSuggestionIndex((current) => (current + delta + count) % count);
   };
 
   const handleRetry = () => {
@@ -979,7 +1102,7 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
             aria-selected={sidebarTab() === "automation"}
             onClick={() => setSidebarTab("automation")}
           >
-            Automate
+            Skills
           </button>
           <button
             class="sidebar-tab"
@@ -2712,21 +2835,109 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
               </Show>
             </div>
           </Show>
+          <Show when={chatCommandError() !== null}>
+            <div class="chat-command-error">
+              <span>{chatCommandError()}</span>
+              <button
+                class="chat-command-error-dismiss"
+                type="button"
+                aria-label="Dismiss command error"
+                onClick={() => setChatCommandError(null)}
+              >
+                ×
+              </button>
+            </div>
+          </Show>
+          <Show when={slashSuggestions().length > 0}>
+            <div class="chat-skill-suggestions" role="listbox">
+              <For each={slashSuggestions()}>
+                {(kit, index) => (
+                  <button
+                    class="chat-skill-suggestion"
+                    classList={{
+                      active: index() === slashSuggestionIndex(),
+                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={index() === slashSuggestionIndex()}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      applySkillSuggestion(kit);
+                    }}
+                  >
+                    <span class="chat-skill-suggestion-command">
+                      /{getSkillCommandTokens(kit)[0]}
+                    </span>
+                    <span class="chat-skill-suggestion-body">
+                      <span class="chat-skill-suggestion-name">{kit.name}</span>
+                      <span class="chat-skill-suggestion-desc">
+                        {kit.description}
+                      </span>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
           <div class="sidebar-input-area">
-            <textarea
-              class="sidebar-input"
-              rows={2}
-              placeholder={isStreaming() ? "Send now to queue the next prompt..." : "Ask anything..."}
-              ref={chatInputRef}
-              value={chatInput()}
-              onInput={(e) => setChatInput(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleChatSend();
-                }
+            <div
+              class="sidebar-input-frame"
+              classList={{
+                "skill-command-registered": recognizedSkillInputParts() !== null,
               }}
-            />
+            >
+              <Show when={recognizedSkillInputParts()}>
+                {(parts) => (
+                  <div class="sidebar-input-highlight" aria-hidden="true">
+                    {parts().leading}
+                    <span class="sidebar-input-highlight-command">
+                      {parts().command}
+                    </span>
+                    {parts().rest || "\u00a0"}
+                  </div>
+                )}
+              </Show>
+              <textarea
+                class="sidebar-input"
+                classList={{
+                  "skill-command-registered": recognizedSkillInputParts() !== null,
+                }}
+                rows={2}
+                placeholder={isStreaming() ? "Send now to queue the next prompt..." : "Ask anything or run /skill-id..."}
+                ref={chatInputRef}
+                value={chatInput()}
+                onInput={(e) => {
+                  setChatInput(e.currentTarget.value);
+                  if (chatCommandError()) setChatCommandError(null);
+                  if (e.currentTarget.value.startsWith("/")) {
+                    void loadInstalledSkillKits();
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (slashSuggestions().length > 0) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      moveSlashSuggestion(1);
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      moveSlashSuggestion(-1);
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      e.preventDefault();
+                      applyActiveSkillSuggestion();
+                      return;
+                    }
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void handleChatSend();
+                  }
+                }}
+              />
+            </div>
             <button
               class="sidebar-send"
               disabled={!chatInput().trim()}

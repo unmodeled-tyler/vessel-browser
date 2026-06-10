@@ -18,18 +18,38 @@ export interface DownloadInfo {
 const defaultDownloadViews = new Set<WebContentsView>();
 let defaultDownloadHandlerInstalled = false;
 
-function resolveDownloadPath(downloadDir: string, filename: string): string {
+export function sanitizeDownloadFilename(filename: string): string {
+  const normalized = filename.replace(/\\/g, "/");
+  const basename = path.posix.basename(normalized).trim();
+  const safeName = basename.replace(/[\0-\x1f\x7f]/g, "_");
+  if (!safeName || safeName === "." || safeName === "..") {
+    return "download";
+  }
+  return safeName;
+}
+
+function isPathInside(parentDir: string, candidatePath: string): boolean {
+  const relative = path.relative(parentDir, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+export function resolveDownloadPath(downloadDir: string, filename: string): string {
   fs.mkdirSync(downloadDir, { recursive: true });
 
-  const parsed = path.parse(filename);
+  const rootDir = path.resolve(downloadDir);
+  const safeFilename = sanitizeDownloadFilename(filename);
+  const parsed = path.parse(safeFilename);
   let attempt = 0;
 
   while (true) {
     const candidateName =
       attempt === 0
-        ? filename
+        ? safeFilename
         : `${parsed.name} (${attempt})${parsed.ext}`;
-    const candidatePath = path.join(downloadDir, candidateName);
+    const candidatePath = path.resolve(rootDir, candidateName);
+    if (!isPathInside(rootDir, candidatePath)) {
+      throw new Error("Blocked unsafe download filename");
+    }
     if (!fs.existsSync(candidatePath)) {
       return candidatePath;
     }
