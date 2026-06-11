@@ -171,7 +171,6 @@ export async function fillFormFields(
   return results;
 }
 
-
 export async function setElementValue(
   wc: WebContents,
   selector: string,
@@ -460,7 +459,6 @@ export async function waitForCondition(
     ? `Timed out waiting for selector ${selector}`
     : `Timed out waiting for text "${text.slice(0, 80)}"`;
 }
-
 
 export async function selectOption(
   wc: WebContents,
@@ -754,14 +752,12 @@ export async function waitForConditionDirect(
   return waitForCondition(wc, { text, selector, timeoutMs });
 }
 
-
 export async function submitFormBySelector(
   wc: WebContents,
   selector: string,
 ): Promise<string> {
   return submitForm(wc, { selector });
 }
-
 
 export async function pressKey(
   wc: WebContents,
@@ -841,4 +837,3 @@ export async function pressKey(
       : null;
   return label ? `Pressed key: ${key} on ${label}` : `Pressed key: ${key}`;
 }
-
