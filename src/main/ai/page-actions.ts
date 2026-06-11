@@ -1,6 +1,4 @@
 import type { WebContents } from "electron";
-import { resolveBookmarkSourceDraft } from "../bookmarks/page-source";
-import * as bookmarkManager from "../bookmarks/manager";
 import { extractContent } from "../content/extractor";
 import * as highlightsManager from "../highlights/manager";
 import { highlightOnPage, clearHighlights } from "../highlights/inject";
@@ -112,6 +110,7 @@ import {
   describeElementForClick,
   inspectElement,
 } from "./page-actions/click-targets";
+import { handleBookmarkAction } from "./page-actions/bookmark-actions";
 
 export { TabMutex };
 export type { ActionContext, FillFormFieldInput, FillFormFieldResult };
@@ -1378,313 +1377,21 @@ export async function executeAction(
             : `Session "${name}" not found`;
         }
 
-        case "list_bookmarks": {
-          const state = bookmarkManager.getState();
-          const folderId =
-            typeof args.folderId === "string" ? args.folderId.trim() : "";
-          const folderName =
-            typeof args.folderName === "string" ? args.folderName.trim() : "";
-          const resolvedFolderId =
-            folderId ||
-            (folderName
-              ? (state.folders.find(
-                  (folder) =>
-                    folder.name.toLowerCase() === folderName.toLowerCase(),
-                )?.id ?? "")
-              : "");
-
-          if (folderName && !resolvedFolderId) {
-            return `Folder "${folderName}" not found`;
-          }
-
-          const folders = [
-            { id: "unsorted", name: "Unsorted" },
-            ...state.folders,
-          ];
-          const lines: string[] = [];
-          for (const folder of folders) {
-            if (resolvedFolderId && folder.id !== resolvedFolderId) continue;
-            const items = state.bookmarks.filter(
-              (bookmark) => bookmark.folderId === folder.id,
-            );
-            lines.push(
-              `[${folder.name}] (id=${folder.id}, ${items.length} items)`,
-            );
-            if ("summary" in folder && typeof folder.summary === "string") {
-              lines.push(`summary: ${folder.summary}`);
-            }
-            for (const bookmark of items) {
-              lines.push(
-                `- ${bookmark.title} | ${bookmark.url} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`,
-              );
-            }
-          }
-          return lines.length ? lines.join("\n") : "No bookmarks saved yet";
-        }
-
-        case "search_bookmarks": {
-          const query = typeof args.query === "string" ? args.query.trim() : "";
-          if (!query) return "Error: query is required";
-
-          const matches = bookmarkManager.searchBookmarks(query);
-          if (matches.length === 0) {
-            return `No bookmarks matched "${query}"`;
-          }
-
-          const lines = matches.map(({ bookmark, folder, matchedFields }) => {
-            const folderLabel =
-              bookmark.folderId === "unsorted"
-                ? "Unsorted"
-                : (folder?.name ?? bookmark.folderId);
-            return `- ${bookmark.title} | ${bookmark.url} | folder=${folderLabel} | matched=${matchedFields.join(",")} | id=${bookmark.id}${bookmark.note ? ` | note: ${bookmark.note}` : ""}`;
-          });
-          return [`Matches for "${query}" (${matches.length})`, ...lines].join(
-            "\n",
-          );
-        }
-
-        case "create_bookmark_folder": {
-          const name = typeof args.name === "string" ? args.name.trim() : "";
-          const summary =
-            typeof args.summary === "string" && args.summary.trim()
-              ? args.summary.trim()
-              : undefined;
-          if (!name) return "Error: Folder name is required";
-          const existing = bookmarkManager
-            .getState()
-            .folders.find(
-              (folder) => folder.name.toLowerCase() === name.toLowerCase(),
-            );
-          if (existing) {
-            return composeFolderAwareResponse(
-              `Folder "${existing.name}" already exists (id=${existing.id})`,
-            );
-          }
-          const folder = bookmarkManager.createFolderWithSummary(name, summary);
-          return composeFolderAwareResponse(
-            `Created folder "${folder.name}" (id=${folder.id})`,
-          );
-        }
-
-        case "save_bookmark": {
-          const resolvedSelector =
-            wc &&
-            (typeof args.index === "number" ||
-              typeof args.selector === "string")
-              ? await resolveSelector(wc, args.index, args.selector)
-              : null;
-          const source = await resolveBookmarkSourceDraft(wc, {
-            explicitUrl: args.url,
-            explicitTitle: args.title,
-            resolvedSelector,
-          });
-          if ("error" in source) return `Error: ${source.error}`;
-
-          const target = resolveBookmarkFolderTarget(args);
-          if (target.error) return target.error;
-          const note =
-            typeof args.note === "string" && args.note.trim()
-              ? args.note.trim()
-              : undefined;
-          const onDuplicate =
-            typeof args.onDuplicate === "string" &&
-            ["ask", "update", "duplicate"].includes(args.onDuplicate)
-              ? (args.onDuplicate as bookmarkManager.DuplicateBookmarkPolicy)
-              : "ask";
-          const result = bookmarkManager.saveBookmarkWithPolicy(
-            source.url,
-            source.title,
-            target.folderId,
-            note,
-            {
-              onDuplicate,
-              extra: getBookmarkMetadataFromArgs(args),
-            },
-          );
-          if (result.status === "conflict" && result.existing) {
-            return composeFolderAwareResponse(
-              composeDuplicateBookmarkResponse({
-                url: source.url,
-                folderName: describeFolder(target.folderId),
-                bookmarkId: result.existing.id,
-              }),
-              target.createdFolder,
-            );
-          }
-          const bookmark = result.bookmark;
-          if (!bookmark) return "Error: Bookmark save failed";
-          const verb = result.status === "updated" ? "Updated" : "Saved";
-          return composeFolderAwareResponse(
-            `${verb} "${bookmark.title}" (${bookmark.url}) in "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
-            target.createdFolder,
-          );
-        }
-
-        case "organize_bookmark": {
-          const target = resolveBookmarkFolderTarget(args);
-          if (target.error) return target.error;
-
-          const bookmarkId =
-            typeof args.bookmarkId === "string" ? args.bookmarkId.trim() : "";
-          const note =
-            typeof args.note === "string" && args.note.trim()
-              ? args.note.trim()
-              : undefined;
-          const resolvedSelector =
-            wc &&
-            (typeof args.index === "number" ||
-              typeof args.selector === "string")
-              ? await resolveSelector(wc, args.index, args.selector)
-              : null;
-          const source = await resolveBookmarkSourceDraft(wc, {
-            explicitUrl: args.url,
-            explicitTitle: args.title,
-            resolvedSelector,
-          });
-
-          const existing = bookmarkId
-            ? bookmarkManager.getBookmark(bookmarkId)
-            : "error" in source
-              ? undefined
-              : bookmarkManager.getBookmarkByUrl(source.url);
-          if (bookmarkId && !existing) {
-            return `Bookmark ${bookmarkId} not found`;
-          }
-
-          if (existing) {
-            const updated = bookmarkManager.updateBookmark(existing.id, {
-              folderId: target.folderId,
-              title:
-                typeof args.title === "string" && args.title.trim()
-                  ? args.title.trim()
-                  : undefined,
-              note,
-              ...getBookmarkMetadataFromArgs(args),
-            });
-            if (!updated) {
-              return `Bookmark ${existing.id} not found`;
-            }
-            return composeFolderAwareResponse(
-              `Organized existing bookmark "${updated.title}" into "${describeFolder(updated.folderId)}" (id=${updated.id})`,
-              target.createdFolder,
-            );
-          }
-
-          if ("error" in source) return `Error: ${source.error}`;
-
-          const result = bookmarkManager.saveBookmarkWithPolicy(
-            source.url,
-            source.title,
-            target.folderId,
-            note,
-            {
-              onDuplicate: "update",
-              extra: getBookmarkMetadataFromArgs(args),
-            },
-          );
-          const bookmark = result.bookmark;
-          if (!bookmark) return "Error: Bookmark save failed";
-          return composeFolderAwareResponse(
-            `Saved and organized "${bookmark.title}" (${bookmark.url}) into "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
-            target.createdFolder,
-          );
-        }
-
-        case "archive_bookmark": {
-          const target = resolveBookmarkFolderTarget({ archive: true });
-          if (target.error) return target.error;
-
-          const bookmarkId =
-            typeof args.bookmarkId === "string" ? args.bookmarkId.trim() : "";
-          const note =
-            typeof args.note === "string" && args.note.trim()
-              ? args.note.trim()
-              : undefined;
-          const resolvedSelector =
-            wc &&
-            (typeof args.index === "number" ||
-              typeof args.selector === "string")
-              ? await resolveSelector(wc, args.index, args.selector)
-              : null;
-          const source = await resolveBookmarkSourceDraft(wc, {
-            explicitUrl: args.url,
-            explicitTitle: args.title,
-            resolvedSelector,
-          });
-
-          const existing = bookmarkId
-            ? bookmarkManager.getBookmark(bookmarkId)
-            : "error" in source
-              ? undefined
-              : bookmarkManager.getBookmarkByUrl(source.url);
-          if (bookmarkId && !existing) {
-            return `Bookmark ${bookmarkId} not found`;
-          }
-
-          if (existing) {
-            const updated = bookmarkManager.updateBookmark(existing.id, {
-              folderId: target.folderId,
-              title:
-                typeof args.title === "string" && args.title.trim()
-                  ? args.title.trim()
-                  : undefined,
-              note,
-            });
-            if (!updated) {
-              return `Bookmark ${existing.id} not found`;
-            }
-            return composeFolderAwareResponse(
-              `Archived bookmark "${updated.title}" into "${describeFolder(updated.folderId)}" (id=${updated.id})`,
-              target.createdFolder,
-            );
-          }
-
-          if ("error" in source) {
-            return bookmarkId
-              ? `Bookmark ${bookmarkId} not found`
-              : `Error: ${source.error}`;
-          }
-
-          const bookmark = bookmarkManager.saveBookmark(
-            source.url,
-            source.title,
-            target.folderId,
-            note,
-          );
-          return composeFolderAwareResponse(
-            `Saved and archived "${bookmark.title}" (${bookmark.url}) into "${describeFolder(bookmark.folderId)}" (id=${bookmark.id})`,
-            target.createdFolder,
-          );
-        }
-
+        case "list_bookmarks":
+        case "search_bookmarks":
+        case "create_bookmark_folder":
+        case "save_bookmark":
+        case "organize_bookmark":
+        case "archive_bookmark":
         case "open_bookmark": {
-          const bookmarkId =
-            typeof args.bookmarkId === "string" ? args.bookmarkId.trim() : "";
-          if (!bookmarkId) return "Error: bookmarkId is required";
-
-          const bookmark = bookmarkManager.getBookmark(bookmarkId);
-          if (!bookmark) {
-            return `Bookmark ${bookmarkId} not found`;
-          }
-
-          const validation = await validateLinkDestination(bookmark.url);
-          if (validation.status === "dead") {
-            return formatDeadLinkMessage(bookmark.title, validation);
-          }
-
-          const openInNewTab = Boolean(args.newTab);
-          if (openInNewTab || !tabId || !wc) {
-            const createdId = ctx.tabManager.createTab(bookmark.url);
-            const created = ctx.tabManager.getActiveTab();
-            if (created) {
-              await waitForLoad(created.view.webContents);
-            }
-            return `Opened bookmark "${bookmark.title}" in new tab ${createdId}`;
-          }
-
-          ctx.tabManager.navigateTab(tabId, bookmark.url);
-          await waitForLoad(wc);
-          return `Opened bookmark "${bookmark.title}" in current tab`;
+          return handleBookmarkAction({
+            name,
+            actionArgs: args,
+            ctx,
+            wc,
+            tabId,
+            getBookmarkMetadataFromArgs,
+          });
         }
 
         case "highlight": {
