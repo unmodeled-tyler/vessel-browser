@@ -1,13 +1,22 @@
 import { ipcMain, dialog } from "electron";
 import { writeFile } from "fs/promises";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import { createLogger } from "../../shared/logger";
-import { assertTrustedIpcSender } from "./common";
+import { assertTrustedIpcSender, parseIpc } from "./common";
 import type { ResearchOrchestrator } from "../agent/research/orchestrator";
 import { renderReportAsMarkdown } from "../agent/research/export";
 import { isToolGated } from "../premium/manager";
 
 const logger = createLogger("ResearchIPC");
+
+const QuerySchema = z.string().min(1).trim();
+const SupervisionModeSchema = z.enum(["walk-away", "interactive"]);
+const ApproveObjectivesOptionsSchema = z.object({
+  supervisionMode: SupervisionModeSchema.optional(),
+  includeTraces: z.boolean().optional(),
+});
+const BooleanSchema = z.boolean();
 
 export function registerResearchHandlers(
   getOrchestrator: () => ResearchOrchestrator,
@@ -19,10 +28,10 @@ export function registerResearchHandlers(
 
   ipcMain.handle(
     Channels.RESEARCH_START_BRIEF,
-    async (event, query: string) => {
+    async (event, query: unknown) => {
       assertTrustedIpcSender(event);
       try {
-        const trimmedQuery = query.trim();
+        const trimmedQuery = parseIpc(QuerySchema, query, "query");
         if (!trimmedQuery) {
           return { accepted: false, reason: "error" as const };
         }
@@ -60,13 +69,11 @@ export function registerResearchHandlers(
     Channels.RESEARCH_APPROVE_OBJECTIVES,
     (
       event,
-      options: {
-        supervisionMode?: "walk-away" | "interactive";
-        includeTraces?: boolean;
-      },
+      options: unknown,
     ) => {
       assertTrustedIpcSender(event);
       try {
+        const validatedOptions = parseIpc(ApproveObjectivesOptionsSchema, options ?? {}, "options");
         if (isToolGated("research_approve_objectives")) {
           return { accepted: false, reason: "premium" as const };
         }
@@ -76,8 +83,8 @@ export function registerResearchHandlers(
           return { accepted: false, reason: "error" as const };
         }
         orchestrator.approveObjectives(
-          options.supervisionMode,
-          options.includeTraces,
+          validatedOptions.supervisionMode,
+          validatedOptions.includeTraces,
         );
         // Fire off sub-agent execution in background
         orchestrator.executeSubAgents().catch((err) => {
@@ -93,17 +100,19 @@ export function registerResearchHandlers(
 
   ipcMain.handle(
     Channels.RESEARCH_SET_MODE,
-    (event, mode: "walk-away" | "interactive") => {
+    (event, mode: unknown) => {
       assertTrustedIpcSender(event);
-      getOrchestrator().setSupervisionMode(mode);
+      const validatedMode = parseIpc(SupervisionModeSchema, mode, "mode");
+      getOrchestrator().setSupervisionMode(validatedMode);
     },
   );
 
   ipcMain.handle(
     Channels.RESEARCH_SET_TRACES,
-    (event, include: boolean) => {
+    (event, include: unknown) => {
       assertTrustedIpcSender(event);
-      getOrchestrator().setIncludeTraces(include);
+      const validatedInclude = parseIpc(BooleanSchema, include, "include");
+      getOrchestrator().setIncludeTraces(validatedInclude);
     },
   );
 

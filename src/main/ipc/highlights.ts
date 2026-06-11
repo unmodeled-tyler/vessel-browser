@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import {
   highlightOnPage,
@@ -11,6 +12,7 @@ import { captureSelectionHighlight, persistAndMarkHighlight } from "../highlight
 import {
   getActiveTabInfo,
   assertTrustedIpcSender,
+  parseIpc,
   sendSafe,
   type SendToRendererViews,
 } from "./common";
@@ -18,6 +20,8 @@ import { createLogger } from "../../shared/logger";
 import type { WindowState } from "../window";
 
 const logger = createLogger("HighlightIPC");
+
+const HighlightIndexSchema = z.number().int().min(0);
 
 export function registerHighlightHandlers(
   windowState: WindowState,
@@ -70,7 +74,7 @@ export function registerHighlightHandlers(
     }
   });
 
-  ipcMain.on(Channels.HIGHLIGHT_SELECTION, (event, text: string) => {
+  ipcMain.on(Channels.HIGHLIGHT_SELECTION, (event, text: unknown) => {
     try {
       const wc = event.sender;
       if (wc.isDestroyed()) return;
@@ -78,6 +82,7 @@ export function registerHighlightHandlers(
       const tab = tabManager.findTabByWebContentsId(wc.id);
       if (!tab || !tab.highlightModeActive) return;
 
+      if (typeof text !== "string" || !text.trim()) return;
       void persistAndMarkHighlight(wc, text).then((result) => {
         if (result.success) {
           void emitHighlightCount();
@@ -94,24 +99,26 @@ export function registerHighlightHandlers(
     return getActiveHighlightCountSafe();
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (event, index: number) => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_SCROLL, (event, index: unknown) => {
     assertTrustedIpcSender(event);
+    const validatedIndex = parseIpc(HighlightIndexSchema, index, "index");
     const info = getActiveTabInfo(tabManager);
     if (!info) return false;
     try {
-      return scrollToHighlight(info.wc, index);
+      return scrollToHighlight(info.wc, validatedIndex);
     } catch (err) {
       logger.warn("Failed to scroll to highlight:", err);
       return false;
     }
   });
 
-  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (event, index: number) => {
+  ipcMain.handle(Channels.HIGHLIGHT_NAV_REMOVE, async (event, index: unknown) => {
     assertTrustedIpcSender(event);
+    const validatedIndex = parseIpc(HighlightIndexSchema, index, "index");
     const info = getActiveTabInfo(tabManager);
     if (!info) return false;
     try {
-      const removed = await removeHighlightAtIndex(info.wc, index);
+      const removed = await removeHighlightAtIndex(info.wc, validatedIndex);
       if (removed) {
         await emitHighlightCount();
       }

@@ -70,7 +70,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/unmodeled-tyler/quanta-vessel-browser.git"
+    "url": "https://github.com/unmodeled-tyler/vessel-browser.git"
   },
   "engines": {
     "node": ">=22.12.0",

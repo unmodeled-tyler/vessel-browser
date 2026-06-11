@@ -1,8 +1,12 @@
 import { dialog, ipcMain } from "electron";
 import { promises as fs } from "fs";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import * as historyManager from "../history/manager";
-import { assertTrustedIpcSender } from "./common";
+import { assertTrustedIpcSender, parseIpc } from "./common";
+
+const QuerySchema = z.string().min(1);
+const OptionalNumberSchema = z.number().int().min(0).optional();
 
 export function registerHistoryHandlers(): void {
   ipcMain.handle(Channels.HISTORY_GET, (event) => {
@@ -10,14 +14,17 @@ export function registerHistoryHandlers(): void {
     return historyManager.getState();
   });
 
-  ipcMain.handle(Channels.HISTORY_LIST, (event, offset?: number, limit?: number) => {
+  ipcMain.handle(Channels.HISTORY_LIST, (event, offset?: unknown, limit?: unknown) => {
     assertTrustedIpcSender(event);
-    return historyManager.listEntries(offset, limit);
+    const validatedOffset = offset != null ? parseIpc(OptionalNumberSchema, offset, "offset") : undefined;
+    const validatedLimit = limit != null ? parseIpc(OptionalNumberSchema, limit, "limit") : undefined;
+    return historyManager.listEntries(validatedOffset, validatedLimit);
   });
 
-  ipcMain.handle(Channels.HISTORY_SEARCH, (event, query: string) => {
+  ipcMain.handle(Channels.HISTORY_SEARCH, (event, query: unknown) => {
     assertTrustedIpcSender(event);
-    return historyManager.search(query);
+    const validatedQuery = parseIpc(QuerySchema, query, "query");
+    return historyManager.search(validatedQuery);
   });
 
   ipcMain.handle(Channels.HISTORY_CLEAR, (event) => {

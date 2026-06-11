@@ -3,8 +3,8 @@ import type { UpdateCheckResult } from "../../shared/types";
 import { isAirGapped } from "../config/air-gapped";
 import { openExternalAllowlisted } from "../security/external-open";
 
-const GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/unmodeled-tyler/quanta-vessel-browser/releases/latest";
-const RELEASES_URL = "https://github.com/unmodeled-tyler/quanta-vessel-browser/releases/latest";
+const GITHUB_LATEST_RELEASE_API_URL = "https://api.github.com/repos/unmodeled-tyler/vessel-browser/releases/latest";
+const RELEASES_URL = "https://github.com/unmodeled-tyler/vessel-browser/releases/latest";
 
 function normalizeVersion(version: string): number[] {
   return version

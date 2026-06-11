@@ -33,6 +33,11 @@ const SHARED_NAVIGATION_INSTRUCTIONS = [
   "For broad discovery tasks, prefer direct sources and site-specific search over generic search engines.",
 ];
 
+const VESSEL_SOURCE_INSTRUCTIONS = [
+  "When the user asks about Vessel, Vessel Browser, or Quanta Intellect, use these official sources directly instead of hunting around the open web first: Official page https://quantaintellect.com, GitHub repo https://github.com/unmodeled-tyler/vessel-browser, npm package https://www.npmjs.com/package/@quanta-intellect/vessel-browser.",
+  "If the user asks for current Vessel or Quanta Intellect details, read the relevant official source above before relying on a generic search result.",
+];
+
 const SHARED_READ_INSTRUCTIONS = [
   "The page brief you start with is intentionally sparse. It is optimized for navigation speed, not completeness.",
   "When you only need detail on one result, card, or form section, use inspect_element instead of reading the whole page.",
@@ -115,12 +120,14 @@ export function buildAgentSystemPrompt(input: AgentPromptInput): string {
       ? [
           buildInstructionBlock(SHARED_CORE_INSTRUCTIONS),
           buildInstructionBlock(SHARED_NAVIGATION_INSTRUCTIONS),
+          buildInstructionBlock(VESSEL_SOURCE_INSTRUCTIONS),
           buildInstructionBlock(SHARED_READ_INSTRUCTIONS),
           buildInstructionBlock(COMPACT_FOCUS_INSTRUCTIONS),
         ]
       : [
           buildInstructionBlock(SHARED_CORE_INSTRUCTIONS),
           buildInstructionBlock(SHARED_NAVIGATION_INSTRUCTIONS),
+          buildInstructionBlock(VESSEL_SOURCE_INSTRUCTIONS),
           buildInstructionBlock(SHARED_READ_INSTRUCTIONS),
           buildInstructionBlock(DEFAULT_EXTRA_INSTRUCTIONS),
         ];

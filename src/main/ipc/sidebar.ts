@@ -1,6 +1,9 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import {
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
   SIDEBAR_RESIZE_HANDLE_OVERLAP,
   clampSidebarWidth,
 } from "../../shared/sidebar";
@@ -21,7 +24,12 @@ import {
   resizeSidebarViews,
   type WindowState,
 } from "../window";
-import { assertNumber, assertString } from "./common";
+import { parseIpc } from "./common";
+
+const SidebarTabSchema = z.string().min(1);
+const SidebarWidthSchema = z.number().int().min(SIDEBAR_MIN_WIDTH).max(SIDEBAR_MAX_WIDTH);
+const BooleanSchema = z.boolean();
+const ViewNameSchema = z.enum(["chrome", "sidebar", "devtools"]);
 
 type RequireTrusted = (event: IpcMainEvent | IpcMainInvokeEvent) => void;
 
@@ -65,14 +73,14 @@ export function registerSidebarHandlers(
     return toggleDockedSidebar(windowState, relayout);
   });
 
-  ipcMain.handle(Channels.SIDEBAR_NAVIGATE, (event, tab: string) => {
+  ipcMain.handle(Channels.SIDEBAR_NAVIGATE, (event, tab: unknown) => {
     requireTrusted(event);
-    assertString(tab, "tab");
+    const validatedTab = parseIpc(SidebarTabSchema, tab, "tab");
     if (windowState.uiState.sidebarPanelMode === "closed") {
       openDockedSidebar(windowState, relayout);
     }
     if (!windowState.sidebarView.webContents.isDestroyed()) {
-      windowState.sidebarView.webContents.send(Channels.SIDEBAR_NAVIGATE, tab);
+      windowState.sidebarView.webContents.send(Channels.SIDEBAR_NAVIGATE, validatedTab);
     }
     windowState.sidebarWindow?.focus();
     return emitSidebarPanelState(windowState);
@@ -95,13 +103,13 @@ export function registerSidebarHandlers(
     scheduleSidebarResizeRecovery();
   });
 
-  ipcMain.handle(Channels.SIDEBAR_RESIZE, (event, width: number) => {
+  ipcMain.handle(Channels.SIDEBAR_RESIZE, (event, width: unknown) => {
     requireTrusted(event);
-    assertNumber(width, "width");
+    const validatedWidth = parseIpc(SidebarWidthSchema, width, "width");
     if (isSidebarDetached(windowState)) {
       return windowState.uiState.sidebarWidth;
     }
-    const clamped = clampSidebarWidth(width);
+    const clamped = clampSidebarWidth(validatedWidth);
     windowState.uiState.sidebarWidth = clamped;
     resizeSidebarViews(windowState);
     emitSidebarPanelState(windowState);
@@ -133,16 +141,18 @@ export function registerSidebarHandlers(
 
   ipcMain.on(
     Channels.RENDERER_VIEW_READY,
-    (event, view: "chrome" | "sidebar" | "devtools") => {
+    (event, view: unknown) => {
       requireTrusted(event);
-      if (view !== "sidebar") return;
+      const validatedView = parseIpc(ViewNameSchema, view, "view");
+      if (validatedView !== "sidebar") return;
       emitSidebarPanelState(windowState);
     },
   );
 
-  ipcMain.handle(Channels.SETTINGS_VISIBILITY, (event, open: boolean) => {
+  ipcMain.handle(Channels.SETTINGS_VISIBILITY, (event, open: unknown) => {
     requireTrusted(event);
-    windowState.uiState.settingsOpen = open;
+    const validatedOpen = parseIpc(BooleanSchema, open, "open");
+    windowState.uiState.settingsOpen = validatedOpen;
     if (open) {
       closeSidebar(windowState, relayout, "temporary");
     } else {

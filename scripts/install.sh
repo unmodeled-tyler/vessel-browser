@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${VESSEL_REPO_URL:-https://github.com/unmodeled-tyler/quanta-vessel-browser.git}"
+REPO_URL="${VESSEL_REPO_URL:-https://github.com/unmodeled-tyler/vessel-browser.git}"
 BRANCH="${VESSEL_BRANCH:-main}"
 INSTALL_DIR="${VESSEL_INSTALL_DIR:-$HOME/.local/share/vessel-browser}"
 BIN_DIR="${VESSEL_BIN_DIR:-$HOME/.local/bin}"

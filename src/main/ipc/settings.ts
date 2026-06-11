@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import {
   getRendererSettings,
+  parseSettingValue,
   setSetting,
   SETTABLE_KEYS,
 } from "../config/settings";
@@ -74,16 +75,21 @@ export function registerSettingsHandlers(
     return regenerateMcpAuthToken();
   });
 
-  ipcMain.handle(Channels.SUPPORT_SUBMIT_FEEDBACK, async (event, email: string, message: string) => {
+  ipcMain.handle(Channels.SUPPORT_SUBMIT_FEEDBACK, async (event, email: unknown, message: unknown) => {
     assertTrustedIpcSender(event);
-    return submitFeedback({ email, message, source: "settings_account" });
+    return submitFeedback({
+      email: typeof email === "string" ? email : "",
+      message: typeof message === "string" ? message : "",
+      source: "settings_account",
+    });
   });
 
-  ipcMain.handle(Channels.SETTINGS_SET, async (event, key: string, value: unknown) => {
+  ipcMain.handle(Channels.SETTINGS_SET, async (event, key: unknown, value: unknown) => {
     assertTrustedIpcSender(event);
     const validatedKey = parseIpc(SettingsKeySchema, key, "key");
     const settingsKey = validatedKey as keyof VesselSettings;
-    return applySettingChange(settingsKey, value as VesselSettings[typeof settingsKey]);
+    const validatedValue = parseSettingValue(settingsKey, value);
+    return applySettingChange(settingsKey, validatedValue);
   });
 
   return applySettingChange;

@@ -1,9 +1,18 @@
 import { BrowserWindow, ipcMain } from "electron";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import type { SecurityState } from "../../shared/types";
-import { assertString, assertTrustedIpcSender } from "./common";
+import { assertTrustedIpcSender, parseIpc } from "./common";
 import type { TabManager } from "../tabs/tab-manager";
 import { loadInternalDataURL } from "../network/url-safety";
+
+const TabIdSchema = z.string().min(1);
+const SecurityStateSchema: z.ZodType<SecurityState> = z.object({
+  status: z.enum(["secure", "insecure", "error", "none"]),
+  url: z.string(),
+  errorMessage: z.string().optional(),
+  canProceed: z.boolean().optional(),
+});
 
 const esc = (s: string) =>
   s
@@ -51,17 +60,18 @@ function buildCertificateDetailsHtml(state: SecurityState): string {
 }
 
 export function registerSecurityHandlers(tabManager: TabManager): void {
-  ipcMain.handle(Channels.SECURITY_SHOW_DETAILS, async (event, state: SecurityState) => {
+  ipcMain.handle(Channels.SECURITY_SHOW_DETAILS, async (event, state: unknown) => {
     assertTrustedIpcSender(event);
+    const validatedState = parseIpc(SecurityStateSchema, state, "state");
     const domain = (() => {
       try {
-        return new URL(state.url).hostname || state.url;
+        return new URL(validatedState.url).hostname || validatedState.url;
       } catch {
-        return state.url;
+        return validatedState.url;
       }
     })();
 
-    const content = buildCertificateDetailsHtml(state);
+    const content = buildCertificateDetailsHtml(validatedState);
 
     const win = new BrowserWindow({
       width: 600,
@@ -78,15 +88,15 @@ export function registerSecurityHandlers(tabManager: TabManager): void {
     void loadInternalDataURL(win.webContents, `data:text/html;charset=utf-8,${encodeURIComponent(content)}`);
   });
 
-  ipcMain.handle(Channels.SECURITY_PROCEED_ANYWAY, (event, tabId: string) => {
+  ipcMain.handle(Channels.SECURITY_PROCEED_ANYWAY, (event, tabId: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(tabId, "tabId");
-    tabManager.proceedAnyway(tabId);
+    const validatedTabId = parseIpc(TabIdSchema, tabId, "tabId");
+    tabManager.proceedAnyway(validatedTabId);
   });
 
-  ipcMain.handle(Channels.SECURITY_GO_BACK_TO_SAFETY, (event, tabId: string) => {
+  ipcMain.handle(Channels.SECURITY_GO_BACK_TO_SAFETY, (event, tabId: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(tabId, "tabId");
-    tabManager.goBackToSafety(tabId);
+    const validatedTabId = parseIpc(TabIdSchema, tabId, "tabId");
+    tabManager.goBackToSafety(validatedTabId);
   });
 }

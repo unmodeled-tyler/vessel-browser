@@ -1,90 +1,87 @@
 import { ipcMain } from "electron";
+import { z } from "zod";
 import { Channels } from "../../shared/channels";
-import { assertString, assertOptionalString, assertTrustedIpcSender } from "./common";
+import { assertTrustedIpcSender, parseIpc } from "./common";
 import * as vault from "../vault/human-vault";
 import type { HumanCredentialEntry } from "../../shared/types";
 import { assertFeatureUnlocked } from "../premium/manager";
 
-const HUMAN_VAULT_CATEGORIES = new Set([
-  "login",
-  "credit_card",
-  "identity",
-  "secure_note",
-]);
+const IdSchema = z.string().min(1);
+const OptionalDomainSchema = z.string().min(1).optional();
+const OptionalLimitSchema = z.number().int().min(1).optional();
+const CategorySchema = z.enum(["login", "credit_card", "identity", "secure_note"]);
+const TagsSchema = z.array(z.string()).optional();
+const TrimmedStringSchema = z.string().transform((value) => value.trim());
+const RequiredTrimmedStringSchema = z.string().trim().min(1);
+const RequiredSecretSchema = z.string().refine((value) => value.trim().length > 0, {
+  message: "Required",
+});
+const OptionalTrimmedStringSchema = z.string().trim().optional();
 
-function normalizeCategory(value: unknown): HumanCredentialEntry["category"] {
-  return typeof value === "string" && HUMAN_VAULT_CATEGORIES.has(value)
-    ? (value as HumanCredentialEntry["category"])
-    : "login";
-}
+const CredentialInputSchema = z.object({
+  title: RequiredTrimmedStringSchema,
+  url: TrimmedStringSchema,
+  username: RequiredTrimmedStringSchema,
+  password: RequiredSecretSchema,
+  totpSecret: OptionalTrimmedStringSchema,
+  category: CategorySchema.optional(),
+  tags: TagsSchema,
+  notes: OptionalTrimmedStringSchema,
+});
 
-function normalizeTags(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const tags = value
-    .filter((tag): tag is string => typeof tag === "string")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-  return tags.length > 0 ? tags : undefined;
-}
+const CredentialUpdateSchema = z.object({
+  title: RequiredTrimmedStringSchema.optional(),
+  url: TrimmedStringSchema.optional(),
+  username: RequiredTrimmedStringSchema.optional(),
+  password: RequiredSecretSchema.optional(),
+  totpSecret: OptionalTrimmedStringSchema,
+  category: CategorySchema.optional(),
+  tags: TagsSchema,
+  notes: OptionalTrimmedStringSchema,
+});
 
 function assertHumanVaultUnlocked(): void {
   assertFeatureUnlocked("human_vault", "Passwords");
 }
 
+/** Trim and deduplicate tags from Zod-validated input. */
+function cleanTags(tags: string[] | undefined): string[] | undefined {
+  if (!tags) return undefined;
+  const cleaned = [...new Set(tags.map((t) => t.trim()).filter(Boolean))];
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
 export function registerHumanVaultHandlers(): void {
-  ipcMain.handle(Channels.HUMAN_VAULT_LIST, (event, domain?: string) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_LIST, (event, domain?: unknown) => {
     assertTrustedIpcSender(event);
     assertHumanVaultUnlocked();
-    if (domain !== undefined) assertString(domain, "domain");
-    return domain ? vault.findForDomain(domain) : vault.listEntries();
+    const validatedDomain = domain != null ? parseIpc(OptionalDomainSchema, domain, "domain") : undefined;
+    return validatedDomain ? vault.findForDomain(validatedDomain) : vault.listEntries();
   });
 
-  ipcMain.handle(Channels.HUMAN_VAULT_GET, (event, id: string) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_GET, (event, id: unknown) => {
     assertTrustedIpcSender(event);
     assertHumanVaultUnlocked();
-    assertString(id, "id");
-    return vault.getEntrySafe(id);
+    const validatedId = parseIpc(IdSchema, id, "id");
+    return vault.getEntrySafe(validatedId);
   });
 
   ipcMain.handle(
     Channels.HUMAN_VAULT_SAVE,
-    (
-      event,
-      input: {
-        title: string;
-        url: string;
-        username: string;
-        password: string;
-        totpSecret?: string;
-        category?: "login" | "credit_card" | "identity" | "secure_note";
-        tags?: string[];
-        notes?: string;
-      },
-    ) => {
+    (event, input: unknown) => {
       assertTrustedIpcSender(event);
       assertHumanVaultUnlocked();
-      if (!input || typeof input !== "object") {
-        throw new Error("Invalid credential entry");
-      }
-      assertString(input.title, "title");
-      assertString(input.url, "url");
-      assertString(input.username, "username");
-      assertString(input.password, "password");
-      if (!input.title.trim() || !input.username.trim() || !input.password.trim()) {
-        throw new Error("Title, username, and password are required");
-      }
-      assertOptionalString(input.totpSecret, "totpSecret");
-      assertOptionalString(input.notes, "notes");
+      const validated = parseIpc(CredentialInputSchema, input, "credential");
 
       const entry = vault.saveEntry({
-        title: input.title.trim(),
-        url: input.url.trim(),
-        username: input.username.trim(),
-        password: input.password,
-        totpSecret: input.totpSecret?.trim() || undefined,
-        category: normalizeCategory(input.category),
-        tags: normalizeTags(input.tags),
-        notes: input.notes?.trim() || undefined,
+        title: validated.title,
+        url: validated.url,
+        username: validated.username,
+        password: validated.password,
+        totpSecret: validated.totpSecret || undefined,
+        category: validated.category ?? "login",
+        tags: cleanTags(validated.tags),
+        notes: validated.notes || undefined,
         lastUsedAt: undefined,
       });
 
@@ -96,74 +93,40 @@ export function registerHumanVaultHandlers(): void {
 
   ipcMain.handle(
     Channels.HUMAN_VAULT_UPDATE,
-    (
-      event,
-      id: string,
-      updates: Partial<{
-        title: string;
-        url: string;
-        username: string;
-        password: string;
-        totpSecret: string;
-        category: "login" | "credit_card" | "identity" | "secure_note";
-        tags: string[];
-        notes: string;
-      }>,
-    ) => {
+    (event, id: unknown, updates: unknown) => {
       assertTrustedIpcSender(event);
       assertHumanVaultUnlocked();
-      assertString(id, "id");
-      if (!updates || typeof updates !== "object") {
-        throw new Error("Invalid updates");
-      }
+      const validatedId = parseIpc(IdSchema, id, "id");
+      const validatedUpdates = parseIpc(CredentialUpdateSchema, updates ?? {}, "updates");
+
       const normalized: Partial<Omit<HumanCredentialEntry, "id" | "createdAt">> = {};
-      if (updates.title !== undefined) {
-        assertString(updates.title, "title");
-        normalized.title = updates.title.trim();
-      }
-      if (updates.url !== undefined) {
-        assertString(updates.url, "url");
-        normalized.url = updates.url.trim();
-      }
-      if (updates.username !== undefined) {
-        assertString(updates.username, "username");
-        normalized.username = updates.username.trim();
-      }
-      if (updates.password !== undefined) {
-        assertString(updates.password, "password");
-        normalized.password = updates.password;
-      }
-      if (updates.totpSecret !== undefined) {
-        assertOptionalString(updates.totpSecret, "totpSecret");
-        normalized.totpSecret = updates.totpSecret.trim() || undefined;
-      }
-      if (updates.notes !== undefined) {
-        assertOptionalString(updates.notes, "notes");
-        normalized.notes = updates.notes.trim() || undefined;
-      }
-      if (updates.category !== undefined) {
-        normalized.category = normalizeCategory(updates.category);
-      }
-      if (updates.tags !== undefined) {
-        normalized.tags = normalizeTags(updates.tags);
-      }
-      const result = vault.updateEntry(id, normalized);
+      if (validatedUpdates.title !== undefined) normalized.title = validatedUpdates.title;
+      if (validatedUpdates.url !== undefined) normalized.url = validatedUpdates.url;
+      if (validatedUpdates.username !== undefined) normalized.username = validatedUpdates.username;
+      if (validatedUpdates.password !== undefined) normalized.password = validatedUpdates.password;
+      if (validatedUpdates.totpSecret !== undefined) normalized.totpSecret = validatedUpdates.totpSecret || undefined;
+      if (validatedUpdates.notes !== undefined) normalized.notes = validatedUpdates.notes || undefined;
+      if (validatedUpdates.category !== undefined) normalized.category = validatedUpdates.category;
+      if (validatedUpdates.tags !== undefined) normalized.tags = cleanTags(validatedUpdates.tags);
+
+      const result = vault.updateEntry(validatedId, normalized);
       if (!result) return null;
       const { password: _p, totpSecret: _t, ...safe } = result;
       return safe;
     },
   );
 
-  ipcMain.handle(Channels.HUMAN_VAULT_REMOVE, (event, id: string) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_REMOVE, (event, id: unknown) => {
     assertTrustedIpcSender(event);
     assertHumanVaultUnlocked();
-    assertString(id, "id");
-    return vault.removeEntry(id);
+    const validatedId = parseIpc(IdSchema, id, "id");
+    return vault.removeEntry(validatedId);
   });
 
-  ipcMain.handle(Channels.HUMAN_VAULT_AUDIT_LOG, (event, limit?: number) => {
+  ipcMain.handle(Channels.HUMAN_VAULT_AUDIT_LOG, (event, limit?: unknown) => {
     assertTrustedIpcSender(event);
     assertHumanVaultUnlocked();
-    return vault.readAuditLog(limit);
+    const validatedLimit = limit != null ? parseIpc(OptionalLimitSchema, limit, "limit") : undefined;
+    return vault.readAuditLog(validatedLimit);
   });
 }

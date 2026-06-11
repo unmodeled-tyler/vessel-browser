@@ -1,6 +1,7 @@
 import { app, safeStorage } from "electron";
 import path from "path";
 import fs from "fs";
+import { z } from "zod";
 import type {
   CodexOAuthTokens,
   ProviderConfig,
@@ -10,6 +11,10 @@ import type {
 } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
 import {
+  DETACHED_SIDEBAR_MIN_HEIGHT,
+  DETACHED_SIDEBAR_MIN_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
   sanitizeSidebarDetachedBounds,
   sanitizeSidebarPanelMode,
 } from "../../shared/sidebar";
@@ -50,6 +55,67 @@ const logger = createLogger("Settings");
 
 /** Allowlist of setting keys accepted via IPC. */
 export const SETTABLE_KEYS: ReadonlySet<string> = new Set(Object.keys(defaults));
+
+const SettingsValueSchemas: Record<keyof VesselSettings, z.ZodType> = {
+  defaultUrl: z.string().url(),
+  theme: z.enum(["dark", "light"]),
+  sidebarPanelMode: z.enum(["closed", "docked", "detached"]),
+  sidebarWidth: z.number().int().min(SIDEBAR_MIN_WIDTH).max(SIDEBAR_MAX_WIDTH),
+  sidebarDetachedBounds: z.union([
+    z.null(),
+    z.object({
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().int().min(DETACHED_SIDEBAR_MIN_WIDTH),
+      height: z.number().int().min(DETACHED_SIDEBAR_MIN_HEIGHT),
+    }),
+  ]),
+  mcpPort: z.number().int().min(1).max(65535),
+  autoRestoreSession: z.boolean(),
+  clearBookmarksOnLaunch: z.boolean(),
+  obsidianVaultPath: z.string(),
+  approvalMode: z.enum(["auto", "confirm-dangerous", "manual"]),
+  agentTranscriptMode: z.enum(["off", "full"]),
+  chatProvider: z.union([
+    z.null(),
+    z.object({
+      id: z.enum([
+        "anthropic",
+        "openai",
+        "openai_codex",
+        "openrouter",
+        "ollama",
+        "llama_cpp",
+        "mistral",
+        "xai",
+        "google",
+        "custom",
+      ]),
+      apiKey: z.string(),
+      hasApiKey: z.boolean().optional(),
+      model: z.string().trim().min(1),
+      baseUrl: z.string().optional(),
+      reasoningEffort: z.enum(["off", "low", "medium", "high", "max"]).optional(),
+    }),
+  ]),
+  maxToolIterations: z.number().int().min(1).max(10000),
+  domainPolicy: z.object({
+    allowedDomains: z.array(z.string()),
+    blockedDomains: z.array(z.string()),
+  }),
+  sourceDoNotAllowList: z.array(z.string()),
+  downloadPath: z.string(),
+  premium: z.object({
+    status: z.enum(["free", "active", "trialing", "past_due", "canceled"]),
+    customerId: z.string(),
+    verificationToken: z.string(),
+    email: z.string(),
+    validatedAt: z.string(),
+    expiresAt: z.string(),
+  }),
+  telemetryEnabled: z.boolean(),
+  defaultSearchEngine: z.enum(["duckduckgo", "google", "bing", "brave", "ecosia", "kagi", "none"]),
+};
 
 let settings: VesselSettings | null = null;
 let settingsIssues: RuntimeHealthIssue[] = [];
@@ -297,6 +363,18 @@ function sanitizeAgentTranscriptMode(
   if (mode === "full") return "full";
   if (mode === "off" || mode === "summary") return "off";
   return legacyEnabled === true ? "full" : "off";
+}
+
+export function parseSettingValue<K extends keyof VesselSettings>(
+  key: K,
+  value: unknown,
+): VesselSettings[K] {
+  const result = SettingsValueSchemas[key].safeParse(value);
+  if (!result.success) {
+    const message = result.error.issues.map((issue) => issue.message).join("; ");
+    throw new Error(`Invalid ${key} value: ${message}`);
+  }
+  return result.data as VesselSettings[K];
 }
 
 export function loadSettings(): VesselSettings {

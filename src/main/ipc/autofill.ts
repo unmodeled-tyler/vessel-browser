@@ -1,4 +1,5 @@
 import { ipcMain } from "electron";
+import { z } from "zod";
 import type { AutofillProfile } from "../../shared/autofill-types";
 import { Channels } from "../../shared/channels";
 import { extractContent } from "../content/extractor";
@@ -6,7 +7,9 @@ import { fillFormFields } from "../ai/page-actions";
 import * as autofillManager from "../autofill/manager";
 import { matchFields } from "../autofill/matcher";
 import type { WindowState } from "../window";
-import { assertString, assertTrustedIpcSender } from "./common";
+import { assertTrustedIpcSender, parseIpc } from "./common";
+
+const IdSchema = z.string().min(1);
 
 const AUTOFILL_PROFILE_FIELDS = [
   "label",
@@ -28,34 +31,16 @@ type EditableAutofillProfile = Omit<
   "id" | "createdAt" | "updatedAt"
 >;
 
-function sanitizeAutofillProfile(value: unknown): EditableAutofillProfile {
-  if (!value || typeof value !== "object") throw new Error("Invalid profile");
-  const raw = value as Record<string, unknown>;
-  const profile = {} as EditableAutofillProfile;
-  for (const field of AUTOFILL_PROFILE_FIELDS) {
-    assertString(raw[field], field);
-    profile[field] = raw[field] as never;
-  }
-  if (!profile.label.trim()) throw new Error("Label is required");
-  return profile;
-}
+const AutofillProfileSchema = z.object(
+  Object.fromEntries(AUTOFILL_PROFILE_FIELDS.map((field) => [field, z.string()]))
+).refine((data) => data.label.trim().length > 0, { message: "Label is required" });
 
-function sanitizeAutofillUpdates(
-  value: unknown,
-): Partial<EditableAutofillProfile> {
-  if (!value || typeof value !== "object") throw new Error("Invalid updates");
-  const raw = value as Record<string, unknown>;
-  const updates: Partial<EditableAutofillProfile> = {};
-  for (const field of AUTOFILL_PROFILE_FIELDS) {
-    if (!(field in raw)) continue;
-    assertString(raw[field], field);
-    updates[field] = raw[field] as never;
-  }
-  if ("label" in updates && !updates.label?.trim()) {
-    throw new Error("Label is required");
-  }
-  return updates;
-}
+const AutofillUpdateSchema = z.object(
+  Object.fromEntries(AUTOFILL_PROFILE_FIELDS.map((field) => [field, z.string().optional()]))
+).refine(
+  (data) => data.label === undefined || data.label.trim().length > 0,
+  { message: "Label is required" }
+);
 
 export function registerAutofillHandlers(windowState: WindowState): void {
   ipcMain.handle(Channels.AUTOFILL_LIST, (event) => {
@@ -65,28 +50,30 @@ export function registerAutofillHandlers(windowState: WindowState): void {
 
   ipcMain.handle(
     Channels.AUTOFILL_ADD,
-    (event, profile: Omit<AutofillProfile, "id" | "createdAt" | "updatedAt">) => {
+    (event, profile: unknown) => {
       assertTrustedIpcSender(event);
-      return autofillManager.addProfile(sanitizeAutofillProfile(profile));
+      const validated = parseIpc(AutofillProfileSchema, profile, "profile");
+      return autofillManager.addProfile(validated as EditableAutofillProfile);
     },
   );
 
   ipcMain.handle(Channels.AUTOFILL_UPDATE, (event, id: unknown, updates: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(id, "id");
-    return autofillManager.updateProfile(id, sanitizeAutofillUpdates(updates));
+    const validatedId = parseIpc(IdSchema, id, "id");
+    const validatedUpdates = parseIpc(AutofillUpdateSchema, updates ?? {}, "updates");
+    return autofillManager.updateProfile(validatedId, validatedUpdates as Partial<EditableAutofillProfile>);
   });
 
   ipcMain.handle(Channels.AUTOFILL_DELETE, (event, id: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(id, "id");
-    return autofillManager.deleteProfile(id);
+    const validatedId = parseIpc(IdSchema, id, "id");
+    return autofillManager.deleteProfile(validatedId);
   });
 
   ipcMain.handle(Channels.AUTOFILL_FILL, async (event, profileId: unknown) => {
     assertTrustedIpcSender(event);
-    assertString(profileId, "profileId");
-    const profile = autofillManager.getProfile(profileId);
+    const validatedProfileId = parseIpc(IdSchema, profileId, "profileId");
+    const profile = autofillManager.getProfile(validatedProfileId);
     if (!profile) throw new Error("Profile not found");
     const activeTab = windowState.tabManager.getActiveTab();
     const wc = activeTab?.view.webContents;
