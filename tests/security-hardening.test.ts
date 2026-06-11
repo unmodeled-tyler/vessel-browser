@@ -369,19 +369,19 @@ test("premium assertions allow gated tools and features for active premium users
   }
 });
 
-test("download filenames are flattened and contained in the download directory", () => {
+test("download filenames are flattened and contained in the download directory", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "vessel-downloads-"));
   try {
     assert.equal(sanitizeDownloadFilename("../secrets.txt"), "secrets.txt");
     assert.equal(sanitizeDownloadFilename("nested\\report.pdf"), "report.pdf");
     assert.equal(sanitizeDownloadFilename(".."), "download");
 
-    const resolved = resolveDownloadPath(tempDir, "../../.ssh/authorized_keys");
+    const resolved = await resolveDownloadPath(tempDir, "../../.ssh/authorized_keys");
     assert.equal(path.dirname(resolved), path.resolve(tempDir));
     assert.equal(path.basename(resolved), "authorized_keys");
 
     fs.writeFileSync(path.join(tempDir, "authorized_keys"), "existing");
-    const collision = resolveDownloadPath(tempDir, "../../.ssh/authorized_keys");
+    const collision = await resolveDownloadPath(tempDir, "../../.ssh/authorized_keys");
     assert.equal(path.dirname(collision), path.resolve(tempDir));
     assert.equal(path.basename(collision), "authorized_keys (1)");
   } finally {

@@ -1,24 +1,23 @@
-import fs from "node:fs";
-import path from "node:path";
+import { mkdtemp as fsPromisesMkdtemp } from "node:fs/promises";
 import os from "node:os";
+import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { createLogger } from "../shared/logger";
 import { escapeHtml } from "../shared/html-escape";
+import { read, writeFileAtomic, rmSafe } from "./utils/safe-fs";
 
 const logger = createLogger("Splash");
 
-function findIconBase64(): string {
+async function findIconBase64(): Promise<string> {
   const candidates = [
     path.join(process.resourcesPath, "vessel-icon.png"),
     path.join(app.getAppPath(), "resources", "vessel-icon.png"),
     path.join(__dirname, "../../resources/vessel-icon.png"),
   ];
   for (const p of candidates) {
-    try {
-      const data = fs.readFileSync(p);
+    const data = await read(p, "buffer");
+    if (data != null) {
       return `data:image/png;base64,${data.toString("base64")}`;
-    } catch {
-      // try next
     }
   }
   return "";
@@ -144,7 +143,7 @@ function buildSplashHTML(iconSrc: string): string {
 </html>`;
 }
 
-export function createSplashWindow(): BrowserWindow {
+export async function createSplashWindow(): Promise<BrowserWindow> {
   const splash = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -167,19 +166,17 @@ export function createSplashWindow(): BrowserWindow {
 
   // Write HTML (which may embed a base64 image in an src attribute) to a temp
   // file and use loadFile() — avoids all URL-length limits that break data: URLs.
-  const iconSrc = findIconBase64();
+  const iconSrc = await findIconBase64();
   const html = buildSplashHTML(iconSrc);
   try {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vessel-splash-"));
+    const tmpDir = await fsPromisesMkdtemp(
+      path.join(os.tmpdir(), "vessel-splash-"),
+    );
     const tmpPath = path.join(tmpDir, "index.html");
     splash.once("closed", () => {
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch (err) {
-        logger.debug("Failed to clean up splash temp dir:", err);
-      }
+      void rmSafe(tmpDir);
     });
-    fs.writeFileSync(tmpPath, html, "utf-8");
+    await writeFileAtomic(tmpPath, html);
     void splash.loadFile(tmpPath);
   } catch (err) {
     logger.warn("Failed to write temp HTML, using fallback:", err);

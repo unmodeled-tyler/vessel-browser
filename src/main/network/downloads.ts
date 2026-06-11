@@ -96,37 +96,53 @@ export function installDownloadHandlerForSession(
       app.getPath("downloads");
 
     const filename = item.getFilename();
-    const savePath = resolveDownloadPath(downloadDir, filename);
-    item.setSavePath(savePath);
+    try {
+      const savePath = resolveDownloadPath(downloadDir, filename);
+      item.setSavePath(savePath);
 
-    const info: DownloadInfo = {
-      filename,
-      savePath,
-      url: item.getURL(),
-      mimeType: typeof item.getMimeType === "function" ? item.getMimeType() : undefined,
-      totalBytes: item.getTotalBytes(),
-      receivedBytes: 0,
-      state: "progressing",
-    };
-
-    const record = upsertDownload(info);
-    send(Channels.DOWNLOAD_STARTED, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
-
-    item.on("updated", (_event, state) => {
-      info.receivedBytes = item.getReceivedBytes();
-      info.totalBytes = item.getTotalBytes();
-      info.state = state === "progressing" ? "progressing" : "interrupted";
+      const info: DownloadInfo = {
+        filename,
+        savePath,
+        url: item.getURL(),
+        mimeType: typeof item.getMimeType === "function" ? item.getMimeType() : undefined,
+        totalBytes: item.getTotalBytes(),
+        receivedBytes: 0,
+        state: "progressing",
+      };
 
       const record = upsertDownload(info);
-      send(Channels.DOWNLOAD_PROGRESS, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
-    });
+      send(Channels.DOWNLOAD_STARTED, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
 
-    item.once("done", (_event, state) => {
-      info.receivedBytes = item.getReceivedBytes();
-      info.state = state === "completed" ? "completed" : "cancelled";
+      item.on("updated", (_event, state) => {
+        info.receivedBytes = item.getReceivedBytes();
+        info.totalBytes = item.getTotalBytes();
+        info.state = state === "progressing" ? "progressing" : "interrupted";
 
+        const record = upsertDownload(info);
+        send(Channels.DOWNLOAD_PROGRESS, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
+      });
+
+      item.once("done", (_event, state) => {
+        info.receivedBytes = item.getReceivedBytes();
+        info.state = state === "completed" ? "completed" : "cancelled";
+
+        const record = upsertDownload(info);
+        send(Channels.DOWNLOAD_DONE, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
+      });
+    } catch {
+      const fallbackDir = path.resolve(downloadDir);
+      const fallbackPath = path.join(fallbackDir, sanitizeDownloadFilename(filename));
+      const info: DownloadInfo = {
+        filename,
+        savePath: fallbackPath,
+        url: item.getURL(),
+        mimeType: typeof item.getMimeType === "function" ? item.getMimeType() : undefined,
+        totalBytes: item.getTotalBytes(),
+        receivedBytes: item.getReceivedBytes(),
+        state: "interrupted",
+      };
       const record = upsertDownload(info);
       send(Channels.DOWNLOAD_DONE, { ...info, id: record.id, startedAt: record.startedAt, updatedAt: record.updatedAt });
-    });
+    }
   });
 }

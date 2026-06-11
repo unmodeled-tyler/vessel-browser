@@ -133,7 +133,7 @@ async function maybeShowStartupHealthDialog(
 
 async function bootstrap(): Promise<void> {
   configureUserAgent();
-  const splash = createSplashWindow();
+  const splash = await createSplashWindow();
   const settings = loadSettings();
   const userDataPath = app.getPath("userData");
   initializeRuntimeHealth({

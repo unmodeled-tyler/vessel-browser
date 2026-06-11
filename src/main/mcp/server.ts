@@ -68,7 +68,7 @@ function createMcpServer(
   return server;
 }
 
-export function startMcpServer(
+export async function startMcpServer(
   tabManager: TabManager,
   runtime: AgentRuntime,
   port: number,
@@ -81,7 +81,7 @@ export function startMcpServer(
     message: `Starting MCP server on port ${port}.`,
   });
 
-  mcpRuntimeState.authToken = getPersistentMcpAuthToken();
+  mcpRuntimeState.authToken = await getPersistentMcpAuthToken();
 
   return new Promise((resolve) => {
     const server = http.createServer(async (req, res) => {
@@ -158,13 +158,13 @@ export function startMcpServer(
       resolve(result);
     };
 
-    server.once("error", (error: NodeJS.ErrnoException) => {
+    server.once("error", async (error: NodeJS.ErrnoException) => {
       const message =
         error.code === "EADDRINUSE"
           ? `Port ${port} is already in use. MCP server not started.`
           : error.message;
       logger.error("Server error:", error);
-      clearMcpAuthFile();
+      await clearMcpAuthFile();
       setMcpHealth({
         configuredPort: port,
         activePort: null,
@@ -183,7 +183,7 @@ export function startMcpServer(
       }));
     });
 
-    server.listen(port, "127.0.0.1", () => {
+    server.listen(port, "127.0.0.1", async () => {
       mcpRuntimeState.httpServer = server;
       const address = server.address();
       const actualPort =
@@ -200,7 +200,7 @@ export function startMcpServer(
         logger.info(`Server listening on ${endpoint} (auth enabled)`);
       }
       if (mcpRuntimeState.authToken) {
-        writeMcpAuthFile(endpoint, mcpRuntimeState.authToken);
+        await writeMcpAuthFile(endpoint, mcpRuntimeState.authToken);
       }
       finish({
         ok: true,
@@ -213,34 +213,32 @@ export function startMcpServer(
   });
 }
 
-export function stopMcpServer(): Promise<void> {
-  return new Promise((resolve) => {
-    if (!mcpRuntimeState.httpServer) {
-      setMcpHealth({
-        activePort: null,
-        endpoint: null,
-        status: "stopped",
-        message: "MCP server is stopped.",
-      });
-      resolve();
-      return;
-    }
-
-    const server = mcpRuntimeState.httpServer;
-    mcpRuntimeState.httpServer = null;
-    mcpRuntimeState.authToken = null;
-    clearMcpAuthFile();
-    server.close(() => {
-      setMcpHealth({
-        activePort: null,
-        endpoint: null,
-        status: "stopped",
-        message: "MCP server is stopped.",
-      });
-      if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
-        logger.info("Server stopped");
-      }
-      resolve();
+export async function stopMcpServer(): Promise<void> {
+  const server = mcpRuntimeState.httpServer;
+  if (!server) {
+    await clearMcpAuthFile();
+    setMcpHealth({
+      activePort: null,
+      endpoint: null,
+      status: "stopped",
+      message: "MCP server is stopped.",
     });
+    return;
+  }
+
+  mcpRuntimeState.httpServer = null;
+  mcpRuntimeState.authToken = null;
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
   });
+  await clearMcpAuthFile();
+  setMcpHealth({
+    activePort: null,
+    endpoint: null,
+    status: "stopped",
+    message: "MCP server is stopped.",
+  });
+  if (process.env.VESSEL_DEBUG_MCP === '1' || process.env.VESSEL_DEBUG_MCP === 'true') {
+    logger.info("Server stopped");
+  }
 }

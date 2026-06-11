@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createLogger } from "../../shared/logger";
 import { getRuntimeHealth } from "../health/runtime-health";
 import { mcpRuntimeState } from "./mcp-state";
+import { readIfExists, unlinkIfExists, writeFileAtomic } from "../utils/safe-fs";
 
 const logger = createLogger("MCP");
 
@@ -32,9 +32,10 @@ export function getMcpAuthFilePath(): string {
   return path.join(configDir, MCP_AUTH_FILENAME);
 }
 
-export function readMcpAuthFile(): McpAuthState | null {
+export async function readMcpAuthFile(): Promise<McpAuthState | null> {
+  const raw = await readIfExists(getMcpAuthFilePath(), "utf-8");
+  if (raw == null) return null;
   try {
-    const raw = fs.readFileSync(getMcpAuthFilePath(), "utf8");
     const parsed = JSON.parse(raw) as McpAuthState;
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch {
@@ -44,52 +45,38 @@ export function readMcpAuthFile(): McpAuthState | null {
 
 export const MIN_TOKEN_LENGTH = 32;
 
-export function getPersistentMcpAuthToken(): string {
-  const existingToken = readMcpAuthFile()?.token?.trim();
+export async function getPersistentMcpAuthToken(): Promise<string> {
+  const existingToken = (await readMcpAuthFile())?.token?.trim();
   if (existingToken && existingToken.length >= MIN_TOKEN_LENGTH) {
     return existingToken;
   }
   return crypto.randomBytes(32).toString("hex");
 }
 
-export function writeMcpAuthFile(endpoint: string, token: string): void {
+export async function writeMcpAuthFile(endpoint: string, token: string): Promise<void> {
   try {
     const filePath = getMcpAuthFilePath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify({ endpoint, token, pid: process.pid }, null, 2) + "\n",
-      { mode: 0o600 },
-    );
-    fs.chmodSync(filePath, 0o600);
+    const payload = JSON.stringify({ endpoint, token, pid: process.pid }, null, 2) + "\n";
+    await writeFileAtomic(filePath, payload, { mode: 0o600 });
   } catch (err) {
     logger.warn("Failed to write auth file:", err);
   }
 }
 
-export function clearMcpAuthFile(): void {
-  const existingToken = readMcpAuthFile()?.token?.trim();
+export async function clearMcpAuthFile(): Promise<void> {
+  const existingToken = (await readMcpAuthFile())?.token?.trim();
   if (!existingToken) {
-    try {
-      fs.unlinkSync(getMcpAuthFilePath());
-    } catch {
-      // File may not exist — that's fine.
-    }
+    await unlinkIfExists(getMcpAuthFilePath());
     return;
   }
   try {
     const filePath = getMcpAuthFilePath();
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify(
-        { endpoint: "", token: existingToken, pid: null },
-        null,
-        2,
-      ) + "\n",
-      { mode: 0o600 },
-    );
-    fs.chmodSync(filePath, 0o600);
+    const payload = JSON.stringify(
+      { endpoint: "", token: existingToken, pid: null },
+      null,
+      2,
+    ) + "\n";
+    await writeFileAtomic(filePath, payload, { mode: 0o600 });
   } catch (err) {
     logger.warn("Failed to clear auth file:", err);
   }
@@ -104,7 +91,7 @@ export function regenerateMcpAuthToken(): { endpoint: string } | null {
   const endpoint = getRuntimeHealth().mcp.endpoint;
   if (!mcpRuntimeState.httpServer || !endpoint) return null;
   mcpRuntimeState.authToken = crypto.randomBytes(32).toString("hex");
-  writeMcpAuthFile(endpoint, mcpRuntimeState.authToken);
+  void writeMcpAuthFile(endpoint, mcpRuntimeState.authToken);
   return { endpoint };
 }
 

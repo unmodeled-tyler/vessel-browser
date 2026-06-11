@@ -10,6 +10,7 @@ import type {
   VesselSettings,
 } from "../../shared/types";
 import { createLogger } from "../../shared/logger";
+import { writeFileAtomic } from "../utils/safe-fs";
 import {
   DETACHED_SIDEBAR_MIN_HEIGHT,
   DETACHED_SIDEBAR_MIN_WIDTH,
@@ -431,19 +432,12 @@ function persistNow(): Promise<void> {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  return fs.promises
-    .mkdir(path.dirname(getSettingsPath()), { recursive: true })
-    .then(() =>
-      fs.promises.writeFile(
-        getSettingsPath(),
-        JSON.stringify(buildPersistedSettings(settings!), null, 2),
-        { encoding: "utf-8", mode: 0o600 },
-      ),
-    )
-    .then(() => fs.promises.chmod(getSettingsPath(), 0o600).catch((err) => {
-      logger.warn("Failed to chmod settings file:", err);
-    }))
-    .catch((err) => logger.error("Failed to save settings:", err));
+  const filePath = getSettingsPath();
+  return writeFileAtomic(
+    filePath,
+    JSON.stringify(buildPersistedSettings(settings!), null, 2),
+    { mode: 0o600 },
+  ).catch((err) => logger.error("Failed to save settings:", err));
 }
 
 function saveSettings(): void {

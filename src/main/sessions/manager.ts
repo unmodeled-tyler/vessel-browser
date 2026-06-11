@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { readdir } from "node:fs/promises";
 import { app, session } from "electron";
 import type {
   NamedSessionData,
@@ -9,6 +9,7 @@ import type {
 } from "../../shared/types";
 import type { TabManager } from "../tabs/tab-manager";
 import { createLogger } from "../../shared/logger";
+import { ensureDir, readIfExists, unlinkIfExists, writeFileAtomic } from "../utils/safe-fs";
 
 const logger = createLogger("Sessions");
 import { waitForLoad } from "../utils/webcontents-utils";
@@ -19,9 +20,9 @@ function getSessionsDir(): string {
   return path.join(app.getPath("userData"), "named-sessions");
 }
 
-function ensureSessionsDir(): string {
+async function ensureSessionsDir(): Promise<string> {
   const dir = getSessionsDir();
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  await ensureDir(dir, { mode: 0o700 });
   return dir;
 }
 
@@ -44,81 +45,82 @@ function sessionFileName(name: string): string {
   return `${slug}-${hash}.json`;
 }
 
-function getSessionPath(name: string): string {
-  return path.join(ensureSessionsDir(), sessionFileName(name));
+async function getSessionPath(name: string): Promise<string> {
+  const dir = await ensureSessionsDir();
+  return path.join(dir, sessionFileName(name));
 }
 
-function writeSessionFile(filePath: string, data: NamedSessionData): void {
-  fs.writeFileSync(
-    filePath,
-    JSON.stringify({ version: SESSION_VERSION, ...data }, null, 2),
-    { encoding: "utf-8", mode: 0o600 },
-  );
-  fs.chmodSync(filePath, 0o600);
+async function writeSessionFile(filePath: string, data: NamedSessionData): Promise<void> {
+  const payload = JSON.stringify({ version: SESSION_VERSION, ...data }, null, 2);
+  await writeFileAtomic(filePath, payload, { mode: 0o600 });
 }
 
-function readSessionFile(filePath: string): NamedSessionData | null {
+async function readSessionFile(filePath: string): Promise<NamedSessionData | null> {
+  const raw = await readIfExists(filePath, "utf-8");
+  if (raw == null) return null;
   try {
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<NamedSessionData> & {
+    return parseSessionData(JSON.parse(raw) as Partial<NamedSessionData> & {
       version?: number;
-    };
-    if (!parsed || typeof parsed.name !== "string") {
-      return null;
-    }
-    return {
-      name: parsed.name,
-      createdAt:
-        typeof parsed.createdAt === "string"
-          ? parsed.createdAt
-          : new Date().toISOString(),
-      updatedAt:
-        typeof parsed.updatedAt === "string"
-          ? parsed.updatedAt
-          : new Date().toISOString(),
-      cookieCount: Array.isArray(parsed.cookies) ? parsed.cookies.length : 0,
-      originCount: Array.isArray(parsed.localStorage)
-        ? parsed.localStorage.length
-        : 0,
-      domains: Array.isArray(parsed.domains)
-        ? parsed.domains.filter((value): value is string => typeof value === "string")
-        : [],
-      cookies: Array.isArray(parsed.cookies) ? parsed.cookies : [],
-      localStorage: Array.isArray(parsed.localStorage)
-        ? parsed.localStorage
-            .filter(
-              (entry): entry is NamedSessionData["localStorage"][number] =>
-                !!entry &&
-                typeof entry === "object" &&
-                typeof entry.origin === "string" &&
-                !!entry.entries &&
-                typeof entry.entries === "object",
-            )
-            .map((entry) => ({
-              origin: entry.origin,
-              entries: Object.fromEntries(
-                Object.entries(entry.entries).filter(
-                  (pair): pair is [string, string] =>
-                    typeof pair[0] === "string" && typeof pair[1] === "string",
-                ),
-              ),
-            }))
-        : [],
-      snapshot:
-        parsed.snapshot &&
-        typeof parsed.snapshot === "object" &&
-        Array.isArray(parsed.snapshot.tabs)
-          ? parsed.snapshot
-          : {
-              tabs: [],
-              activeIndex: 0,
-              capturedAt: new Date().toISOString(),
-            },
-    };
+    });
   } catch (err) {
     logger.warn(`Failed to read session file ${filePath}:`, err);
     return null;
   }
+}
+
+function parseSessionData(parsed: Partial<NamedSessionData> & { version?: number }): NamedSessionData | null {
+  if (!parsed || typeof parsed.name !== "string") {
+    return null;
+  }
+  return {
+    name: parsed.name,
+    createdAt:
+      typeof parsed.createdAt === "string"
+        ? parsed.createdAt
+        : new Date().toISOString(),
+    updatedAt:
+      typeof parsed.updatedAt === "string"
+        ? parsed.updatedAt
+        : new Date().toISOString(),
+    cookieCount: Array.isArray(parsed.cookies) ? parsed.cookies.length : 0,
+    originCount: Array.isArray(parsed.localStorage)
+      ? parsed.localStorage.length
+      : 0,
+    domains: Array.isArray(parsed.domains)
+      ? parsed.domains.filter((value): value is string => typeof value === "string")
+      : [],
+    cookies: Array.isArray(parsed.cookies) ? parsed.cookies : [],
+    localStorage: Array.isArray(parsed.localStorage)
+      ? parsed.localStorage
+          .filter(
+            (entry): entry is NamedSessionData["localStorage"][number] =>
+              !!entry &&
+              typeof entry === "object" &&
+              typeof entry.origin === "string" &&
+              !!entry.entries &&
+              typeof entry.entries === "object",
+          )
+          .map((entry) => ({
+            origin: entry.origin,
+            entries: Object.fromEntries(
+              Object.entries(entry.entries).filter(
+                (pair): pair is [string, string] =>
+                  typeof pair[0] === "string" && typeof pair[1] === "string",
+              ),
+            ),
+          }))
+      : [],
+    snapshot:
+      parsed.snapshot &&
+      typeof parsed.snapshot === "object" &&
+      Array.isArray(parsed.snapshot.tabs)
+        ? parsed.snapshot
+        : {
+            tabs: [],
+            activeIndex: 0,
+            capturedAt: new Date().toISOString(),
+          },
+  };
 }
 
 function getSerializableCookies(): Promise<PersistedCookie[]> {
@@ -250,12 +252,16 @@ async function restoreLocalStorageForOrigin(
   }
 }
 
-export function listNamedSessions(): NamedSessionSummary[] {
-  const dir = ensureSessionsDir();
-  const entries = fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => readSessionFile(path.join(dir, entry.name)))
+export async function listNamedSessions(): Promise<NamedSessionSummary[]> {
+  const dir = await ensureSessionsDir();
+  const dirEntries = await readdir(dir, { withFileTypes: true });
+  const summaries = (
+    await Promise.all(
+      dirEntries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map((entry) => readSessionFile(path.join(dir, entry.name))),
+    )
+  )
     .filter((entry): entry is NamedSessionData => entry != null)
     .map((entry) => ({
       name: entry.name,
@@ -264,13 +270,12 @@ export function listNamedSessions(): NamedSessionSummary[] {
       cookieCount: entry.cookieCount,
       originCount: entry.originCount,
       domains: entry.domains,
-    }))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return entries;
+    }));
+  return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-export function getNamedSession(name: string): NamedSessionData | null {
-  return readSessionFile(getSessionPath(name));
+export async function getNamedSession(name: string): Promise<NamedSessionData | null> {
+  return readSessionFile(await getSessionPath(name));
 }
 
 export async function saveNamedSession(
@@ -278,7 +283,7 @@ export async function saveNamedSession(
   name: string,
 ): Promise<NamedSessionSummary> {
   const normalizedName = normalizeSessionName(name);
-  const existing = getNamedSession(normalizedName);
+  const existing = await getNamedSession(normalizedName);
   const cookies = await getSerializableCookies();
   const origins = uniqueOriginsFromTabManager(tabManager);
   const localStorage = [];
@@ -303,7 +308,7 @@ export async function saveNamedSession(
     snapshot,
   };
 
-  writeSessionFile(getSessionPath(normalizedName), data);
+  await writeSessionFile(await getSessionPath(normalizedName), data);
   return {
     name: data.name,
     createdAt: data.createdAt,
@@ -319,7 +324,7 @@ export async function loadNamedSession(
   name: string,
 ): Promise<NamedSessionSummary> {
   const normalizedName = normalizeSessionName(name);
-  const saved = getNamedSession(normalizedName);
+  const saved = await getNamedSession(normalizedName);
   if (!saved) {
     throw new Error(`Session "${normalizedName}" not found`);
   }
@@ -355,9 +360,6 @@ export async function loadNamedSession(
   };
 }
 
-export function deleteNamedSession(name: string): boolean {
-  const filePath = getSessionPath(name);
-  if (!fs.existsSync(filePath)) return false;
-  fs.unlinkSync(filePath);
-  return true;
+export async function deleteNamedSession(name: string): Promise<boolean> {
+  return unlinkIfExists(await getSessionPath(name));
 }

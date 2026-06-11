@@ -1359,7 +1359,7 @@ export async function executeAction(
         }
 
         case "list_sessions": {
-          const sessions = namedSessionManager.listNamedSessions();
+          const sessions = await namedSessionManager.listNamedSessions();
           if (sessions.length === 0) return "No saved sessions";
           return sessions
             .map(
@@ -1372,7 +1372,7 @@ export async function executeAction(
         case "delete_session": {
           const name = typeof args.name === "string" ? args.name.trim() : "";
           if (!name) return "Error: Session name is required";
-          return namedSessionManager.deleteNamedSession(name)
+          return (await namedSessionManager.deleteNamedSession(name))
             ? `Deleted session "${name}"`
             : `Session "${name}" not found`;
         }

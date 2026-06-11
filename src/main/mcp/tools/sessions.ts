@@ -112,7 +112,7 @@ export function registerSessionTools(
     },
     async () =>
       withAction(runtime, tabManager, "list_sessions", {}, async () => {
-        const sessions = namedSessionManager.listNamedSessions();
+        const sessions = await namedSessionManager.listNamedSessions();
         if (sessions.length === 0) return "No saved sessions";
         return sessions
           .map(
@@ -134,7 +134,7 @@ export function registerSessionTools(
     },
     async ({ name }) =>
       withAction(runtime, tabManager, "delete_session", { name }, async () =>
-        namedSessionManager.deleteNamedSession(name)
+        (await namedSessionManager.deleteNamedSession(name))
           ? `Deleted session "${name}"`
           : `Session "${name}" not found`,
       ),
