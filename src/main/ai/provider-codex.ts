@@ -331,8 +331,11 @@ function buildCodexLatestStateReminder(toolResultPreview: string | null): string
  * Build a strict, actionable error for a repeated search (same query on
  * `web_search` or `search` already succeeded, or a different-query `web_search`
  * is a drift from an earlier successful web search). The message names the
- * previous tool + query verbatim and points the model at the current page so
- * a less stubborn model can recover without the harness having to terminate.
+ * previous tool + query verbatim, points the model at the current page, and
+ * tells it explicitly that the prior search results are sufficient — i.e.
+ * the model must use the results it already has, not re-read the page in
+ * preparation for a "better" search (a pattern the model otherwise games by
+ * alternating web_search → read_page → web_search).
  */
 function buildCodexRepeatedSearchError(
   previousTool: string,
@@ -348,9 +351,12 @@ function buildCodexRepeatedSearchError(
   const lines = [
     header,
     mode === "drifted"
-      ? `Do not rewrite or broaden the query with another ${previousTool}. The latest results are already on the page.`
-      : `Do not search the same query again with ${previousTool} (or its alias search/web_search). The latest results are already on the page.`,
-    `Continue from the current results with read_page, inspect_element, click, or provide the final answer. Do not call any search tool again.`,
+      ? `Do not rewrite or broaden the query with another ${previousTool}. The latest results from your previous ${previousTool} are already in the conversation context.`
+      : `Do not search the same query again with ${previousTool} (or its alias search/web_search). The latest results from your previous ${previousTool} are already in the conversation context.`,
+    // The key change: do NOT suggest read_page as a "recovery" action.
+    // The model was using read_page as a no-op to reset the strike counter
+    // and then issue another web_search. The prior results are sufficient.
+    `Take the next action from the results you already have: click a result link, call inspect_element on a specific item, highlight, or provide the final answer to the user. Do not call any search tool again, and do not call read_page as preparation for another search.`,
   ];
   if (stateReminder) {
     lines.push(stateReminder);

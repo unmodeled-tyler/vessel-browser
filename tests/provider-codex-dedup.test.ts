@@ -319,8 +319,29 @@ test(
     );
     assert.match(
       JSON.stringify(requestBodies[2]?.input ?? []),
-      /Do not search the same query again/,
+      /Do not call any search tool again/,
       "third-turn input should be the new actionable version",
+    );
+    // The actionable error must NOT list read_page as a suggested next
+    // step — the model was using read_page as a no-op to "reset" and try
+    // another web_search. The error should steer the model toward
+    // acting on the existing results instead.
+    assert.doesNotMatch(
+      JSON.stringify(requestBodies[2]?.input ?? []),
+      /read_page, inspect_element, click/,
+      "third-turn error should not suggest read_page as a recovery action",
+    );
+    // The error should explicitly suggest click + highlight + final answer
+    // — the model has results, it should act on them.
+    assert.match(
+      JSON.stringify(requestBodies[2]?.input ?? []),
+      /click a result link/,
+      "third-turn error should suggest clicking a result",
+    );
+    assert.match(
+      JSON.stringify(requestBodies[2]?.input ?? []),
+      /provide the final answer/,
+      "third-turn error should remind the model it can answer the user",
     );
   },
 );
