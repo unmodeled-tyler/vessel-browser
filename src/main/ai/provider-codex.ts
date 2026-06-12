@@ -538,7 +538,7 @@ function buildCodexFailedClickRecoveryInput(
   const stateReminder = buildCodexLatestStateReminder(latestToolResultPreview);
   const lines = [
     `[System] The previous click did not complete${attemptedTarget ? ` for ${attemptedTarget}` : ""}.`,
-    `Do not retry the same click target${attemptedTarget ? ` (${attemptedTarget})` : ""} — the harness will terminate the task if you do.`,
+    `Do not retry the same click target${attemptedTarget ? ` (${attemptedTarget})` : ""}; choose a different visible result or refresh the page context instead.`,
     `If the latest read_page result included Primary Results with [#N] indexes, click a different result link by index.`,
     `If you do not have result indexes, call read_page(mode="results_only") once before clicking again.`,
     `Avoid filters, sort controls, snippets, timestamps, and non-link text.`,
@@ -915,7 +915,7 @@ export class CodexProvider implements AIProvider {
           // check `lastSuccessfulWebSearchQuery` (set on a successful
           // web_search, cleared by any other real-progress action) so a
           // model that issues a distinct web_search several turns after
-          // a different one — with click/navigate/read_page in between
+          // a different one — with click/navigate/inspect in between
           // — is NOT flagged. The previous design used a session-long
           // counter (`successfulWebSearchCount > 0`) and fired on the
           // first distinct web_search in the whole session, terminating
@@ -1023,7 +1023,7 @@ export class CodexProvider implements AIProvider {
           // some way, so a future duplicate search is no longer the same
           // stuck pattern. The same real-progress block also clears
           // `lastSuccessfulWebSearchQuery` so a fresh web_search several
-          // turns after the original (with intervening clicks/navigates)
+          // turns after the original (with intervening clicks/navigates/inspects)
           // is NOT treated as drift.
           if (!looksLikeFailedToolOutput(outputText)) {
             if (isRealProgressTool(prepared.prepared.name)) {
