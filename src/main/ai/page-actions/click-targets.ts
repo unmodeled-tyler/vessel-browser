@@ -1,6 +1,7 @@
 import type { WebContents } from "electron";
 import { selectorHelpersJS } from "../../../shared/dom/selector-helpers-js";
 import { sleep } from "../../utils/webcontents-utils";
+import { invalidateExtractionCache } from "../../content/extractor";
 import { executePageScript, PAGE_SCRIPT_TIMEOUT, pageBusyError } from "./core";
 
 export async function clickElement(wc: WebContents, selector: string): Promise<string> {
@@ -84,6 +85,9 @@ export async function clickElement(wc: WebContents, selector: string): Promise<s
   );
 
   if (target === PAGE_SCRIPT_TIMEOUT) {
+    // Page JS thread is unresponsive — the cached extraction is at
+    // best stale. Invalidate so the next read_page re-extracts.
+    invalidateExtractionCache(wc);
     return pageBusyError("click");
   }
 
@@ -91,6 +95,17 @@ export async function clickElement(wc: WebContents, selector: string): Promise<s
     return "Error: Could not resolve click target";
   }
   if ("error" in target && typeof target.error === "string") {
+    // The page's DOM has shifted (stale-index, hidden, or any other
+    // element-resolution failure). The cached extraction is at
+    // minimum stale, possibly wrong. Invalidate so the next
+    // read_page re-extracts the current page state — the model
+    // gets fresh indexes and can re-pick a target.
+    if (
+      target.error.startsWith("Error[stale-index]") ||
+      target.error.startsWith("Error[hidden]")
+    ) {
+      invalidateExtractionCache(wc);
+    }
     return `Error: ${target.error}`;
   }
 
