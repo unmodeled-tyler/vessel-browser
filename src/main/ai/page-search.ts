@@ -33,6 +33,15 @@ function looksLikeSearchResultsPath(pathname: string): boolean {
   return /\/(search|results|browse|discover|find)(\/|$)/i.test(pathname);
 }
 
+function normalizeHost(hostname: string): string {
+  return hostname.replace(/^www\./i, "").toLowerCase();
+}
+
+function searchEngineHostMatches(currentHost: string, presetHost: string): boolean {
+  if (currentHost === presetHost) return true;
+  return presetHost === "duckduckgo.com" && currentHost === "start.duckduckgo.com";
+}
+
 export function buildCommonSearchUrlShortcut(
   currentUrl: string,
   rawQuery: string,
@@ -91,12 +100,50 @@ export function buildDefaultEngineShortcut(rawQuery: string): SearchShortcut | n
   };
 }
 
+export function buildSearchEngineLandingShortcut(
+  currentUrl: string,
+  rawQuery: string,
+): SearchShortcut | null {
+  let url: URL;
+  try {
+    url = new URL(currentUrl);
+  } catch {
+    return null;
+  }
+
+  if (!/^https?:$/i.test(url.protocol)) {
+    return null;
+  }
+
+  const query = normalizeSearchQuery(rawQuery);
+  if (!query) return null;
+
+  const currentHost = normalizeHost(url.hostname);
+  const currentPath = url.pathname.replace(/\/+$/g, "") || "/";
+  const isLandingPath = currentPath === "/" || currentPath === "/webhp";
+  if (!isLandingPath) return null;
+
+  for (const preset of Object.values(SEARCH_ENGINE_PRESETS)) {
+    const presetUrl = new URL(preset.url);
+    const presetHost = normalizeHost(presetUrl.hostname);
+    if (!searchEngineHostMatches(currentHost, presetHost)) continue;
+    return {
+      url: preset.url + encodeURIComponent(query),
+      source: `${preset.label} landing page`,
+      appliedFilters: [],
+    };
+  }
+
+  return null;
+}
+
 export function buildSearchShortcut(
   currentUrl: string,
   rawQuery: string,
 ): SearchShortcut | null {
   return (
     buildHuggingFaceSearchShortcut(currentUrl, rawQuery) ??
+    buildSearchEngineLandingShortcut(currentUrl, rawQuery) ??
     buildCommonSearchUrlShortcut(currentUrl, rawQuery) ??
     buildDefaultEngineShortcut(rawQuery)
   );

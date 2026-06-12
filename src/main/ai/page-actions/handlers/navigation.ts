@@ -4,6 +4,7 @@ import {
   isRedundantNavigateTarget,
   shouldBlockOffGoalDomainNavigation,
 } from "../../tool-guardrails";
+import { buildDefaultEngineShortcut } from "../../page-search";
 import { validateLinkDestination } from "../../../network/link-validation";
 import { getPostNavSummary } from "../summaries";
 
@@ -38,6 +39,28 @@ export async function handleNavigate(
   if (navError) return navError;
   await waitForLoad(wc);
   return `Navigated to ${wc.getURL()}${await getPostNavSummary(wc)}`;
+}
+
+export async function handleWebSearch(
+  ctx: ActionContext,
+  tabId: string | null,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const tab = ctx.tabManager.getActiveTab();
+  if (!tab || !tabId) return "Error: No active tab";
+  const query = String(args.query || "").trim();
+  if (!query) return "Error: No web search query provided.";
+
+  const shortcut = buildDefaultEngineShortcut(query);
+  if (!shortcut) {
+    return "Error: No default search engine is configured. Navigate to a search engine or set a default search engine first.";
+  }
+
+  const navError = ctx.tabManager.navigateTab(tabId, shortcut.url);
+  if (navError) return navError;
+  const wc = tab.view.webContents;
+  await waitForLoad(wc);
+  return `Web searched "${query}" via ${shortcut.source} → ${wc.getURL()}${await getPostNavSummary(wc)}`;
 }
 
 export async function handleGoBack(ctx: ActionContext, tabId: string | null): Promise<string> {

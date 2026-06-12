@@ -7,7 +7,10 @@ const SAFE_TOOL_ALIASES: Record<string, string> = {
   visit_url: "navigate",
   navigate_to: "navigate",
   open_page: "navigate",
-  google_search: "search",
+  google_search: "web_search",
+  websearch: "web_search",
+  search_web: "web_search",
+  open_web_search: "web_search",
   site_search: "search",
   search_site: "search",
   page_search: "search",
@@ -40,6 +43,7 @@ const CANONICAL_TOOL_NAMES = new Set([
   "save_bookmark",
   "scroll",
   "search",
+  "web_search",
   "type_text",
 ]);
 

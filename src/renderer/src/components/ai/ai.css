@@ -1587,6 +1587,17 @@
     background: var(--surface-active);
 }
 
+.tool-chip-failed {
+    border-left-color: color-mix(in srgb, var(--error) 60%, transparent);
+    background: color-mix(in srgb, var(--error) 8%, var(--surface-hover));
+}
+
+.tool-chip-failed .tool-chip-icon,
+.tool-chip-failed .tool-chip-args {
+    color: color-mix(in srgb, var(--error) 80%, var(--text-muted));
+    opacity: 1;
+}
+
 .tool-chip-icon {
     flex-shrink: 0;
     width: 16px;

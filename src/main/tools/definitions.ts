@@ -865,10 +865,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     relevance: ["LOGIN"],
   },
   {
+    name: "web_search",
+    title: "Web Search",
+    description:
+      "Search the open web using the configured default search engine. Use this for broad discovery tasks instead of typing into the current page.",
+    inputSchema: {
+      query: z.string().describe("Web search query text"),
+    },
+    tier: 0,
+  },
+  {
     name: "search",
     title: "Search",
     description:
-      "Find a search box on the current page, type a query, and submit. Returns the resulting page state.",
+      "Search within the current site or app by finding a visible search box, typing a query, and submitting. Do not use this for open-web discovery.",
     inputSchema: {
       query: z.string().describe("Search query text"),
       selector: z

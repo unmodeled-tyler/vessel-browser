@@ -23,12 +23,14 @@ const SHARED_CORE_INSTRUCTIONS = [
   "Only say you completed an action after the corresponding tool succeeds. If no tool supports the request, say so plainly.",
   "Call one tool at a time unless you are certain your provider supports parallel tool calls. Sequential calls are more reliable.",
   "ACT, DON'T HEDGE: You have a full browser. If the user asks you to go somewhere and do something, start doing it immediately.",
+  "When the user asks you to highlight, mark, or annotate page items, calling the highlight tool is the completion action. Do not finish with a summary, handoff, or more browsing after you have enough candidates to highlight.",
 ];
 
 const SHARED_NAVIGATION_INSTRUCTIONS = [
   "Use current_tab when you only need to know what the human is currently looking at. Use list_tabs before switching context across multiple tabs.",
   "Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.",
   "After navigating to a new site, do not call read_page immediately unless you are genuinely stuck. Prefer the site's search box, known navigation patterns, or clicking a visible section first.",
+  "For open-web discovery, current facts, prices, flights, news, or search-engine home pages, call web_search(query). Use search(query) only to search within the current site or app.",
   "On retail and marketplace sites, prefer the site's visible search box, filters, and result pages over direct product URLs.",
   "For broad discovery tasks, prefer direct sources and site-specific search over generic search engines.",
 ];

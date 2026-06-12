@@ -556,6 +556,59 @@ test("Codex function call output executes valid supported calls", async () => {
   });
 });
 
+test("Codex function call output emits tool chips only after execution completes", async () => {
+  const chunks: string[] = [];
+  let resolveTool: ((value: string) => void) | null = null;
+  let markToolStarted: (() => void) | null = null;
+  const started = new Promise<void>((resolve) => {
+    markToolStarted = resolve;
+  });
+  const callPromise = createCodexFunctionCallOutput(
+    {
+      type: "function_call",
+      call_id: "call_delayed",
+      name: "type_text",
+      arguments: JSON.stringify({ text: "cheap flights" }),
+    },
+    new Set(["type_text"]),
+    (chunk) => chunks.push(chunk),
+    async () => {
+      markToolStarted?.();
+      return new Promise<string>((resolveOutput) => {
+        resolveTool = resolveOutput;
+      });
+    },
+  );
+
+  await started;
+  assert.deepEqual(chunks, []);
+
+  resolveTool?.("Typed into: Search with DuckDuckGo = cheap flights");
+  await callPromise;
+
+  assert.equal(chunks.some((chunk) => chunk.includes("<<tool:type_text:cheap flights>>")), true);
+});
+
+test("Codex function call output marks failed executed tools as warning chips", async () => {
+  const chunks: string[] = [];
+  const output = await createCodexFunctionCallOutput(
+    {
+      type: "function_call",
+      call_id: "call_failed_type",
+      name: "type_text",
+      arguments: JSON.stringify({ text: "cheap flights" }),
+    },
+    new Set(["type_text"]),
+    (chunk) => chunks.push(chunk),
+    async () => "Error: No element index or selector provided, and no focused or visible text input could be found.",
+  );
+
+  assert.equal(output.call_id, "call_failed_type");
+  assert.match(output.output, /No element index/);
+  assert.equal(chunks.some((chunk) => chunk.includes("<<tool:type_text:⚠ failed>>")), true);
+  assert.equal(chunks.some((chunk) => chunk.includes("<<tool:type_text:cheap flights>>")), false);
+});
+
 test("Codex function call output repairs aliased scalar tool calls", async () => {
   const output = await createCodexFunctionCallOutput(
     {
@@ -816,6 +869,398 @@ test("Codex agent recovers narrated action tool calls", async () => {
   );
 
   assert.deepEqual(calls, [{ name: "search", args: { query: "Hacker News" } }]);
+});
+
+test("Codex agent suppresses repeated identical read_page loops", async () => {
+  const provider = new CodexProvider(
+    {
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      idToken: "",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      accountId: "account-123",
+    },
+    "gpt-5",
+  );
+  const chunks: string[] = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
+  let readCalls = 0;
+
+  await withMockFetch(async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    if (requestBodies.length <= 3) {
+      return codexSseResponse(
+        [
+          {
+            type: "response.output_item.done",
+            item: {
+              type: "function_call",
+              call_id: `call_read_${requestBodies.length}`,
+              name: "read_page",
+              arguments: JSON.stringify({ mode: "visible_only" }),
+            },
+          },
+        ],
+        { "x-codex-turn-state": "turn-state-1" },
+      );
+    }
+    return codexSseResponse([
+      {
+        type: "response.output_text.delta",
+        delta: "Done.",
+      },
+    ]);
+  }, () =>
+    provider.streamAgentQuery(
+      "system",
+      "Read the current page and summarize it.",
+      [
+        {
+          name: "read_page",
+          description: "Read the current page",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      (chunk) => chunks.push(chunk),
+      async () => {
+        readCalls += 1;
+        return "Page text";
+      },
+      () => undefined,
+    ),
+  );
+
+  assert.equal(readCalls, 2);
+  assert.equal(requestBodies.length, 4);
+  assert.equal(chunks.some((chunk) => chunk.includes("duplicate suppressed")), true);
+  const suppressedInput = requestBodies[3].input as Array<{
+    type: string;
+    output?: string;
+  }>;
+  assert.match(
+    suppressedInput.find((item) => item.type === "function_call_output")?.output ?? "",
+    /already read the same page state twice/i,
+  );
+});
+
+test("Codex agent stops highlight read loops and highlights compact result lines", async () => {
+  const provider = new CodexProvider(
+    {
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      idToken: "",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      accountId: "account-123",
+    },
+    "gpt-5",
+  );
+  const highlighted: string[] = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
+  let readCalls = 0;
+
+  await withMockFetch(async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    if (requestBodies.length === 1) {
+      return codexSseResponse([
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            call_id: "call_read_1",
+            name: "read_page",
+            arguments: JSON.stringify({ mode: "visible_only" }),
+          },
+        },
+      ]);
+    }
+    if (requestBodies.length === 2) {
+      return codexSseResponse([
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            call_id: "call_read_2",
+            name: "read_page",
+            arguments: JSON.stringify({ mode: "results_only" }),
+          },
+        },
+      ]);
+    }
+    return codexSseResponse([
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          call_id: "call_read_3",
+          name: "read_page",
+          arguments: JSON.stringify({ mode: "text_only" }),
+        },
+      },
+    ]);
+  }, () =>
+    provider.streamAgentQuery(
+      "system",
+      "Take me to Hacker News and highlight the highest signal stories.",
+      [
+        {
+          name: "read_page",
+          description: "Read the current page",
+          input_schema: { type: "object", properties: {} },
+        },
+        {
+          name: "highlight",
+          description: "Highlight page content",
+          input_schema: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+          },
+        },
+      ],
+      () => undefined,
+      async (name, args) => {
+        if (name === "highlight" && typeof args.text === "string") {
+          highlighted.push(args.text);
+          return `Highlighted text: ${args.text}`;
+        }
+        readCalls += 1;
+        return [
+          "[read_page mode=results_only]",
+          "",
+          "### Primary Results",
+          "- [#8] 2 hours ago (link) -> https://news.ycombinator.com/item?id=age",
+          "- [#9] 67 comments (link) -> https://news.ycombinator.com/item?id=comments",
+          "- [#10] 7 hours ago (link) -> https://news.ycombinator.com/item?id=age2",
+          "- [#11] discuss (link) -> https://news.ycombinator.com/item?id=discuss",
+          "- [#12] Lines of code got a better publicist (link) -> https://news.ycombinator.com/item?id=1",
+          "- [#15] Solar generates more energy in US than coal for first time (link) -> https://news.ycombinator.com/item?id=2",
+          "- [#18] Open Reproduction of DeepSeek-R1 (link) -> https://news.ycombinator.com/item?id=3",
+        ].join("\n");
+      },
+      () => undefined,
+    ),
+  );
+
+  assert.equal(readCalls, 2);
+  assert.deepEqual(highlighted, [
+    "Lines of code got a better publicist",
+    "Solar generates more energy in US than coal for first time",
+    "Open Reproduction of DeepSeek-R1",
+  ]);
+  assert.equal(requestBodies.length, 3);
+});
+
+test("Codex agent blocks recovery navigation after highlight read budget", async () => {
+  const provider = new CodexProvider(
+    {
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      idToken: "",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      accountId: "account-123",
+    },
+    "gpt-5",
+  );
+  const highlighted: string[] = [];
+  const executedTools: string[] = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
+
+  await withMockFetch(async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    if (requestBodies.length <= 2) {
+      return codexSseResponse([
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            call_id: `call_read_${requestBodies.length}`,
+            name: "read_page",
+            arguments: JSON.stringify({
+              mode: requestBodies.length === 1 ? "visible_only" : "results_only",
+            }),
+          },
+        },
+      ]);
+    }
+    return codexSseResponse([
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          call_id: "call_nav_reset",
+          name: "navigate",
+          arguments: JSON.stringify({ url: "https://news.ycombinator.com/news" }),
+        },
+      },
+    ]);
+  }, () =>
+    provider.streamAgentQuery(
+      "system",
+      "Take me to Hacker News and highlight the highest signal stories.",
+      [
+        {
+          name: "navigate",
+          description: "Navigate to a URL",
+          input_schema: {
+            type: "object",
+            properties: { url: { type: "string" } },
+            required: ["url"],
+          },
+        },
+        {
+          name: "read_page",
+          description: "Read the current page",
+          input_schema: { type: "object", properties: {} },
+        },
+        {
+          name: "highlight",
+          description: "Highlight page content",
+          input_schema: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+          },
+        },
+      ],
+      () => undefined,
+      async (name, args) => {
+        executedTools.push(name);
+        if (name === "highlight" && typeof args.text === "string") {
+          highlighted.push(args.text);
+          return `Highlighted text: ${args.text}`;
+        }
+        return [
+          "[read_page mode=results_only]",
+          "",
+          "### Primary Results",
+          "- [#12] Lines of code got a better publicist (link) -> https://news.ycombinator.com/item?id=1",
+          "- [#15] Solar generates more energy in US than coal for first time (link) -> https://news.ycombinator.com/item?id=2",
+        ].join("\n");
+      },
+      () => undefined,
+    ),
+  );
+
+  assert.deepEqual(executedTools, [
+    "read_page",
+    "read_page",
+    "highlight",
+    "highlight",
+  ]);
+  assert.deepEqual(highlighted, [
+    "Lines of code got a better publicist",
+    "Solar generates more energy in US than coal for first time",
+  ]);
+  assert.equal(requestBodies.length, 3);
+});
+
+test("Codex agent force-highlights unindexed result link lines after read budget", async () => {
+  const provider = new CodexProvider(
+    {
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      idToken: "",
+      expiresAt: Date.now() + 60 * 60 * 1000,
+      accountId: "account-123",
+    },
+    "gpt-5",
+  );
+  const highlighted: string[] = [];
+  const executedTools: string[] = [];
+  const requestBodies: Array<Record<string, unknown>> = [];
+
+  await withMockFetch(async (_input, init) => {
+    requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+    if (requestBodies.length <= 2) {
+      return codexSseResponse([
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            call_id: `call_read_${requestBodies.length}`,
+            name: "read_page",
+            arguments: JSON.stringify({
+              mode: requestBodies.length === 1 ? "visible_only" : "results_only",
+            }),
+          },
+        },
+      ]);
+    }
+    return codexSseResponse([
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          call_id: "call_search_again",
+          name: "search",
+          arguments: JSON.stringify({ query: "hacker news" }),
+        },
+      },
+    ]);
+  }, () =>
+    provider.streamAgentQuery(
+      "system",
+      "Take me to Hacker News and highlight the highest signal stories.",
+      [
+        {
+          name: "search",
+          description: "Search the current page",
+          input_schema: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+          },
+        },
+        {
+          name: "read_page",
+          description: "Read the current page",
+          input_schema: { type: "object", properties: {} },
+        },
+        {
+          name: "highlight",
+          description: "Highlight page content",
+          input_schema: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+          },
+        },
+      ],
+      () => undefined,
+      async (name, args) => {
+        executedTools.push(name);
+        if (name === "highlight" && typeof args.text === "string") {
+          highlighted.push(args.text);
+          return `Highlighted text: ${args.text}`;
+        }
+        return [
+          "[read_page mode=results_only]",
+          "",
+          "### Primary Results",
+          "- Lines of code got a better publicist (link) -> https://news.ycombinator.com/item?id=1",
+          "- Solar generates more energy in US than coal for first time (link) -> https://news.ycombinator.com/item?id=2",
+          "- Open Reproduction of DeepSeek-R1 (link) -> https://news.ycombinator.com/item?id=3",
+          "- 67 comments (link) -> https://news.ycombinator.com/item?id=comments",
+          "- discuss (link) -> https://news.ycombinator.com/item?id=discuss",
+        ].join("\n");
+      },
+      () => undefined,
+    ),
+  );
+
+  assert.deepEqual(executedTools, [
+    "read_page",
+    "read_page",
+    "highlight",
+    "highlight",
+    "highlight",
+  ]);
+  assert.deepEqual(highlighted, [
+    "Lines of code got a better publicist",
+    "Solar generates more energy in US than coal for first time",
+    "Open Reproduction of DeepSeek-R1",
+  ]);
+  assert.equal(requestBodies.length, 3);
 });
 
 test("Codex agent recovers when it hands off after an intermediate tool", async () => {

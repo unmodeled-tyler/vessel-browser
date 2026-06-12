@@ -38,7 +38,15 @@ test("recent duplicate detection catches repeated tool calls across small gaps",
   assert.equal(hasRecentDuplicateToolCall([typeText], navigate), false);
 });
 
-test("tool name resolution maps hallucinated google calls onto search", () => {
+test("tool name resolution maps hallucinated google calls onto web search", () => {
+  assert.equal(
+    resolveToolCallName(
+      "google",
+      { text: "best sellers fiction" },
+      new Set(["navigate", "web_search", "search", "read_page"]),
+    ),
+    "web_search",
+  );
   assert.equal(
     resolveToolCallName(
       "google",
@@ -89,6 +97,10 @@ test("tool arg coercion and signatures normalize search and navigate variants", 
   assert.deepEqual(
     coerceToolArgsForExecution("search", { text: "best sellers" }),
     { text: "best sellers", query: "best sellers" },
+  );
+  assert.deepEqual(
+    coerceToolArgsForExecution("web_search", { text: "cheap flights" }),
+    { text: "cheap flights", query: "cheap flights" },
   );
 
   const navigateA = stableToolSignature("navigate", {
@@ -168,10 +180,17 @@ test("recovers text-encoded tool calls from assistant content", () => {
 
   const search = recoverTextEncodedToolCalls(
     'google[ARGS]{"text":"best sellers fiction"}',
-    new Set(["navigate", "search", "read_page"]),
+    new Set(["navigate", "web_search", "search", "read_page"]),
   );
   assert.equal(search.length, 1);
-  assert.equal(search[0]?.name, "search");
+  assert.equal(search[0]?.name, "web_search");
+
+  const legacySearch = recoverTextEncodedToolCalls(
+    'google[ARGS]{"text":"best sellers fiction"}',
+    new Set(["navigate", "search", "read_page"]),
+  );
+  assert.equal(legacySearch.length, 1);
+  assert.equal(legacySearch[0]?.name, "search");
 });
 
 test("recovers narrated action lines as browser tool calls", () => {
@@ -191,6 +210,13 @@ Action: Navigate to https://www.powells.com/.`,
   );
   assert.equal(search.length, 1);
   assert.equal(search[0]?.name, "search");
+
+  const webSearch = recoverNarratedActionToolCalls(
+    'Action: Search the web for "cheapest flight tomorrow from Portland to San Francisco".',
+    new Set(["navigate", "web_search", "search", "read_page", "current_tab"]),
+  );
+  assert.equal(webSearch.length, 1);
+  assert.equal(webSearch[0]?.name, "web_search");
 
   const read = recoverNarratedActionToolCalls(
     'I\'ll use readpage(mode="visibleonly") to extract the visible book titles and their links.',

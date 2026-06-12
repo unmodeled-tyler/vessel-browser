@@ -113,6 +113,37 @@ function toolResultTextContent(result: string): string {
   return result;
 }
 
+function summarizeToolArg(args: Record<string, unknown>): string {
+  return [args.url, args.query, args.text, args.direction]
+    .map((value): string => typeof value === "string" ? value : "")
+    .find((value) => value.length > 0) ?? "";
+}
+
+function looksLikeFailedToolOutput(output: string): boolean {
+  const normalized = output.trim().toLowerCase();
+  return (
+    normalized.startsWith("error") ||
+    normalized.startsWith("warning") ||
+    normalized.startsWith("target") ||
+    normalized.startsWith("no active tab") ||
+    normalized.includes("same page — results may have loaded dynamically") ||
+    normalized.includes("could not ") ||
+    normalized.includes("did not ")
+  );
+}
+
+function emitCodexToolChunk(
+  onChunk: (text: string) => void,
+  name: string,
+  args: Record<string, unknown>,
+  output: string,
+): void {
+  const argSummary = looksLikeFailedToolOutput(output)
+    ? "⚠ failed"
+    : summarizeToolArg(args);
+  onChunk(`\n<<tool:${name}${argSummary ? ":" + argSummary : ""}>>\n`);
+}
+
 function prepareCodexFunctionCall(
   functionCall: CodexOutputItem,
   availableToolNames: ReadonlySet<string>,
@@ -182,11 +213,6 @@ async function executePreparedCodexFunctionCall(
   onChunk: (text: string) => void,
   onToolCall: (name: string, args: Record<string, unknown>) => Promise<string>,
 ): Promise<CodexInputItem | CodexTerminalToolResult> {
-  const argSummary = [prepared.args.url, prepared.args.query, prepared.args.text, prepared.args.direction]
-    .map((value): string => typeof value === "string" ? value : "")
-    .find((value) => value.length > 0) ?? "";
-  onChunk(`\n<<tool:${prepared.name}${argSummary ? ":" + argSummary : ""}>>\n`);
-
   let output: string;
   try {
     output = await onToolCall(prepared.name, prepared.args);
@@ -197,7 +223,9 @@ async function executePreparedCodexFunctionCall(
   if (output === TERMINAL_TOOL_RESULT) {
     return { terminal: true };
   }
-  return createCodexToolOutput(prepared.callId, toolResultTextContent(output));
+  const textOutput = toolResultTextContent(output);
+  emitCodexToolChunk(onChunk, prepared.name, prepared.args, textOutput);
+  return createCodexToolOutput(prepared.callId, textOutput);
 }
 
 export async function createCodexFunctionCallOutput(
@@ -374,10 +402,26 @@ function buildCodexHighlightFollowUpInput(
 function cleanHighlightCandidate(text: string): string {
   return text
     .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
+    .replace(/^\s*\[#\d+\]\s*/, "")
+    .replace(/^\[([^\]]+)\]$/, "$1")
+    .replace(/\s+\((?:link|button|input|select|text input|checkbox|radio)\)(?:\s*->\s*\S+)?\s*$/i, "")
+    .replace(/\s*->\s*\S+\s*$/i, "")
     .replace(/\s*\(\d+\s+points?\)\s*$/i, "")
     .replace(/\s*-\s*\d+\s+points?\s*$/i, "")
     .replace(/^["'“”]+|["'“”.,:;]+$/g, "")
     .trim();
+}
+
+function isLowValueHighlightCandidate(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return true;
+
+  return (
+    /^\d+\s+(?:minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\s+ago$/.test(normalized) ||
+    /^\d+\s+comments?$/.test(normalized) ||
+    /^(?:discuss|hide|past|favorite|flag|parent|next|more|reply|login|submit)$/.test(normalized) ||
+    /^by\s+[a-z0-9_-]{2,}$/i.test(text.trim())
+  );
 }
 
 function extractHighlightCandidates(text: string, limit = 5): string[] {
@@ -387,6 +431,7 @@ function extractHighlightCandidates(text: string, limit = 5): string[] {
   const addCandidate = (raw: string) => {
     const candidate = cleanHighlightCandidate(raw);
     if (candidate.length < 8 || candidate.length > 180) return;
+    if (isLowValueHighlightCandidate(candidate)) return;
     const key = candidate.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
@@ -407,6 +452,26 @@ function extractHighlightCandidates(text: string, limit = 5): string[] {
     const rankedPointsMatch = trimmed.match(/^\s*(?:[-*•]|\d+[.)])\s*(.+?)\s+-\s+\d+\s+points?\s*$/i);
     if (rankedPointsMatch?.[1]) {
       addCandidate(rankedPointsMatch[1]);
+      if (candidates.length >= limit) return candidates;
+      continue;
+    }
+
+    const indexedResultMatch = trimmed.match(/^\s*[-*•]?\s*(\[#\d+\]\s+.+)$/);
+    if (indexedResultMatch?.[1]) {
+      addCandidate(indexedResultMatch[1]);
+      if (candidates.length >= limit) return candidates;
+      continue;
+    }
+
+    const bracketedTitleMatch = trimmed.match(/^\s*[-*•]?\s*\[#\d+\]\s*\[([^\]]+)\]/);
+    if (bracketedTitleMatch?.[1]) {
+      addCandidate(bracketedTitleMatch[1]);
+      if (candidates.length >= limit) return candidates;
+    }
+
+    const linkLineMatch = trimmed.match(/^\s*[-*•]?\s*(.+?\s+\((?:link|article|story)\)\s*->\s*\S+)\s*$/i);
+    if (linkLineMatch?.[1]) {
+      addCandidate(linkLineMatch[1]);
       if (candidates.length >= limit) return candidates;
     }
   }
@@ -431,12 +496,17 @@ async function forceHighlightCandidates(
   const candidates = extractHighlightCandidates(sourceText, 5);
   if (candidates.length === 0) return false;
 
+  let highlighted = 0;
   for (const candidate of candidates) {
-    onChunk(`\n<<tool:highlight:${candidate}>>\n`);
-    await onToolCall("highlight", { text: candidate });
+    const output = await onToolCall("highlight", { text: candidate });
+    emitCodexToolChunk(onChunk, "highlight", { text: candidate }, output);
+    if (!looksLikeFailedToolOutput(output)) {
+      highlighted += 1;
+    }
   }
+  if (highlighted === 0) return false;
   onChunk(
-    `\nHighlighted ${candidates.length} high-signal ${candidates.length === 1 ? "story" : "stories"}.`,
+    `\nHighlighted ${highlighted} high-signal ${highlighted === 1 ? "story" : "stories"}.`,
   );
   return true;
 }
@@ -690,10 +760,15 @@ export class CodexProvider implements AIProvider {
     let correctionCount = 0;
     const recentToolSignatures: string[] = [];
     const recentToolNames: string[] = [];
+    let consecutiveReadPageSignature: string | null = null;
+    let consecutiveReadPageCount = 0;
+    let readPageCount = 0;
     let clickReadLoopNudged = false;
     let latestToolResultPreview: string | null = null;
+    let accumulatedReadPageResults = "";
     const requiresHighlight = wantsHighlightCompletion(userMessage);
     let hasHighlighted = false;
+    let completedByFallback = false;
 
     try {
       for (let i = 0; i < maxIterations; i++) {
@@ -800,6 +875,51 @@ export class CodexProvider implements AIProvider {
             prepared.prepared.name,
             prepared.prepared.args,
           );
+          const isRepeatedReadPageBySignature =
+            prepared.prepared.name === "read_page" &&
+            consecutiveReadPageSignature === toolSignature &&
+            consecutiveReadPageCount >= 2;
+          const isOverHighlightReadBudget =
+            requiresHighlight &&
+            !hasHighlighted &&
+            prepared.prepared.name === "read_page" &&
+            readPageCount >= 2;
+          const isNonHighlightAfterReadBudget =
+            requiresHighlight &&
+            !hasHighlighted &&
+            readPageCount >= 2 &&
+            prepared.prepared.name !== "highlight";
+          if (
+            isRepeatedReadPageBySignature ||
+            isOverHighlightReadBudget ||
+            isNonHighlightAfterReadBudget
+          ) {
+            if (
+              requiresHighlight &&
+              !hasHighlighted &&
+              availableToolNames.has("highlight") &&
+              await forceHighlightCandidates(
+                `${accumulatedReadPageResults}\n${latestToolResultPreview || ""}`,
+                onChunk,
+                onToolCall,
+              )
+            ) {
+              hasHighlighted = true;
+              completedByFallback = true;
+              break;
+            }
+            onChunk(`\n<<tool:${prepared.prepared.name}:↻ duplicate suppressed>>\n`);
+            const output = createCodexToolOutput(
+              prepared.prepared.callId,
+              requiresHighlight
+                ? `Error: You have enough page context for the highlight task. Do not call ${prepared.prepared.name} now. Choose the highest-signal visible items from the current page results and call highlight now.`
+                : `Error: You have already read the same page state twice in a row. Do not call read_page again with the same arguments. Use the current page results to take the next requested action, such as highlight, click, inspect_element, or provide the final answer.`,
+            );
+            currentInput.push(output);
+            latestToolResultPreview = previewToolResult(output.output);
+            correctionCount += 1;
+            continue;
+          }
           if (
             ![
               "read_page",
@@ -838,6 +958,19 @@ export class CodexProvider implements AIProvider {
             iterationHasHighlight = true;
           }
           latestToolResultPreview = previewToolResult(output.output);
+          if (prepared.prepared.name === "read_page") {
+            readPageCount += 1;
+            accumulatedReadPageResults = `${accumulatedReadPageResults}\n${output.output}`.trim();
+            if (consecutiveReadPageSignature === toolSignature) {
+              consecutiveReadPageCount += 1;
+            } else {
+              consecutiveReadPageSignature = toolSignature;
+              consecutiveReadPageCount = 1;
+            }
+          } else {
+            consecutiveReadPageSignature = null;
+            consecutiveReadPageCount = 0;
+          }
           recentToolSignatures.push(toolSignature);
           if (recentToolSignatures.length > 4) {
             recentToolSignatures.shift();
@@ -864,6 +997,7 @@ export class CodexProvider implements AIProvider {
           }
           correctionCount = 0;
         }
+        if (completedByFallback) break;
         if (correctionCount >= 2) {
           currentInput.push({
             type: "message",

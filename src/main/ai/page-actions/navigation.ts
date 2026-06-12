@@ -7,6 +7,7 @@ import { buildHuggingFaceSearchShortcut, type SearchShortcut } from "../search-h
 import {
   buildCommonSearchUrlShortcut,
   buildDefaultEngineShortcut,
+  buildSearchEngineLandingShortcut,
   buildSearchShortcut,
   normalizeSearchQuery,
 } from "../page-search";
@@ -32,7 +33,26 @@ import {
 import { buildCartSuccessSuffix, detectPostClickOverlay, getCartDialogActions } from "./overlays";
 import { activateElement, clickElement, describeElementForClick } from "./click-targets";
 
-export { buildCommonSearchUrlShortcut, buildSearchShortcut, normalizeSearchQuery };
+export {
+  buildCommonSearchUrlShortcut,
+  buildSearchEngineLandingShortcut,
+  buildSearchShortcut,
+  normalizeSearchQuery,
+};
+
+export function urlAlreadyHasSearchQuery(currentUrl: string, query: string): boolean {
+  try {
+    const url = new URL(currentUrl);
+    const currentQuery = ["q", "search", "query", "keyword", "keywords", "term", "text"]
+      .map((param) => url.searchParams.get(param))
+      .find((value): value is string => Boolean(value));
+    return currentQuery
+      ? normalizeSearchQuery(currentQuery).toLowerCase() === normalizeSearchQuery(query).toLowerCase()
+      : false;
+  } catch {
+    return false;
+  }
+}
 
 export function getTabByMatch(
   tabManager: TabManager,
@@ -713,8 +733,14 @@ export async function searchPageWithClick(
   };
 
   if (typeof args.selector !== "string") {
+    const currentUrl = wc.getURL();
+    if (urlAlreadyHasSearchQuery(currentUrl, query)) {
+      return `Already showing search results for "${query}" at ${currentUrl}${await getPostSearchSummary(wc)}`;
+    }
+
     const shortcut =
       buildHuggingFaceSearchShortcut(wc.getURL(), query) ??
+      buildSearchEngineLandingShortcut(wc.getURL(), query) ??
       buildCommonSearchUrlShortcut(wc.getURL(), query);
     if (shortcut) {
       return runShortcut(shortcut);

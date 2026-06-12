@@ -73,7 +73,7 @@ function scalarArgsForTool(
     return url ? { url } : null;
   }
 
-  if (name === 'search') {
+  if (name === 'search' || name === 'web_search') {
     return { query: trimmed.replace(/^["']|["']$/g, '') };
   }
 
@@ -261,7 +261,7 @@ export function coerceToolArgsForExecution(
     coerced = normalizeElementTargetArgs(coerced);
   }
 
-  if (name === 'search') {
+  if (name === 'search' || name === 'web_search') {
     if (typeof coerced.query !== 'string' || !coerced.query.trim()) {
       if (typeof coerced.text === 'string' && coerced.text.trim()) {
         coerced.query = coerced.text.trim();
@@ -378,6 +378,15 @@ export function resolveToolCallName(
   }
 
   if (
+    availableToolNames.has('web_search') &&
+    (/web_?search|internet|open_?web|search_?engine|google/.test(normalized) ||
+      normalized === 'google' ||
+      normalized.startsWith('google_'))
+  ) {
+    return 'web_search';
+  }
+
+  if (
     availableToolNames.has('search') &&
     (/search|find|lookup|query/.test(normalized) ||
       normalized === 'google' ||
@@ -484,10 +493,15 @@ export function recoverNarratedActionToolCalls(
     const isSearchAction =
       /\bsearch\b/i.test(line) ||
       (/\btype\b/i.test(line) && /\bsearch box\b/i.test(line));
-    if (isSearchAction && quotedValue && availableToolNames.has('search')) {
+    if (isSearchAction && quotedValue && (availableToolNames.has('search') || availableToolNames.has('web_search'))) {
+      const recoveredSearchName =
+        !availableToolNames.has('search') ||
+        (availableToolNames.has('web_search') && /\b(web|internet|google|search engine)\b/i.test(line))
+          ? 'web_search'
+          : 'search';
       recovered.push({
         id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        name: 'search',
+        name: recoveredSearchName,
         argsJson: JSON.stringify({ query: quotedValue }),
       });
       continue;

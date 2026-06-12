@@ -75,8 +75,10 @@ function scoreForContext(
   if (!def) return 500; // unknown tool, push to end
 
   if (pageType === "SEARCH_READY") {
+    if (intents.has("web_search") && toolName === "web_search") return -35;
     if (intents.has("navigate")) {
       if (toolName === "navigate") return -30;
+      if (toolName === "web_search") return -25;
       if (toolName === "search") return 2;
       if (toolName === "type_text") return 5;
       if (toolName === "press_key") return 6;
@@ -87,6 +89,7 @@ function scoreForContext(
   }
 
   if (pageType === "SEARCH_RESULTS") {
+    if (intents.has("web_search") && toolName === "web_search") return -15;
     if (toolName === "search") return -10;
     if (toolName === "type_text") return 12;
     if (toolName === "press_key") return 13;
@@ -108,6 +111,7 @@ function scoreForContext(
 const ALWAYS_FAST_TOOL_NAMES = new Set([
   "current_tab",
   "navigate",
+  "web_search",
   "click",
   "type_text",
   "press_key",
@@ -124,6 +128,7 @@ const ALWAYS_FAST_TOOL_NAMES = new Set([
 
 const COMPACT_CORE_TOOL_NAMES = new Set([
   "navigate",
+  "web_search",
   "go_back",
   "click",
   "type_text",
@@ -162,6 +167,7 @@ const COMPACT_INTENT_TOOL_NAMES: Record<string, string[]> = {
   metrics: ["metrics"],
   highlight: ["highlight", "clear_highlights"],
   table: ["extract_table"],
+  web_search: ["web_search"],
   debug: ["current_tab", "reload", "set_ad_blocking", "suggest", "screenshot"],
 };
 
@@ -193,6 +199,13 @@ function inferIntent(query: string): Set<string> {
   }
   if (/\b(highlight|mark|annotate)\b/.test(lowered)) intents.add("highlight");
   if (/\b(table|csv|rows|columns)\b/.test(lowered)) intents.add("table");
+  if (
+    /\b(find|search|look up|lookup|research|compare|cheapest|best|latest|news|flight|flights|hotel|hotels|restaurant|restaurants)\b/.test(
+      lowered,
+    )
+  ) {
+    intents.add("web_search");
+  }
   if (/\b(overlay|modal|popup|consent|cookie|blocking ui)\b/.test(lowered)) {
     intents.add("debug");
   }

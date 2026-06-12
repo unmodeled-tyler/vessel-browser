@@ -20,7 +20,13 @@ import {
   handleCreateTab,
   handleSetAdBlocking,
 } from "./handlers/tabs";
-import { handleNavigate, handleGoBack, handleGoForward, handleReload } from "./handlers/navigation";
+import {
+  handleNavigate,
+  handleWebSearch,
+  handleGoBack,
+  handleGoForward,
+  handleReload,
+} from "./handlers/navigation";
 import { handleCreateCheckpoint, handleRestoreCheckpoint } from "./handlers/checkpoints";
 import {
   handleSaveSession,
@@ -138,6 +144,7 @@ function detectConcatenatedToolName(name: string): string | null {
 /** Navigation actions that should get a post-action state block. */
 const NAV_ACTIONS = new Set([
   "navigate",
+  "web_search",
   "open_bookmark",
   "go_back",
   "go_forward",
@@ -402,6 +409,8 @@ async function dispatch(
       return handleCreateTab(ctx, args);
     case "navigate":
       return handleNavigate(ctx, tabId, args);
+    case "web_search":
+      return handleWebSearch(ctx, tabId, args);
     case "go_back":
       return handleGoBack(ctx, tabId);
     case "go_forward":
@@ -505,6 +514,7 @@ async function dispatch(
  */
 export const DANGEROUS_ACTIONS: ReadonlySet<string> = new Set([
   "navigate",
+  "web_search",
   "open_bookmark",
   "click",
   "type_text",

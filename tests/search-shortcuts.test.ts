@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   buildCommonSearchUrlShortcut,
+  buildSearchEngineLandingShortcut,
   buildSearchShortcut,
+  urlAlreadyHasSearchQuery,
 } from "../src/main/ai/page-actions/navigation";
 import { buildHuggingFaceSearchShortcut } from "../src/main/ai/search-huggingface";
 
@@ -29,6 +31,60 @@ test("common search shortcut does not invent search URLs on arbitrary pages", ()
   );
 
   assert.equal(shortcut, null);
+});
+
+test("search engine landing shortcut opens real results instead of driving homepage inputs", () => {
+  const shortcut = buildSearchEngineLandingShortcut(
+    "https://www.google.com/",
+    "cheapest flight tomorrow from portland to san francisco",
+  );
+
+  assert.ok(shortcut);
+  assert.equal(shortcut.source, "Google landing page");
+  assert.equal(
+    shortcut.url,
+    "https://www.google.com/search?q=cheapest%20flight%20tomorrow%20from%20portland%20to%20san%20francisco",
+  );
+});
+
+test("search engine landing shortcut recognizes the app's DuckDuckGo start page", () => {
+  const shortcut = buildSearchEngineLandingShortcut(
+    "https://start.duckduckgo.com/",
+    "cheapest flight tomorrow from portland to san francisco",
+  );
+
+  assert.ok(shortcut);
+  assert.equal(shortcut.source, "DuckDuckGo landing page");
+  assert.equal(
+    shortcut.url,
+    "https://duckduckgo.com/?q=cheapest%20flight%20tomorrow%20from%20portland%20to%20san%20francisco",
+  );
+});
+
+test("search engine landing shortcut ignores arbitrary site home pages", () => {
+  const shortcut = buildSearchEngineLandingShortcut(
+    "https://example.com/",
+    "wireless mouse",
+  );
+
+  assert.equal(shortcut, null);
+});
+
+test("search query detection treats matching result URLs as already searched", () => {
+  assert.equal(
+    urlAlreadyHasSearchQuery(
+      "https://duckduckgo.com/?q=cheapest+flight+tomorrow+Portland+to+San+Francisco",
+      "cheapest flight tomorrow Portland to San Francisco",
+    ),
+    true,
+  );
+  assert.equal(
+    urlAlreadyHasSearchQuery(
+      "https://duckduckgo.com/?q=cheapest+flight+tomorrow+Portland+to+San+Francisco",
+      "cheap hotel tomorrow Portland",
+    ),
+    false,
+  );
 });
 
 test("common search shortcut preserves literal query text", () => {

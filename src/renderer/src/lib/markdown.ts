@@ -315,10 +315,11 @@ const TOOL_ICONS: Record<string, string> = {
 function renderToolChip(name: string, args: string): string {
   const icon = TOOL_ICONS[name] || "⚙";
   const displayName = name.replace(/_/g, " ");
+  const failed = args.trim().startsWith("⚠");
   const argsHtml = args
     ? `<span class="tool-chip-args">${escapeHtml(args.length > MAX_PREVIEW_TEXT ? args.slice(0, TRUNCATE_KEEP) + "..." : args)}</span>`
     : "";
-  return `<div class="tool-chip"><span class="tool-chip-icon">${icon}</span><span class="tool-chip-name">${escapeHtml(displayName)}</span>${argsHtml}</div>`;
+  return `<div class="tool-chip${failed ? " tool-chip-failed" : ""}"><span class="tool-chip-icon">${icon}</span><span class="tool-chip-name">${escapeHtml(displayName)}</span>${argsHtml}</div>`;
 }
 
 export function renderMarkdown(source: string): string {

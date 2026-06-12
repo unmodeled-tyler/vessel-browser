@@ -131,6 +131,7 @@ export function formatCompactToolResult(name: string, result: string): string {
       return compactCurrentTabResult(result);
     case "read_page":
       return compactReadPageResult(result);
+    case "web_search":
     case "search":
     case "navigate":
     case "go_back":
