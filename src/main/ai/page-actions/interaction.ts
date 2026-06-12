@@ -154,6 +154,19 @@ function vesselDispatchTextEvents(el, value) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function vesselReadFillableControlValue(el) {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    return el.value || "";
+  }
+  return el.textContent || "";
+}
+
+function vesselValueWasApplied(el, value) {
+  var actual = vesselReadFillableControlValue(el);
+  if (!value) return !actual;
+  return actual === value || actual.toLowerCase().indexOf(value.toLowerCase()) >= 0;
+}
+
 async function vesselSetFillableControlValue(original, value) {
   var target = await vesselFindFillTarget(original);
   if (!target || !target.el) {
@@ -183,6 +196,10 @@ async function vesselSetFillableControlValue(original, value) {
     el.textContent = value;
   }
   vesselDispatchTextEvents(el, value);
+  await new Promise(function(resolve) { setTimeout(resolve, 80); });
+  if (!vesselValueWasApplied(el, value)) {
+    return "Error[type-not-applied]: The page did not keep the typed text. Retry with type_text(index=..., text=..., mode=\\"keystroke\\") or click the focused text box and type again.";
+  }
 
   var label = vesselControlLabel(el, original);
   var displayValue = el instanceof HTMLInputElement && el.type === "password"
@@ -229,9 +246,107 @@ async function vesselTypeFillableControlKeystrokes(original, value) {
     el.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true, cancelable: true }));
   }
   el.dispatchEvent(new Event("change", { bubbles: true }));
+  await new Promise(function(resolve) { setTimeout(resolve, 80); });
+  if (!vesselValueWasApplied(el, value)) {
+    return "Error[type-not-applied]: The page did not keep the typed text after keystrokes. Click the text box again or use press_key for the active field.";
+  }
   return "Typed into: " + vesselControlLabel(el, original) + " = " + value.slice(0, 80) + (target.activated ? " (opened field)" : "");
 }
 `;
+
+function shouldRetryWithNativeTyping(result: string | null | typeof PAGE_SCRIPT_TIMEOUT): result is string {
+  return typeof result === "string" && result.startsWith("Error[type-not-applied]");
+}
+
+async function typeTextWithNativeInput(
+  wc: WebContents,
+  selector: string,
+  value: string,
+): Promise<string> {
+  const focusResult = await executePageScript<{
+    error?: string;
+    label?: string;
+  }>(
+    wc,
+    `
+    (async function() {
+      ${FILLABLE_CONTROL_HELPERS}
+      const el = ${selector.includes(" >>> ")
+        ? `window.__vessel?.resolveShadowSelector?.(${JSON.stringify(selector)})`
+        : `document.querySelector(${JSON.stringify(selector)})`};
+      if (!el) return { error: 'Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.' };
+      const target = await vesselFindFillTarget(el);
+      if (!target || !target.el) {
+        return { error: "Error[not-input]: Element is not text-editable. Click it first, then type into the opened text field." };
+      }
+      target.el.focus();
+      return { label: vesselControlLabel(target.el, el) };
+    })()
+  `,
+    {
+      timeoutMs: 2500,
+      label: "prepare native typing",
+    },
+  );
+
+  if (focusResult === PAGE_SCRIPT_TIMEOUT) return pageBusyError("type_text");
+  if (!focusResult || typeof focusResult !== "object") {
+    return "Error: Could not prepare native typing";
+  }
+  if (typeof focusResult.error === "string") return focusResult.error;
+
+  wc.focus();
+  const selectModifier = process.platform === "darwin" ? "meta" : "control";
+  wc.sendInputEvent({ type: "keyDown", keyCode: "A", modifiers: [selectModifier] });
+  await sleep(8);
+  wc.sendInputEvent({ type: "keyUp", keyCode: "A", modifiers: [selectModifier] });
+  await sleep(8);
+  wc.sendInputEvent({ type: "keyDown", keyCode: "Backspace" });
+  await sleep(4);
+  wc.sendInputEvent({ type: "keyUp", keyCode: "Backspace" });
+
+  for (const char of value) {
+    wc.sendInputEvent({ type: "keyDown", keyCode: char });
+    wc.sendInputEvent({ type: "char", keyCode: char });
+    wc.sendInputEvent({ type: "keyUp", keyCode: char });
+    await sleep(2);
+  }
+  await sleep(120);
+
+  const verify = await executePageScript<{
+    ok?: boolean;
+    actual?: string;
+  }>(
+    wc,
+    `
+    (function() {
+      ${FILLABLE_CONTROL_HELPERS}
+      const active = vesselResolveFillableControl(document.activeElement);
+      if (!active) return { ok: false, actual: "" };
+      const actual = vesselReadFillableControlValue(active);
+      return { ok: vesselValueWasApplied(active, ${JSON.stringify(value)}), actual: actual.slice(0, 80) };
+    })()
+  `,
+    {
+      timeoutMs: 1500,
+      label: "verify native typing",
+    },
+  );
+
+  if (verify === PAGE_SCRIPT_TIMEOUT) return pageBusyError("type_text");
+  if (!verify || verify.ok !== true) {
+    const actual =
+      verify && typeof verify.actual === "string" && verify.actual
+        ? ` Current field text: "${verify.actual}".`
+        : "";
+    return `Error[type-not-applied]: The page did not accept the typed text.${actual} Click the field again or use a different indexed text box.`;
+  }
+
+  const label = typeof focusResult.label === "string" && focusResult.label
+    ? focusResult.label
+    : "input";
+  return `Typed into: ${label} = ${value.slice(0, 80)} (native input)`;
+}
 
 async function resolveFieldSelector(
   wc: WebContents,
@@ -418,9 +533,11 @@ export async function setElementValue(
         label: "type text in shadow input",
       },
     );
-    return result === PAGE_SCRIPT_TIMEOUT
-      ? pageBusyError("type_text")
-      : result || "Error: Could not type into element";
+    if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("type_text");
+    if (shouldRetryWithNativeTyping(result)) {
+      return typeTextWithNativeInput(wc, selector, value);
+    }
+    return result || "Error: Could not type into element";
   }
   const result = await executePageScript<string>(
     wc,
@@ -436,9 +553,11 @@ export async function setElementValue(
       label: "type text",
     },
   );
-  return result === PAGE_SCRIPT_TIMEOUT
-    ? pageBusyError("type_text")
-    : result || "Error: Could not type into element";
+  if (result === PAGE_SCRIPT_TIMEOUT) return pageBusyError("type_text");
+  if (shouldRetryWithNativeTyping(result)) {
+    return typeTextWithNativeInput(wc, selector, value);
+  }
+  return result || "Error: Could not type into element";
 }
 
 export async function typeKeystroke(

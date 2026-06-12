@@ -7,6 +7,7 @@ import { buildHuggingFaceSearchShortcut, type SearchShortcut } from "../search-h
 import {
   buildCommonSearchUrlShortcut,
   buildDefaultEngineShortcut,
+  buildFlightSearchShortcut,
   buildSearchEngineLandingShortcut,
   buildSearchShortcut,
   normalizeSearchQuery,
@@ -35,6 +36,7 @@ import { activateElement, clickElement, describeElementForClick } from "./click-
 
 export {
   buildCommonSearchUrlShortcut,
+  buildFlightSearchShortcut,
   buildSearchEngineLandingShortcut,
   buildSearchShortcut,
   normalizeSearchQuery,
@@ -616,8 +618,25 @@ export async function locateImplicitTextTarget(
         }
 
         function isFillable(el) {
+          if (!(el instanceof HTMLElement)) return false;
+          if (
+            el.getAttribute("aria-disabled") === "true" ||
+            (el instanceof HTMLInputElement && (el.disabled || el.readOnly)) ||
+            (el instanceof HTMLTextAreaElement && (el.disabled || el.readOnly))
+          ) {
+            return false;
+          }
+          const role = normalize(el.getAttribute("role"));
+          if (
+            el.isContentEditable ||
+            el.getAttribute("contenteditable") === "true" ||
+            role === "textbox" ||
+            role === "searchbox" ||
+            role === "combobox"
+          ) {
+            return true;
+          }
           if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return false;
-          if (el.disabled || el.readOnly || el.getAttribute("aria-disabled") === "true") return false;
           const type = el instanceof HTMLTextAreaElement ? "text" : normalize(el.getAttribute("type") || el.type || "text");
           return ["", "search", "text", "email", "url", "tel", "number", "password"].includes(type);
         }
@@ -634,7 +653,7 @@ export async function locateImplicitTextTarget(
         }
 
         const candidates = Array.from(
-          document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea')
+          document.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="image"]), textarea, [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"]')
         ).filter((el) => isFillable(el) && isVisible(el));
 
         let best = null;

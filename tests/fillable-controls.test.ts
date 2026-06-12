@@ -4,6 +4,7 @@ import type { WebContents } from "electron";
 import { parseHTML } from "linkedom";
 
 import { setElementValue } from "../src/main/ai/page-actions/interaction";
+import { locateImplicitTextTarget } from "../src/main/ai/page-actions/navigation";
 
 function installDom(html: string) {
   const { window } = parseHTML(html);
@@ -42,6 +43,14 @@ function installDom(html: string) {
 
   window.getComputedStyle = globalThis.getComputedStyle;
   window.HTMLElement.prototype.scrollIntoView = () => {};
+  let activeElement: Element | null = window.document.body;
+  Object.defineProperty(window.document, "activeElement", {
+    configurable: true,
+    get: () => activeElement,
+  });
+  window.HTMLElement.prototype.focus = function focus() {
+    activeElement = this;
+  };
   window.HTMLElement.prototype.getBoundingClientRect = () =>
     ({
       width: 120,
@@ -67,6 +76,43 @@ function createWebContents(): WebContents {
   return {
     isDestroyed: () => false,
     executeJavaScript: async (script: string) => (0, eval)(script),
+  } as unknown as WebContents;
+}
+
+function createNativeTypingWebContents(window: Window): WebContents {
+  let allSelected = false;
+
+  return {
+    isDestroyed: () => false,
+    executeJavaScript: async (script: string) => (0, eval)(script),
+    focus: () => undefined,
+    sendInputEvent: (event: { type: string; keyCode?: string; modifiers?: string[] }) => {
+      const active = window.document.activeElement;
+      if (!(active instanceof window.HTMLInputElement)) return;
+
+      if (
+        event.type === "keyDown" &&
+        event.keyCode?.toLowerCase() === "a" &&
+        event.modifiers?.some((modifier) => modifier === "meta" || modifier === "control")
+      ) {
+        allSelected = true;
+        return;
+      }
+
+      if (event.type === "keyDown" && event.keyCode === "Backspace") {
+        active.value = allSelected ? "" : active.value.slice(0, -1);
+        allSelected = false;
+        return;
+      }
+
+      if (event.type === "char" && event.keyCode) {
+        if (allSelected) {
+          active.value = "";
+          allSelected = false;
+        }
+        active.value += event.keyCode;
+      }
+    },
   } as unknown as WebContents;
 }
 
@@ -127,6 +173,58 @@ test("setElementValue opens combobox activators and fills the revealed input", a
     assert.match(result, /Typed into: Airport search = SFO \(opened field\)/);
     assert.ok(input instanceof window.HTMLInputElement);
     assert.equal(input.value, "SFO");
+  } finally {
+    restore();
+  }
+});
+
+test("setElementValue falls back to native input when synthetic typing is rejected", async () => {
+  const { window, restore } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <input id="airport" aria-label="Airport search" />
+      </body>
+    </html>
+  `);
+  const airport = window.document.querySelector("#airport");
+  assert.ok(airport instanceof window.HTMLInputElement);
+
+  airport.addEventListener("input", () => {
+    airport.value = "";
+  });
+
+  try {
+    const result = await setElementValue(
+      createNativeTypingWebContents(window),
+      "#airport",
+      "SFO",
+    );
+
+    assert.match(result, /Typed into: Airport search = SFO \(native input\)/);
+    assert.equal(airport.value, "SFO");
+  } finally {
+    restore();
+  }
+});
+
+test("implicit text target can use the focused ARIA combobox after a click", async () => {
+  const { window, restore } = installDom(`
+    <!doctype html>
+    <html>
+      <body>
+        <button id="destination" role="combobox" aria-label="Where to? Search airports or cities">Where to?</button>
+      </body>
+    </html>
+  `);
+  const destination = window.document.querySelector("#destination");
+  assert.ok(destination instanceof window.HTMLElement);
+  destination.focus();
+
+  try {
+    const selector = await locateImplicitTextTarget(createWebContents());
+
+    assert.equal(selector, "#destination");
   } finally {
     restore();
   }

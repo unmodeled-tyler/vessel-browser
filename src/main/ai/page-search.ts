@@ -100,6 +100,40 @@ export function buildDefaultEngineShortcut(rawQuery: string): SearchShortcut | n
   };
 }
 
+function looksLikeFlightSearchText(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    /\b(flight|flights|airfare|air fare|plane ticket|plane tickets)\b/.test(
+      lower,
+    ) ||
+    (/\b(one-way|one way|roundtrip|round trip)\b/.test(lower) &&
+      /\b(to|from)\b/.test(lower))
+  );
+}
+
+export function buildFlightSearchShortcut(
+  rawQuery: string,
+  taskGoal?: string | null,
+): SearchShortcut | null {
+  const goalQuery = normalizeSearchQuery(taskGoal || "");
+  const toolQuery = normalizeSearchQuery(rawQuery);
+  const combined = normalizeSearchQuery(`${goalQuery} ${toolQuery}`);
+
+  if (!looksLikeFlightSearchText(combined)) return null;
+
+  const searchQuery = looksLikeFlightSearchText(goalQuery)
+    ? goalQuery
+    : toolQuery;
+  if (!searchQuery) return null;
+
+  return {
+    url: `https://www.google.com/travel/flights?q=${encodeURIComponent(searchQuery)}`,
+    source: "Google Flights",
+    section: "flight search",
+    appliedFilters: [],
+  };
+}
+
 export function buildSearchEngineLandingShortcut(
   currentUrl: string,
   rawQuery: string,

@@ -4,7 +4,10 @@ import {
   isRedundantNavigateTarget,
   shouldBlockOffGoalDomainNavigation,
 } from "../../tool-guardrails";
-import { buildDefaultEngineShortcut } from "../../page-search";
+import {
+  buildDefaultEngineShortcut,
+  buildFlightSearchShortcut,
+} from "../../page-search";
 import { validateLinkDestination } from "../../../network/link-validation";
 import { getPostNavSummary } from "../summaries";
 
@@ -51,7 +54,10 @@ export async function handleWebSearch(
   const query = String(args.query || "").trim();
   if (!query) return "Error: No web search query provided.";
 
-  const shortcut = buildDefaultEngineShortcut(query);
+  const taskGoal = ctx.runtime.getState().taskTracker?.goal;
+  const shortcut =
+    buildFlightSearchShortcut(query, taskGoal) ??
+    buildDefaultEngineShortcut(query);
   if (!shortcut) {
     return "Error: No default search engine is configured. Navigate to a search engine or set a default search engine first.";
   }
