@@ -6,6 +6,8 @@ import {
   buildStructuredContext,
   chooseAgentReadMode,
 } from "../src/main/ai/context-builder";
+import { buildAgentSystemPrompt } from "../src/main/ai/agent-prompt";
+import { buildCompactScopedContext } from "../src/main/ai/compact-context";
 import type { PageContent } from "../src/shared/types";
 
 function buildPage(overrides: Partial<PageContent>): PageContent {
@@ -332,6 +334,200 @@ test("visible_only omits arbitrary form field contents from context", () => {
   assert.doesNotMatch(context, /ada@example\.com/);
   assert.doesNotMatch(context, /current="/);
   assert.doesNotMatch(context, /value="/);
+  assert.doesNotMatch(context, /Full name.*empty/);
+});
+
+test("visible_only marks travel-style fields as empty and directly fillable", () => {
+  const page = buildPage({
+    title: "Google Flights",
+    url: "https://www.google.com/travel/flights",
+    interactiveElements: [
+      {
+        type: "input",
+        label: "Where from?",
+        inputType: "combobox",
+        role: "combobox",
+        hasValue: true,
+        ariaExpanded: false,
+        index: 12,
+        visible: true,
+        inViewport: true,
+        fullyInViewport: true,
+      },
+      {
+        type: "input",
+        label: "Where to?",
+        inputType: "combobox",
+        role: "combobox",
+        focused: true,
+        ariaExpanded: false,
+        index: 13,
+        visible: true,
+        inViewport: true,
+        fullyInViewport: true,
+      },
+      {
+        type: "input",
+        label: "Departure date",
+        inputType: "text",
+        role: "textbox",
+        index: 14,
+        visible: true,
+        inViewport: true,
+        fullyInViewport: true,
+      },
+    ],
+    forms: [
+      {
+        fields: [
+          {
+            type: "input",
+            label: "Where from?",
+            inputType: "combobox",
+            role: "combobox",
+            hasValue: true,
+            index: 12,
+            visible: true,
+            inViewport: true,
+            fullyInViewport: true,
+          },
+        ],
+      },
+    ],
+  });
+
+  const context = buildScopedContext(page, "visible_only");
+
+  assert.match(
+    context,
+    /\[#12\] \[Where from\?\] combobox input fillable already has value; use type_text\(index=12\) only to change it \(role=combobox, has-value, expanded=false\)/,
+  );
+  assert.match(
+    context,
+    /\[#13\] \[Where to\?\] combobox input fillable empty cursor is here; type_text\(text="\.\.\."\) or type_text\(index=13\) \(role=combobox, focused, expanded=false\)/,
+  );
+  assert.match(
+    context,
+    /\[#14\] \[Departure date\] text input fillable empty use type_text\(index=14\)/,
+  );
+  assert.doesNotMatch(context, /current="/);
+  assert.doesNotMatch(context, /value="/);
+});
+
+test("visible_only tells agents to use flight booking controls before direct URLs", () => {
+  const context = buildScopedContext(
+    buildPage({
+      title: "Google Flights",
+      url: "https://www.google.com/travel/flights",
+      interactiveElements: [
+        {
+          type: "input",
+          label: "Where from?",
+          inputType: "combobox",
+          role: "combobox",
+          hasValue: true,
+          index: 12,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "input",
+          label: "Where to?",
+          inputType: "combobox",
+          role: "combobox",
+          focused: true,
+          index: 13,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "input",
+          label: "Departure date",
+          inputType: "text",
+          role: "textbox",
+          index: 14,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(context, /### Flight Booking Hint/);
+  assert.match(
+    context,
+    /use the visible route, destination, and date controls/i,
+  );
+  assert.match(context, /Direct travel URLs are a fallback only/i);
+});
+
+test("agent prompt makes direct travel URLs a fallback after visible controls", () => {
+  const prompt = buildAgentSystemPrompt({
+    profile: "compact",
+    activeTabTitle: "Google Flights",
+    activeTabUrl: "https://www.google.com/travel/flights",
+    defaultReadMode: "visible_only",
+    pageType: "FORM",
+    structuredContext: "",
+    supervisorPaused: false,
+    approvalMode: "auto",
+    pendingApprovals: 0,
+    recentCheckpoints: "",
+    taskTrackerContext: "",
+  });
+
+  assert.match(
+    prompt,
+    /On flight\/travel booking pages with visible route, destination, or date fields/i,
+  );
+  assert.match(prompt, /Direct travel URLs are a fallback only/i);
+});
+
+test("compact context keeps fill hints for visible fields", () => {
+  const context = buildCompactScopedContext(
+    buildPage({
+      title: "Google Flights",
+      url: "https://www.google.com/travel/flights",
+      interactiveElements: [
+        {
+          type: "input",
+          label: "Where from?",
+          inputType: "combobox",
+          role: "combobox",
+          hasValue: true,
+          index: 12,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+        {
+          type: "input",
+          label: "Where to?",
+          inputType: "combobox",
+          role: "combobox",
+          focused: true,
+          index: 13,
+          visible: true,
+          inViewport: true,
+          fullyInViewport: true,
+        },
+      ],
+    }),
+    "visible_only",
+  );
+
+  assert.match(
+    context,
+    /\[#12\] Where from\? \(combobox input; has value; type_text\(index=12\) changes it\)/,
+  );
+  assert.match(
+    context,
+    /\[#13\] Where to\? \(combobox input; empty; focused; type_text\(text="\.\.\."\) targets this\)/,
+  );
 });
 
 test("visible_only focuses cart confirmation dialog actions over background add-to-cart buttons", () => {

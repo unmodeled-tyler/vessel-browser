@@ -120,6 +120,8 @@ export interface InteractiveElement {
   ariaPressed?: boolean;
   ariaSelected?: boolean;
   checked?: boolean;
+  focused?: boolean;
+  hasValue?: boolean;
   looksCorrect?: boolean;
   maxLength?: number;
   min?: string;

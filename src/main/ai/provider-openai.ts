@@ -28,6 +28,10 @@ import {
   logOpenAIPromptCacheUsage,
   openAIPromptCacheOptions,
 } from './prompt-cache';
+import {
+  buildFlightPriceEvidenceRecoveryPrompt,
+  shouldBlockUnsupportedFlightPriceAnswer,
+} from './flight-price-evidence';
 
 const logger = createLogger("OpenAIProvider");
 
@@ -611,6 +615,7 @@ export class OpenAICompatProvider implements AIProvider {
       const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
       let compactRecoveryCount = 0;
+      let flightPriceEvidenceRecoveryCount = 0;
       let compactCorrectionCount = 0;
       const recentCompactToolSignatures: string[] = [];
       const recentToolNames: string[] = [];
@@ -778,6 +783,32 @@ export class OpenAICompatProvider implements AIProvider {
         // If no tool calls were requested, we're done
         // (Some providers like Ollama send finish_reason "stop" even with tool calls)
         if (toolCalls.length === 0) {
+          const latestToolResultContent = latestToolMessage
+            ? String(latestToolMessage.content || '')
+            : null;
+          if (
+            flightPriceEvidenceRecoveryCount < 2 &&
+            shouldBlockUnsupportedFlightPriceAnswer(
+              userMessage,
+              textAccum,
+              latestToolResultContent,
+            )
+          ) {
+            flightPriceEvidenceRecoveryCount += 1;
+            if (textAccum.trim()) onChunk('<<erase_prev>>');
+            // Use 'user' role, not 'system' — many models (Qwen, Llama, etc.)
+            // require system messages only at position 0 and reject mid-conversation
+            // system messages with Jinja template errors.
+            messages.push({
+              role: 'user',
+              content: `[System] ${buildFlightPriceEvidenceRecoveryPrompt(
+                userMessage,
+                textAccum,
+                latestToolResultContent,
+              )}`,
+            });
+            continue;
+          }
           if (
             compactRecoveryCount < 2 &&
             shouldRetryCompactToolLoop(
@@ -796,9 +827,7 @@ export class OpenAICompatProvider implements AIProvider {
               content: `[System] ${buildCompactRecoveryPrompt(
                 userMessage,
                 textAccum,
-                latestToolMessage
-                  ? String(latestToolMessage.content || '')
-                  : null,
+                latestToolResultContent,
               )}`,
             });
             continue;
@@ -806,6 +835,7 @@ export class OpenAICompatProvider implements AIProvider {
           break;
         }
         compactRecoveryCount = 0;
+        flightPriceEvidenceRecoveryCount = 0;
 
         const iterationToolResultPreviews: string[] = [];
 

@@ -82,6 +82,8 @@ let lastPageDiffSignature = "";
 
 const PAGE_DIFF_ACTIVITY_THROTTLE_MS = 350;
 const PAGE_DIFF_MUTATION_DEBOUNCE_MS = 1200;
+const CUSTOM_TEXT_FIELD_SELECTOR =
+  '[contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"]';
 
 function normalizeSignatureText(value: string | null | undefined): string {
   return (value || "").replace(/\s+/g, " ").trim();
@@ -1206,6 +1208,63 @@ function getInputLabelWithSource(
   return {};
 }
 
+function getCustomTextFieldLabelWithSource(el: Element): {
+  label?: string;
+  source?: InteractiveElement["labelSource"];
+} {
+  const ariaLabel = getTrimmedText(el.getAttribute("aria-label"));
+  if (ariaLabel) return { label: ariaLabel, source: "aria-label" };
+
+  const labelledBy = getNodeTextByIds(el.getAttribute("aria-labelledby"));
+  if (labelledBy) return { label: labelledBy, source: "label" };
+
+  const placeholder = getTrimmedText(el.getAttribute("placeholder"));
+  if (placeholder) return { label: placeholder, source: "placeholder" };
+
+  const text = getTrimmedText(el.textContent);
+  if (text) return { label: text, source: "text" };
+
+  return {};
+}
+
+function isNativeFormField(el: Element): boolean {
+  return (
+    el instanceof HTMLInputElement ||
+    el instanceof HTMLTextAreaElement ||
+    el instanceof HTMLSelectElement
+  );
+}
+
+function shouldExposeCustomTextField(el: Element): boolean {
+  if (!(el instanceof HTMLElement) || isNativeFormField(el)) return false;
+  if (!isElementVisible(el) || isElementDisabled(el)) return false;
+
+  const role = getElementRole(el);
+  return (
+    el.isContentEditable ||
+    el.getAttribute("contenteditable") === "true" ||
+    role === "textbox" ||
+    role === "searchbox" ||
+    role === "combobox"
+  );
+}
+
+function getCustomTextFieldInputType(el: Element): string | undefined {
+  const role = getElementRole(el);
+  if (role === "searchbox") return "search";
+  if (role === "combobox") return "combobox";
+  if (role === "textbox") return "text";
+  return el.getAttribute("contenteditable") === "true" ? "text" : undefined;
+}
+
+function getCustomTextFieldHasValue(el: Element): boolean | undefined {
+  const value =
+    getTrimmedText(el.textContent) ||
+    getTrimmedText(el.getAttribute("aria-valuetext")) ||
+    getTrimmedText(el.getAttribute("value"));
+  return value ? true : undefined;
+}
+
 function getButtonTextWithSource(el: Element): {
   text?: string;
   source?: InteractiveElement["labelSource"];
@@ -1300,6 +1359,25 @@ function getElementValue(
   return undefined;
 }
 
+function getElementHasValue(
+  el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+): boolean | undefined {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    if (
+      el.type === "password" ||
+      el.type === "checkbox" ||
+      el.type === "radio"
+    ) {
+      return undefined;
+    }
+    return getTrimmedText(el.value) ? true : undefined;
+  }
+  if (el instanceof HTMLSelectElement) {
+    return getTrimmedText(el.value) ? true : undefined;
+  }
+  return undefined;
+}
+
 function getSelectOptions(el: HTMLSelectElement): SelectOption[] | undefined {
   const options = Array.from(el.options)
     .map((option) => ({
@@ -1318,6 +1396,14 @@ function getAriaBoolean(el: Element, attr: string): boolean | undefined {
   return undefined;
 }
 
+function getDeepActiveElement(): Element | null {
+  let active: Element | null = document.activeElement;
+  while (active instanceof HTMLElement && active.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  return active;
+}
+
 function buildBaseMetadata(
   el: Element,
 ): Pick<
@@ -1334,6 +1420,7 @@ function buildBaseMetadata(
   | "obscured"
   | "blockedByOverlay"
   | "disabled"
+  | "focused"
   | "ariaExpanded"
   | "ariaPressed"
   | "ariaSelected"
@@ -1347,6 +1434,7 @@ function buildBaseMetadata(
     description: getElementDescription(el),
     ...getVisibilityState(el),
     disabled: isElementDisabled(el),
+    focused: getDeepActiveElement() === el || undefined,
     ariaExpanded: getAriaBoolean(el, "aria-expanded"),
     ariaPressed: getAriaBoolean(el, "aria-pressed"),
     ariaSelected: getAriaBoolean(el, "aria-selected"),
@@ -1489,6 +1577,7 @@ function extractInteractiveElements(): InteractiveElement[] {
       placeholder: element.getAttribute("placeholder") || undefined,
       required: element.hasAttribute("required") || undefined,
       value: getElementValue(element),
+      hasValue: getElementHasValue(element),
       options:
         element instanceof HTMLSelectElement
           ? getSelectOptions(element)
@@ -1501,6 +1590,22 @@ function extractInteractiveElements(): InteractiveElement[] {
           ? looksLikeCorrectOption(radioText || label.label)
           : undefined,
       ...getFieldMetadata(element),
+    });
+  });
+
+  deepQuerySelectorAll(CUSTOM_TEXT_FIELD_SELECTOR).forEach((field) => {
+    if (!shouldExposeCustomTextField(field)) return;
+    const label = getCustomTextFieldLabelWithSource(field);
+    const role = getElementRole(field);
+
+    elements.push({
+      type: "input",
+      label: label.label?.slice(0, MAX_LABEL_LENGTH),
+      labelSource: label.source,
+      inputType: getCustomTextFieldInputType(field),
+      hasValue: getCustomTextFieldHasValue(field),
+      ...buildBaseMetadata(field),
+      role,
     });
   });
 
@@ -1542,15 +1647,21 @@ function extractForms(): Array<{
 
     form
       .querySelectorAll(
-        "input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='image']), select, textarea",
+        `input:not([type='hidden']):not([type='submit']):not([type='button']):not([type='image']), select, textarea, ${CUSTOM_TEXT_FIELD_SELECTOR}`,
       )
       .forEach((input) => {
+        if (!isNativeFormField(input) && !shouldExposeCustomTextField(input)) {
+          return;
+        }
         const element = input as
           | HTMLInputElement
           | HTMLSelectElement
           | HTMLTextAreaElement;
         const tag = input.tagName.toLowerCase();
         const label = getInputLabelWithSource(element);
+        const customLabel = isNativeFormField(input)
+          ? {}
+          : getCustomTextFieldLabelWithSource(input);
         const role = getElementRole(input);
         const radioText =
           role === "radio" ||
@@ -1569,12 +1680,18 @@ function extractForms(): Array<{
               : tag === "textarea"
                 ? "textarea"
                 : "input",
-          label: label.label?.slice(0, MAX_LABEL_LENGTH),
-          labelSource: label.source,
-          inputType: element.getAttribute("type") || undefined,
+          label: (label.label || customLabel.label)?.slice(0, MAX_LABEL_LENGTH),
+          labelSource: label.source || customLabel.source,
+          inputType:
+            element.getAttribute("type") ||
+            getCustomTextFieldInputType(input) ||
+            undefined,
           placeholder: element.getAttribute("placeholder") || undefined,
           required: element.hasAttribute("required") || undefined,
           value: getElementValue(element),
+          hasValue: isNativeFormField(input)
+            ? getElementHasValue(element)
+            : getCustomTextFieldHasValue(input),
           options:
             element instanceof HTMLSelectElement
               ? getSelectOptions(element)

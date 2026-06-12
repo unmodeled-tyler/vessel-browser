@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { shouldBlockUnsupportedFlightPriceAnswer } from "../src/main/ai/flight-price-evidence";
 import { CodexProvider } from "../src/main/ai/provider-codex";
 
 // --- fetch / SSE helpers (mirrors tests/security-hardening.test.ts) ---
@@ -135,6 +136,124 @@ function searchResultOutput(query: string): string {
     `[state: url=${url}, title="DuckDuckGo Search"]`,
   ].join("\n");
 }
+
+test("flight price claims require visible price evidence", () => {
+  const userMessage =
+    "find the cheapest 1 way flight from Portland to sf on June 23rd";
+  const assistantText =
+    "Here are the cheapest PDX to SFO flights: Alaska Airlines 6:00 AM nonstop $75.";
+
+  assert.equal(
+    shouldBlockUnsupportedFlightPriceAnswer(
+      userMessage,
+      assistantText,
+      [
+        "**URL:** https://www.google.com/travel/flights",
+        "Where to? Search airports or cities",
+        "Departure date",
+      ].join("\n"),
+    ),
+    true,
+    "price claims should be blocked when the latest page evidence is only the search form",
+  );
+
+  assert.equal(
+    shouldBlockUnsupportedFlightPriceAnswer(
+      userMessage,
+      "The cheapest visible option is Alaska Airlines nonstop at $142.",
+      [
+        "**URL:** https://www.google.com/travel/flights",
+        "Best departing flights",
+        "Alaska Airlines PDX to SFO nonstop duration 1 hr 42 min $142",
+      ].join("\n"),
+    ),
+    false,
+    "price claims should pass when the latest page evidence includes priced flight rows",
+  );
+});
+
+test(
+  "Codex erases unsupported flight price finals and keeps browsing",
+  { timeout: 10_000 },
+  async () => {
+    const provider = new CodexProvider(codexTokens(), "gpt-5");
+    const chunks: string[] = [];
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const requestBodies: Array<Record<string, unknown>> = [];
+
+    await withMockFetch(async (_input, init) => {
+      requestBodies.push(
+        JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      );
+      const requestCount = requestBodies.length;
+
+      if (requestCount === 1) {
+        return codexSseResponse([
+          webSearchCall("call_ws", "cheapest one-way flight PDX to SFO June 23"),
+        ]);
+      }
+      if (requestCount === 2) {
+        return codexSseResponse([
+          {
+            type: "response.output_text.delta",
+            delta:
+              "Here are the cheapest PDX to SFO flights: Alaska Airlines 6:00 AM nonstop $75.",
+          },
+        ]);
+      }
+      if (requestCount === 3) {
+        return codexSseResponse([readPageCall("call_read")]);
+      }
+      return codexSseResponse([
+        {
+          type: "response.output_text.delta",
+          delta:
+            "I still need visible priced flight results before I can give prices.",
+        },
+      ]);
+    }, () =>
+      provider.streamAgentQuery(
+        "system prompt",
+        "find the cheapest 1 way flight from Portland to sf on June 23rd",
+        [WEB_SEARCH_TOOL, READ_PAGE_TOOL],
+        (chunk) => chunks.push(chunk),
+        async (name, args) => {
+          calls.push({ name, args });
+          if (name === "web_search") {
+            return searchResultOutput(String(args.query || ""));
+          }
+          return [
+            "**URL:** https://www.google.com/travel/flights",
+            "Where to? Search airports or cities",
+            "Departure date",
+          ].join("\n");
+        },
+        () => undefined,
+      ),
+    );
+
+    assert.deepEqual(
+      calls.map((call) => call.name),
+      ["web_search", "read_page"],
+      "the guard should send the model back to browser tools after the unsupported price answer",
+    );
+    assert.ok(
+      chunks.includes("<<erase_prev>>"),
+      "unsupported price answer should be erased from the visible transcript",
+    );
+    assert.equal(
+      requestBodies.length,
+      4,
+      "the loop should continue after the unsupported price final instead of stopping",
+    );
+    assert.ok(
+      JSON.stringify(requestBodies[2]).includes(
+        "latest browser/tool evidence does not show visible flight-result rows with prices",
+      ),
+      "the recovery turn should explain why the price answer was unsupported",
+    );
+  },
+);
 
 test(
   "Codex harness does NOT terminate the loop on a repeated web_search (aligns with Ollama/OpenAI)",

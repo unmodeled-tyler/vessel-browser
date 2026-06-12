@@ -19,6 +19,10 @@ import {
   stableToolSignature,
   unsupportedToolHint,
 } from "./provider-openai-tools";
+import {
+  buildFlightPriceEvidenceRecoveryPrompt,
+  shouldBlockUnsupportedFlightPriceAnswer,
+} from "./flight-price-evidence";
 
 const logger = createLogger("CodexProvider");
 
@@ -580,6 +584,27 @@ function buildCodexRecoveryInput(
   };
 }
 
+function buildCodexFlightPriceEvidenceRecoveryInput(
+  userMessage: string,
+  assistantText: string,
+  latestToolResultPreview: string | null,
+): CodexInputItem {
+  return {
+    type: "message",
+    role: "user",
+    content: [
+      {
+        type: "input_text",
+        text: `[System] ${buildFlightPriceEvidenceRecoveryPrompt(
+          userMessage,
+          assistantText,
+          latestToolResultPreview,
+        )}`,
+      },
+    ],
+  };
+}
+
 function buildCodexFailedClickRecoveryInput(
   attemptedTarget: string,
   latestToolResultPreview: string | null,
@@ -863,6 +888,7 @@ export class CodexProvider implements AIProvider {
     let turnState: string | null = null;
     let toolHistoryCount = 0;
     let recoveryCount = 0;
+    let flightPriceEvidenceRecoveryCount = 0;
     let correctionCount = 0;
     const recentToolSignatures: string[] = [];
     const recentToolNames: string[] = [];
@@ -927,6 +953,25 @@ export class CodexProvider implements AIProvider {
 
         if (functionCalls.length === 0) {
           if (
+            flightPriceEvidenceRecoveryCount < 2 &&
+            shouldBlockUnsupportedFlightPriceAnswer(
+              userMessage,
+              result.text,
+              latestToolResultPreview,
+            )
+          ) {
+            flightPriceEvidenceRecoveryCount += 1;
+            if (result.text.trim()) onChunk("<<erase_prev>>");
+            currentInput = [
+              buildCodexFlightPriceEvidenceRecoveryInput(
+                userMessage,
+                result.text,
+                latestToolResultPreview,
+              ),
+            ];
+            continue;
+          }
+          if (
             recoveryCount < 1 &&
             shouldRetryCodexToolLoop(result.text, toolHistoryCount > 0)
           ) {
@@ -944,6 +989,7 @@ export class CodexProvider implements AIProvider {
           break;
         }
         recoveryCount = 0;
+        flightPriceEvidenceRecoveryCount = 0;
 
         currentInput = [];
         for (const fc of functionCalls) {

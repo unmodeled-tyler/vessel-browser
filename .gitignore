@@ -70,6 +70,7 @@ tests/*.test.ts
 !tests/cloudflare-premium-worker.test.ts
 !tests/channel-contract.test.ts
 !tests/dom-selectors.test.ts
+!tests/fillable-controls.test.ts
 !tests/input-coercion.test.ts
 !tests/link-validation.test.ts
 !tests/overlay-context.test.ts

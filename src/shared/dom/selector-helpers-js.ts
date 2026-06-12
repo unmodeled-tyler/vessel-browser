@@ -12,16 +12,13 @@ export function selectorHelpersJS(
   attributes: string[] = DEFAULT_SELECTOR_ATTRIBUTES,
 ): string {
   const attrsExpr = JSON.stringify(attributes);
-  const q = '"';
-  const bs = '\\';
-  const escQ = bs + q;
 
   return [
     'function __escapeSelectorValue(value) {',
     '  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {',
     '    return CSS.escape(value);',
     '  }',
-    `  return String(value).replace(/[${q}${bs}${bs}]/g, ${q}${bs}${bs}$&${q});`,
+    '  return String(value).replace(/["\\\\]/g, "\\\\$&");',
     '}',
     '',
     'function __uniqueSelector(candidate) {',
@@ -37,7 +34,7 @@ export function selectorHelpersJS(
     '  var value = (el.getAttribute && el.getAttribute(attribute)) || "";',
     '  value = String(value).trim();',
     '  if (!value) return null;',
-    `  var candidate = el.tagName.toLowerCase() + ${q}[${q} + attribute + ${q}=${escQ}${q} + __escapeSelectorValue(value) + ${escQ}]${q};`,
+    '  var candidate = el.tagName.toLowerCase() + "[" + attribute + "=\\"" + __escapeSelectorValue(value) + "\\"]";',
     '  return __uniqueSelector(candidate);',
     '}',
     '',

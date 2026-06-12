@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildCommonSearchUrlShortcut,
+  buildFlightSearchShortcut,
   buildSearchEngineLandingShortcut,
   buildSearchShortcut,
   urlAlreadyHasSearchQuery,
@@ -68,6 +69,38 @@ test("search engine landing shortcut ignores arbitrary site home pages", () => {
   );
 
   assert.equal(shortcut, null);
+});
+
+test("flight shortcut routes flight shopping to Google Flights using the full task goal", () => {
+  const shortcut = buildFlightSearchShortcut(
+    "cheapest one-way flight Portland",
+    "can you help me find the cheapest 1 way flight from Portland to sf on June 23rd? No bags or anything else - just me and a carry on!",
+  );
+
+  assert.ok(shortcut);
+  assert.equal(shortcut.source, "Google Flights");
+  assert.equal(shortcut.section, "flight search");
+  assert.equal(
+    shortcut.url,
+    "https://www.google.com/travel/flights?q=can%20you%20help%20me%20find%20the%20cheapest%201%20way%20flight%20from%20Portland%20to%20sf%20on%20June%2023rd%3F%20No%20bags%20or%20anything%20else%20-%20just%20me%20and%20a%20carry%20on!",
+  );
+});
+
+test("flight shortcut ignores non-flight shopping queries", () => {
+  assert.equal(buildFlightSearchShortcut("cheap hotel Portland"), null);
+});
+
+test("flight shortcut keeps a flight-specific tool query when the task goal is generic", () => {
+  const shortcut = buildFlightSearchShortcut(
+    "cheap flights PDX to SFO June 23",
+    "help me with this",
+  );
+
+  assert.ok(shortcut);
+  assert.equal(
+    shortcut.url,
+    "https://www.google.com/travel/flights?q=cheap%20flights%20PDX%20to%20SFO%20June%2023",
+  );
 });
 
 test("search query detection treats matching result URLs as already searched", () => {

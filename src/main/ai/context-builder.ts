@@ -64,6 +64,12 @@ function formatElementMeta(el: InteractiveElement): string[] {
   if (el.checked !== undefined) {
     meta.push(el.checked ? "checked" : "unchecked");
   }
+  if (el.focused) {
+    meta.push("focused");
+  }
+  if (el.hasValue && !shouldRenderFieldValue(el)) {
+    meta.push("has-value");
+  }
   if (el.ariaExpanded !== undefined) {
     meta.push(`expanded=${el.ariaExpanded}`);
   }
@@ -130,6 +136,59 @@ function summarizeElementValue(
     return { label: "current", value: value.slice(0, 60) };
   }
   return null;
+}
+
+function isTextEntryControl(el: InteractiveElement): boolean {
+  if (el.disabled) return false;
+  if (el.type !== "input" && el.type !== "textarea") return false;
+
+  const inputType = (el.inputType || "text").toLowerCase();
+  return ![
+    "button",
+    "checkbox",
+    "file",
+    "hidden",
+    "image",
+    "radio",
+    "reset",
+    "submit",
+  ].includes(inputType);
+}
+
+function hasRenderedValue(el: InteractiveElement): boolean {
+  return Boolean(summarizeElementValue(el));
+}
+
+function hasAnyFieldValue(el: InteractiveElement): boolean {
+  return (
+    el.hasValue === true ||
+    (typeof el.value === "string" && el.value.trim().length > 0)
+  );
+}
+
+function formatFillHint(el: InteractiveElement): string | null {
+  if (el.index == null || el.disabled) return null;
+  if (el.focused && isTextEntryControl(el)) {
+    return `cursor is here; type_text(text="...") or type_text(index=${el.index})`;
+  }
+  if (hasAnyFieldValue(el) && isTextEntryControl(el)) {
+    return `already has value; use type_text(index=${el.index}) only to change it`;
+  }
+  if (isTextEntryControl(el)) return `use type_text(index=${el.index})`;
+  if (el.type === "select") return `use select_option(index=${el.index})`;
+  return null;
+}
+
+function appendFieldAffordances(parts: string[], el: InteractiveElement): void {
+  if (isTextEntryControl(el)) {
+    parts.push("fillable");
+    if (!hasAnyFieldValue(el)) parts.push("empty");
+  } else if (el.type === "select") {
+    if (!hasRenderedValue(el) && !hasAnyFieldValue(el)) parts.push("not-selected");
+  }
+
+  const hint = formatFillHint(el);
+  if (hint) parts.push(hint);
 }
 
 function isQuantityLike(el: InteractiveElement): boolean {
@@ -536,12 +595,14 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
         parts.push("input");
         const summary = summarizeElementValue(el);
         if (summary) parts.push(`${summary.label}="${summary.value}"`);
+        if (!isQuantityLike(el)) appendFieldAffordances(parts, el);
         if (el.required) parts.push("(required)");
       } else if (el.type === "select") {
         parts.push(`[${el.label || "Select"}]`);
         parts.push("dropdown");
         const summary = summarizeElementValue(el);
         if (summary) parts.push(`${summary.label}="${summary.value}"`);
+        appendFieldAffordances(parts, el);
         if (el.options?.length) {
           parts.push(
             `options=${el.options
@@ -555,6 +616,7 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
         parts.push("textarea");
         const summary = summarizeElementValue(el);
         if (summary) parts.push(`${summary.label}="${summary.value}"`);
+        appendFieldAffordances(parts, el);
       }
 
       const meta = formatElementMeta(el);
@@ -627,12 +689,14 @@ function formatForms(forms: PageContent["forms"]): string {
             fieldParts.push(field.inputType || "text");
             const summary = summarizeElementValue(field);
             if (summary) fieldParts.push(`${summary.label}="${summary.value}"`);
+            if (!isQuantityLike(field)) appendFieldAffordances(fieldParts, field);
             if (field.required) fieldParts.push("(required)");
           } else if (field.type === "select") {
             fieldParts.push(`[${field.label || "Select"}]`);
             fieldParts.push("dropdown");
             const summary = summarizeElementValue(field);
             if (summary) fieldParts.push(`${summary.label}="${summary.value}"`);
+            appendFieldAffordances(fieldParts, field);
             if (field.options?.length) {
               fieldParts.push(
                 `options=${field.options
@@ -646,6 +710,7 @@ function formatForms(forms: PageContent["forms"]): string {
             fieldParts.push("textarea");
             const summary = summarizeElementValue(field);
             if (summary) fieldParts.push(`${summary.label}="${summary.value}"`);
+            appendFieldAffordances(fieldParts, field);
           }
 
           const meta = formatElementMeta(field);
@@ -1477,6 +1542,7 @@ export function buildScopedContext(
       const cartSnapshot = formatCartSnapshot(visiblePage);
       const visibleForms = visiblePage.forms;
       const dialogFocus = formatDialogFocus(page);
+      const flightBookingFormHint = getFlightBookingFormHint(page);
       const sections: string[] = [];
       sections.push(`**URL:** ${page.url}`);
       sections.push(`**Title:** ${page.title}`);
@@ -1496,6 +1562,11 @@ export function buildScopedContext(
       if ((page.pageIssues?.length ?? 0) > 0) {
         sections.push("### Page Access Warnings");
         sections.push(formatPageIssues(page.pageIssues ?? []));
+        sections.push("");
+      }
+      if (flightBookingFormHint) {
+        sections.push("### Flight Booking Hint");
+        sections.push(flightBookingFormHint);
         sections.push("");
       }
       if (page.overlays.length > 0) {
@@ -1685,6 +1756,52 @@ export function detectPageType(page: PageContent): PageType {
   return "GENERAL";
 }
 
+function isFlightBookingPage(page: PageContent): boolean {
+  const pageText = [
+    page.url,
+    page.title,
+    page.excerpt,
+    page.headings.map((heading) => heading.text).join(" "),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (/google\.com\/travel\/flights|google flights/.test(pageText)) {
+    return true;
+  }
+
+  const controlsText = [
+    ...page.interactiveElements,
+    ...page.forms.flatMap((form) => form.fields),
+  ]
+    .map((el) =>
+      [el.label, el.placeholder, el.name, el.text, el.role, el.inputType]
+        .filter(Boolean)
+        .join(" "),
+    )
+    .join(" ")
+    .toLowerCase();
+
+  const hasRouteControls =
+    /\b(?:where from|where to|origin|destination|from|to)\b/.test(
+      controlsText,
+    );
+  const hasDateControls = /\b(?:departure|depart|return|date)\b/.test(
+    controlsText,
+  );
+  const hasFlightLanguage = /\b(?:flight|flights|airfare|airline)\b/.test(
+    `${pageText} ${controlsText}`,
+  );
+
+  return hasFlightLanguage && hasRouteControls && hasDateControls;
+}
+
+function getFlightBookingFormHint(page: PageContent): string | null {
+  if (!isFlightBookingPage(page)) return null;
+  return "Flight booking form: use the visible route, destination, and date controls with type_text/select_option/click/submit_form before constructing direct Google Flights or travel-search URLs. Direct travel URLs are a fallback only after visible controls fail or the page is unusable.";
+}
+
 /**
  * Speedee System — Semantic Page Analysis
  * Detects page intent and suggests the most relevant actions,
@@ -1693,6 +1810,7 @@ export function detectPageType(page: PageContent): PageType {
 function analyzePageIntent(page: PageContent): string {
   const hints: string[] = [];
   const pageType = detectPageType(page);
+  const flightBookingFormHint = getFlightBookingFormHint(page);
   const hasPagination = page.interactiveElements.some(
     (el) =>
       (el.text || "").toLowerCase() === "next" ||
@@ -1731,6 +1849,7 @@ function analyzePageIntent(page: PageContent): string {
       hints.push(
         "Treat the visible site search box as the primary navigation control before jumping to direct URLs.",
       );
+      if (flightBookingFormHint) hints.push(flightBookingFormHint);
       break;
     case "SEARCH_RESULTS":
       hints.push("Page type: SEARCH RESULTS");
@@ -1751,6 +1870,7 @@ function analyzePageIntent(page: PageContent): string {
         `Page type: FORM (${formCount} form${formCount > 1 ? "s" : ""}, ${totalFields} fields)`,
       );
       hints.push("Suggested: vessel_fill_form → fill all fields in one call");
+      if (flightBookingFormHint) hints.push(flightBookingFormHint);
       break;
     }
     case "PAGINATED_LIST":
@@ -1763,7 +1883,14 @@ function analyzePageIntent(page: PageContent): string {
       break;
   }
 
-  if (hints.length === 0) return "";
+  if (hints.length === 0 && !flightBookingFormHint) return "";
+  if (
+    flightBookingFormHint &&
+    pageType !== "SEARCH_READY" &&
+    pageType !== "FORM"
+  ) {
+    hints.push(flightBookingFormHint);
+  }
   return `### Page Intent (Speedee)\n${hints.join("\n")}`;
 }
 
