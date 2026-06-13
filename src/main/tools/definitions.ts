@@ -870,7 +870,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "web_search",
     title: "Web Search",
     description:
-      "Search the open web using the configured default search engine. Use this for broad discovery tasks instead of typing into the current page.",
+      "Search the open web using the configured default search engine. Use this for broad discovery tasks instead of typing into the current page. For named venues, businesses, organizations, schools, or local places, use web search to find the official/direct result, then click that result; do not use site: queries as a substitute for opening an available official result.",
     inputSchema: {
       query: z.string().describe("Web search query text"),
     },

@@ -119,6 +119,14 @@ function openRouterRoutingOptions(
   };
 }
 
+export function buildOpenRouterAttributionHeaders(): Record<string, string> {
+  return {
+    'HTTP-Referer': 'https://github.com/unmodeled-tyler/vessel-browser',
+    'X-OpenRouter-Title': 'Vessel Browser',
+    'X-OpenRouter-Categories': 'personal-agent,general-chat',
+  };
+}
+
 function followUpReminderForProfile(
   profile: AgentToolProfile,
   userMessage: string,
@@ -392,12 +400,15 @@ function normalizedSearchToolQuery(
   return normalized || null;
 }
 
-function isRealProgressTool(name: string): boolean {
+export function isOpenAIRealProgressToolForSearch(name: string): boolean {
   return ![
     'read_page',
     'current_tab',
     'list_tabs',
     'screenshot',
+    'clear_overlays',
+    'accept_cookies',
+    'dismiss_popup',
     'web_search',
     'search',
   ].includes(name);
@@ -417,7 +428,7 @@ export function buildOpenAIRepeatedSearchError(
     mode === 'drifted'
       ? `Do not rewrite or broaden the query with another ${previousTool}; use the current search results instead.`
       : `Do not search the same query again with ${previousTool} or its search/web_search alias; use the current search results instead.`,
-    `For named venues, businesses, organizations, schools, or local places, prefer opening the official site or clearly direct result from the current results page before answering. Next action: click a result, inspect a specific result, or answer from the result you already opened. Do not call any search tool again as preparation.`,
+    `For named venues, businesses, organizations, schools, or local places, prefer opening the official site or clearly direct result from the current results page before answering. Do not switch to a site: restricted web_search when an official or direct result is already available. Next action: click a result, inspect a specific result, or answer from the result you already opened. Do not call any search tool again as preparation.`,
   ];
   if (stateReminder) {
     lines.push(stateReminder);
@@ -582,10 +593,7 @@ export class OpenAICompatProvider implements AIProvider {
       apiKey: config.apiKey || 'ollama',
       baseURL,
       ...(isOpenRouter && {
-        defaultHeaders: {
-          'HTTP-Referer': 'https://github.com/unmodeled/vessel-browser',
-          'X-Title': 'Vessel',
-        },
+        defaultHeaders: buildOpenRouterAttributionHeaders(),
       }),
     });
     this.providerId = config.id;
@@ -1119,7 +1127,7 @@ export class OpenAICompatProvider implements AIProvider {
           }
           if (!/^Error:/i.test(toolContent.trim())) {
             successfulToolNames.push(tc.name);
-            if (isRealProgressTool(tc.name)) {
+            if (isOpenAIRealProgressToolForSearch(tc.name)) {
               lastSuccessfulWebSearchQuery = null;
             }
             if (

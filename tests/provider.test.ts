@@ -9,7 +9,9 @@ import {
 } from "../src/main/ai/provider";
 import {
   buildOpenAIRepeatedSearchError,
+  buildOpenRouterAttributionHeaders,
   formatOpenAICompatErrorMessage,
+  isOpenAIRealProgressToolForSearch,
 } from "../src/main/ai/provider-openai";
 import { refreshAccessToken } from "../src/main/ai/codex-oauth";
 import {
@@ -99,6 +101,15 @@ test("buildLlamaCppCtxWarning is quiet when ctx size is already healthy", () => 
   assert.equal(buildLlamaCppCtxWarning(32768), undefined);
 });
 
+test("buildOpenRouterAttributionHeaders matches OpenRouter app attribution", () => {
+  assert.deepEqual(buildOpenRouterAttributionHeaders(), {
+    "HTTP-Referer": "https://github.com/unmodeled-tyler/vessel-browser",
+    "X-OpenRouter-Title": "Vessel Browser",
+    "X-OpenRouter-Categories": "personal-agent,general-chat",
+  });
+  assert.equal("X-Title" in buildOpenRouterAttributionHeaders(), false);
+});
+
 test("formatOpenAICompatErrorMessage explains OpenRouter timeout/no-content failures", () => {
   const message = formatOpenAICompatErrorMessage(
     "openrouter",
@@ -128,7 +139,17 @@ test("buildOpenAIRepeatedSearchError steers venue lookups toward direct results"
 
   assert.match(message, /use the current search results instead/i);
   assert.match(message, /prefer opening the official site or clearly direct result/i);
+  assert.match(message, /Do not switch to a site: restricted web_search/i);
   assert.match(message, /Do not call any search tool again as preparation/i);
+});
+
+test("OpenAI search-loop guard preserves anchors across overlay cleanup", () => {
+  assert.equal(isOpenAIRealProgressToolForSearch("clear_overlays"), false);
+  assert.equal(isOpenAIRealProgressToolForSearch("accept_cookies"), false);
+  assert.equal(isOpenAIRealProgressToolForSearch("dismiss_popup"), false);
+  assert.equal(isOpenAIRealProgressToolForSearch("read_page"), false);
+  assert.equal(isOpenAIRealProgressToolForSearch("click"), true);
+  assert.equal(isOpenAIRealProgressToolForSearch("navigate"), true);
 });
 
 test("fetchProviderModels refreshes expired Codex tokens before model discovery", async () => {

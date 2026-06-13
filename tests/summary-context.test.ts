@@ -505,6 +505,8 @@ test("agent prompt steers named venue questions toward official sites", () => {
   assert.match(prompt, /named venue, business, organization, school, or local place/i);
   assert.match(prompt, /open that site and answer from its page/i);
   assert.match(prompt, /Do not keep rewriting generic web_search queries/i);
+  assert.match(prompt, /switch to site: searches/i);
+  assert.match(prompt, /site-specific search only after opening the direct source fails/i);
 });
 
 test("compact context keeps fill hints for visible fields", () => {

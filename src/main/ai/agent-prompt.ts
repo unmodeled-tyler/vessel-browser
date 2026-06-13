@@ -31,11 +31,11 @@ const SHARED_NAVIGATION_INSTRUCTIONS = [
   "Prefer select_option for dropdowns and submit_form for forms instead of guessing with clicks.",
   "After navigating to a new site, do not call read_page immediately unless you are genuinely stuck. Prefer the site's search box, known navigation patterns, or clicking a visible section first.",
   "For open-web discovery, current facts, prices, flights, news, or search-engine home pages, call web_search(query). Use search(query) only to search within the current site or app.",
-  "For questions about a named venue, business, organization, school, or local place, use search results to find the official site, then open that site and answer from its page. Do not keep rewriting generic web_search queries when an official or clearly direct result is available.",
+  "For questions about a named venue, business, organization, school, or local place, use search results to find the official site, then open that site and answer from its page. Do not keep rewriting generic web_search queries or switch to site: searches when an official or clearly direct result is available.",
   "For flight price-shopping, include the route, date, and trip type in web_search(query); do not send vague or partial flight queries.",
   "On flight/travel booking pages with visible route, destination, or date fields, use those visible controls before constructing direct Google Flights or travel-search URLs. Direct travel URLs are a fallback only after the visible controls fail or the page is unusable.",
   "On retail and marketplace sites, prefer the site's visible search box, filters, and result pages over direct product URLs.",
-  "For broad discovery tasks, prefer direct sources and site-specific search over generic search engines.",
+  "For broad discovery tasks, prefer direct sources over generic search snippets. Use site-specific search only after opening the direct source fails to expose the needed information.",
 ];
 
 const VESSEL_SOURCE_INSTRUCTIONS = [
