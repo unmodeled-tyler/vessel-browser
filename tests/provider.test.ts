@@ -8,11 +8,11 @@ import {
   fetchProviderModels,
 } from "../src/main/ai/provider";
 import {
-  buildOpenAIRepeatedSearchError,
   buildOpenRouterAttributionHeaders,
   formatOpenAICompatErrorMessage,
-  isOpenAIRealProgressToolForSearch,
+  isSearchContextResettingTool,
 } from "../src/main/ai/provider-openai";
+import { buildRepeatedSearchError } from "../src/main/ai/search-loop-guard";
 import { refreshAccessToken } from "../src/main/ai/codex-oauth";
 import {
   clearStoredCodexTokens,
@@ -129,8 +129,8 @@ test("formatOpenAICompatErrorMessage leaves non-OpenRouter timeout text unchange
   assert.equal(formatOpenAICompatErrorMessage("openai", raw), raw);
 });
 
-test("buildOpenAIRepeatedSearchError steers venue lookups toward direct results", () => {
-  const message = buildOpenAIRepeatedSearchError(
+test("buildRepeatedSearchError steers venue lookups toward direct results", () => {
+  const message = buildRepeatedSearchError(
     "web_search",
     "moreland theater portland oregon movie playing this tuesday",
     'Web searched "Moreland Theater Portland Oregon movie playing this Tuesday" via DuckDuckGo → https://duckduckgo.com/?q=moreland+theater [state: url=https://duckduckgo.com/?q=moreland+theater, title="DuckDuckGo Search"]',
@@ -144,12 +144,12 @@ test("buildOpenAIRepeatedSearchError steers venue lookups toward direct results"
 });
 
 test("OpenAI search-loop guard preserves anchors across overlay cleanup", () => {
-  assert.equal(isOpenAIRealProgressToolForSearch("clear_overlays"), false);
-  assert.equal(isOpenAIRealProgressToolForSearch("accept_cookies"), false);
-  assert.equal(isOpenAIRealProgressToolForSearch("dismiss_popup"), false);
-  assert.equal(isOpenAIRealProgressToolForSearch("read_page"), false);
-  assert.equal(isOpenAIRealProgressToolForSearch("click"), true);
-  assert.equal(isOpenAIRealProgressToolForSearch("navigate"), true);
+  assert.equal(isSearchContextResettingTool("clear_overlays"), false);
+  assert.equal(isSearchContextResettingTool("accept_cookies"), false);
+  assert.equal(isSearchContextResettingTool("dismiss_popup"), false);
+  assert.equal(isSearchContextResettingTool("read_page"), false);
+  assert.equal(isSearchContextResettingTool("click"), true);
+  assert.equal(isSearchContextResettingTool("navigate"), true);
 });
 
 test("fetchProviderModels refreshes expired Codex tokens before model discovery", async () => {

@@ -1462,7 +1462,8 @@ function buildBaseMetadata(
 function isNavigableEmbeddedSrc(src: string): boolean {
   const normalized = src.trim().toLowerCase();
   return (
-    Boolean(normalized) && !/^(about:blank|javascript:|data:)/.test(normalized)
+    Boolean(normalized) &&
+    !/^(about:blank|javascript:|data:|blob:|file:)/i.test(normalized)
   );
 }
 

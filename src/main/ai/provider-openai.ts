@@ -34,6 +34,12 @@ import {
   buildFlightPriceEvidenceRecoveryPrompt,
   shouldBlockUnsupportedFlightPriceAnswer,
 } from './flight-price-evidence';
+import {
+  buildLatestStateReminder,
+  buildRepeatedSearchError,
+  normalizeSearchToolQuery,
+  SearchLoopGuard,
+} from './search-loop-guard';
 
 const logger = createLogger("OpenAIProvider");
 
@@ -136,7 +142,7 @@ function followUpReminderForProfile(
   if (profile !== 'compact') return null;
 
   const phaseReminder = buildPhaseReminder(userMessage, assistantText || '');
-  const stateReminder = buildLatestStateReminder(latestToolResultPreview || '');
+  const stateReminder = buildLatestStateReminder(latestToolResultPreview);
 
   return {
     role: 'user',
@@ -150,9 +156,12 @@ function followUpReminderForProfile(
 }
 
 function extractSingleGoalDomain(goal: string): string | null {
+  // Match a single bare or prefixed hostname with at least one dot in the
+  // TLD portion. This intentionally accepts any TLD (country-code, new gTLD,
+  // etc.) rather than maintaining an allowlist.
   const matches = goal
     .toLowerCase()
-    .match(/\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.(?:com|org|net|io|dev|app|ai|co|edu|gov))\b/g);
+    .match(/\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+\.[a-z]{2,})\b/g);
   if (!matches || matches.length !== 1) return null;
 
   return matches[0]
@@ -167,7 +176,7 @@ export function buildCompactRecoveryPrompt(
   latestToolResultPreview?: string | null,
 ): string {
   const phaseReminder = buildPhaseReminder(userMessage, assistantText);
-  const stateReminder = buildLatestStateReminder(latestToolResultPreview || '');
+  const stateReminder = buildLatestStateReminder(latestToolResultPreview);
   const goalDomain = extractSingleGoalDomain(userMessage);
   const latest = (latestToolResultPreview || '').toLowerCase();
   const assistant = assistantText.toLowerCase();
@@ -353,54 +362,12 @@ export function buildPhaseReminder(
   return '';
 }
 
-export function buildLatestStateReminder(toolResultPreview: string): string {
-  const text = toolResultPreview.trim();
-  if (!text) return '';
-
-  const stateMatch = text.match(
-    /\[state:\s+url=([^,\]\n]+),\s+title=(?:"([^"]*)"|([^,\]\n]+))/i,
-  );
-  if (stateMatch) {
-    const url = stateMatch[1]?.trim();
-    const title = (stateMatch[2] ?? stateMatch[3] ?? '').trim();
-    if (url) {
-      return `Latest browser state: URL ${url}${title ? `, title "${title}"` : ''}. Trust the latest tool result over the initial page context.`;
-    }
-  }
-
-  const structuredUrl = text.match(/\*\*URL:\*\*\s*([^\n]+)/i)?.[1]?.trim();
-  const structuredTitle = text.match(/\*\*Title:\*\*\s*([^\n]+)/i)?.[1]?.trim();
-  if (structuredUrl) {
-    return `Latest browser state: URL ${structuredUrl}${structuredTitle ? `, title "${structuredTitle}"` : ''}. Trust the latest tool result over the initial page context.`;
-  }
-
-  const navigatedUrl = text.match(/\b(?:navigated to|went back to|went forward to|searched "[^"]+"(?: \(via search button\))? →)\s+([^\s\n]+)/i)?.[1]?.trim();
-  const pageTitle = text.match(/\bPage title:\s*([^\n]+)/i)?.[1]?.trim();
-  if (navigatedUrl) {
-    return `Latest browser state: URL ${navigatedUrl}${pageTitle ? `, title "${pageTitle}"` : ''}. Trust the latest tool result over the initial page context.`;
-  }
-
-  return '';
-}
-
-function normalizedSearchToolQuery(
-  name: string,
-  args: Record<string, unknown>,
-): string | null {
-  if (name !== 'search' && name !== 'web_search') return null;
-  const raw =
-    typeof args.query === 'string'
-      ? args.query
-      : typeof args.text === 'string'
-        ? args.text
-        : typeof args.term === 'string'
-          ? args.term
-          : '';
-  const normalized = raw.replace(/\s+/g, ' ').trim().toLowerCase();
-  return normalized || null;
-}
-
-export function isOpenAIRealProgressToolForSearch(name: string): boolean {
+/**
+ * Tools that do not reset the web_search drift anchor. Read-only/housekeeping
+ * tools and search tools themselves are not considered forward progress for the
+ * purpose of the search-loop guard.
+ */
+export function isSearchContextResettingTool(name: string): boolean {
   return ![
     'read_page',
     'current_tab',
@@ -412,28 +379,6 @@ export function isOpenAIRealProgressToolForSearch(name: string): boolean {
     'web_search',
     'search',
   ].includes(name);
-}
-
-export function buildOpenAIRepeatedSearchError(
-  previousTool: string,
-  previousQuery: string,
-  latestToolResultPreview: string | null,
-  mode: 'repeated' | 'drifted',
-): string {
-  const stateReminder = buildLatestStateReminder(latestToolResultPreview || '');
-  const lines = [
-    mode === 'drifted'
-      ? `Error: You already performed ${previousTool} successfully for this task.`
-      : `Error: You already searched for "${previousQuery}" successfully with ${previousTool}.`,
-    mode === 'drifted'
-      ? `Do not rewrite or broaden the query with another ${previousTool}; use the current search results instead.`
-      : `Do not search the same query again with ${previousTool} or its search/web_search alias; use the current search results instead.`,
-    `For named venues, businesses, organizations, schools, or local places, prefer opening the official site or clearly direct result from the current results page before answering. Do not switch to a site: restricted web_search when an official or direct result is already available. Next action: click a result, inspect a specific result, or answer from the result you already opened. Do not call any search tool again as preparation.`,
-  ];
-  if (stateReminder) {
-    lines.push(stateReminder);
-  }
-  return lines.join(' ');
 }
 
 function shouldRecoverCompactStall(
@@ -546,15 +491,15 @@ export function formatOpenAICompatErrorMessage(
 ): string {
   if (
     providerId === 'openrouter' &&
-    /(timed out after \d+(?:\.\d+)? seconds|request timed out|returned none after all retries|no content|empty response)/i.test(
+    /(timed out after \d+(?:\.\d+)? seconds|request timed out|returned none after all retries|returned no content|empty response)/i.test(
       message,
     )
   ) {
-    return (
-      `${message} ` +
-      `OpenRouter reported an upstream model timeout/no-content failure. ` +
-      `If this persists, retry or pin a specific low-latency tool-calling model instead of the free router.`
-    );
+    return [
+      message,
+      'OpenRouter reported an upstream model timeout/no-content failure.',
+      'If this persists, retry or pin a specific low-latency tool-calling model instead of the free router.',
+    ].join(' ');
   }
 
   if (
@@ -563,12 +508,12 @@ export function formatOpenAICompatErrorMessage(
       message,
     )
   ) {
-    return (
-      `${message} ` +
-      `llama.cpp sets context size at server startup, not per request. ` +
-      `Vessel's agent prompt plus tool schema is about 6.5k tokens before browsing history, so run llama-server with ` +
-      `--ctx-size ${LLAMA_CPP_MIN_CTX_TOKENS} minimum (${LLAMA_CPP_RECOMMENDED_CTX_TOKENS} recommended).`
-    );
+    return [
+      message,
+      'llama.cpp sets context size at server startup, not per request.',
+      `Vessel's agent prompt plus tool schema is about 6.5k tokens before browsing history, so run llama-server with`,
+      `--ctx-size ${LLAMA_CPP_MIN_CTX_TOKENS} minimum (${LLAMA_CPP_RECOMMENDED_CTX_TOKENS} recommended).`,
+    ].join(' ');
   }
 
   return message;
@@ -708,9 +653,7 @@ export class OpenAICompatProvider implements AIProvider {
       const recentCompactToolSignatures: string[] = [];
       const recentToolNames: string[] = [];
       const successfulToolNames: string[] = [];
-      const recentSuccessfulSearchQueries: string[] = [];
-      const recentSuccessfulSearchToolByQuery = new Map<string, string>();
-      let lastSuccessfulWebSearchQuery: string | null = null;
+      const searchLoopGuard = new SearchLoopGuard(isSearchContextResettingTool);
       let clickReadLoopNudged = false;
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
@@ -997,37 +940,20 @@ export class OpenAICompatProvider implements AIProvider {
           args = coerceToolArgsForExecution(tc.name, args);
 
           const toolSignature = stableToolSignature(tc.name, args);
-          const searchToolQuery = normalizedSearchToolQuery(tc.name, args);
-          const isRepeatedSearchAcrossTools =
-            searchToolQuery !== null &&
-            recentSuccessfulSearchQueries.includes(searchToolQuery);
-          const isQueryDriftedWebSearch =
-            tc.name === 'web_search' &&
-            lastSuccessfulWebSearchQuery !== null &&
-            searchToolQuery !== null &&
-            searchToolQuery !== lastSuccessfulWebSearchQuery;
-          if (isRepeatedSearchAcrossTools || isQueryDriftedWebSearch) {
+          const searchToolQuery = normalizeSearchToolQuery(tc.name, args);
+          const searchLoopCheck = searchLoopGuard.check(tc.name, searchToolQuery);
+          if (searchLoopCheck) {
             onChunk(`\n<<tool:${tc.name}:↻ duplicate suppressed>>\n`);
-            const previousTool = isRepeatedSearchAcrossTools
-              ? (recentSuccessfulSearchToolByQuery.get(searchToolQuery ?? '') ??
-                (tc.name === 'web_search' ? 'search' : 'web_search'))
-              : 'web_search';
-            const previousQuery = isRepeatedSearchAcrossTools
-              ? (searchToolQuery ?? '')
-              : (lastSuccessfulWebSearchQuery ?? '');
-            const mode: 'repeated' | 'drifted' = isRepeatedSearchAcrossTools
-              ? 'repeated'
-              : 'drifted';
             messages.push({
               role: 'tool',
               tool_call_id: tc.id,
-              content: buildOpenAIRepeatedSearchError(
-                previousTool,
-                previousQuery,
+              content: buildRepeatedSearchError(
+                searchLoopCheck.previousTool,
+                searchLoopCheck.previousQuery,
                 latestToolMessage
                   ? String(latestToolMessage.content || '')
                   : null,
-                mode,
+                searchLoopCheck.mode,
               ),
             });
             compactCorrectionCount += 1;
@@ -1125,28 +1051,15 @@ export class OpenAICompatProvider implements AIProvider {
               recentCompactToolSignatures.shift();
             }
           }
-          if (!/^Error:/i.test(toolContent.trim())) {
+          const toolSucceeded = !/^Error:/i.test(toolContent.trim());
+          if (toolSucceeded) {
             successfulToolNames.push(tc.name);
-            if (isOpenAIRealProgressToolForSearch(tc.name)) {
-              lastSuccessfulWebSearchQuery = null;
-            }
-            if (
-              searchToolQuery &&
-              !recentSuccessfulSearchQueries.includes(searchToolQuery)
-            ) {
-              recentSuccessfulSearchQueries.push(searchToolQuery);
-              recentSuccessfulSearchToolByQuery.set(searchToolQuery, tc.name);
-              if (recentSuccessfulSearchQueries.length > 4) {
-                const dropped = recentSuccessfulSearchQueries.shift();
-                if (dropped) {
-                  recentSuccessfulSearchToolByQuery.delete(dropped);
-                }
-              }
-            }
-            if (tc.name === 'web_search' && searchToolQuery) {
-              lastSuccessfulWebSearchQuery = searchToolQuery;
-            }
           }
+          searchLoopGuard.recordSuccess(
+            tc.name,
+            searchToolQuery,
+            toolSucceeded,
+          );
 
           // Detect click→read_page alternating loop: the model clicks, reads
           // the result, clicks again, reads again, etc. without making progress.

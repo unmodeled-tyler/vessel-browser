@@ -394,19 +394,36 @@ function isVisibleToUser(el: InteractiveElement): boolean {
   );
 }
 
-function purchaseActionPriority(el: InteractiveElement): number {
-  const haystack = normalizeComparable(
-    [
-      el.text,
-      el.label,
-      el.name,
-      el.placeholder,
-      el.description,
-      el.href,
-    ]
-      .filter(Boolean)
-      .join(" "),
+function elementSearchText(
+  el: InteractiveElement,
+  extraFields: Array<keyof InteractiveElement> = [],
+): string {
+  const fields: (string | undefined | null)[] = [
+    el.text,
+    el.label,
+    el.name,
+    el.placeholder,
+    el.description,
+    el.href,
+    ...extraFields.map((field) => el[field] as string | undefined),
+  ];
+  return normalizeComparable(fields.filter(Boolean).join(" "));
+}
+
+function formatElementOptions(
+  options: InteractiveElement["options"],
+  maxOptions: number,
+): string {
+  return (
+    options
+      ?.slice(0, maxOptions)
+      .map((o) => (typeof o === "string" ? o : o.label || o.value))
+      .join("|") ?? ""
   );
+}
+
+function purchaseActionPriority(el: InteractiveElement): number {
+  const haystack = elementSearchText(el);
 
   if (!haystack) return Number.POSITIVE_INFINITY;
   if (/\badd(?: item)? to (?:cart|bag|basket)\b/.test(haystack)) return 0;
@@ -420,19 +437,7 @@ function purchaseActionPriority(el: InteractiveElement): number {
 }
 
 function dateOrShowtimeControlPriority(el: InteractiveElement): number {
-  const haystack = normalizeComparable(
-    [
-      el.text,
-      el.label,
-      el.name,
-      el.placeholder,
-      el.description,
-      el.href,
-      el.role,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
+  const haystack = elementSearchText(el, ["role"]);
 
   if (!haystack) return Number.POSITIVE_INFINITY;
   if (
@@ -592,29 +597,40 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
   if (elements.length === 0) return "None";
 
   // Prioritize visible, in-viewport, content-area elements over offscreen nav/sidebar links
+  const DIALOG_PRIORITY_BONUS = 40;
+  const HIDDEN_VISIBILITY_PENALTY = 100;
+  const OFFSCREEN_PENALTY = 50;
+  const NAVIGATION_CONTEXT_PENALTY = 30;
+  const OBSCURED_PENALTY = 20;
+  const LINK_TYPE_PENALTY = 5;
+  const PURCHASE_BASE_WEIGHT = 25;
+  const PURCHASE_PRIORITY_MULTIPLIER = 5;
+  const DATE_BASE_WEIGHT = 18;
+  const DATE_PRIORITY_MULTIPLIER = 4;
+
   const sorted = [...elements].sort((a, b) => {
     const scoreEl = (el: InteractiveElement) => {
       let s = 0;
-      if (el.context === "dialog") s -= 40;
+      if (el.context === "dialog") s -= DIALOG_PRIORITY_BONUS;
       const purchasePriority = purchaseActionPriority(el);
       if (Number.isFinite(purchasePriority)) {
-        s -= 25 - purchasePriority * 5;
+        s -= PURCHASE_BASE_WEIGHT - purchasePriority * PURCHASE_PRIORITY_MULTIPLIER;
       }
       const datePriority = dateOrShowtimeControlPriority(el);
       if (Number.isFinite(datePriority)) {
-        s -= 18 - datePriority * 4;
+        s -= DATE_BASE_WEIGHT - datePriority * DATE_PRIORITY_MULTIPLIER;
       }
-      if (el.visible === false) s += 100;
-      if (el.inViewport === false) s += 50;
+      if (el.visible === false) s += HIDDEN_VISIBILITY_PENALTY;
+      if (el.inViewport === false) s += OFFSCREEN_PENALTY;
       if (
         el.context === "nav" ||
         el.context === "footer" ||
         el.context === "sidebar"
       )
-        s += 30;
-      if (el.obscured) s += 20;
+        s += NAVIGATION_CONTEXT_PENALTY;
+      if (el.obscured) s += OBSCURED_PENALTY;
       // Inputs/buttons are higher priority than links (fewer of them, more actionable)
-      if (el.type === "link") s += 5;
+      if (el.type === "link") s += LINK_TYPE_PENALTY;
       return s;
     };
     return scoreEl(a) - scoreEl(b);
@@ -649,12 +665,7 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
         appendFieldAffordances(parts, el);
         if (el.options?.length) {
           const maxOptions = isDateOrShowtimeControl(el) ? 10 : 5;
-          parts.push(
-            `options=${el.options
-              .slice(0, maxOptions)
-              .map((o) => (typeof o === "string" ? o : o.label || o.value))
-              .join("|")}`,
-          );
+          parts.push(`options=${formatElementOptions(el.options, maxOptions)}`);
         }
       } else if (el.type === "textarea") {
         parts.push(`[${el.label || "Text Area"}]`);
@@ -745,10 +756,7 @@ function formatForms(forms: PageContent["forms"]): string {
             if (field.options?.length) {
               const maxOptions = isDateOrShowtimeControl(field) ? 10 : 5;
               fieldParts.push(
-                `options=${field.options
-                  .slice(0, maxOptions)
-                  .map((o) => (typeof o === "string" ? o : o.label || o.value))
-                  .join("|")}`,
+                `options=${formatElementOptions(field.options, maxOptions)}`,
               );
             }
           } else if (field.type === "textarea") {
@@ -1139,8 +1147,91 @@ export function chooseAgentReadMode(page: PageContent): ExtractMode {
   }
 }
 
+interface SiteResultFilter {
+  /** Hostname (without www) this filter applies to. */
+  hostname: string;
+  /** Paths that should always be treated as listing/result pages. */
+  listingPaths?: string[];
+  /** Pathnames whose links are never considered result candidates. */
+  utilityPathnames?: string[];
+  /** Link texts that are never considered result candidates. */
+  utilityTextPatterns?: RegExp[];
+}
+
+const SITE_RESULT_FILTERS: SiteResultFilter[] = [
+  {
+    hostname: "news.ycombinator.com",
+    listingPaths: [
+      "/",
+      "/news",
+      "/newest",
+      "/front",
+      "/ask",
+      "/show",
+      "/jobs",
+      "/best",
+      "/active",
+      "/classic",
+      "/noobstories",
+    ],
+    utilityPathnames: ["/hide", "/user"],
+    utilityTextPatterns: [
+      /^(hide|past|favorite|unfavorite|flag|unflag|discuss|reply|parent|more)$/,
+      /^\d+\s+(?:comments?|points?)$/,
+    ],
+  },
+];
+
+function matchesSiteFilter(
+  url: string,
+  filter: SiteResultFilter,
+  baseHostname: string,
+): boolean {
+  try {
+    const parsed = new URL(url, baseHostname ? `https://${baseHostname}` : undefined);
+    return parsed.hostname === filter.hostname;
+  } catch {
+    return false;
+  }
+}
+
+function isSiteListingPage(url: string): boolean {
+  for (const filter of SITE_RESULT_FILTERS) {
+    if (!matchesSiteFilter(url, filter, "")) continue;
+    try {
+      const pathname = new URL(url).pathname.replace(/\/+$/, "") || "/";
+      if (filter.listingPaths?.includes(pathname)) return true;
+    } catch {
+      // ignore malformed URLs
+    }
+  }
+  return false;
+}
+
+function isSiteUtilityLink(element: InteractiveElement): boolean {
+  if (!element.href) return false;
+
+  for (const filter of SITE_RESULT_FILTERS) {
+    if (!matchesSiteFilter(element.href, filter, "")) continue;
+
+    const text = normalizeComparable(element.text || "");
+    for (const pattern of filter.utilityTextPatterns ?? []) {
+      if (pattern.test(text)) return true;
+    }
+
+    try {
+      const pathname = new URL(element.href).pathname.replace(/\/+$/, "") || "/";
+      if (filter.utilityPathnames?.includes(pathname)) return true;
+    } catch {
+      // ignore malformed URLs
+    }
+  }
+
+  return false;
+}
+
 function isSearchOrListingPage(page: PageContent): boolean {
-  if (isHackerNewsListingPage(page.url)) return true;
+  if (isSiteListingPage(page.url)) return true;
 
   const haystack = normalizeComparable(
     [
@@ -1156,57 +1247,6 @@ function isSearchOrListingPage(page: PageContent): boolean {
   return /\b(search|results|find|discover|browse|repositories|repository|issues|pull requests|prs|users|events|listings)\b/.test(
     haystack,
   );
-}
-
-function isHackerNewsListingPage(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname !== "news.ycombinator.com") return false;
-    const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
-    return [
-      "/",
-      "/news",
-      "/newest",
-      "/front",
-      "/ask",
-      "/show",
-      "/jobs",
-      "/best",
-      "/active",
-      "/classic",
-      "/noobstories",
-    ].includes(pathname);
-  } catch {
-    return false;
-  }
-}
-
-function isHackerNewsUtilityLink(element: InteractiveElement): boolean {
-  if (!element.href) return false;
-
-  let url: URL;
-  try {
-    url = new URL(element.href);
-  } catch {
-    return false;
-  }
-  if (url.hostname !== "news.ycombinator.com") return false;
-
-  const text = normalizeComparable(element.text || "");
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
-
-  if (
-    /^(hide|past|favorite|unfavorite|flag|unflag|discuss|reply|parent|more)$/.test(
-      text,
-    )
-  ) {
-    return true;
-  }
-
-  if (/^\d+\s+(?:comments?|points?)$/.test(text)) return true;
-  if (pathname === "/hide" || pathname === "/user") return true;
-
-  return pathname === "/item" && /^(?:discuss|\d+\s+comments?)$/.test(text);
 }
 
 function collectJsonLdEntityItems(
@@ -1272,7 +1312,7 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
         element.type === "link" &&
         element.text?.trim() &&
         element.href &&
-        !isHackerNewsUtilityLink(element),
+        !isSiteUtilityLink(element),
     )
     .map((element) => {
       const text = element.text?.trim() || "";
@@ -1851,7 +1891,7 @@ export function detectPageType(page: PageContent): PageType {
   if (hasResults && hasSearchInput && listingLike) return "SEARCH_RESULTS";
   if (hasCart) return "SHOPPING";
   if (formCount > 0 && !hasPasswordField) return "FORM";
-  if (isHackerNewsListingPage(page.url)) return "PAGINATED_LIST";
+  if (isSiteListingPage(page.url)) return "PAGINATED_LIST";
   if (hasPagination && listingLike) return "PAGINATED_LIST";
   if (hasSearchInput && !listingLike) return "SEARCH_READY";
   if (page.content.length > 3000 && page.interactiveElements.length < 10)

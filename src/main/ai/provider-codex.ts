@@ -23,6 +23,12 @@ import {
   buildFlightPriceEvidenceRecoveryPrompt,
   shouldBlockUnsupportedFlightPriceAnswer,
 } from "./flight-price-evidence";
+import {
+  buildLatestStateReminder,
+  buildRepeatedSearchError,
+  normalizeSearchToolQuery,
+  SearchLoopGuard,
+} from "./search-loop-guard";
 
 const logger = createLogger("CodexProvider");
 
@@ -289,23 +295,6 @@ function previewToolResult(text: string, maxLength = 800): string {
   return `${normalized.slice(0, maxLength)}...`;
 }
 
-function normalizedSearchToolQuery(
-  name: string,
-  args: Record<string, unknown>,
-): string | null {
-  if (name !== "search" && name !== "web_search") return null;
-  const raw =
-    typeof args.query === "string"
-      ? args.query
-      : typeof args.text === "string"
-        ? args.text
-        : typeof args.term === "string"
-          ? args.term
-          : "";
-  const normalized = raw.replace(/\s+/g, " ").trim().toLowerCase();
-  return normalized || null;
-}
-
 function hasBlockingOverlaySignal(text: string | null): boolean {
   if (!text) return false;
   if (/\bno blocking overlays detected\b/i.test(text)) return false;
@@ -317,74 +306,6 @@ function hasBlockingOverlaySignal(text: string | null): boolean {
   );
 }
 
-function buildCodexLatestStateReminder(toolResultPreview: string | null): string {
-  const text = (toolResultPreview || "").trim();
-  if (!text) return "";
-
-  const existingReminder = text.match(
-    /\bLatest browser state:\s*URL\s+.+?(?:Trust the latest tool result over the initial page context\.|$)/i,
-  )?.[0]?.trim();
-  if (existingReminder) return existingReminder;
-
-  const stateMatch = text.match(
-    /\[state:\s+url=([^,\]\n]+),\s+title=(?:"([^"]*)"|([^,\]\n]+))/i,
-  );
-  if (stateMatch) {
-    const url = stateMatch[1]?.trim();
-    const title = (stateMatch[2] ?? stateMatch[3] ?? "").trim();
-    if (url) {
-      return `Latest browser state: URL ${url}${title ? `, title "${title}"` : ""}. Trust the latest tool result over the initial page context.`;
-    }
-  }
-
-  const navigatedUrl =
-    text.match(/\b(?:navigated to|went back to|went forward to)\s+([^\s\n]+)/i)?.[1]?.trim() ??
-    text.match(/\b(?:web\s+)?searched "[^"]+"[^\n]*?(?:->|→)\s+([^\s\n]+)/i)?.[1]?.trim();
-  const pageTitle = text.match(/\bPage title:\s*([^\n]+)/i)?.[1]?.trim();
-  if (navigatedUrl) {
-    return `Latest browser state: URL ${navigatedUrl}${pageTitle ? `, title "${pageTitle}"` : ""}. Trust the latest tool result over the initial page context.`;
-  }
-
-  return "";
-}
-
-/**
- * Build a strict, actionable error for a repeated search (same query on
- * `web_search` or `search` already succeeded, or a different-query `web_search`
- * is a drift from an earlier successful web search). The message names the
- * previous tool + query verbatim, points the model at the current page, and
- * tells it explicitly that the prior search results are sufficient — i.e.
- * the model must use the results it already has, not re-read the page in
- * preparation for a "better" search (a pattern the model otherwise games by
- * alternating web_search → read_page → web_search).
- */
-function buildCodexRepeatedSearchError(
-  previousTool: string,
-  previousQuery: string,
-  latestToolResultPreview: string | null,
-  mode: "repeated" | "drifted",
-): string {
-  const stateReminder = buildCodexLatestStateReminder(latestToolResultPreview);
-  const header =
-    mode === "drifted"
-      ? `Error: You already performed ${previousTool} successfully for this task.`
-      : `Error: You already searched for "${previousQuery}" successfully with ${previousTool}.`;
-  const lines = [
-    header,
-    mode === "drifted"
-      ? `Do not rewrite or broaden the query with another ${previousTool}. The latest results from your previous ${previousTool} are already in the conversation context.`
-      : `Do not search the same query again with ${previousTool} (or its alias search/web_search). The latest results from your previous ${previousTool} are already in the conversation context.`,
-    // The key change: do NOT suggest read_page as a "recovery" action.
-    // The model was using read_page as a no-op to reset the strike counter
-    // and then issue another web_search. The prior results are sufficient.
-    `Take the next action from the results you already have: click a result link, call inspect_element on a specific item, highlight, or provide the final answer to the user. Do not call any search tool again, and do not call read_page as preparation for another search.`,
-  ];
-  if (stateReminder) {
-    lines.push(stateReminder);
-  }
-  return lines.join(" ");
-}
-
 /**
  * Build a strict, actionable error for a fabricated clear_overlays call
  * (no blocking overlay signal in the system prompt or latest tool result).
@@ -392,7 +313,7 @@ function buildCodexRepeatedSearchError(
 function buildCodexUnsupportedClearOverlayError(
   latestToolResultPreview: string | null,
 ): string {
-  const stateReminder = buildCodexLatestStateReminder(latestToolResultPreview);
+  const stateReminder = buildLatestStateReminder(latestToolResultPreview);
   const lines = [
     `Error: No blocking overlay signal is present in the latest browser state.`,
     `Do not call clear_overlays unless read_page or the page context explicitly reports a blocking overlay.`,
@@ -566,7 +487,7 @@ function buildCodexRecoveryInput(
   assistantText: string,
   latestToolResultPreview: string | null,
 ): CodexInputItem {
-  const stateReminder = buildCodexLatestStateReminder(latestToolResultPreview);
+  const stateReminder = buildLatestStateReminder(latestToolResultPreview);
   const lines = [
     `[System] The task is still in progress: ${userMessage}`,
     `Do not ask the user what they want next unless the original request is genuinely ambiguous or blocked.`,
@@ -610,7 +531,7 @@ function buildCodexFailedClickRecoveryInput(
   latestToolResultPreview: string | null,
   failedClickCount = 1,
 ): CodexInputItem {
-  const stateReminder = buildCodexLatestStateReminder(latestToolResultPreview);
+  const stateReminder = buildLatestStateReminder(latestToolResultPreview);
   // Keep the message short: the click did not complete, here's the
   // current state, take the next step. The previous version
   // over-prescribed which targets to avoid (filters, sort controls,
@@ -895,18 +816,7 @@ export class CodexProvider implements AIProvider {
     let clickReadLoopNudged = false;
     let latestToolResultPreview: string | null = null;
     let failedClickCountSinceProgress = 0;
-    const recentSuccessfulSearchQueries: string[] = [];
-    const recentSuccessfulSearchToolByQuery = new Map<string, string>();
-    // Track the LAST successful web_search query (or null if the last
-    // real-progress action was something else). This drives the "drifted
-    // search" check below — which only fires when a *new* web_search comes
-    // in with no real progress since the previous one. Real progress
-    // (navigate, click, inspect, etc.) nulls this out, so a model doing
-    // a legitimately distinct search several turns after its first one
-    // is NOT treated as drifting. This is the fix for the false positive
-    // where a session-long counter flagged *every* new web_search as
-    // drift and the loop terminated after a single strike.
-    let lastSuccessfulWebSearchQuery: string | null = null;
+    const searchLoopGuard = new SearchLoopGuard(isRealProgressTool);
 
     try {
       for (let i = 0; i < maxIterations; i++) {
@@ -1013,62 +923,28 @@ export class CodexProvider implements AIProvider {
             prepared.prepared.name,
             prepared.prepared.args,
           );
-          const searchToolQuery = normalizedSearchToolQuery(
+          const searchToolQuery = normalizeSearchToolQuery(
             prepared.prepared.name,
             prepared.prepared.args,
           );
-          const isRepeatedSearchAcrossTools =
-            searchToolQuery !== null &&
-            recentSuccessfulSearchQueries.includes(searchToolQuery);
-          // A "drifted" web_search is a new web_search whose query is
-          // different from the *immediately preceding* successful
-          // web_search, AND no real progress happened in between. We
-          // check `lastSuccessfulWebSearchQuery` (set on a successful
-          // web_search, cleared by any other real-progress action) so a
-          // model that issues a distinct web_search several turns after
-          // a different one — with click/navigate/inspect in between
-          // — is NOT flagged. The previous design used a session-long
-          // counter (`successfulWebSearchCount > 0`) and fired on the
-          // first distinct web_search in the whole session, terminating
-          // the loop after a single strike even when the model was
-          // doing legitimate research.
-          const isQueryDriftedWebSearch =
-            prepared.prepared.name === "web_search" &&
-            lastSuccessfulWebSearchQuery !== null &&
-            searchToolQuery !== null &&
-            searchToolQuery !== lastSuccessfulWebSearchQuery;
+          const searchLoopCheck = searchLoopGuard.check(
+            prepared.prepared.name,
+            searchToolQuery,
+          );
           const isUnsupportedClearOverlay =
             prepared.prepared.name === "clear_overlays" &&
             !hasBlockingOverlaySignal(
               `${systemPrompt}\n${latestToolResultPreview || ""}`,
             );
-          if (
-            isRepeatedSearchAcrossTools ||
-            isQueryDriftedWebSearch
-          ) {
+          if (searchLoopCheck) {
             onChunk(`\n<<tool:${prepared.prepared.name}:↻ duplicate suppressed>>\n`);
-            const previousTool = isRepeatedSearchAcrossTools
-              ? (recentSuccessfulSearchToolByQuery.get(searchToolQuery ?? "") ??
-                (prepared.prepared.name === "web_search" ? "search" : "web_search"))
-              : "web_search";
-            // For repeated searches, name the prior query verbatim so
-            // the model can see what it already searched for. For drifted
-            // searches, name the prior successful web_search so the model
-            // can pick a meaningfully different direction (or recognize
-            // that the prior search results are sufficient).
-            const previousQuery = isRepeatedSearchAcrossTools
-              ? (searchToolQuery ?? "")
-              : (lastSuccessfulWebSearchQuery ?? "");
-            const mode: "repeated" | "drifted" = isRepeatedSearchAcrossTools
-              ? "repeated"
-              : "drifted";
             const output = createCodexToolOutput(
               prepared.prepared.callId,
-              buildCodexRepeatedSearchError(
-                previousTool,
-                previousQuery,
+              buildRepeatedSearchError(
+                searchLoopCheck.previousTool,
+                searchLoopCheck.previousQuery,
                 latestToolResultPreview,
-                mode,
+                searchLoopCheck.mode,
               ),
             );
             currentInput.push(output);
@@ -1132,50 +1008,22 @@ export class CodexProvider implements AIProvider {
           // (click, navigate, inspect_element, highlight, save_bookmark,
           // etc.) means the model has used the prior search result in
           // some way, so a future duplicate search is no longer the same
-          // stuck pattern. The same real-progress block also clears
-          // `lastSuccessfulWebSearchQuery` so a fresh web_search several
+          // stuck pattern. The search-loop guard clears the drift anchor
+          // when a real-progress tool succeeds, so a fresh web_search several
           // turns after the original (with intervening clicks/navigates/inspects)
           // is NOT treated as drift.
-          if (!looksLikeFailedToolOutput(outputText)) {
-            if (isRealProgressTool(prepared.prepared.name)) {
-              // A real-progress tool (navigate, click, inspect, etc.)
-              // nulls out the drift anchor so a subsequent distinct
-              // web_search is not flagged as drift. We don't have any
-              // strike counters to reset here — dedup is now purely
-              // informative (the model gets an error and tries again).
-              lastSuccessfulWebSearchQuery = null;
-              failedClickCountSinceProgress = 0;
-            }
+          const toolSucceeded = !looksLikeFailedToolOutput(outputText);
+          if (toolSucceeded && isRealProgressTool(prepared.prepared.name)) {
+            // A real-progress tool (navigate, click, inspect, etc.) means the
+            // model has used the prior search result in some way, so a future
+            // duplicate search is no longer the same stuck pattern.
+            failedClickCountSinceProgress = 0;
           }
-          if (
-            searchToolQuery &&
-            !looksLikeFailedToolOutput(outputText) &&
-            !recentSuccessfulSearchQueries.includes(searchToolQuery)
-          ) {
-            recentSuccessfulSearchQueries.push(searchToolQuery);
-            recentSuccessfulSearchToolByQuery.set(
-              searchToolQuery,
-              prepared.prepared.name,
-            );
-            if (recentSuccessfulSearchQueries.length > 4) {
-              const dropped = recentSuccessfulSearchQueries.shift();
-              if (dropped) {
-                recentSuccessfulSearchToolByQuery.delete(dropped);
-              }
-            }
-          }
-          if (
-            prepared.prepared.name === "web_search" &&
-            !looksLikeFailedToolOutput(outputText)
-          ) {
-            // Record the prior successful web_search query so the next
-            // web_search can be checked for drift against it. Cleared by
-            // any real-progress tool, so a model that searches → clicks
-            // → searches (different query) is NOT flagged as drifting.
-            if (searchToolQuery) {
-              lastSuccessfulWebSearchQuery = searchToolQuery;
-            }
-          }
+          searchLoopGuard.recordSuccess(
+            prepared.prepared.name,
+            searchToolQuery,
+            toolSucceeded,
+          );
           if (
             prepared.prepared.name === "click" &&
             looksLikeFailedToolOutput(outputText)
