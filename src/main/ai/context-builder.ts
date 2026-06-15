@@ -394,19 +394,36 @@ function isVisibleToUser(el: InteractiveElement): boolean {
   );
 }
 
-function purchaseActionPriority(el: InteractiveElement): number {
-  const haystack = normalizeComparable(
-    [
-      el.text,
-      el.label,
-      el.name,
-      el.placeholder,
-      el.description,
-      el.href,
-    ]
-      .filter(Boolean)
-      .join(" "),
+function elementSearchText(
+  el: InteractiveElement,
+  extraFields: Array<keyof InteractiveElement> = [],
+): string {
+  const fields: (string | undefined | null)[] = [
+    el.text,
+    el.label,
+    el.name,
+    el.placeholder,
+    el.description,
+    el.href,
+    ...extraFields.map((field) => el[field] as string | undefined),
+  ];
+  return normalizeComparable(fields.filter(Boolean).join(" "));
+}
+
+function formatElementOptions(
+  options: InteractiveElement["options"],
+  maxOptions: number,
+): string {
+  return (
+    options
+      ?.slice(0, maxOptions)
+      .map((o) => (typeof o === "string" ? o : o.label || o.value))
+      .join("|") ?? ""
   );
+}
+
+function purchaseActionPriority(el: InteractiveElement): number {
+  const haystack = elementSearchText(el);
 
   if (!haystack) return Number.POSITIVE_INFINITY;
   if (/\badd(?: item)? to (?:cart|bag|basket)\b/.test(haystack)) return 0;
@@ -420,19 +437,7 @@ function purchaseActionPriority(el: InteractiveElement): number {
 }
 
 function dateOrShowtimeControlPriority(el: InteractiveElement): number {
-  const haystack = normalizeComparable(
-    [
-      el.text,
-      el.label,
-      el.name,
-      el.placeholder,
-      el.description,
-      el.href,
-      el.role,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
+  const haystack = elementSearchText(el, ["role"]);
 
   if (!haystack) return Number.POSITIVE_INFINITY;
   if (
@@ -649,12 +654,7 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
         appendFieldAffordances(parts, el);
         if (el.options?.length) {
           const maxOptions = isDateOrShowtimeControl(el) ? 10 : 5;
-          parts.push(
-            `options=${el.options
-              .slice(0, maxOptions)
-              .map((o) => (typeof o === "string" ? o : o.label || o.value))
-              .join("|")}`,
-          );
+          parts.push(`options=${formatElementOptions(el.options, maxOptions)}`);
         }
       } else if (el.type === "textarea") {
         parts.push(`[${el.label || "Text Area"}]`);
@@ -745,10 +745,7 @@ function formatForms(forms: PageContent["forms"]): string {
             if (field.options?.length) {
               const maxOptions = isDateOrShowtimeControl(field) ? 10 : 5;
               fieldParts.push(
-                `options=${field.options
-                  .slice(0, maxOptions)
-                  .map((o) => (typeof o === "string" ? o : o.label || o.value))
-                  .join("|")}`,
+                `options=${formatElementOptions(field.options, maxOptions)}`,
               );
             }
           } else if (field.type === "textarea") {
