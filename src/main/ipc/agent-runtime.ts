@@ -15,6 +15,22 @@ import type { AgentRuntime } from "../agent/runtime";
 
 const ApprovalModeSchema = z.enum(["auto", "confirm-dangerous", "manual"]);
 const CheckpointIdSchema = z.string().min(1);
+const TaskTextSchema = z.string().trim().min(1).max(20_000);
+const OptionalTaskTextSchema = z.string().trim().max(20_000).optional();
+const OptionalNullableTaskTextSchema = z
+  .string()
+  .trim()
+  .max(20_000)
+  .nullable()
+  .optional();
+const TaskFactsSchema = z.record(
+  z.string().trim().min(1).max(200),
+  z.string().max(20_000),
+);
+const TaskMemoryPatchSchema = z.object({
+  nextStep: OptionalNullableTaskTextSchema,
+  facts: TaskFactsSchema.optional(),
+});
 
 export function registerAgentRuntimeHandlers(
   runtime: AgentRuntime,
@@ -129,4 +145,59 @@ export function registerAgentRuntimeHandlers(
       return runtime.restoreSession(snapshot);
     },
   );
+
+  // --- Task Memory ---
+
+  ipcMain.handle(Channels.AGENT_TASK_START, (event, goal: string) => {
+    assertTrustedIpcSender(event);
+    return runtime.startTaskMemory(parseIpc(TaskTextSchema, goal, "goal"));
+  });
+
+  ipcMain.handle(
+    Channels.AGENT_TASK_UPDATE,
+    (event, patch: unknown) => {
+      assertTrustedIpcSender(event);
+      return runtime.updateTaskMemory(
+        parseIpc(TaskMemoryPatchSchema, patch ?? {}, "patch"),
+      );
+    },
+  );
+
+  ipcMain.handle(Channels.AGENT_TASK_NOTE, (event, text: string) => {
+    assertTrustedIpcSender(event);
+    return runtime.addTaskNote(parseIpc(TaskTextSchema, text, "text"));
+  });
+
+  ipcMain.handle(Channels.AGENT_TASK_BLOCKER, (event, blocker?: unknown) => {
+    assertTrustedIpcSender(event);
+    const validated =
+      blocker == null
+        ? null
+        : parseIpc(OptionalNullableTaskTextSchema, blocker, "blocker");
+    return runtime.setTaskBlocker(validated ?? null);
+  });
+
+  ipcMain.handle(Channels.AGENT_TASK_RESOLVE, (event, summary?: unknown) => {
+    assertTrustedIpcSender(event);
+    return runtime.resolveTaskMemory(
+      summary == null
+        ? undefined
+        : parseIpc(OptionalTaskTextSchema, summary, "summary"),
+    );
+  });
+
+  ipcMain.handle(Channels.AGENT_TASK_ABANDON, (event, reason?: unknown) => {
+    assertTrustedIpcSender(event);
+    return runtime.abandonTaskMemory(
+      reason == null
+        ? undefined
+        : parseIpc(OptionalTaskTextSchema, reason, "reason"),
+    );
+  });
+
+  ipcMain.handle(Channels.AGENT_TASK_CLEAR, (event) => {
+    assertTrustedIpcSender(event);
+    runtime.clearTaskMemory();
+    return null;
+  });
 }

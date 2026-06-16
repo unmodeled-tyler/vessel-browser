@@ -269,6 +269,11 @@
   background-repeat: no-repeat;
   background-position: right 10px center;
 }
+.settings-select option,
+.settings-select optgroup {
+  color: var(--text-primary);
+  background-color: var(--bg-elevated);
+}
 .settings-textarea {
   width: 100%;
   padding: 8px 10px;

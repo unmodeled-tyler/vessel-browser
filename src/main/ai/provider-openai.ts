@@ -19,8 +19,7 @@ import {
   coerceToolArgsForExecution,
   isTargetlessClickArgs,
   parseToolArgsWithRepair,
-  recoverNarratedActionToolCalls,
-  recoverTextEncodedToolCalls,
+  recoverAssistantTextToolCalls,
   resolveToolCallName,
   shouldRetryUnexecutedHighlightCompletion,
   stableToolSignature,
@@ -746,7 +745,7 @@ export class OpenAICompatProvider implements AIProvider {
         }
 
         if (toolCalls.length === 0) {
-          const recoveredToolCalls = recoverTextEncodedToolCalls(
+          const recoveredToolCalls = recoverAssistantTextToolCalls(
             textAccum,
             availableToolNames,
           );
@@ -755,15 +754,6 @@ export class OpenAICompatProvider implements AIProvider {
             // The raw text containing tool-call JSON was already streamed to
             // the UI. Emit a signal so the renderer collapses it.
             if (textAccum.trim()) onChunk('<<erase_prev>>');
-          } else {
-            const narratedToolCalls = recoverNarratedActionToolCalls(
-              textAccum,
-              availableToolNames,
-            );
-            if (narratedToolCalls.length > 0) {
-              toolCalls = narratedToolCalls;
-              if (textAccum.trim()) onChunk('<<erase_prev>>');
-            }
           }
         }
 

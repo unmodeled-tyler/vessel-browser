@@ -19,4 +19,11 @@ export const AIChannels = {
   AGENT_UNDO_LAST_ACTION: "agent:undo-last-action",
   AGENT_SESSION_CAPTURE: "agent:session-capture",
   AGENT_SESSION_RESTORE: "agent:session-restore",
+  AGENT_TASK_START: "agent:task-start",
+  AGENT_TASK_UPDATE: "agent:task-update",
+  AGENT_TASK_NOTE: "agent:task-note",
+  AGENT_TASK_BLOCKER: "agent:task-blocker",
+  AGENT_TASK_RESOLVE: "agent:task-resolve",
+  AGENT_TASK_ABANDON: "agent:task-abandon",
+  AGENT_TASK_CLEAR: "agent:task-clear",
 } as const;

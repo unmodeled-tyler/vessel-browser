@@ -26,6 +26,7 @@ import type {
   SidebarPanelState,
   DownloadRecord,
   PermissionRecord,
+  TaskMemory,
   UpdateCheckResult,
   TabGroupColor,
   TabState,
@@ -220,6 +221,22 @@ const api = {
       snapshot?: SessionSnapshot | null,
     ): Promise<SessionSnapshot> =>
       ipcRenderer.invoke(Channels.AGENT_SESSION_RESTORE, snapshot),
+    startTaskMemory: (goal: string): Promise<TaskMemory> =>
+      ipcRenderer.invoke(Channels.AGENT_TASK_START, goal),
+    updateTaskMemory: (
+      patch: { nextStep?: string | null; facts?: Record<string, string> },
+    ): Promise<TaskMemory | null> =>
+      ipcRenderer.invoke(Channels.AGENT_TASK_UPDATE, patch),
+    addTaskNote: (text: string): Promise<TaskMemory | null> =>
+      ipcRenderer.invoke(Channels.AGENT_TASK_NOTE, text),
+    setTaskBlocker: (blocker?: string | null): Promise<TaskMemory | null> =>
+      ipcRenderer.invoke(Channels.AGENT_TASK_BLOCKER, blocker),
+    resolveTaskMemory: (summary?: string): Promise<TaskMemory | null> =>
+      ipcRenderer.invoke(Channels.AGENT_TASK_RESOLVE, summary),
+    abandonTaskMemory: (reason?: string): Promise<TaskMemory | null> =>
+      ipcRenderer.invoke(Channels.AGENT_TASK_ABANDON, reason),
+    clearTaskMemory: (): Promise<null> =>
+      ipcRenderer.invoke(Channels.AGENT_TASK_CLEAR),
   },
   research: {
     getState: (): Promise<ResearchState> =>

@@ -14,6 +14,7 @@ export interface AgentPromptInput {
   pendingApprovals: number;
   recentCheckpoints: string;
   taskTrackerContext: string;
+  taskMemoryContext: string;
 }
 
 const SHARED_CORE_INSTRUCTIONS = [
@@ -116,7 +117,10 @@ Recent checkpoints:
 ${input.recentCheckpoints || "- none"}
 
 Task tracker:
-${input.taskTrackerContext || "- none"}`;
+${input.taskTrackerContext || "- none"}
+
+Task memory:
+${input.taskMemoryContext || "- none"}`;
 }
 
 export function buildAgentSystemPrompt(input: AgentPromptInput): string {

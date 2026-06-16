@@ -7,11 +7,26 @@ import {
 import { useRuntime } from "../../stores/runtime";
 import "./chrome.css";
 
+const statusLabel: Record<string, string> = {
+  active: "Active",
+  completed: "Completed",
+  abandoned: "Abandoned",
+  blocked: "Blocked",
+};
+
+const statusIcon: Record<string, string> = {
+  active: "\u25B6",
+  completed: "\u2713",
+  abandoned: "\u2717",
+  blocked: "\u23F8",
+};
+
 const FlowProgress: Component = () => {
   const { runtimeState } = useRuntime();
 
   const flow = createMemo(() => runtimeState().flowState);
   const tracker = createMemo(() => runtimeState().taskTracker);
+  const taskMemory = createMemo(() => runtimeState().taskMemory);
 
   const stepStatusClass = (status: string) => {
     switch (status) {
@@ -30,8 +45,59 @@ const FlowProgress: Component = () => {
   };
 
   return (
-    <Show when={flow() || tracker()}>
+    <Show when={flow() || tracker() || taskMemory()}>
       <div class="flow-progress">
+        <Show when={taskMemory()}>
+          {(tm) => (
+            <div
+              class="flow-progress-section"
+              style={{ "margin-bottom": tracker() || flow() ? "12px" : "0" }}
+            >
+              <div class="flow-progress-header">
+                <span class="flow-progress-goal">
+                  {statusIcon[tm().status]} {tm().goal}
+                </span>
+                <span
+                  class={`task-memory-status task-memory-status-${tm().status}`}
+                >
+                  {statusLabel[tm().status]}
+                </span>
+              </div>
+              <Show when={tm().blocker}>
+                <div class="task-memory-blocker">Blocked: {tm().blocker}</div>
+              </Show>
+              <Show when={tm().nextStep}>
+                <div class="task-memory-next-step">Next: {tm().nextStep}</div>
+              </Show>
+              <Show when={Object.keys(tm().facts).length > 0}>
+                <div class="task-memory-facts">
+                  <For each={Object.entries(tm().facts)}>
+                    {([key, value]) => (
+                      <div class="task-memory-fact">
+                        <span class="task-memory-fact-key">{key}</span>
+                        <span class="task-memory-fact-value">{value}</span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={tm().notes.length > 0}>
+                <div class="task-memory-notes">
+                  <For each={tm().notes.slice(-3)}>
+                    {(note) => (
+                      <div class="task-memory-note">
+                        <span class="task-memory-note-time">
+                          {note.createdAt.slice(11, 16)}
+                        </span>
+                        <span class="task-memory-note-text">{note.text}</span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          )}
+        </Show>
         <Show when={tracker()}>
           {(t) => (
             <div class="flow-progress-section">

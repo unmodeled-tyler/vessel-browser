@@ -13,8 +13,7 @@ import {
   coerceToolArgsForExecution,
   isTargetlessClickArgs,
   parseToolArgsWithRepair,
-  recoverNarratedActionToolCalls,
-  recoverTextEncodedToolCalls,
+  recoverAssistantTextToolCalls,
   resolveToolCallName,
   stableToolSignature,
   unsupportedToolHint,
@@ -842,14 +841,10 @@ export class CodexProvider implements AIProvider {
         );
 
         if (functionCalls.length === 0) {
-          const recoveredTextCalls = recoverTextEncodedToolCalls(
+          const recoveredCalls = recoverAssistantTextToolCalls(
             result.text,
             availableToolNames,
           );
-          const recoveredCalls =
-            recoveredTextCalls.length > 0
-              ? recoveredTextCalls
-              : recoverNarratedActionToolCalls(result.text, availableToolNames);
           if (recoveredCalls.length > 0) {
             if (result.text.trim()) onChunk("<<erase_prev>>");
             functionCalls = recoveredCalls.map((toolCall) => ({

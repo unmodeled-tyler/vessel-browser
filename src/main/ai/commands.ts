@@ -113,6 +113,7 @@ export async function handleAIQuery(
         .map((item) => `- ${item.name} (${item.id})`)
         .join("\n");
       const taskTrackerContext = runtime.getTaskTrackerContext();
+      const taskMemoryContext = runtime.getTaskMemoryContext();
 
       const activeTabTitle = pageContent.title || "(untitled)";
       const activeTabUrl = pageContent.url || activeWebContents.getURL();
@@ -136,6 +137,7 @@ export async function handleAIQuery(
         pendingApprovals: runtimeState.supervisor.pendingApprovals.length,
         recentCheckpoints: recentCheckpoints || "- none",
         taskTrackerContext: taskTrackerContext || "- none",
+        taskMemoryContext: taskMemoryContext || "- none",
       });
 
       const actionCtx: ActionContext = {

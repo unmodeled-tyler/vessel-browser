@@ -1148,6 +1148,112 @@
 }
 
 /* ═══════════════════════════════════════
+   Task Memory overlay — in-flow progress
+   ═══════════════════════════════════════ */
+
+.task-memory-status {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.task-memory-status-active {
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.task-memory-status-completed {
+    color: var(--accent-secondary, #8aad6b);
+    background: color-mix(in srgb, var(--accent-secondary, #8aad6b) 12%, transparent);
+}
+
+.task-memory-status-abandoned {
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+}
+
+.task-memory-status-blocked {
+    color: var(--status-error);
+    background: color-mix(in srgb, var(--status-error) 12%, transparent);
+}
+
+.task-memory-blocker {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--status-error);
+    line-height: 1.4;
+}
+
+.task-memory-next-step {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.task-memory-facts {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.task-memory-fact {
+    display: flex;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.task-memory-fact-key {
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.task-memory-fact-key::after {
+    content: ":";
+}
+
+.task-memory-fact-value {
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-memory-notes {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.task-memory-note {
+    display: flex;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.task-memory-note-time {
+    color: var(--text-muted);
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+.task-memory-note-text {
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════
    Agent transcript dock — floating panel
    ═══════════════════════════════════════ */
 

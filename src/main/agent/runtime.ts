@@ -16,6 +16,7 @@ import type {
   FlowStepStatus,
   PendingApproval,
   SessionSnapshot,
+  TaskMemory,
   TaskTrackerState,
 } from "../../shared/types";
 import type { TabManager } from "../tabs/tab-manager";
@@ -32,6 +33,15 @@ import {
   formatTaskTracker,
   updateTaskTracker,
 } from "../ai/task-tracker";
+import {
+  createTaskMemory,
+  updateTaskMemory as updateTaskMemoryState,
+  addTaskNote as addTaskMemoryNote,
+  setTaskBlocker as setTaskMemoryBlocker,
+  resolveTaskMemory as resolveTaskMemoryState,
+  abandonTaskMemory as abandonTaskMemoryState,
+  formatTaskMemory,
+} from "../ai/task-memory";
 
 const MAX_ACTIONS = 120;
 const MAX_CHECKPOINTS = 20;
@@ -54,6 +64,7 @@ interface RuntimePersistenceShape {
   };
   actions: AgentActionEntry[];
   checkpoints: AgentCheckpoint[];
+  taskMemory: TaskMemory | null;
 }
 
 interface UndoSnapshot {
@@ -110,6 +121,9 @@ function sanitizePersistence(
   persisted: Partial<RuntimePersistenceShape> | null | undefined,
 ): AgentRuntimeState {
   const recoveredAt = new Date().toISOString();
+  const persistedTaskMemory = persisted?.taskMemory?.completedAt
+    ? null
+    : (persisted?.taskMemory ?? null);
   const actions = Array.isArray(persisted?.actions)
     ? persisted!.actions.slice(-MAX_ACTIONS).map((action) =>
         INTERRUPTED_ACTION_STATUSES.has(action.status)
@@ -141,6 +155,7 @@ function sanitizePersistence(
     mcpStatus: "stopped",
     flowState: null,
     taskTracker: null,
+    taskMemory: persistedTaskMemory,
   };
 }
 
@@ -244,6 +259,7 @@ export class AgentRuntime {
       createdAt: new Date().toISOString(),
       note: note?.trim() || undefined,
       snapshot,
+      taskMemory: this.state.taskMemory ? clone(this.state.taskMemory) : null,
     };
     this.state.checkpoints = [...this.state.checkpoints, checkpoint].slice(
       -MAX_CHECKPOINTS,
@@ -258,6 +274,9 @@ export class AgentRuntime {
       this.state.checkpoints.find((item) => item.id === checkpointId) || null;
     if (!checkpoint) return null;
     this.tabManager.restoreSession(checkpoint.snapshot);
+    this.state.taskMemory = checkpoint.taskMemory
+      ? clone(checkpoint.taskMemory)
+      : null;
     this.captureSession(`Restored ${checkpoint.name}`);
     return clone(checkpoint);
   }
@@ -401,6 +420,69 @@ export class AgentRuntime {
 
   getTaskTrackerContext(): string {
     return formatTaskTracker(this.state.taskTracker);
+  }
+
+  // --- Task Memory ---
+
+  startTaskMemory(
+    goal: string,
+    options?: { nextStep?: string | null; facts?: Record<string, string> },
+  ): TaskMemory {
+    this.state.taskMemory = createTaskMemory(goal, options);
+    this.emit();
+    return clone(this.state.taskMemory);
+  }
+
+  updateTaskMemory(patch: {
+    nextStep?: string | null;
+    facts?: Record<string, string>;
+  }): TaskMemory | null {
+    if (!this.state.taskMemory || this.state.taskMemory.completedAt) return null;
+    this.state.taskMemory = updateTaskMemoryState(this.state.taskMemory, patch);
+    this.emit();
+    return clone(this.state.taskMemory);
+  }
+
+  addTaskNote(text: string): TaskMemory | null {
+    if (!this.state.taskMemory || this.state.taskMemory.completedAt) return null;
+    this.state.taskMemory = addTaskMemoryNote(this.state.taskMemory, text);
+    this.emit();
+    return clone(this.state.taskMemory);
+  }
+
+  setTaskBlocker(blocker: string | null): TaskMemory | null {
+    if (!this.state.taskMemory || this.state.taskMemory.completedAt) return null;
+    this.state.taskMemory = setTaskMemoryBlocker(
+      this.state.taskMemory,
+      blocker,
+    );
+    this.emit();
+    return clone(this.state.taskMemory);
+  }
+
+  resolveTaskMemory(summary?: string): TaskMemory | null {
+    if (!this.state.taskMemory || this.state.taskMemory.completedAt) return null;
+    const resolved = resolveTaskMemoryState(this.state.taskMemory, summary);
+    this.state.taskMemory = null;
+    this.emit();
+    return clone(resolved);
+  }
+
+  abandonTaskMemory(reason?: string): TaskMemory | null {
+    if (!this.state.taskMemory || this.state.taskMemory.completedAt) return null;
+    const abandoned = abandonTaskMemoryState(this.state.taskMemory, reason);
+    this.state.taskMemory = null;
+    this.emit();
+    return clone(abandoned);
+  }
+
+  clearTaskMemory(): void {
+    this.state.taskMemory = null;
+    this.emit();
+  }
+
+  getTaskMemoryContext(): string {
+    return formatTaskMemory(this.state.taskMemory);
   }
 
   // --- Speedee Flow State ---
@@ -659,6 +741,7 @@ export class AgentRuntime {
       },
       actions: this.state.actions.slice(-MAX_ACTIONS),
       checkpoints: this.state.checkpoints.slice(-MAX_CHECKPOINTS),
+      taskMemory: this.state.taskMemory,
     };
 
     return fs.promises

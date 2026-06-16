@@ -458,6 +458,146 @@ export function recoverTextEncodedToolCalls(
   return recovered;
 }
 
+function findInlineToolMarkerBodies(text: string): string[] {
+  const bodies: string[] = [];
+  const lowerText = text.toLowerCase();
+  let searchIndex = 0;
+
+  while (searchIndex < text.length) {
+    const start = lowerText.indexOf('<<tool', searchIndex);
+    if (start === -1) break;
+
+    let quote: '"' | "'" | null = null;
+    let escaped = false;
+    let end = -1;
+
+    for (let index = start + 2; index < text.length - 1; index += 1) {
+      const char = text[index];
+      if (quote) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === quote) {
+          quote = null;
+        }
+        continue;
+      }
+
+      if (char === '"' || char === "'") {
+        quote = char;
+        continue;
+      }
+
+      if (char === '>' && text[index + 1] === '>') {
+        end = index;
+        break;
+      }
+    }
+
+    if (end === -1) {
+      searchIndex = start + 2;
+      continue;
+    }
+
+    bodies.push(text.slice(start + 2, end));
+    searchIndex = end + 2;
+  }
+
+  return bodies;
+}
+
+/**
+ * Recover tool calls that some providers (especially certain OpenRouter models)
+ * emit as inline text markers such as `<<tool=highlight:text="...">>` or
+ * `<<tool:navigate:url=...>>` instead of using the proper tool_calls API channel.
+ */
+export function recoverInlineToolMarkerToolCalls(
+  text: string,
+  availableToolNames: Set<string>,
+): Array<{ id: string; name: string; argsJson: string }> {
+  const recovered: Array<{ id: string; name: string; argsJson: string }> = [];
+
+  for (const markerBody of findInlineToolMarkerBodies(text)) {
+    const match = markerBody
+      .trim()
+      .match(/^tool[:=]([a-z_][a-z0-9_]*)(?:[:=]([\s\S]*))?$/i);
+    if (!match) continue;
+
+    const rawName = match[1] ?? '';
+    const rawArgs = (match[2] ?? '').trim();
+
+    const resolvedName = resolveToolCallName(
+      rawName,
+      {},
+      availableToolNames,
+    );
+    if (!availableToolNames.has(resolvedName)) continue;
+
+    let parsedArgs: Record<string, unknown> | null = null;
+
+    // Try raw JSON object first: <<tool:highlight:{"text":"..."}>>
+    if (rawArgs.startsWith('{')) {
+      const repaired = parseToolArgsWithRepair(resolvedName, rawArgs);
+      if (repaired) {
+        parsedArgs = repaired.args;
+      }
+    }
+
+    // Try key=value pairs: <<tool=highlight:text="...">>
+    if (!parsedArgs) {
+      const kvArgs: Record<string, string> = {};
+      const kvPattern =
+        /([a-z_][a-z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,\s]*))/gi;
+      let kvMatch: RegExpExecArray | null;
+      while ((kvMatch = kvPattern.exec(rawArgs)) !== null) {
+        const key = kvMatch[1];
+        const value = kvMatch[2] ?? kvMatch[3] ?? kvMatch[4] ?? '';
+        kvArgs[key] = value;
+      }
+      if (Object.keys(kvArgs).length > 0) {
+        parsedArgs = kvArgs;
+      }
+    }
+
+    // Fall back to scalar extraction for bare values.
+    if (!parsedArgs && rawArgs) {
+      const repaired = parseToolArgsWithRepair(resolvedName, rawArgs);
+      if (repaired) {
+        parsedArgs = repaired.args;
+      }
+    }
+
+    if (!parsedArgs) {
+      parsedArgs = {};
+    }
+
+    recovered.push({
+      id: `recovered_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: resolvedName,
+      argsJson: JSON.stringify(parsedArgs),
+    });
+  }
+
+  return recovered;
+}
+
+export function recoverAssistantTextToolCalls(
+  text: string,
+  availableToolNames: Set<string>,
+): Array<{ id: string; name: string; argsJson: string }> {
+  const textEncodedCalls = recoverTextEncodedToolCalls(text, availableToolNames);
+  if (textEncodedCalls.length > 0) return textEncodedCalls;
+
+  const inlineMarkerCalls = recoverInlineToolMarkerToolCalls(
+    text,
+    availableToolNames,
+  );
+  if (inlineMarkerCalls.length > 0) return inlineMarkerCalls;
+
+  return recoverNarratedActionToolCalls(text, availableToolNames);
+}
+
 export function recoverNarratedActionToolCalls(
   text: string,
   availableToolNames: Set<string>,

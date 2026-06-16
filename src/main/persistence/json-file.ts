@@ -55,7 +55,13 @@ export function loadJsonFile<T>({
     const decoded = decodeStoredData(raw, secure);
     return parse(JSON.parse(decoded));
   } catch (err) {
-    logger.warn(`Failed to load ${filePath}, using fallback:`, err);
+    const isMissingFile =
+      err instanceof Error && "code" in err && err.code === "ENOENT";
+    if (isMissingFile) {
+      logger.info(`Persistence file not found; using fallback defaults: ${filePath}`);
+    } else {
+      logger.warn(`Failed to load ${filePath}, using fallback:`, err);
+    }
     return fallback;
   }
 }

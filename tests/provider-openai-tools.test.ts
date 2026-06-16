@@ -6,6 +6,8 @@ import {
   coerceToolArgsForExecution,
   isTargetlessClickArgs,
   parseToolArgsWithRepair,
+  recoverAssistantTextToolCalls,
+  recoverInlineToolMarkerToolCalls,
   recoverNarratedActionToolCalls,
   recoverTextEncodedToolCalls,
   resolveToolCallName,
@@ -228,6 +230,81 @@ Action: Navigate to https://www.powells.com/.`,
   assert.equal(read.length, 1);
   assert.equal(read[0]?.name, "read_page");
   assert.equal(read[0]?.argsJson, '{"mode":"visible_only"}');
+});
+
+test("recovers inline tool markers emitted as text by some providers", () => {
+  const available = new Set([
+    "navigate",
+    "search",
+    "read_page",
+    "highlight",
+  ]);
+
+  const single = recoverInlineToolMarkerToolCalls(
+    '<<tool=highlight:text="Show HN: Homebrew 6.0.0">>',
+    available,
+  );
+  assert.equal(single.length, 1);
+  assert.equal(single[0]?.name, "highlight");
+  assert.deepEqual(JSON.parse(single[0]?.argsJson ?? "{}"), {
+    text: "Show HN: Homebrew 6.0.0",
+  });
+
+  const colon = recoverInlineToolMarkerToolCalls(
+    '<<tool:highlight:text="MiMo Code released & open-source">>',
+    available,
+  );
+  assert.equal(colon.length, 1);
+  assert.deepEqual(JSON.parse(colon[0]?.argsJson ?? "{}"), {
+    text: "MiMo Code released & open-source",
+  });
+
+  const multiple = recoverInlineToolMarkerToolCalls(
+    `<<tool=highlight:text="Story A">>\n<<tool=highlight:text="Story B">>`,
+    available,
+  );
+  assert.equal(multiple.length, 2);
+  assert.equal(multiple[0]?.name, "highlight");
+  assert.equal(multiple[1]?.name, "highlight");
+
+  const navigate = recoverInlineToolMarkerToolCalls(
+    '<<tool:navigate:url="https://example.com">>',
+    available,
+  );
+  assert.equal(navigate.length, 1);
+  assert.equal(navigate[0]?.name, "navigate");
+  assert.deepEqual(JSON.parse(navigate[0]?.argsJson ?? "{}"), {
+    url: "https://example.com",
+  });
+
+  const quotedDelimiter = recoverInlineToolMarkerToolCalls(
+    '<<tool=highlight:text="Revenue > costs">>',
+    available,
+  );
+  assert.equal(quotedDelimiter.length, 1);
+  assert.deepEqual(JSON.parse(quotedDelimiter[0]?.argsJson ?? "{}"), {
+    text: "Revenue > costs",
+  });
+
+  const unsupported = recoverInlineToolMarkerToolCalls(
+    '<<tool=unsupported:text="nope">>',
+    available,
+  );
+  assert.equal(unsupported.length, 0);
+});
+
+test("assistant text recovery prefers explicit inline markers over narrated fallback", () => {
+  const available = new Set(["highlight", "navigate", "search", "read_page"]);
+  const recovered = recoverAssistantTextToolCalls(
+    'Action: Use highlight tool. <<tool=highlight:text="Story A">>',
+    available,
+  );
+
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0]?.name, "highlight");
+  assert.deepEqual(JSON.parse(recovered[0]?.argsJson ?? "{}"), {
+    text: "Story A",
+  });
 });
 
 test("detects highlight completion claims without a successful highlight tool", () => {

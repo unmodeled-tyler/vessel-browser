@@ -18,6 +18,7 @@ import { registerPromptTools } from "./tools/prompts";
 import { registerGroupTools } from "./tools/groups";
 import { registerHighlightTools } from "./tools/highlights";
 import { registerFlowTools } from "./tools/flow";
+import { registerTaskMemoryTools } from "./tools/task-memory";
 import { registerMacroTools } from "./tools/macros";
 import { registerVaultTools } from "./tools/vault";
 import { registerMetricsTools } from "./tools/metrics";
@@ -50,6 +51,7 @@ function registerTools(
   registerMemoryTools(server, tabManager, runtime);
 
   registerFlowTools(server, tabManager, runtime);
+  registerTaskMemoryTools(server, tabManager, runtime);
   registerMacroTools(server, tabManager, runtime);
   registerVaultTools(server, tabManager, runtime);
   registerMetricsTools(server, tabManager, runtime);

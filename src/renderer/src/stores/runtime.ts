@@ -17,6 +17,7 @@ const DEFAULT_RUNTIME_STATE: AgentRuntimeState = {
   mcpStatus: "stopped",
   flowState: null,
   taskTracker: null,
+  taskMemory: null,
   canUndo: false,
   undoInfo: null,
 };
@@ -68,5 +69,13 @@ export function useRuntime() {
     undoLastAction: () => window.vessel.ai.undoLastAction(),
     captureSession: (note?: string) => window.vessel.ai.captureSession(note),
     restoreSession: () => window.vessel.ai.restoreSession(),
+    startTaskMemory: (goal: string) => window.vessel.ai.startTaskMemory(goal),
+    updateTaskMemory: (patch: { nextStep?: string | null; facts?: Record<string, string> }) =>
+      window.vessel.ai.updateTaskMemory(patch),
+    addTaskNote: (text: string) => window.vessel.ai.addTaskNote(text),
+    setTaskBlocker: (blocker?: string | null) => window.vessel.ai.setTaskBlocker(blocker),
+    resolveTaskMemory: (summary?: string) => window.vessel.ai.resolveTaskMemory(summary),
+    abandonTaskMemory: (reason?: string) => window.vessel.ai.abandonTaskMemory(reason),
+    clearTaskMemory: () => window.vessel.ai.clearTaskMemory(),
   };
 }

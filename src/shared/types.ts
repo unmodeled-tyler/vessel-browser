@@ -364,6 +364,7 @@ export interface AgentCheckpoint {
   createdAt: string;
   note?: string;
   snapshot: SessionSnapshot;
+  taskMemory?: TaskMemory | null;
 }
 
 export interface SupervisorState {
@@ -434,6 +435,29 @@ export interface TaskTrackerState {
   cartVisible?: boolean;
 }
 
+// --- Task Memory ---
+
+export type TaskMemoryStatus = "active" | "completed" | "abandoned" | "blocked";
+
+export interface TaskMemoryNote {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface TaskMemory {
+  id: string;
+  goal: string;
+  status: TaskMemoryStatus;
+  blocker: string | null;
+  notes: TaskMemoryNote[];
+  nextStep: string | null;
+  facts: Record<string, string>;
+  startedAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
 export interface AgentRuntimeState {
   session: SessionSnapshot | null;
   supervisor: SupervisorState;
@@ -443,6 +467,7 @@ export interface AgentRuntimeState {
   mcpStatus: McpConnectionStatus;
   flowState: FlowState | null;
   taskTracker: TaskTrackerState | null;
+  taskMemory: TaskMemory | null;
   canUndo: boolean;
   undoInfo: { actionName: string; capturedAt: string } | null;
 }
