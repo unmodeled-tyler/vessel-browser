@@ -176,6 +176,16 @@ export async function handleAIQuery(
         let isError = false;
         try {
           output = await executeAction(name, args, actionCtx);
+          // Tool actions report soft failures as strings starting with "Error:"
+          // (e.g. "Error: Error[hidden]: ...", pageBusyError, "Error: Could not
+          // resolve click target") rather than by throwing. Flag those as
+          // errors in the trace too, so failing click→read_page loops surface
+          // in devtools / agent traces instead of looking like successful
+          // calls. Success outputs use other prefixes ("[read_page mode=...",
+          // "Clicked ...", "Blocked: ..."), so this does not false-positive.
+          if (/^\s*Error:/i.test(output)) {
+            isError = true;
+          }
           if (provider.agentToolProfile === "compact") {
             runtime.updateTaskTracker(name, output);
             const trackerCtx = runtime.getTaskTrackerContext();

@@ -67,6 +67,7 @@ tests/*.test.ts
 !tests/bookmark-context.test.ts
 !tests/bookmark-page-source.test.ts
 !tests/browser-qol-refactors.test.ts
+!tests/click-targets.test.ts
 !tests/cloudflare-premium-worker.test.ts
 !tests/channel-contract.test.ts
 !tests/dom-selectors.test.ts
@@ -95,6 +96,7 @@ tests/*.test.ts
 !tests/security-hardening.test.ts
 !tests/structured-data.test.ts
 !tests/summary-context.test.ts
+!tests/tool-guardrails.test.ts
 tests/local/
 tests/*.local.ts
 tests/*.scratch.ts

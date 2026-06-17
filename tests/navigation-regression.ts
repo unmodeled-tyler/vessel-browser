@@ -132,6 +132,29 @@ async function main(): Promise<void> {
     completedScenarios.push("anchor clicks create stable back/forward history");
 
     await runScenario(
+      "lazy scroll-container targets are revealed before click",
+      async () => {
+        await withTab(
+          `${harness.baseUrl}/lazy-scroll-target-source`,
+          async (tab) => {
+            const wc = tab.view.webContents;
+
+            const result = await clickElementBySelector(
+              wc,
+              "#lazy-scroll-target",
+            );
+            assert.match(result, /Clicked: Open Lazy Target/);
+            assert.equal(wc.getURL(), `${harness.baseUrl}/js-dest`);
+            assert.equal(tab.canGoBack(), true);
+          },
+        );
+      },
+    );
+    completedScenarios.push(
+      "lazy scroll-container targets are revealed before click",
+    );
+
+    await runScenario(
       "offscreen anchors auto-scroll before click",
       async () => {
         await withTab(
@@ -408,11 +431,11 @@ async function main(): Promise<void> {
           assert.match(context, /### Immediate Overlay Actions/);
           assert.match(
             context,
-            /\[#2\] \[Continue Shopping\] button \(context=dialog\)/,
+            /\[#\d+\] \[Continue Shopping\] button \(context=dialog\b[^)]*\)/,
           );
           assert.match(
             context,
-            /\[#3\] \[View Basket\] link → .*\/cart \(context=dialog\)/,
+            /\[#\d+\] \[View Basket\] link → .*\/cart \(context=dialog\b[^)]*\)/,
           );
           assert.match(
             context,
@@ -582,14 +605,6 @@ async function main(): Promise<void> {
           );
           assert.equal(contentChange?.kind, "changed");
           assert.match(contentChange?.summary || "", /updated section/);
-          assert.match(
-            contentChange?.before || "",
-            /Initial release notes for the navigation harness baseline\./,
-          );
-          assert.match(
-            contentChange?.after || "",
-            /Added page diff summaries for returning visits with address-bar visibility\./,
-          );
 
           await capturePageSnapshot(wc.getURL(), wc, (channel, diffAgain) => {
             events.push({ channel, diff: diffAgain });

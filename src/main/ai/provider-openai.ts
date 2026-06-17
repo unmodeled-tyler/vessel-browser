@@ -10,7 +10,10 @@ import {
   type AgentToolProfile,
 } from './tool-profile';
 import type { ProviderId } from '../../shared/types';
-import { isClickReadLoop, hasRecentDuplicateToolCall } from './tool-guardrails';
+import {
+  ClickReadLoopGuard,
+  hasRecentDuplicateToolCall,
+} from './tool-guardrails';
 import { LLAMA_CPP_MIN_CTX_TOKENS, LLAMA_CPP_RECOMMENDED_CTX_TOKENS } from './content-limits';
 import { createLogger } from '../../shared/logger';
 import { TERMINAL_TOOL_RESULT } from './tool-control';
@@ -650,10 +653,9 @@ export class OpenAICompatProvider implements AIProvider {
       let highlightCompletionRecoveryCount = 0;
       let compactCorrectionCount = 0;
       const recentCompactToolSignatures: string[] = [];
-      const recentToolNames: string[] = [];
       const successfulToolNames: string[] = [];
       const searchLoopGuard = new SearchLoopGuard(isSearchContextResettingTool);
-      let clickReadLoopNudged = false;
+      const clickReadLoopGuard = new ClickReadLoopGuard();
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         let textAccum = '';
@@ -1006,6 +1008,17 @@ export class OpenAICompatProvider implements AIProvider {
             }
             continue;
           }
+          const clickLoopPreflight = clickReadLoopGuard.beforeTool(tc.name);
+          if (clickLoopPreflight?.kind === 'suppress') {
+            onChunk(`\n<<tool:click:↻ loop suppressed>>\n`);
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: clickLoopPreflight.message,
+            });
+            compactCorrectionCount += 1;
+            continue;
+          }
           const argSummary = [args.url, args.query, args.text, args.direction]
             .map((v): string => typeof v === 'string' ? v : '')
             .find((v) => v.length > 0) ?? '';
@@ -1051,25 +1064,11 @@ export class OpenAICompatProvider implements AIProvider {
             toolSucceeded,
           );
 
-          // Detect click→read_page alternating loop: the model clicks, reads
-          // the result, clicks again, reads again, etc. without making progress.
-          recentToolNames.push(tc.name);
-          if (recentToolNames.length > 8) recentToolNames.shift();
-          if (
-            !clickReadLoopNudged &&
-            recentToolNames.length >= 6 &&
-            isClickReadLoop(recentToolNames)
-          ) {
-            clickReadLoopNudged = true;
-            messages.push({
-              role: 'user',
-              content:
-                `[System] You are alternating between click and read_page without advancing the task. ` +
-                `The click result already includes a page snapshot when it navigates — you do not need read_page after every click. ` +
-                `If you need detail on a specific element, use inspect_element instead. ` +
-                `If you have enough context, proceed with the next action directly.`,
-            });
-          }
+          const clickLoopIntervention = clickReadLoopGuard.afterToolResult(
+            tc.name,
+            toolContent,
+            toolSucceeded,
+          );
 
           compactCorrectionCount = 0;
           iterationToolResultPreviews.push(toolContent);
@@ -1079,6 +1078,9 @@ export class OpenAICompatProvider implements AIProvider {
             tool_call_id: tc.id,
             content: toolContent,
           });
+          if (clickLoopIntervention?.kind === 'nudge') {
+            messages.push({ role: 'user', content: clickLoopIntervention.message });
+          }
         }
 
         const followUpReminder = followUpReminderForProfile(

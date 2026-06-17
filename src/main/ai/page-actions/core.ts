@@ -7,6 +7,7 @@ import {
   waitForPotentialNavigation as waitForPotentialNavigationQuietly,
   QUIET_NAVIGATION_WINDOW_MS,
 } from "../../utils/webcontents-utils";
+import { assertPermittedNavigationURL } from "../../network/url-safety";
 import { createLogger } from "../../../shared/logger";
 
 export interface ActionContext {
@@ -57,7 +58,6 @@ export interface FillFormFieldResult {
 }
 
 export async function loadPermittedUrl(wc: WebContents, url: string): Promise<void> {
-  const { assertPermittedNavigationURL } = await import("../../network/url-safety");
   assertPermittedNavigationURL(url);
   await wc.loadURL(url);
 }

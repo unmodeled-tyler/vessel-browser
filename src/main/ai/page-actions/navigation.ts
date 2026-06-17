@@ -322,9 +322,14 @@ export async function clickResolvedSelector(wc: WebContents, selector: string): 
   const clickResult = await clickElement(wc, selector);
   if (clickResult.startsWith("Error:")) return clickResult;
 
-  await waitForPotentialNavigation(wc, beforeUrl);
+  const initialNavigationWaitMs =
+    /DOM activation/i.test(clickResult) && !elInfo.href ? 800 : undefined;
+  await waitForPotentialNavigation(wc, beforeUrl, initialNavigationWaitMs);
   const afterUrl = wc.getURL();
   if (afterUrl !== beforeUrl) {
+    if (/DOM activation/i.test(clickResult)) {
+      return `${clickText} -> ${afterUrl} (recovered via DOM activation)`;
+    }
     return `${clickText} -> ${afterUrl}`;
   }
 
@@ -351,6 +356,10 @@ export async function clickResolvedSelector(wc: WebContents, selector: string): 
       )}`;
     }
     return `${clickText} (${clickResult})${await buildCartSuccessSuffix(wc, beforeUrl)}`;
+  }
+
+  if (/DOM activation/i.test(clickResult) && (!elInfo.href || elInfo.target === "_blank")) {
+    return `${clickText} (${clickResult})`;
   }
 
   const activationResult = await activateElement(wc, selector);

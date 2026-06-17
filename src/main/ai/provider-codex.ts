@@ -7,7 +7,11 @@ import { writeStoredCodexTokens, clearStoredCodexTokens } from "../config/settin
 import { createLogger } from "../../shared/logger";
 import { getEffectiveMaxIterations } from "../premium/manager";
 import { TERMINAL_TOOL_RESULT } from "./tool-control";
-import { isClickReadLoop, hasRecentDuplicateToolCall } from "./tool-guardrails";
+import {
+  ClickReadLoopGuard,
+  classifyClickFailure,
+  hasRecentDuplicateToolCall,
+} from "./tool-guardrails";
 import { isRichToolResult, type TextBlock } from "./tool-result";
 import {
   coerceToolArgsForExecution,
@@ -529,6 +533,7 @@ function buildCodexFailedClickRecoveryInput(
   attemptedTarget: string,
   latestToolResultPreview: string | null,
   failedClickCount = 1,
+  errorOutput = "",
 ): CodexInputItem {
   const stateReminder = buildLatestStateReminder(latestToolResultPreview);
   // Keep the message short: the click did not complete, here's the
@@ -538,10 +543,29 @@ function buildCodexFailedClickRecoveryInput(
   // (Primary Results, [#N] indexes) — but the model already knows
   // what it's clicking on. Excessive negative guidance was making
   // the model spiral through failed clicks in our transcripts.
+  const clickFailureKind = classifyClickFailure(errorOutput);
   const lines = [
     `[System] The previous click did not complete${attemptedTarget ? ` for ${attemptedTarget}` : ""}.`,
-    `Take the next step yourself: try a different target, refresh the page state with read_page, call inspect_element on the intended element, or answer from the results already visible in the conversation. Do not ask the user to inspect or click the result for you.`,
   ];
+  if (clickFailureKind === "hidden") {
+    // The target exists in the DOM but has no layout box — collapsed,
+    // lazy-loaded, or virtual-scroll content. "Try a different target" feeds
+    // the loop here (the model re-picks a similar hidden neighbor); scrolling
+    // toward the element first is what actually reveals it. Lead with that
+    // remedy, matching the tool's own error guidance and the circuit-breaker's
+    // strike-2 nudge.
+    lines.push(
+      `The click target was hidden / not laid out (collapsed, lazy-loaded, or virtual-scroll). Call scroll or scroll_to_element toward it to reveal it, then read_page to refresh visible elements, before clicking again — or inspect_element on the intended index, or answer from the results already visible. Do not ask the user to inspect or click the result for you.`,
+    );
+  } else if (clickFailureKind === "stale") {
+    lines.push(
+      `The click target was stale — the page changed since the last snapshot. Call read_page to refresh current indexes, then choose a currently listed target, inspect_element on the intended element, or answer from the results already visible. Do not ask the user to inspect or click the result for you.`,
+    );
+  } else {
+    lines.push(
+      `Take the next step yourself: try a different target, refresh the page state with read_page, call inspect_element on the intended element, or answer from the results already visible in the conversation. Do not ask the user to inspect or click the result for you.`,
+    );
+  }
   if (failedClickCount >= 2) {
     lines.push(
       `You have already had multiple failed clicks without making page progress. Do not keep clicking similar search result titles. Use the latest read_page/search result text to answer, or inspect a specific indexed result/control only if essential.`,
@@ -811,8 +835,7 @@ export class CodexProvider implements AIProvider {
     let flightPriceEvidenceRecoveryCount = 0;
     let correctionCount = 0;
     const recentToolSignatures: string[] = [];
-    const recentToolNames: string[] = [];
-    let clickReadLoopNudged = false;
+    const clickReadLoopGuard = new ClickReadLoopGuard();
     let latestToolResultPreview: string | null = null;
     let failedClickCountSinceProgress = 0;
     const searchLoopGuard = new SearchLoopGuard(isRealProgressTool);
@@ -981,6 +1004,21 @@ export class CodexProvider implements AIProvider {
             continue;
           }
 
+          const clickLoopPreflight = clickReadLoopGuard.beforeTool(
+            prepared.prepared.name,
+          );
+          if (clickLoopPreflight?.kind === "suppress") {
+            onChunk(`\n<<tool:click:↻ loop suppressed>>\n`);
+            const suppressed = createCodexToolOutput(
+              prepared.prepared.callId,
+              clickLoopPreflight.message,
+            );
+            currentInput.push(suppressed);
+            latestToolResultPreview = previewToolResult(suppressed.output);
+            correctionCount += 1;
+            continue;
+          }
+
           const output = await executePreparedCodexFunctionCall(
             prepared.prepared,
             onChunk,
@@ -1035,6 +1073,7 @@ export class CodexProvider implements AIProvider {
                 summarizeToolArg(prepared.prepared.args),
                 latestToolResultPreview,
                 failedClickCountSinceProgress,
+                outputText,
               ),
             );
           }
@@ -1042,24 +1081,16 @@ export class CodexProvider implements AIProvider {
           if (recentToolSignatures.length > 4) {
             recentToolSignatures.shift();
           }
-          recentToolNames.push(prepared.prepared.name);
-          if (recentToolNames.length > 8) recentToolNames.shift();
-          if (
-            !clickReadLoopNudged &&
-            recentToolNames.length >= 6 &&
-            isClickReadLoop(recentToolNames)
-          ) {
-            clickReadLoopNudged = true;
+          const clickLoopIntervention = clickReadLoopGuard.afterToolResult(
+            prepared.prepared.name,
+            outputText,
+            toolSucceeded,
+          );
+          if (clickLoopIntervention?.kind === "nudge") {
             currentInput.push({
               type: "message",
               role: "user",
-              content: [{
-                type: "input_text",
-                text:
-                  `[System] You are alternating between click and read_page without advancing the task. ` +
-                  `The click result already includes a page snapshot when it navigates, so do not read_page after every click. ` +
-                  `If you need detail on a specific element, use inspect_element. Otherwise continue the original task directly.`,
-              }],
+              content: [{ type: "input_text", text: clickLoopIntervention.message }],
             });
           }
           correctionCount = 0;

@@ -787,3 +787,103 @@ test(
     // didn't call it in this scripted scenario. That's expected.)
   },
 );
+
+test(
+  "Codex harness bounds a sustained failing click→read_page loop (suppresses, does not terminate)",
+  { timeout: 15_000 },
+  async () => {
+    // Reproduces the powells failure loop: the model fixates on a hidden
+    // result link, clicking it and reading the page over and over. Every
+    // click fails with Error[hidden] (lazy-loaded element, not laid out).
+    // The harness must bound this — after a few failing loop iterations it
+    // suppresses further clicks (returning an error result, NOT terminating
+    // the run) and steers the model to scroll. This respects the no-terminate
+    // contract while preventing the runaway loop that previously burned to
+    // maxIterations with an empty response.
+    const HIDDEN_CLICK_ERROR =
+      "Error: Error[hidden]: Element has no visible area. It may be inside a " +
+      "collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it " +
+      "(scroll or scroll_to_element) then call read_page to refresh visible " +
+      "elements before clicking again.";
+    const provider = new CodexProvider(codexTokens(), "gpt-5");
+    const chunks: string[] = [];
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const requestBodies: Array<Record<string, unknown>> = [];
+
+    await withMockFetch(async (_input, init) => {
+      requestBodies.push(
+        JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      );
+      const requestCount = requestBodies.length;
+      // Alternate click(1) and read_page for several rounds — a stubborn model
+      // that never scrolls. Then let it give a natural final answer.
+      if (requestCount % 2 === 1 && requestCount <= 13) {
+        return codexSseResponse([clickCall(`call_click_${requestCount}`, 1)]);
+      }
+      if (requestCount % 2 === 0 && requestCount <= 14) {
+        return codexSseResponse([readPageCall(`call_read_${requestCount}`)]);
+      }
+      return codexSseResponse([
+        {
+          type: "response.output_text.delta",
+          delta:
+            "I could not click through to the Dune paperback after several attempts.",
+        },
+      ]);
+    }, () =>
+      provider.streamAgentQuery(
+        "system prompt",
+        "go to powells.com and add 5 sci fi books to the cart",
+        [CLICK_TOOL, READ_PAGE_TOOL],
+        (chunk) => chunks.push(chunk),
+        async (name) => {
+          calls.push({ name, args: {} });
+          if (name === "click") return HIDDEN_CLICK_ERROR;
+          return "Page snapshot with Dune paperback result.";
+        },
+        () => undefined,
+      ),
+    );
+
+    const executedClicks = calls.filter((c) => c.name === "click").length;
+
+    // The loop is bounded: not every click attempt executed. The model
+    // attempted ~7 clicks, but the harness suppressed the later ones.
+    assert.ok(
+      executedClicks >= 1 && executedClicks <= 5,
+      `clicks should be bounded (got ${executedClicks}) — the failing loop must not run every attempt`,
+    );
+
+    // CRUCIAL: no termination chunk. Suppressing a click is not terminating
+    // the run — the model is steered, not stopped.
+    const terminationChunks = chunks.filter((chunk) =>
+      chunk.includes("<<task_complete: stopped after"),
+    );
+    assert.equal(
+      terminationChunks.length,
+      0,
+      "harness must not terminate the run on a failing click loop (align with Ollama/OpenAI)",
+    );
+
+    // The harness suppressed at least one click (emitted the loop-suppressed
+    // marker) rather than executing it.
+    const suppressedChunks = chunks.filter((chunk) =>
+      chunk.includes("<<tool:click:↻ loop suppressed>>"),
+    );
+    assert.ok(
+      suppressedChunks.length >= 1,
+      "the harness should suppress repeated failing clicks in the loop",
+    );
+
+    // The steering guidance (scroll) reached the model — proving the nudge/
+    // suppression pointed at the real remedy instead of "try a different
+    // target", which is what fed the loop.
+    const reachedScrollGuidance = requestBodies.some((body) =>
+      JSON.stringify(body).toLowerCase().includes("scroll"),
+    );
+    assert.ok(
+      reachedScrollGuidance,
+      "the loop intervention should steer the model to scroll (the remedy the tool's own error names)",
+    );
+  },
+);

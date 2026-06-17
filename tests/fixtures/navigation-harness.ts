@@ -134,6 +134,46 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
       return;
     }
 
+    if (method === "GET" && url.pathname === "/lazy-scroll-target-source") {
+      sendHtml(
+        res,
+        renderPage(
+          "lazy-scroll-target-source",
+          `
+            <h1>Lazy Scroll Target Source</h1>
+            <p>The target only gains a layout box after its scroll container moves.</p>
+            <div
+              id="lazy-scroller"
+              style="height: 220px; overflow-y: auto; border: 1px solid #9ca3af;"
+            >
+              <div style="height: 900px;"></div>
+              <button
+                id="lazy-scroll-target"
+                type="button"
+                onclick="window.location.href='/js-dest'"
+                style="display: block; height: 0; min-height: 0; overflow: hidden;"
+              >
+                Open Lazy Target
+              </button>
+              <div style="height: 600px;"></div>
+            </div>
+            <script>
+              const scroller = document.getElementById("lazy-scroller");
+              const target = document.getElementById("lazy-scroll-target");
+              target.scrollIntoView = function() {};
+              scroller.addEventListener("scroll", () => {
+                if (scroller.scrollTop > 500) {
+                  target.style.height = "44px";
+                  target.style.minHeight = "44px";
+                }
+              });
+            </script>
+          `,
+        ),
+      );
+      return;
+    }
+
     if (method === "GET" && url.pathname === "/js-source") {
       sendHtml(
         res,
@@ -174,14 +214,17 @@ export async function createNavigationHarnessServer(): Promise<NavigationHarness
               <a
                 id="go-obstructed-anchor"
                 href="/anchor-dest"
-                style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 16px; background: #eef3ff; color: #17325c; text-decoration: none;"
+                style="position: absolute; inset: 0; display: flex; align-items: center; padding: 0 16px; background: #eef3ff; color: #17325c; text-decoration: none; pointer-events: none;"
               >
                 Go to Anchor Dest Through Overlay
               </a>
-              <div
+              <button
+                type="button"
                 aria-hidden="true"
-                style="position: absolute; inset: 0; background: rgba(255, 255, 255, 0.01); z-index: 2;"
-              ></div>
+                tabindex="-1"
+                onclick="event.preventDefault(); event.stopPropagation(); window.__obstructionClicks = (window.__obstructionClicks || 0) + 1;"
+                style="position: absolute; inset: 0; background: rgba(255, 255, 255, 0.01); border: 0; padding: 0; z-index: 10;"
+              ></button>
             </div>
           `,
         ),

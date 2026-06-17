@@ -746,3 +746,129 @@ test(
     );
   },
 );
+
+test(
+  "Codex harness steers a hidden click target toward scroll instead of 'try a different target'",
+  { timeout: 10_000 },
+  async () => {
+    // A hidden / not-laid-out click target (lazy-loaded, virtual-scroll, or
+    // collapsed) is the case where "try a different target" feeds the loop —
+    // the model re-picks a similar hidden neighbor. The recovery input should
+    // instead lead with scroll / scroll_to_element to reveal the element,
+    // matching the tool's own error guidance and the circuit-breaker's
+    // strike-2 nudge.
+    const provider = new CodexProvider(codexTokens(), "gpt-5");
+    const chunks: string[] = [];
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const requestBodies: Array<Record<string, unknown>> = [];
+
+    await withMockFetch(async (_input, init) => {
+      requestBodies.push(
+        JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      );
+      const requestCount = requestBodies.length;
+      if (requestCount === 1) {
+        return codexSseResponse([clickCall("call_click_1", 12)]);
+      }
+      return codexSseResponse([clickCall("call_click_2", 13)]);
+    }, () =>
+      provider.streamAgentQuery(
+        "system prompt",
+        "click the second result",
+        [CLICK_TOOL, READ_PAGE_TOOL],
+        (chunk) => chunks.push(chunk),
+        async (name) => {
+          calls.push({ name, args: {} });
+          return "Error: Error[hidden]: Element has no visible area. It may be inside a collapsed, lazy-loaded, or virtual-scroll section. Scroll toward it (scroll or scroll_to_element) then call read_page to refresh visible elements before clicking again.";
+        },
+        () => undefined,
+      ),
+    );
+
+    // The recovery input is pushed on the 2nd turn (after the failed hidden
+    // click). It should name the failure and steer toward scroll — NOT
+    // "try a different target", which is what feeds a hidden-target loop.
+    const turn2Input = JSON.stringify(requestBodies[1]?.input ?? []);
+    assert.match(
+      turn2Input,
+      /previous click did not complete/i,
+      "recovery input should still mention the failed click",
+    );
+    assert.match(
+      turn2Input,
+      /#12/,
+      "recovery input should name the failing target",
+    );
+    assert.match(
+      turn2Input,
+      /scroll_to_element|\bscroll\b/i,
+      "hidden target recovery should steer toward scroll, not a different target",
+    );
+    assert.match(
+      turn2Input,
+      /hidden|not laid out/i,
+      "recovery should name the hidden-target cause",
+    );
+    assert.doesNotMatch(
+      turn2Input,
+      /try a different target/i,
+      "hidden target recovery should not suggest 'try a different target' (that feeds the loop)",
+    );
+  },
+);
+
+test(
+  "Codex harness steers a stale click target toward read_page refresh, not scroll",
+  { timeout: 10_000 },
+  async () => {
+    const provider = new CodexProvider(codexTokens(), "gpt-5");
+    const chunks: string[] = [];
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    const requestBodies: Array<Record<string, unknown>> = [];
+
+    await withMockFetch(async (_input, init) => {
+      requestBodies.push(
+        JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      );
+      const requestCount = requestBodies.length;
+      if (requestCount === 1) {
+        return codexSseResponse([clickCall("call_click_1", 12)]);
+      }
+      return codexSseResponse([clickCall("call_click_2", 13)]);
+    }, () =>
+      provider.streamAgentQuery(
+        "system prompt",
+        "click the second result",
+        [CLICK_TOOL, READ_PAGE_TOOL],
+        (chunk) => chunks.push(chunk),
+        async (name) => {
+          calls.push({ name, args: {} });
+          return "Error: Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh.";
+        },
+        () => undefined,
+      ),
+    );
+
+    const turn2Input = JSON.stringify(requestBodies[1]?.input ?? []);
+    assert.match(
+      turn2Input,
+      /previous click did not complete/i,
+      "recovery input should still mention the failed click",
+    );
+    assert.match(
+      turn2Input,
+      /read_page/i,
+      "stale target recovery should refresh page state/indexes",
+    );
+    assert.match(
+      turn2Input,
+      /stale|page changed|snapshot/i,
+      "stale target recovery should name the stale-index cause",
+    );
+    assert.doesNotMatch(
+      turn2Input,
+      /hidden|not laid out|scroll_to_element|\bscroll\b/i,
+      "stale target recovery should not misclassify the target as hidden or steer to scroll",
+    );
+  },
+);

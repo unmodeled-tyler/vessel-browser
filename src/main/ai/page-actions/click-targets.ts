@@ -37,6 +37,60 @@ export async function clickElement(wc: WebContents, selector: string): Promise<s
         }));
       }
 
+      // Sum offsetTop up the offsetParent chain until reaching "container",
+      // giving the element's vertical position within that scroll container.
+      function offsetTopWithin(el, container) {
+        let top = 0;
+        let node = el;
+        while (node && node !== container) {
+          top += node.offsetTop || 0;
+          node = node.offsetParent;
+        }
+        return top;
+      }
+
+      function nearestScrollableAncestor(el) {
+        let node = el.parentElement;
+        while (node) {
+          if (node instanceof HTMLElement) {
+            const style = window.getComputedStyle(node);
+            if (
+              (style.overflowY === "auto" || style.overflowY === "scroll") &&
+              node.scrollHeight > node.clientHeight
+            ) {
+              return node;
+            }
+          }
+          node = node.parentElement;
+        }
+        return null;
+      }
+
+      // Wait for the element to gain a non-zero layout box, polling for up to
+      // maxFrames animation frames. Lazy / virtual-scroll renderers
+      // (content-visibility, intersection-triggered list items) often lay out
+      // a frame or two after the scroller moves. Falls back to setTimeout when
+      // the window is hidden (requestAnimationFrame does not fire then).
+      function waitForBox(el, maxFrames) {
+        return new Promise((resolve) => {
+          let frames = 0;
+          const rafAvailable =
+            typeof requestAnimationFrame === "function" &&
+            document.visibilityState === "visible";
+          const schedule = rafAvailable
+            ? (cb) => requestAnimationFrame(cb)
+            : (cb) => setTimeout(cb, 16);
+          const check = () => {
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) return resolve(true);
+            if (frames >= maxFrames) return resolve(false);
+            frames += 1;
+            schedule(check);
+          };
+          check();
+        });
+      }
+
       const el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return { error: "Error[stale-index]: Element not found — the page may have changed. Call read_page to refresh." };
 
@@ -44,21 +98,26 @@ export async function clickElement(wc: WebContents, selector: string): Promise<s
         el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
       }
 
-      await new Promise((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          resolve(undefined);
-        };
-        if (
-          typeof requestAnimationFrame === "function" &&
-          document.visibilityState === "visible"
-        ) {
-          requestAnimationFrame(() => finish());
+      // Give the renderer a brief grace to lay the element out after the
+      // initial scroll. Already-visible elements resolve on the first check.
+      let revealed = await waitForBox(el, 4);
+
+      // scrollIntoView is a no-op on zero-rect elements (collapsed, lazy, or
+      // virtual-scroll content). Force the nearest scrollable ancestor to bring
+      // the element's offset position into view, then wait longer for the
+      // renderer to produce a layout box. This recovers many hidden targets
+      // without the model having to scroll manually.
+      if (!revealed) {
+        const scroller = nearestScrollableAncestor(el);
+        if (scroller) {
+          const targetTop = offsetTopWithin(el, scroller) - scroller.clientHeight / 2;
+          scroller.scrollTop = Math.max(0, targetTop);
         }
-        setTimeout(finish, 32);
-      });
+        if (el instanceof HTMLElement) {
+          el.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+        }
+        revealed = await waitForBox(el, 24);
+      }
 
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {

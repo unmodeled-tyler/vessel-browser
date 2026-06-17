@@ -4,7 +4,7 @@ import type { AIMessage, ReasoningEffortLevel } from "../../shared/types";
 import { isRichToolResult, type RichToolResult } from "./tool-result";
 import { getEffectiveMaxIterations } from "../premium/manager";
 import type { AgentToolProfile } from "./tool-profile";
-import { isClickReadLoop } from "./tool-guardrails";
+import { ClickReadLoopGuard } from "./tool-guardrails";
 import { AGENT_STREAM_IDLE_TIMEOUT_MS } from "../config/timing";
 import { TERMINAL_TOOL_RESULT } from "./tool-control";
 import {
@@ -133,8 +133,7 @@ export class AnthropicProvider implements AIProvider {
     try {
       const maxIterations = getEffectiveMaxIterations();
       let iterationsUsed = 0;
-      const recentToolNames: string[] = [];
-      let clickReadLoopNudged = false;
+      const clickReadLoopGuard = new ClickReadLoopGuard();
       for (let i = 0; i < maxIterations; i++) {
         iterationsUsed = i + 1;
         const stream = this.client.messages.stream(
@@ -267,6 +266,7 @@ export class AnthropicProvider implements AIProvider {
 
         // Execute tools and build tool_result messages
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
+        const loopNudges: string[] = [];
         for (const tb of toolUseBlocks) {
           // If the model sent malformed JSON args, send an error instead of executing
           if (tb._malformedArgs !== undefined) {
@@ -275,6 +275,18 @@ export class AnthropicProvider implements AIProvider {
               type: "tool_result",
               tool_use_id: tb.id,
               content: `Error: Invalid JSON in tool arguments — could not parse. Please retry with valid JSON. Raw input: ${tb._malformedArgs.slice(0, 200)}`,
+              is_error: true,
+            });
+            continue;
+          }
+
+          const clickLoopPreflight = clickReadLoopGuard.beforeTool(tb.name);
+          if (clickLoopPreflight?.kind === "suppress") {
+            onChunk(`\n<<tool:click:↻ loop suppressed>>\n`);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: tb.id,
+              content: clickLoopPreflight.message,
               is_error: true,
             });
             continue;
@@ -294,6 +306,8 @@ export class AnthropicProvider implements AIProvider {
           if (result === TERMINAL_TOOL_RESULT) {
             return;
           }
+
+          const toolSucceeded = !/^Error:/i.test(result.trim());
 
           // Check if the result contains rich content (images)
           let parsedRich: RichToolResult | null = null;
@@ -330,27 +344,18 @@ export class AnthropicProvider implements AIProvider {
             });
           }
 
-          // Track tool names for click→read_page loop detection
-          recentToolNames.push(tb.name);
-          if (recentToolNames.length > 8) recentToolNames.shift();
+          const clickLoopIntervention = clickReadLoopGuard.afterToolResult(
+            tb.name,
+            result,
+            toolSucceeded,
+          );
+          if (clickLoopIntervention?.kind === "nudge") {
+            loopNudges.push(clickLoopIntervention.message);
+          }
         }
         messages.push({ role: "user", content: toolResults });
-
-        // Detect click→read_page alternating loop and inject a nudge
-        if (
-          !clickReadLoopNudged &&
-          recentToolNames.length >= 6 &&
-          isClickReadLoop(recentToolNames)
-        ) {
-          clickReadLoopNudged = true;
-          messages.push({
-            role: "user",
-            content:
-              `You are alternating between click and read_page without advancing the task. ` +
-              `The click result already includes a page snapshot when it navigates — you do not need read_page after every click. ` +
-              `If you need detail on a specific element, use inspect_element instead. ` +
-              `If you have enough context, proceed with the next action directly.`,
-          });
+        for (const nudge of loopNudges) {
+          messages.push({ role: "user", content: nudge });
         }
       }
       if (iterationsUsed >= maxIterations) {
