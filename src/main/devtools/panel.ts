@@ -261,6 +261,7 @@ export function registerDisabledDevToolsPanelHandlers(
   };
   ipc.handle(Channels.DEVTOOLS_PANEL_TOGGLE, () => disabledDevToolsState);
   ipc.handle(Channels.DEVTOOLS_PANEL_CLOSE, () => disabledDevToolsState);
+  ipc.handle(Channels.DEVTOOLS_PANEL_OPEN_TAB, () => disabledDevToolsState);
   ipc.handle(Channels.DEVTOOLS_PANEL_STATE_GET, () => disabledPanelState);
   ipc.handle(Channels.DEVTOOLS_PANEL_RESIZE_START, () => undefined);
   ipc.handle(Channels.DEVTOOLS_PANEL_RESIZE, () => 0);

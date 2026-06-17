@@ -445,6 +445,11 @@ const DevToolsPanel: Component = () => {
     onCleanup(cleanup);
   });
 
+  createEffect(() => {
+    const cleanup = window.vessel.devtoolsPanel.onSelectTab(setActiveTab);
+    onCleanup(cleanup);
+  });
+
   // Close export dropdown on outside click
   createEffect(() => {
     if (!showExport()) return;

@@ -20,6 +20,7 @@ import { togglePictureInPicture } from "./picture-in-picture";
 import {
   assertTrustedIpcSender,
   parseIpc,
+  sendSafe,
   type SendToRendererViews,
 } from "./common";
 import type { WindowState } from "../window";
@@ -56,6 +57,13 @@ const KitIdSchema = z.string().min(1);
 const SkillSourceSchema = z.string().min(1).max(100_000);
 const OriginSchema = z.string().min(1);
 const DevToolsHeightSchema = z.number().finite().min(0).max(2000);
+const DevToolsPanelTabSchema = z.enum([
+  "console",
+  "network",
+  "activity",
+  "agentTrace",
+  "pageMap",
+]);
 const RendererViewSchema = z.enum(["chrome", "sidebar", "devtools"]);
 
 export function registerSystemHandlers(
@@ -108,6 +116,27 @@ export function registerSystemHandlers(
     assertTrustedIpcSender(event);
     stopDevToolsResize();
     return closeDevToolsPanel(windowState, { relayout });
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_OPEN_TAB, (event, tab: unknown) => {
+    assertTrustedIpcSender(event);
+    const selectedTab = parseIpc(DevToolsPanelTabSchema, tab, "tab");
+    stopDevToolsResize();
+    if (!getDevToolsPanelHostState(windowState).open) {
+      toggleDockedDevToolsPanel(windowState, { relayout });
+    } else if (getDevToolsPanelHostState(windowState).detached) {
+      windowState.devtoolsPanelWindow?.focus();
+    }
+    emitDevToolsPanelHostState(windowState);
+    sendSafe(
+      windowState.devtoolsPanelView.webContents,
+      Channels.DEVTOOLS_PANEL_SELECT_TAB,
+      selectedTab,
+    );
+    if (selectedTab === "pageMap") {
+      void refreshDevToolsPageMap(tabManager);
+    }
+    return getDevToolsPanelHostState(windowState);
   });
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE_START, (event) => {

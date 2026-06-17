@@ -40,6 +40,7 @@ import type {
 import type {
   DevToolsPanelHostState,
   DevToolsPanelState,
+  DevToolsPanelTab,
 } from "../shared/devtools-types";
 import type {
   ResearchClarification,
@@ -481,6 +482,8 @@ const api = {
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
     close: (): Promise<DevToolsPanelHostState> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_CLOSE),
+    openTab: (tab: DevToolsPanelTab): Promise<DevToolsPanelHostState> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_OPEN_TAB, tab),
     startResize: (): Promise<void> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE_START),
     resize: (height: number): Promise<number> =>
@@ -508,6 +511,12 @@ const api = {
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_HOST_STATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_HOST_STATE, handler);
+    },
+    onSelectTab: (cb: (tab: DevToolsPanelTab) => void): (() => void) => {
+      const handler = (_: unknown, tab: DevToolsPanelTab) => cb(tab);
+      ipcRenderer.on(Channels.DEVTOOLS_PANEL_SELECT_TAB, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_SELECT_TAB, handler);
     },
   },
   find: {
