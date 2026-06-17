@@ -12,6 +12,14 @@
   border-top: 1px solid var(--border-visible);
 }
 
+.devtools-panel.tracking-resize {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--devtools-panel-height);
+}
+
 .devtools-resize-handle {
   position: absolute;
   top: -1px;

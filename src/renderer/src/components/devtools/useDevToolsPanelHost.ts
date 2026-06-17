@@ -51,6 +51,9 @@ export function useDevToolsPanelHost(): DevToolsPanelHostControls {
     setIsResizing(true);
     document.body.style.cursor = "row-resize";
     document.body.style.userSelect = "none";
+    void window.vessel.devtoolsPanel.startResize().catch(() => {
+      /* ignore IPC failures during drag start */
+    });
 
     const startY = event.screenY;
     const startHeight = window.innerHeight;
@@ -69,6 +72,12 @@ export function useDevToolsPanelHost(): DevToolsPanelHostControls {
         });
     };
 
+    const commitResize = () => {
+      void window.vessel.devtoolsPanel.commitResize().catch(() => {
+        /* ignore commit failures during drag cleanup */
+      });
+    };
+
     const clearPointerTracking = () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
@@ -85,6 +94,7 @@ export function useDevToolsPanelHost(): DevToolsPanelHostControls {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       setIsResizing(false);
+      commitResize();
     };
 
     const scheduleResize = () => {

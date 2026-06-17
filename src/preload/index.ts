@@ -481,8 +481,12 @@ const api = {
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
     close: (): Promise<DevToolsPanelHostState> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_CLOSE),
+    startResize: (): Promise<void> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE_START),
     resize: (height: number): Promise<number> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE, height),
+    commitResize: (): Promise<void> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE_COMMIT),
     popOut: (): Promise<DevToolsPanelHostState> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_POPOUT),
     dock: (): Promise<DevToolsPanelHostState> =>

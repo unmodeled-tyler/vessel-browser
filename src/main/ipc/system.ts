@@ -40,6 +40,7 @@ import {
   resizeDockedDevToolsPanel,
   toggleDockedDevToolsPanel,
 } from "../devtools/panel";
+import { isSidebarAttached } from "../sidebar-panel";
 import {
   createKitFromText,
   getInstalledKits,
@@ -61,7 +62,30 @@ export function registerSystemHandlers(
   sendToRendererViews: SendToRendererViews,
 ): void {
   const { tabManager } = windowState;
+  let devToolsResizeRecoveryTimer: NodeJS.Timeout | null = null;
+  let devToolsResizeActive = false;
   const relayout = () => layoutViews(windowState);
+  const clearDevToolsResizeRecoveryTimer = () => {
+    if (!devToolsResizeRecoveryTimer) return;
+    clearTimeout(devToolsResizeRecoveryTimer);
+    devToolsResizeRecoveryTimer = null;
+  };
+  const stopDevToolsResize = () => {
+    devToolsResizeActive = false;
+    clearDevToolsResizeRecoveryTimer();
+  };
+  const restoreDevToolsLayoutAfterResize = () => {
+    clearDevToolsResizeRecoveryTimer();
+    if (!devToolsResizeActive) return;
+    devToolsResizeActive = false;
+    relayout();
+  };
+  const scheduleDevToolsResizeRecovery = () => {
+    clearDevToolsResizeRecoveryTimer();
+    devToolsResizeRecoveryTimer = setTimeout(() => {
+      restoreDevToolsLayoutAfterResize();
+    }, 1200);
+  };
   const maxDockedDevToolsHeight = () => {
     const [, windowHeight] = windowState.mainWindow.getContentSize();
     const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
@@ -71,14 +95,38 @@ export function registerSystemHandlers(
     );
   };
 
+  windowState.mainWindow.once("closed", stopDevToolsResize);
+
   ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, (event) => {
     assertTrustedIpcSender(event);
+    stopDevToolsResize();
     return toggleDockedDevToolsPanel(windowState, { relayout });
   });
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_CLOSE, (event) => {
     assertTrustedIpcSender(event);
+    stopDevToolsResize();
     return closeDevToolsPanel(windowState, { relayout });
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE_START, (event) => {
+    assertTrustedIpcSender(event);
+    if (!getDevToolsPanelHostState(windowState).open) return;
+    if (getDevToolsPanelHostState(windowState).detached) return;
+    devToolsResizeActive = true;
+    clearDevToolsResizeRecoveryTimer();
+    const [windowWidth, windowHeight] = windowState.mainWindow.getContentSize();
+    const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
+    const sidebarWidth = isSidebarAttached(windowState)
+      ? windowState.uiState.sidebarWidth
+      : 0;
+    windowState.devtoolsPanelView.setBounds({
+      x: 0,
+      y: chromeHeight,
+      width: windowWidth - sidebarWidth,
+      height: windowHeight - chromeHeight,
+    });
+    scheduleDevToolsResizeRecovery();
   });
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE, (event, height: unknown) => {
@@ -88,12 +136,25 @@ export function registerSystemHandlers(
       MIN_DEVTOOLS_PANEL,
       Math.min(maxDockedDevToolsHeight(), Math.round(validatedHeight)),
     );
+    if (devToolsResizeActive) {
+      windowState.uiState.devtoolsPanelHeight = clamped;
+      scheduleDevToolsResizeRecovery();
+      emitDevToolsPanelHostState(windowState);
+      return clamped;
+    }
     resizeDockedDevToolsPanel(windowState, clamped, relayout);
     return clamped;
   });
 
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE_COMMIT, (event) => {
+    assertTrustedIpcSender(event);
+    stopDevToolsResize();
+    relayout();
+  });
+
   ipcMain.handle(Channels.DEVTOOLS_PANEL_POPOUT, (event) => {
     assertTrustedIpcSender(event);
+    stopDevToolsResize();
     return detachDevToolsPanel(windowState, {
       relayout,
       getWindowIconPath,
@@ -102,6 +163,7 @@ export function registerSystemHandlers(
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_DOCK, (event) => {
     assertTrustedIpcSender(event);
+    stopDevToolsResize();
     return dockDevToolsPanel(windowState, { relayout });
   });
 

@@ -374,7 +374,11 @@ const DevToolsPanel: Component = () => {
     !exportConsole() && !exportNetwork() && !exportActivity();
 
   return (
-    <div class="devtools-panel">
+    <div
+      class="devtools-panel"
+      classList={{ "tracking-resize": isResizing() }}
+      style={{ "--devtools-panel-height": `${hostState().height}px` }}
+    >
       <Show when={!hostState().detached}>
         <div
           class="devtools-resize-handle"
