@@ -37,7 +37,12 @@ import type {
   PageDiff,
   PageDiffHistoryItem,
 } from "../shared/page-diff-types";
-import type { DevToolsPanelState } from "../shared/devtools-types";
+import type {
+  DevToolsPanelHostState,
+  DevToolsPageMapRevealStatus,
+  DevToolsPanelState,
+  DevToolsPanelTab,
+} from "../shared/devtools-types";
 import type {
   ResearchClarification,
   ResearchState,
@@ -474,15 +479,47 @@ const api = {
     },
   },
   devtoolsPanel: {
-    toggle: (): Promise<{ open: boolean }> =>
+    toggle: (): Promise<DevToolsPanelHostState> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_TOGGLE),
-    resize: (height: number) =>
+    close: (): Promise<DevToolsPanelHostState> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_CLOSE),
+    openTab: (tab: DevToolsPanelTab): Promise<DevToolsPanelHostState> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_OPEN_TAB, tab),
+    startResize: (): Promise<void> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE_START),
+    resize: (height: number): Promise<number> =>
       ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE, height),
+    commitResize: (): Promise<void> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_RESIZE_COMMIT),
+    popOut: (): Promise<DevToolsPanelHostState> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_POPOUT),
+    dock: (): Promise<DevToolsPanelHostState> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_DOCK),
+    getState: (): Promise<DevToolsPanelState> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_STATE_GET),
+    getHostState: (): Promise<DevToolsPanelHostState> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PANEL_HOST_STATE_GET),
+    revealElement: (selector: string): Promise<DevToolsPageMapRevealStatus> =>
+      ipcRenderer.invoke(Channels.DEVTOOLS_PAGE_MAP_REVEAL, { selector }),
     onStateUpdate: (cb: (state: DevToolsPanelState) => void): (() => void) => {
       const handler = (_: unknown, state: DevToolsPanelState) => cb(state);
       ipcRenderer.on(Channels.DEVTOOLS_PANEL_STATE, handler);
       return () =>
         ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_STATE, handler);
+    },
+    onHostStateUpdate: (
+      cb: (state: DevToolsPanelHostState) => void,
+    ): (() => void) => {
+      const handler = (_: unknown, state: DevToolsPanelHostState) => cb(state);
+      ipcRenderer.on(Channels.DEVTOOLS_PANEL_HOST_STATE, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_HOST_STATE, handler);
+    },
+    onSelectTab: (cb: (tab: DevToolsPanelTab) => void): (() => void) => {
+      const handler = (_: unknown, tab: DevToolsPanelTab) => cb(tab);
+      ipcRenderer.on(Channels.DEVTOOLS_PANEL_SELECT_TAB, handler);
+      return () =>
+        ipcRenderer.removeListener(Channels.DEVTOOLS_PANEL_SELECT_TAB, handler);
     },
   },
   find: {

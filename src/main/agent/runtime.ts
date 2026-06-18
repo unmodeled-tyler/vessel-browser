@@ -85,6 +85,17 @@ interface ControlledActionOptions {
   executor: () => Promise<string>;
 }
 
+export interface AgentRuntimeActionLifecycleEvent {
+  actionId: string;
+  source: ActionSource;
+  name: string;
+  args: Record<string, unknown>;
+  tabId: string | null;
+  phase: "started" | "waiting-approval" | "rejected" | "completed" | "failed";
+  detail?: string;
+  durationMs?: number;
+}
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -162,6 +173,9 @@ function sanitizePersistence(
 export class AgentRuntime {
   private state: AgentRuntimeState;
   private updateListener: ((state: AgentRuntimeState) => void) | null = null;
+  private actionLifecycleListener:
+    | ((event: AgentRuntimeActionLifecycleEvent) => void)
+    | null = null;
   private pendingResolvers = new Map<string, (approved: boolean) => void>();
   private undoSnapshots: UndoSnapshot[] = [];
   private mcpUnsubscribe: (() => void) | null = null;
@@ -178,6 +192,12 @@ export class AgentRuntime {
     if (listener) {
       listener(this.getState());
     }
+  }
+
+  setActionLifecycleListener(
+    listener: ((event: AgentRuntimeActionLifecycleEvent) => void) | null,
+  ): void {
+    this.actionLifecycleListener = listener;
   }
 
   /**
@@ -202,6 +222,7 @@ export class AgentRuntime {
     this.state.flowState = null;
     this.state.taskTracker = null;
     this.updateListener = null;
+    this.actionLifecycleListener = null;
   }
 
   getState(): AgentRuntimeState {
@@ -571,8 +592,19 @@ export class AgentRuntime {
       args,
       tabId,
     });
+    const actionStartedAt = Date.now();
     const transcriptStreamId = `action:${action.id}`;
     const transcriptTitle = humanizeActionName(name);
+
+    this.emitActionLifecycle({
+      actionId: action.id,
+      source,
+      name,
+      args,
+      tabId,
+      phase: "started",
+      detail: summarizeArgs(args),
+    });
 
     this.publishTranscript({
       source,
@@ -585,6 +617,16 @@ export class AgentRuntime {
 
     const approvalReason = this.getApprovalReason(dangerous, requiresApproval);
     if (approvalReason) {
+      this.emitActionLifecycle({
+        actionId: action.id,
+        source,
+        name,
+        args,
+        tabId,
+        phase: "waiting-approval",
+        detail: approvalReason,
+        durationMs: Date.now() - actionStartedAt,
+      });
       this.publishTranscript({
         source,
         kind: "status",
@@ -595,6 +637,16 @@ export class AgentRuntime {
       });
       const approved = await this.awaitApproval(action, approvalReason);
       if (!approved) {
+        this.emitActionLifecycle({
+          actionId: action.id,
+          source,
+          name,
+          args,
+          tabId,
+          phase: "rejected",
+          detail: approvalReason,
+          durationMs: Date.now() - actionStartedAt,
+        });
         this.publishTranscript({
           source,
           kind: "status",
@@ -631,6 +683,16 @@ export class AgentRuntime {
         this.pushUndoSnapshot(undoSnapshot);
       }
       this.finishAction(action.id, "completed", summarizeText(result));
+      this.emitActionLifecycle({
+        actionId: action.id,
+        source,
+        name,
+        args,
+        tabId,
+        phase: "completed",
+        detail: summarizeText(result),
+        durationMs: Date.now() - actionStartedAt,
+      });
       this.publishTranscript({
         source,
         kind: "status",
@@ -646,6 +708,16 @@ export class AgentRuntime {
         error instanceof Error ? error.message : "Unknown action failure";
       this.state.supervisor.lastError = message;
       this.finishAction(action.id, "failed", undefined, message);
+      this.emitActionLifecycle({
+        actionId: action.id,
+        source,
+        name,
+        args,
+        tabId,
+        phase: "failed",
+        detail: summarizeText(message),
+        durationMs: Date.now() - actionStartedAt,
+      });
       this.publishTranscript({
         source,
         kind: "status",
@@ -655,6 +727,16 @@ export class AgentRuntime {
         mode: "final",
       });
       throw error;
+    }
+  }
+
+  private emitActionLifecycle(event: AgentRuntimeActionLifecycleEvent): void {
+    try {
+      this.actionLifecycleListener?.(event);
+    } catch (error) {
+      logger.warn("Action lifecycle listener failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

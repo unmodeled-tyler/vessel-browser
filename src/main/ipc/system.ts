@@ -20,15 +20,34 @@ import { togglePictureInPicture } from "./picture-in-picture";
 import {
   assertTrustedIpcSender,
   parseIpc,
+  sendSafe,
   type SendToRendererViews,
 } from "./common";
 import type { WindowState } from "../window";
 import type { ClearDataOptions } from "../../shared/types";
 import {
+  CHROME_HEIGHT,
+  getWindowIconPath,
   layoutViews,
   MIN_DEVTOOLS_PANEL,
   MAX_DEVTOOLS_PANEL,
 } from "../window";
+import {
+  closeDevToolsPanel,
+  detachDevToolsPanel,
+  dockDevToolsPanel,
+  emitDevToolsPanelHostState,
+  getDevToolsPanelHostState,
+  resizeDockedDevToolsPanel,
+  toggleDockedDevToolsPanel,
+} from "../devtools/panel";
+import {
+  disableCaptureForTab,
+  enableCaptureForTab,
+  refreshDevToolsPageMap,
+} from "../devtools/tools";
+import { revealPageMapElement } from "../devtools/page-map-reveal";
+import { isSidebarAttached } from "../sidebar-panel";
 import {
   createKitFromText,
   getInstalledKits,
@@ -42,26 +61,196 @@ import { assertFeatureUnlocked } from "../premium/manager";
 const KitIdSchema = z.string().min(1);
 const SkillSourceSchema = z.string().min(1).max(100_000);
 const OriginSchema = z.string().min(1);
+const DevToolsHeightSchema = z.number().finite().min(0).max(2000);
+const DevToolsPageMapRevealSchema = z.object({
+  selector: z.string().min(1),
+});
+const DevToolsPanelTabSchema = z.enum([
+  "console",
+  "network",
+  "activity",
+  "agentTrace",
+  "pageMap",
+]);
+const RendererViewSchema = z.enum(["chrome", "sidebar", "devtools"]);
 
 export function registerSystemHandlers(
   windowState: WindowState,
   sendToRendererViews: SendToRendererViews,
 ): void {
   const { tabManager } = windowState;
+  let devToolsResizeRecoveryTimer: NodeJS.Timeout | null = null;
+  let devToolsResizeActive = false;
+  const relayout = () => layoutViews(windowState);
+  const clearDevToolsResizeRecoveryTimer = () => {
+    if (!devToolsResizeRecoveryTimer) return;
+    clearTimeout(devToolsResizeRecoveryTimer);
+    devToolsResizeRecoveryTimer = null;
+  };
+  const stopDevToolsResize = () => {
+    devToolsResizeActive = false;
+    clearDevToolsResizeRecoveryTimer();
+  };
+  const restoreDevToolsLayoutAfterResize = () => {
+    clearDevToolsResizeRecoveryTimer();
+    if (!devToolsResizeActive) return;
+    devToolsResizeActive = false;
+    relayout();
+  };
+  const scheduleDevToolsResizeRecovery = () => {
+    clearDevToolsResizeRecoveryTimer();
+    devToolsResizeRecoveryTimer = setTimeout(() => {
+      restoreDevToolsLayoutAfterResize();
+    }, 1200);
+  };
+  const maxDockedDevToolsHeight = () => {
+    const [, windowHeight] = windowState.mainWindow.getContentSize();
+    const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
+    return Math.max(
+      MIN_DEVTOOLS_PANEL,
+      Math.min(MAX_DEVTOOLS_PANEL, windowHeight - chromeHeight - 80),
+    );
+  };
+
+  windowState.mainWindow.once("closed", stopDevToolsResize);
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_TOGGLE, (event) => {
     assertTrustedIpcSender(event);
-    windowState.uiState.devtoolsPanelOpen = !windowState.uiState.devtoolsPanelOpen;
-    layoutViews(windowState);
-    return { open: windowState.uiState.devtoolsPanelOpen };
+    stopDevToolsResize();
+    const hostState = toggleDockedDevToolsPanel(windowState, { relayout });
+    if (hostState.open) {
+      void enableCaptureForTab(tabManager);
+    } else {
+      disableCaptureForTab();
+    }
+    return hostState;
   });
 
-  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE, (event, height: number) => {
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_CLOSE, (event) => {
     assertTrustedIpcSender(event);
-    const clamped = Math.max(MIN_DEVTOOLS_PANEL, Math.min(MAX_DEVTOOLS_PANEL, Math.round(height)));
-    windowState.uiState.devtoolsPanelHeight = clamped;
-    layoutViews(windowState);
+    stopDevToolsResize();
+    const hostState = closeDevToolsPanel(windowState, { relayout });
+    disableCaptureForTab();
+    return hostState;
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_OPEN_TAB, (event, tab: unknown) => {
+    assertTrustedIpcSender(event);
+    const selectedTab = parseIpc(DevToolsPanelTabSchema, tab, "tab");
+    stopDevToolsResize();
+    const wasOpen = getDevToolsPanelHostState(windowState).open;
+    if (!wasOpen) {
+      toggleDockedDevToolsPanel(windowState, { relayout });
+      void enableCaptureForTab(tabManager);
+    } else if (getDevToolsPanelHostState(windowState).detached) {
+      windowState.devtoolsPanelWindow?.focus();
+    }
+    emitDevToolsPanelHostState(windowState);
+    sendSafe(
+      windowState.devtoolsPanelView.webContents,
+      Channels.DEVTOOLS_PANEL_SELECT_TAB,
+      selectedTab,
+    );
+    if (selectedTab === "pageMap") {
+      void refreshDevToolsPageMap(tabManager);
+    }
+    return getDevToolsPanelHostState(windowState);
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE_START, (event) => {
+    assertTrustedIpcSender(event);
+    if (!getDevToolsPanelHostState(windowState).open) return;
+    if (getDevToolsPanelHostState(windowState).detached) return;
+    devToolsResizeActive = true;
+    clearDevToolsResizeRecoveryTimer();
+    const [windowWidth, windowHeight] = windowState.mainWindow.getContentSize();
+    const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
+    const sidebarWidth = isSidebarAttached(windowState)
+      ? windowState.uiState.sidebarWidth
+      : 0;
+    windowState.devtoolsPanelView.setBounds({
+      x: 0,
+      y: chromeHeight,
+      width: windowWidth - sidebarWidth,
+      height: windowHeight - chromeHeight,
+    });
+    scheduleDevToolsResizeRecovery();
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE, (event, height: unknown) => {
+    assertTrustedIpcSender(event);
+    const validatedHeight = parseIpc(DevToolsHeightSchema, height, "height");
+    const clamped = Math.max(
+      MIN_DEVTOOLS_PANEL,
+      Math.min(maxDockedDevToolsHeight(), Math.round(validatedHeight)),
+    );
+    if (devToolsResizeActive) {
+      windowState.uiState.devtoolsPanelHeight = clamped;
+      scheduleDevToolsResizeRecovery();
+      emitDevToolsPanelHostState(windowState);
+      return clamped;
+    }
+    resizeDockedDevToolsPanel(windowState, clamped, relayout);
     return clamped;
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_RESIZE_COMMIT, (event) => {
+    assertTrustedIpcSender(event);
+    stopDevToolsResize();
+    relayout();
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_POPOUT, (event) => {
+    assertTrustedIpcSender(event);
+    stopDevToolsResize();
+    return detachDevToolsPanel(windowState, {
+      relayout,
+      getWindowIconPath,
+    });
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_DOCK, (event) => {
+    assertTrustedIpcSender(event);
+    stopDevToolsResize();
+    return dockDevToolsPanel(windowState, { relayout });
+  });
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_STATE_GET, async (event) => {
+    assertTrustedIpcSender(event);
+    if (getDevToolsPanelHostState(windowState).open) {
+      void enableCaptureForTab(tabManager);
+    }
+    return await refreshDevToolsPageMap(tabManager);
+  });
+
+  ipcMain.handle(
+    Channels.DEVTOOLS_PAGE_MAP_REVEAL,
+    async (event, payload: unknown) => {
+      assertTrustedIpcSender(event);
+      const { selector } = parseIpc(
+        DevToolsPageMapRevealSchema,
+        payload,
+        "payload",
+      );
+      return await revealPageMapElement(tabManager, selector);
+    },
+  );
+
+  ipcMain.handle(Channels.DEVTOOLS_PANEL_HOST_STATE_GET, (event) => {
+    assertTrustedIpcSender(event);
+    return getDevToolsPanelHostState(windowState);
+  });
+
+  ipcMain.on(Channels.RENDERER_VIEW_READY, (event, view: unknown) => {
+    assertTrustedIpcSender(event);
+    const readyView = parseIpc(RendererViewSchema, view, "view");
+    if (readyView !== "devtools") return;
+    emitDevToolsPanelHostState(windowState);
+    void refreshDevToolsPageMap(tabManager);
+    // If the panel is open, ensure capture is active for the active tab.
+    if (getDevToolsPanelHostState(windowState).open) {
+      void enableCaptureForTab(tabManager);
+    }
   });
 
   ipcMain.handle(Channels.AUTOMATION_GET_INSTALLED, async (event) => {

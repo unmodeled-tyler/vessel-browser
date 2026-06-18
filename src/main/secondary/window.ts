@@ -18,6 +18,7 @@ import { resolveRendererFile } from "../startup/renderer";
 import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
 import { createFindInPageBridge } from "../tabs/find-bridge";
 import { sendSafe } from "../ipc/common";
+import { registerDisabledDevToolsPanelHandlers } from "../devtools/panel";
 
 interface SecondaryWindowState {
   window: BaseWindow;
@@ -153,7 +154,7 @@ function registerSecondaryIpcHandlers(state: SecondaryWindowState): void {
   ipc.handle(Channels.SETTINGS_VISIBILITY, () => false);
   ipc.handle(Channels.FOCUS_MODE_TOGGLE, () => false);
   ipc.handle(Channels.SIDEBAR_TOGGLE, () => ({ open: false, width: 0 }));
-  ipc.handle(Channels.DEVTOOLS_PANEL_TOGGLE, () => ({ open: false }));
+  registerDisabledDevToolsPanelHandlers(ipc);
 
   ipc.handle(
     Channels.FIND_IN_PAGE_START,

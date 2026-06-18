@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import type { DevToolsPanelHostState } from "../../../shared/devtools-types";
 import { clampSidebarWidth } from "../../../shared/sidebar";
 import type { SidebarPanelState } from "../../../shared/types";
 
@@ -22,11 +23,13 @@ const [browserCommandPaletteOpen, setBrowserCommandPaletteOpen] =
   createSignal(false);
 const [settingsOpen, setSettingsOpen] = createSignal(false);
 const [devtoolsPanelOpen, setDevtoolsPanelOpen] = createSignal(false);
+const [devtoolsPanelDetached, setDevtoolsPanelDetached] = createSignal(false);
 
 // Track last IPC time to throttle IPC calls (not layout updates)
 let lastIpcTime = 0;
 const IPC_THROTTLE_MS = 8; // ~120fps max for IPC (layout is already 60fps via RAF)
 let sidebarStateListenerInitialized = false;
+let devtoolsPanelStateListenerInitialized = false;
 
 function applySidebarState(result: SidebarPanelState): void {
   setSidebarOpen(result.open);
@@ -40,8 +43,25 @@ function ensureSidebarStateListener(): void {
   window.vessel?.ui?.onSidebarStateUpdate?.(applySidebarState);
 }
 
+function applyDevToolsPanelState(result: DevToolsPanelHostState): void {
+  setDevtoolsPanelOpen(result.open);
+  setDevtoolsPanelDetached(result.detached);
+}
+
+function ensureDevToolsPanelStateListener(): void {
+  if (devtoolsPanelStateListenerInitialized) return;
+  devtoolsPanelStateListenerInitialized = true;
+  window.vessel?.devtoolsPanel?.onHostStateUpdate?.(applyDevToolsPanelState);
+  void window.vessel?.devtoolsPanel?.getHostState?.()
+    .then(applyDevToolsPanelState)
+    .catch(() => {
+      /* devtools host state may be unavailable during early bootstrap */
+    });
+}
+
 export function useUI() {
   ensureSidebarStateListener();
+  ensureDevToolsPanelStateListener();
   return {
     sidebarOpen,
     sidebarWidth,
@@ -51,6 +71,7 @@ export function useUI() {
     browserCommandPaletteOpen,
     settingsOpen,
     devtoolsPanelOpen,
+    devtoolsPanelDetached,
     toggleSidebar: async () => {
       const result = await window.vessel.ui.toggleSidebar();
       applySidebarState(result);
@@ -87,7 +108,7 @@ export function useUI() {
     },
     toggleDevTools: async () => {
       const result = await window.vessel.devtoolsPanel.toggle();
-      setDevtoolsPanelOpen(result.open);
+      applyDevToolsPanelState(result);
     },
     openCommandBar: () => setCommandBarOpen(true),
     closeCommandBar: () => setCommandBarOpen(false),

@@ -8,6 +8,8 @@ export type {
   ErrorEntry,
   DevToolsPanelTab,
   DevToolsActivityEntry,
+  DevToolsAgentTraceEntry,
+  DevToolsPageMapSnapshot,
   DevToolsPanelState,
 } from "../../shared/devtools-types";
 

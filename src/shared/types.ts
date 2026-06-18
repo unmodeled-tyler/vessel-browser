@@ -472,9 +472,18 @@ export interface AgentRuntimeState {
   undoInfo: { actionName: string; capturedAt: string } | null;
 }
 
-export type SidebarPanelMode = "closed" | "docked" | "detached";
+export type PanelMode = "closed" | "docked" | "detached";
+export type SidebarPanelMode = PanelMode;
+export type DevToolsPanelMode = PanelMode;
 
 export interface SidebarDetachedBounds {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+}
+
+export interface DevToolsPanelDetachedBounds {
   x?: number;
   y?: number;
   width: number;
@@ -493,8 +502,9 @@ export interface UIState {
   sidebarDetachedBounds: SidebarDetachedBounds | null;
   focusMode: boolean;
   settingsOpen: boolean;
-  devtoolsPanelOpen: boolean;
+  devtoolsPanelMode: DevToolsPanelMode;
   devtoolsPanelHeight: number;
+  devtoolsPanelDetachedBounds: DevToolsPanelDetachedBounds | null;
 }
 
 // --- Provider types ---
@@ -604,6 +614,7 @@ export interface VesselSettings {
   sidebarPanelMode: SidebarPanelMode;
   sidebarWidth: number;
   sidebarDetachedBounds: SidebarDetachedBounds | null;
+  devtoolsPanelDetachedBounds: DevToolsPanelDetachedBounds | null;
   mcpPort: number;
   autoRestoreSession: boolean;
   clearBookmarksOnLaunch: boolean;

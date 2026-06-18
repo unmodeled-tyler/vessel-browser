@@ -71,6 +71,8 @@ tests/*.test.ts
 !tests/cloudflare-premium-worker.test.ts
 !tests/channel-contract.test.ts
 !tests/dom-selectors.test.ts
+!tests/devtools-page-map-reveal.test.ts
+!tests/devtools-panel-capture.test.ts
 !tests/fillable-controls.test.ts
 !tests/highlight-actions.test.ts
 !tests/input-coercion.test.ts

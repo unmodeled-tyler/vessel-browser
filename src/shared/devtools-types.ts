@@ -50,7 +50,12 @@ export interface ErrorEntry {
   stackTrace?: string;
 }
 
-export type DevToolsPanelTab = "console" | "network" | "activity";
+export type DevToolsPanelTab =
+  | "console"
+  | "network"
+  | "activity"
+  | "agentTrace"
+  | "pageMap";
 
 export interface DevToolsActivityEntry {
   id: number;
@@ -62,9 +67,76 @@ export interface DevToolsActivityEntry {
   status: "running" | "completed" | "failed";
 }
 
+export interface DevToolsAgentTraceEntry {
+  id: number;
+  actionId?: string;
+  timestamp: string;
+  kind: "tool-start" | "tool-complete" | "tool-error";
+  title: string;
+  detail: string;
+  status: "running" | "completed" | "failed";
+  tool?: string;
+  durationMs?: number;
+}
+
+export interface DevToolsPageMapElement {
+  id: number;
+  tag: string;
+  role?: string;
+  label: string;
+  selector: string;
+  href?: string;
+  type?: string;
+  visible: boolean;
+  interactable: boolean;
+  disabled: boolean;
+  issue?: string;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
+export interface DevToolsPageMapSnapshot {
+  timestamp: string;
+  pageUrl: string;
+  title: string;
+  viewport: {
+    width: number;
+    height: number;
+    scrollX: number;
+    scrollY: number;
+  };
+  counts: {
+    total: number;
+    visible: number;
+    interactable: number;
+    disabled: number;
+    blocked: number;
+  };
+  elements: DevToolsPageMapElement[];
+  accessIssues: string[];
+}
+
+export type DevToolsPageMapRevealStatus =
+  | "revealed"
+  | "not-found"
+  | "invalid-selector"
+  | "no-active-tab";
+
 export interface DevToolsPanelState {
   console: ConsoleEntry[];
   network: NetworkEntry[];
   errors: ErrorEntry[];
   activity: DevToolsActivityEntry[];
+  agentTrace: DevToolsAgentTraceEntry[];
+  pageMap: DevToolsPageMapSnapshot | null;
+}
+
+export interface DevToolsPanelHostState {
+  open: boolean;
+  detached: boolean;
+  height: number;
 }

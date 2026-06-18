@@ -644,6 +644,66 @@ test("Codex function call output marks failed executed tools as warning chips", 
   assert.equal(chunks.some((chunk) => chunk.includes("<<tool:type_text:cheap flights>>")), false);
 });
 
+test("Codex tool chips do not mark successful same-page search as failed", async () => {
+  const chunks: string[] = [];
+  const output = await createCodexFunctionCallOutput(
+    {
+      type: "function_call",
+      call_id: "call_search_same_page",
+      name: "search",
+      arguments: JSON.stringify({ query: "science fiction paperback" }),
+    },
+    new Set(["search"]),
+    (chunk) => chunks.push(chunk),
+    async () =>
+      'Searched "science fiction paperback" (same page — results may have loaded dynamically)',
+  );
+
+  assert.equal(output.call_id, "call_search_same_page");
+  assert.match(output.output, /Searched/);
+  assert.equal(
+    chunks.some((chunk) =>
+      chunk.includes("<<tool:search:science fiction paperback>>"),
+    ),
+    true,
+  );
+  assert.equal(
+    chunks.some((chunk) => chunk.includes("<<tool:search:⚠ failed")),
+    false,
+  );
+});
+
+test("Codex tool chips do not mark page content prose as read_page failure", async () => {
+  const chunks: string[] = [];
+  const output = await createCodexFunctionCallOutput(
+    {
+      type: "function_call",
+      call_id: "call_read_page_content",
+      name: "read_page",
+      arguments: JSON.stringify({ mode: "results_only" }),
+    },
+    new Set(["read_page"]),
+    (chunk) => chunks.push(chunk),
+    async () =>
+      [
+        "[read_page mode=results_only]",
+        "Need more detail? Escalate with read_page(mode=\"debug\") only if needed.",
+        "A customer review says the character could not ignore the omen.",
+      ].join("\n"),
+  );
+
+  assert.equal(output.call_id, "call_read_page_content");
+  assert.match(output.output, /read_page mode=results_only/);
+  assert.equal(
+    chunks.some((chunk) => chunk.includes("<<tool:read_page>>")),
+    true,
+  );
+  assert.equal(
+    chunks.some((chunk) => chunk.includes("<<tool:read_page:⚠ failed")),
+    false,
+  );
+});
+
 test("Codex function call output repairs aliased scalar tool calls", async () => {
   const output = await createCodexFunctionCallOutput(
     {

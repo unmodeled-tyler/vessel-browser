@@ -563,6 +563,9 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
   const recentActions = createMemo(() =>
     runtimeState().actions.slice(-8).reverse(),
   );
+  const openAgentTrace = () => {
+    void window.vessel.devtoolsPanel.openTab("agentTrace");
+  };
   const recentCheckpoints = createMemo(() =>
     runtimeState().checkpoints.slice(-5).reverse(),
   );
@@ -1307,6 +1310,20 @@ const Sidebar: Component<{ forceOpen?: boolean }> = (props) => {
                   </For>
                 </Show>
               </Show>
+
+              <div class="agent-trace-footer">
+                <span>
+                  Showing the last 8 actions. More traces are available in
+                  DevTools -&gt; Agent Trace.
+                </span>
+                <button
+                  class="agent-trace-link"
+                  type="button"
+                  onClick={openAgentTrace}
+                >
+                  Open Agent Trace
+                </button>
+              </div>
             </section>
           </Show>
 

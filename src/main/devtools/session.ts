@@ -34,6 +34,10 @@ export class DevToolsSession {
     { entry: NetworkEntry }
   >();
 
+  // Notified whenever a captured buffer mutates so the DevTools panel can
+  // refresh independent of agent actions (e.g. while a user browses).
+  private onCaptureChange: (() => void) | null = null;
+
   // Named handlers so we can remove them on detach/destroy (fixes listener leak)
   private readonly onDetach = () => {
     this.attached = false;
@@ -59,6 +63,30 @@ export class DevToolsSession {
 
   get isAttached(): boolean {
     return this.attached;
+  }
+
+  /**
+   * Register a callback invoked whenever a captured console/network/error
+   * entry is added or updated. Used to push live updates to the DevTools
+   * panel while a user browses (not just when an agent acts).
+   */
+  setOnCaptureChange(cb: (() => void) | null): void {
+    this.onCaptureChange = cb;
+  }
+
+  /**
+   * Enable all capture domains (console, network, errors) in one call.
+   * Idempotent per-domain. Used by the panel-open path so manual browsing is
+   * captured without requiring an agent tool invocation.
+   */
+  async enableCapture(): Promise<void> {
+    await this.ensureConsoleDomain();
+    await this.ensureNetworkDomain();
+    await this.ensureErrorCapture();
+  }
+
+  private notifyCaptureChange(): void {
+    this.onCaptureChange?.();
   }
 
   async ensureAttached(): Promise<void> {
@@ -122,6 +150,7 @@ export class DevToolsSession {
 
   destroy(): void {
     this.detach();
+    this.onCaptureChange = null;
     this.consoleBuffer = [];
     this.networkBuffer = [];
     this.errorBuffer = [];
@@ -692,6 +721,7 @@ export class DevToolsSession {
     if (this.consoleBuffer.length > MAX_CONSOLE_ENTRIES) {
       this.consoleBuffer = this.consoleBuffer.slice(-MAX_CONSOLE_ENTRIES);
     }
+    this.notifyCaptureChange();
   }
 
   // --- Network events ---
@@ -726,6 +756,7 @@ export class DevToolsSession {
       if (oldest !== undefined) this.pendingRequests.delete(oldest);
     }
     this.pendingRequests.set(requestId, { entry });
+    this.notifyCaptureChange();
   }
 
   private onNetworkResponse(params: Record<string, unknown>): void {
@@ -750,6 +781,7 @@ export class DevToolsSession {
     if (contentLength) {
       pending.entry.contentLength = parseInt(contentLength, 10) || undefined;
     }
+    this.notifyCaptureChange();
   }
 
   private onNetworkFinished(params: Record<string, unknown>): void {
@@ -768,6 +800,7 @@ export class DevToolsSession {
       pending.entry.contentLength ??
       ((params.encodedDataLength as number) || undefined);
     this.pendingRequests.delete(requestId);
+    this.notifyCaptureChange();
   }
 
   private onNetworkFailed(params: Record<string, unknown>): void {
@@ -785,6 +818,7 @@ export class DevToolsSession {
       );
     }
     this.pendingRequests.delete(requestId);
+    this.notifyCaptureChange();
   }
 
   // --- Error events ---
@@ -823,6 +857,7 @@ export class DevToolsSession {
     if (this.errorBuffer.length > MAX_ERROR_ENTRIES) {
       this.errorBuffer = this.errorBuffer.slice(-MAX_ERROR_ENTRIES);
     }
+    this.notifyCaptureChange();
   }
 }
 

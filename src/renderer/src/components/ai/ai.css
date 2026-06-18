@@ -1358,6 +1358,39 @@
     color: var(--status-error);
 }
 
+.agent-trace-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 2px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.agent-trace-footer span {
+    min-width: 0;
+}
+
+.agent-trace-link {
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: var(--accent-primary);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 0;
+    cursor: pointer;
+}
+
+.agent-trace-link:hover {
+    color: var(--accent-warm);
+    text-decoration: underline;
+}
+
 /* ═══════════════════════════════════════
    Chat messages — distinct bubbles
    ═══════════════════════════════════════ */
@@ -2535,6 +2568,7 @@
     .agent-panel-header,
     .agent-section-header,
     .agent-panel-controls,
+    .agent-trace-footer,
     .agent-checkpoint-row,
     .agent-card.compact,
     .agent-card-actions,

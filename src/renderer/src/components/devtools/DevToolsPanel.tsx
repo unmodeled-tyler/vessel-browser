@@ -2,62 +2,28 @@ import {
   createSignal,
   createEffect,
   onCleanup,
+  onMount,
   For,
   Show,
   type Component,
 } from "solid-js";
+import { Check, Copy, ExternalLink, PanelBottomOpen } from "lucide-solid";
+import type {
+  ConsoleEntry,
+  DevToolsActivityEntry as ActivityEntry,
+  DevToolsAgentTraceEntry,
+  DevToolsPageMapElement,
+  DevToolsPageMapRevealStatus,
+  DevToolsPageMapSnapshot,
+  DevToolsPanelState as PanelState,
+  DevToolsPanelTab as PanelTab,
+  NetworkEntry,
+} from "../../../../shared/devtools-types";
+import { formatTime } from "../../lib/format-time";
+import { useDevToolsPanelHost } from "./useDevToolsPanelHost";
 import "./devtools.css";
 
-interface ConsoleEntry {
-  id: number;
-  timestamp: string;
-  level: string;
-  text: string;
-  url?: string;
-  line?: number;
-}
-
-interface NetworkEntry {
-  id: number;
-  requestId: string;
-  timestamp: string;
-  method: string;
-  url: string;
-  resourceType?: string;
-  status?: number;
-  timing?: { durationMs?: number };
-  error?: string;
-}
-
-interface ErrorEntry {
-  id: number;
-  timestamp: string;
-  type: string;
-  message: string;
-  description?: string;
-}
-
-interface ActivityEntry {
-  id: number;
-  timestamp: string;
-  tool: string;
-  args: string;
-  result: string;
-  durationMs: number;
-  status: "running" | "completed" | "failed";
-}
-
-interface PanelState {
-  console: ConsoleEntry[];
-  network: NetworkEntry[];
-  errors: ErrorEntry[];
-  activity: ActivityEntry[];
-}
-
-type PanelTab = "console" | "network" | "activity";
 type DateMode = "today" | "custom";
-
-import { formatTime } from "../../lib/format-time";
 
 function statusClass(status?: number): string {
   if (status == null) return "pending";
@@ -134,8 +100,8 @@ const ConsoleView: Component<{ entries: ConsoleEntry[] }> = (props) => {
       when={props.entries.length > 0}
       fallback={
         <div class="devtools-empty">
-          Waiting for console output... Console monitoring activates when an
-          agent uses devtools.
+          Waiting for console output... Open a page and console output will
+          appear here as the page runs.
         </div>
       }
     >
@@ -182,8 +148,8 @@ const NetworkView: Component<{ entries: NetworkEntry[] }> = (props) => {
       when={props.entries.length > 0}
       fallback={
         <div class="devtools-empty">
-          Waiting for network requests... Network monitoring activates when an
-          agent uses devtools.
+          Waiting for network requests... Open a page and network requests will
+          appear here as the page loads.
         </div>
       }
     >
@@ -266,13 +232,308 @@ const ActivityView: Component<{ entries: ActivityEntry[] }> = (props) => {
   );
 };
 
+const AgentTraceView: Component<{ entries: DevToolsAgentTraceEntry[] }> = (
+  props,
+) => {
+  return (
+    <Show
+      when={props.entries.length > 0}
+      fallback={
+        <div class="devtools-empty">
+          Waiting for agent trace events...
+        </div>
+      }
+    >
+      <div class="devtools-agent-trace">
+        <For each={[...props.entries].reverse()}>
+          {(entry) => (
+            <div class={`trace-entry ${entry.status}`}>
+              <span class="trace-time">
+                {formatTime(entry.timestamp, { includeSeconds: true })}
+              </span>
+              <span class={`trace-kind ${entry.kind}`}>
+                {entry.kind.replace("tool-", "")}
+              </span>
+              <span class="trace-title" title={entry.title}>
+                {entry.title}
+              </span>
+              <span class="trace-detail" title={entry.detail}>
+                {entry.detail || "—"}
+              </span>
+              <span class={`trace-status ${entry.status}`}>
+                {entry.status}
+              </span>
+              <span class="trace-duration">
+                {entry.durationMs != null ? `${entry.durationMs}ms` : "—"}
+              </span>
+            </div>
+          )}
+        </For>
+      </div>
+    </Show>
+  );
+};
+
+const PageMapView: Component<{ snapshot: DevToolsPageMapSnapshot | null }> = (
+  props,
+) => {
+  const [query, setQuery] = createSignal("");
+  const [copiedId, setCopiedId] = createSignal<number | null>(null);
+  const [revealMessage, setRevealMessage] = createSignal("");
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  let revealTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const pageLabel = () =>
+    props.snapshot?.title || props.snapshot?.pageUrl || "Active page";
+
+  // Filter elements by the query across label/selector/role/tag (case-insensitive).
+  const filteredElements = () => {
+    const snap = props.snapshot;
+    if (!snap) return [];
+    const q = query().trim().toLowerCase();
+    if (!q) return snap.elements;
+    return snap.elements.filter((el) => {
+      const haystack = [
+        el.label,
+        el.selector,
+        el.role,
+        el.tag,
+        el.type,
+        el.href,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  };
+
+  const flashCopied = (id: number) => {
+    setCopiedId(id);
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => setCopiedId(null), 1200);
+  };
+
+  const copySelector = (element: DevToolsPageMapElement) => {
+    navigator.clipboard?.writeText(element.selector).catch(() => {});
+    flashCopied(element.id);
+  };
+
+  // Maps the main-process reveal status to a human-facing message. Empty string
+  // means success (nothing to surface). A stale "not-found" is the common case
+  // worth telling the user about — the page may have changed since the snapshot.
+  const REVEAL_MESSAGES: Partial<Record<DevToolsPageMapRevealStatus, string>> = {
+    "not-found": "Element not found — the page may have changed since the last snapshot.",
+    "invalid-selector": "Could not locate this element (invalid selector).",
+    "no-active-tab": "No active tab to inspect.",
+  };
+
+  const reveal = async (selector: string) => {
+    if (!selector) return;
+    try {
+      const status = await window.vessel.devtoolsPanel.revealElement(selector);
+      const message = REVEAL_MESSAGES[status] ?? "";
+      setRevealMessage(message);
+      if (revealTimer) clearTimeout(revealTimer);
+      revealTimer = setTimeout(() => setRevealMessage(""), 3000);
+    } catch {
+      setRevealMessage("Could not reach the page to reveal this element.");
+      if (revealTimer) clearTimeout(revealTimer);
+      revealTimer = setTimeout(() => setRevealMessage(""), 3000);
+    }
+  };
+
+  const onRevealRowKeyDown = (
+    event: KeyboardEvent,
+    selector: string,
+  ) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    void reveal(selector);
+  };
+
+  onCleanup(() => {
+    if (copyTimer) clearTimeout(copyTimer);
+    if (revealTimer) clearTimeout(revealTimer);
+  });
+
+  return (
+    <Show
+      when={props.snapshot}
+      fallback={<div class="devtools-empty">Inspecting active page...</div>}
+    >
+      {(snapshot) => (
+        <div class="devtools-page-map">
+          <div class="page-map-overview">
+            <div class="page-map-page" title={snapshot().pageUrl}>
+              <span class="page-map-title">{pageLabel()}</span>
+              <span class="page-map-url">{snapshot().pageUrl || "No URL"}</span>
+            </div>
+            <div class="page-map-stats">
+              <div class="page-map-stat">
+                <span class="page-map-stat-value">
+                  {snapshot().counts.total}
+                </span>
+                <span class="page-map-stat-label">total</span>
+              </div>
+              <div class="page-map-stat">
+                <span class="page-map-stat-value">
+                  {snapshot().counts.interactable}
+                </span>
+                <span class="page-map-stat-label">ready</span>
+              </div>
+              <div class="page-map-stat">
+                <span class="page-map-stat-value">
+                  {snapshot().counts.blocked}
+                </span>
+                <span class="page-map-stat-label">blocked</span>
+              </div>
+              <div class="page-map-stat">
+                <span class="page-map-stat-value">
+                  {snapshot().counts.disabled}
+                </span>
+                <span class="page-map-stat-label">disabled</span>
+              </div>
+            </div>
+          </div>
+
+          <Show when={snapshot().accessIssues.length > 0}>
+            <div class="page-map-issues">
+              <For each={snapshot().accessIssues}>
+                {(issue) => <span class="page-map-issue">{issue}</span>}
+              </For>
+            </div>
+          </Show>
+
+          <div class="page-map-filter-row">
+            <input
+              class="page-map-filter"
+              type="search"
+              placeholder="Filter by label, selector, role…"
+              value={query()}
+              onInput={(e) => setQuery(e.currentTarget.value)}
+            />
+            <span class="page-map-filter-count">
+              {filteredElements().length} / {snapshot().elements.length} shown
+            </span>
+          </div>
+
+          <Show when={revealMessage()}>
+            <div class="page-map-reveal-status">{revealMessage()}</div>
+          </Show>
+
+          <Show
+            when={snapshot().elements.length > 0}
+            fallback={
+              <div class="devtools-empty page-map-empty">
+                No interactive elements found on this page.
+              </div>
+            }
+          >
+            <div class="page-map-elements">
+              <div class="page-map-header">
+                <span>#</span>
+                <span>Element</span>
+                <span>Label</span>
+                <span>Selector</span>
+                <span>Status</span>
+                <span>Bounds</span>
+              </div>
+              <For each={filteredElements()}>
+                {(element) => (
+                  <div
+                    class="page-map-row"
+                    classList={{
+                      blocked: Boolean(element.issue),
+                      ready: element.interactable,
+                    }}
+                    onClick={() => void reveal(element.selector)}
+                    onKeyDown={(event) =>
+                      onRevealRowKeyDown(event, element.selector)}
+                    role="button"
+                    tabIndex={0}
+                    title="Reveal element on page"
+                  >
+                    <span class="page-map-index">{element.id}</span>
+                    <span class="page-map-element-tag">
+                      {element.tag}
+                      {element.role ? ` [${element.role}]` : ""}
+                    </span>
+                    <span class="page-map-element-label" title={element.label}>
+                      {element.label}
+                      <Show when={element.type || element.href}>
+                        <span class="page-map-element-sub">
+                          {element.type ? `type=${element.type}` : ""}
+                          {element.href ? ` → ${element.href}` : ""}
+                        </span>
+                      </Show>
+                    </span>
+                    <span class="page-map-element-selector">
+                      <span class="page-map-selector-text" title={element.selector}>
+                        {element.selector}
+                      </span>
+                      <button
+                        class="page-map-copy-btn"
+                        classList={{ copied: copiedId() === element.id }}
+                        title="Copy selector"
+                        aria-label="Copy selector"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copySelector(element);
+                        }}
+                      >
+                        <Show
+                          when={copiedId() === element.id}
+                          fallback={<Copy size={12} aria-hidden="true" />}
+                        >
+                          <Check size={12} aria-hidden="true" />
+                        </Show>
+                      </button>
+                    </span>
+                    <span
+                      class={`page-map-element-state ${
+                        element.interactable ? "ready" : "blocked"
+                      }`}
+                      title={element.issue}
+                    >
+                      {element.interactable
+                        ? "ready"
+                        : element.issue || (element.disabled ? "disabled" : "not ready")}
+                    </span>
+                    <span class="page-map-element-bounds">
+                      {Math.round(element.bounds.x)},{Math.round(element.bounds.y)}{" "}
+                      •{" "}
+                      {Math.round(element.bounds.width)}x
+                      {Math.round(element.bounds.height)}
+                    </span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+      )}
+    </Show>
+  );
+};
+
 const DevToolsPanel: Component = () => {
   const [activeTab, setActiveTab] = createSignal<PanelTab>("console");
+  const {
+    hostState,
+    isResizing,
+    close,
+    togglePlacement,
+    startResize,
+    applyHostState,
+  } = useDevToolsPanelHost();
   const [state, setState] = createSignal<PanelState>({
     console: [],
     network: [],
     errors: [],
     activity: [],
+    agentTrace: [],
+    pageMap: null,
   });
 
   // Export state
@@ -280,6 +541,8 @@ const DevToolsPanel: Component = () => {
   const [exportConsole, setExportConsole] = createSignal(true);
   const [exportNetwork, setExportNetwork] = createSignal(true);
   const [exportActivity, setExportActivity] = createSignal(true);
+  const [exportTrace, setExportTrace] = createSignal(true);
+  const [exportPageMap, setExportPageMap] = createSignal(true);
   const [dateMode, setDateMode] = createSignal<DateMode>("today");
   const [dateFrom, setDateFrom] = createSignal(todayDateString());
   const [dateTo, setDateTo] = createSignal(todayDateString());
@@ -287,12 +550,30 @@ const DevToolsPanel: Component = () => {
   let exportBtnRef: HTMLButtonElement | undefined;
   let exportDropdownRef: HTMLDivElement | undefined;
 
+  onMount(() => {
+    void window.vessel.devtoolsPanel
+      .getState()
+      .then(setState)
+      .catch(() => undefined);
+  });
+
   createEffect(() => {
     const cleanup = window.vessel.devtoolsPanel.onStateUpdate(
       (newState: PanelState) => {
         setState(newState);
       },
     );
+    onCleanup(cleanup);
+  });
+
+  createEffect(() => {
+    const cleanup =
+      window.vessel.devtoolsPanel.onHostStateUpdate(applyHostState);
+    onCleanup(cleanup);
+  });
+
+  createEffect(() => {
+    const cleanup = window.vessel.devtoolsPanel.onSelectTab(setActiveTab);
     onCleanup(cleanup);
   });
 
@@ -318,10 +599,9 @@ const DevToolsPanel: Component = () => {
   const networkCount = () => state().network.length;
   const activityRunning = () =>
     state().activity.filter((a) => a.status === "running").length;
-
-  const close = () => {
-    window.vessel.devtoolsPanel.toggle();
-  };
+  const traceRunning = () =>
+    state().agentTrace.filter((entry) => entry.status === "running").length;
+  const pageMapCount = () => state().pageMap?.counts.interactable ?? 0;
 
   const handleExport = () => {
     const mode = dateMode();
@@ -345,6 +625,12 @@ const DevToolsPanel: Component = () => {
     if (exportActivity()) {
       data.activity = filterByDate(state().activity, mode, from, to);
     }
+    if (exportTrace()) {
+      data.agentTrace = filterByDate(state().agentTrace, mode, from, to);
+    }
+    if (exportPageMap()) {
+      data.pageMap = state().pageMap;
+    }
 
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -359,10 +645,26 @@ const DevToolsPanel: Component = () => {
   };
 
   const noneSelected = () =>
-    !exportConsole() && !exportNetwork() && !exportActivity();
+    !exportConsole() &&
+    !exportNetwork() &&
+    !exportActivity() &&
+    !exportTrace() &&
+    !exportPageMap();
 
   return (
-    <div class="devtools-panel">
+    <div
+      class="devtools-panel"
+      classList={{ "tracking-resize": isResizing() }}
+      style={{ "--devtools-panel-height": `${hostState().height}px` }}
+    >
+      <Show when={!hostState().detached}>
+        <div
+          class="devtools-resize-handle"
+          classList={{ resizing: isResizing() }}
+          onPointerDown={startResize}
+          title="Resize DevTools"
+        />
+      </Show>
       <div class="devtools-tabs">
         <button
           class={`devtools-tab ${activeTab() === "console" ? "active" : ""}`}
@@ -389,6 +691,24 @@ const DevToolsPanel: Component = () => {
           Activity
           <Show when={activityRunning() > 0}>
             <span class="devtools-tab-badge count">{activityRunning()}</span>
+          </Show>
+        </button>
+        <button
+          class={`devtools-tab ${activeTab() === "agentTrace" ? "active" : ""}`}
+          onClick={() => setActiveTab("agentTrace")}
+        >
+          Agent Trace
+          <Show when={traceRunning() > 0}>
+            <span class="devtools-tab-badge count">{traceRunning()}</span>
+          </Show>
+        </button>
+        <button
+          class={`devtools-tab ${activeTab() === "pageMap" ? "active" : ""}`}
+          onClick={() => setActiveTab("pageMap")}
+        >
+          Page Map
+          <Show when={pageMapCount() > 0}>
+            <span class="devtools-tab-badge count">{pageMapCount()}</span>
           </Show>
         </button>
         <div class="devtools-tab-spacer" />
@@ -431,6 +751,22 @@ const DevToolsPanel: Component = () => {
                     onChange={(e) => setExportActivity(e.currentTarget.checked)}
                   />
                   Activity
+                </label>
+                <label class="export-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={exportTrace()}
+                    onChange={(e) => setExportTrace(e.currentTarget.checked)}
+                  />
+                  Trace
+                </label>
+                <label class="export-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={exportPageMap()}
+                    onChange={(e) => setExportPageMap(e.currentTarget.checked)}
+                  />
+                  Page Map
                 </label>
               </div>
               <div class="export-section">
@@ -482,9 +818,28 @@ const DevToolsPanel: Component = () => {
             </div>
           </Show>
         </div>
-        <button class="devtools-close-btn" onClick={close} title="Close DevTools">
-          ×
+        <button
+          class="devtools-close-btn"
+          onClick={togglePlacement}
+          title={hostState().detached ? "Dock DevTools" : "Pop out DevTools"}
+          aria-label={hostState().detached ? "Dock DevTools" : "Pop out DevTools"}
+        >
+          <Show
+            when={hostState().detached}
+            fallback={<ExternalLink size={14} aria-hidden="true" />}
+          >
+            <PanelBottomOpen size={14} aria-hidden="true" />
+          </Show>
         </button>
+        <Show when={!hostState().detached}>
+          <button
+            class="devtools-close-btn"
+            onClick={close}
+            title="Close DevTools"
+          >
+            ×
+          </button>
+        </Show>
       </div>
       <div class="devtools-content">
         <Show when={activeTab() === "console"}>
@@ -495,6 +850,12 @@ const DevToolsPanel: Component = () => {
         </Show>
         <Show when={activeTab() === "activity"}>
           <ActivityView entries={state().activity} />
+        </Show>
+        <Show when={activeTab() === "agentTrace"}>
+          <AgentTraceView entries={state().agentTrace} />
+        </Show>
+        <Show when={activeTab() === "pageMap"}>
+          <PageMapView snapshot={state().pageMap} />
         </Show>
       </div>
     </div>

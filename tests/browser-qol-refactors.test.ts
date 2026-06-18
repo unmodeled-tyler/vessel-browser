@@ -17,6 +17,12 @@ import {
   sanitizeSidebarDetachedBounds,
   sanitizeSidebarPanelMode,
 } from "../src/shared/sidebar";
+import {
+  DETACHED_DEVTOOLS_MIN_HEIGHT,
+  DETACHED_DEVTOOLS_MIN_WIDTH,
+  sanitizeDevToolsDetachedBounds,
+  sanitizeDevToolsPanelMode,
+} from "../src/shared/devtools";
 import type { AgentRuntimeState } from "../src/shared/types";
 
 function keyEvent(
@@ -165,6 +171,27 @@ test("shared sidebar settings sanitizers clamp persisted detached bounds", () =>
       y: 9,
       width: DETACHED_SIDEBAR_MIN_WIDTH,
       height: DETACHED_SIDEBAR_MIN_HEIGHT,
+    },
+  );
+});
+
+test("shared devtools settings sanitizers clamp persisted detached bounds", () => {
+  assert.equal(sanitizeDevToolsPanelMode("detached"), "detached");
+  assert.equal(sanitizeDevToolsPanelMode("somewhere-else"), "closed");
+  assert.equal(sanitizeDevToolsDetachedBounds(null), null);
+
+  assert.deepEqual(
+    sanitizeDevToolsDetachedBounds({
+      x: 20.2,
+      y: 14.8,
+      width: 10,
+      height: 20,
+    }),
+    {
+      x: 20,
+      y: 15,
+      width: DETACHED_DEVTOOLS_MIN_WIDTH,
+      height: DETACHED_DEVTOOLS_MIN_HEIGHT,
     },
   );
 });

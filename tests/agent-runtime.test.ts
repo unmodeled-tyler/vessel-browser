@@ -4,7 +4,10 @@ import path from "node:path";
 import test from "node:test";
 
 import { app } from "electron";
-import { AgentRuntime } from "../src/main/agent/runtime";
+import {
+  AgentRuntime,
+  type AgentRuntimeActionLifecycleEvent,
+} from "../src/main/agent/runtime";
 import type { SessionSnapshot } from "../src/shared/types";
 
 function makeRuntime(): AgentRuntime {
@@ -86,4 +89,29 @@ test("paused supervisor still requires approval even in auto mode", async () => 
 
   runtime.resolveApproval(approval.id, false);
   assert.equal(await resultPromise, "Action rejected: read_page");
+});
+
+test("runControlledAction emits lifecycle events for agent tools", async () => {
+  const runtime = makeRuntime();
+  const events: AgentRuntimeActionLifecycleEvent[] = [];
+  runtime.setActionLifecycleListener((event) => events.push(event));
+
+  const result = await runtime.runControlledAction({
+    source: "ai",
+    name: "read_page",
+    args: { mode: "results_only" },
+    tabId: "tab-1",
+    executor: async () => "page text",
+  });
+
+  assert.equal(result, "page text");
+  assert.equal(events.length, 2);
+  assert.equal(events[0].phase, "started");
+  assert.equal(events[0].name, "read_page");
+  assert.equal(events[0].source, "ai");
+  assert.equal(events[0].detail, "mode=results_only");
+  assert.equal(events[1].phase, "completed");
+  assert.equal(events[1].detail, "page text");
+  assert.equal(events[1].actionId, events[0].actionId);
+  assert.equal(typeof events[1].durationMs, "number");
 });

@@ -9,6 +9,12 @@ import type { UIState, TabState } from "../shared/types";
 import { capturePageSnapshot } from "./content/page-diff-monitor";
 import { sendSafe } from "./ipc/common";
 import {
+  closeDetachedDevToolsPanelWindow,
+  isDevToolsPanelDocked,
+  isDevToolsPanelDetached,
+  type DevToolsPanelHostWindowState,
+} from "./devtools/panel";
+import {
   closeDetachedSidebarWindow,
   detachSidebar,
   isSidebarAttached,
@@ -48,7 +54,7 @@ const DEFAULT_DEVTOOLS_PANEL_HEIGHT = 250;
 const MIN_DEVTOOLS_PANEL = 120;
 const MAX_DEVTOOLS_PANEL = 600;
 
-export interface WindowState extends SidebarPanelHostState {
+export interface WindowState extends SidebarPanelHostState, DevToolsPanelHostWindowState {
   chromeView: WebContentsView;
   sidebarView: WebContentsView;
   devtoolsPanelView: WebContentsView;
@@ -274,8 +280,9 @@ export function createMainWindow(
     sidebarDetachedBounds: settings.sidebarDetachedBounds,
     focusMode: false,
     settingsOpen: false,
-    devtoolsPanelOpen: false,
+    devtoolsPanelMode: "closed",
     devtoolsPanelHeight: DEFAULT_DEVTOOLS_PANEL_HEIGHT,
+    devtoolsPanelDetachedBounds: settings.devtoolsPanelDetachedBounds,
   };
 
   const tabManager = new TabManager(mainWindow, onTabStateChange);
@@ -295,6 +302,8 @@ export function createMainWindow(
     mainWindow,
     sidebarWindow: null,
     sidebarWindowClosing: false,
+    devtoolsPanelWindow: null,
+    devtoolsPanelWindowClosing: false,
     chromeView,
     sidebarView,
     devtoolsPanelView,
@@ -307,6 +316,7 @@ export function createMainWindow(
   mainWindow.on("focus", () => layoutViews(state));
   mainWindow.on("closed", () => {
     closeDetachedSidebarWindow(state);
+    closeDetachedDevToolsPanelWindow(state);
   });
   sidebarView.webContents.on("context-menu", (event, params) => {
     event.preventDefault();
@@ -337,7 +347,9 @@ export function layoutViews(state: WindowState): void {
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
   const sidebarAttached = isSidebarAttached(state);
   const sidebarWidth = sidebarAttached ? uiState.sidebarWidth : 0;
-  const devtoolsHeight = uiState.devtoolsPanelOpen
+  const devtoolsDocked = isDevToolsPanelDocked(state);
+  const devtoolsDetached = isDevToolsPanelDetached(state);
+  const devtoolsHeight = devtoolsDocked
     ? uiState.devtoolsPanelHeight
     : 0;
   const chromeNeedsFullHeight = uiState.settingsOpen;
@@ -361,14 +373,14 @@ export function layoutViews(state: WindowState): void {
 
   // DevTools panel: bottom of content area, left of sidebar
   const contentWidth = width - sidebarWidth;
-  if (uiState.devtoolsPanelOpen) {
+  if (devtoolsDocked) {
     devtoolsPanelView.setBounds({
       x: 0,
       y: height - devtoolsHeight,
       width: contentWidth,
       height: devtoolsHeight,
     });
-  } else {
+  } else if (!devtoolsDetached) {
     devtoolsPanelView.setBounds({ x: 0, y: height, width: 0, height: 0 });
   }
 
@@ -379,8 +391,10 @@ export function layoutViews(state: WindowState): void {
     mainWindow.contentView.removeChildView(sidebarView);
     mainWindow.contentView.addChildView(sidebarView);
   }
-  mainWindow.contentView.removeChildView(devtoolsPanelView);
-  mainWindow.contentView.addChildView(devtoolsPanelView);
+  if (!devtoolsDetached) {
+    mainWindow.contentView.removeChildView(devtoolsPanelView);
+    mainWindow.contentView.addChildView(devtoolsPanelView);
+  }
 
   // Active tab content: below chrome, left of sidebar, above devtools panel
   const activeTab = tabManager.getActiveTab();
@@ -404,7 +418,8 @@ export function resizeSidebarViews(state: WindowState): void {
   const [width, height] = mainWindow.getContentSize();
   const chromeHeight = uiState.focusMode ? 0 : CHROME_HEIGHT;
   const sidebarWidth = isSidebarAttached(state) ? uiState.sidebarWidth : 0;
-  const devtoolsHeight = uiState.devtoolsPanelOpen
+  const devtoolsDocked = isDevToolsPanelDocked(state);
+  const devtoolsHeight = devtoolsDocked
     ? uiState.devtoolsPanelHeight
     : 0;
   const contentWidth = width - sidebarWidth;
@@ -419,7 +434,7 @@ export function resizeSidebarViews(state: WindowState): void {
     });
   }
 
-  if (uiState.devtoolsPanelOpen) {
+  if (devtoolsDocked) {
     devtoolsPanelView.setBounds({
       x: 0,
       y: height - devtoolsHeight,

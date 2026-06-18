@@ -19,6 +19,11 @@ import {
   sanitizeSidebarDetachedBounds,
   sanitizeSidebarPanelMode,
 } from "../../shared/sidebar";
+import {
+  DETACHED_DEVTOOLS_MIN_HEIGHT,
+  DETACHED_DEVTOOLS_MIN_WIDTH,
+  sanitizeDevToolsDetachedBounds,
+} from "../../shared/devtools";
 
 const defaults: VesselSettings = {
   defaultUrl: "https://start.duckduckgo.com",
@@ -26,6 +31,7 @@ const defaults: VesselSettings = {
   sidebarPanelMode: "docked",
   sidebarWidth: 400,
   sidebarDetachedBounds: null,
+  devtoolsPanelDetachedBounds: null,
   mcpPort: 3100,
   autoRestoreSession: true,
   clearBookmarksOnLaunch: false,
@@ -69,6 +75,15 @@ const SettingsValueSchemas: Record<keyof VesselSettings, z.ZodType> = {
       y: z.number().optional(),
       width: z.number().int().min(DETACHED_SIDEBAR_MIN_WIDTH),
       height: z.number().int().min(DETACHED_SIDEBAR_MIN_HEIGHT),
+    }),
+  ]),
+  devtoolsPanelDetachedBounds: z.union([
+    z.null(),
+    z.object({
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().int().min(DETACHED_DEVTOOLS_MIN_WIDTH),
+      height: z.number().int().min(DETACHED_DEVTOOLS_MIN_HEIGHT),
     }),
   ]),
   mcpPort: z.number().int().min(1).max(65535),
@@ -402,6 +417,9 @@ export function loadSettings(): VesselSettings {
       sidebarDetachedBounds: sanitizeSidebarDetachedBounds(
         parsed.sidebarDetachedBounds,
       ),
+      devtoolsPanelDetachedBounds: sanitizeDevToolsDetachedBounds(
+        parsed.devtoolsPanelDetachedBounds,
+      ),
       sourceDoNotAllowList: sanitizeStringList(
         parsed.sourceDoNotAllowList ?? defaults.sourceDoNotAllowList,
       ),
@@ -462,6 +480,9 @@ export function setSetting<K extends keyof VesselSettings>(
     settings!.sidebarPanelMode = sanitizeSidebarPanelMode(value);
   } else if (key === "sidebarDetachedBounds") {
     settings!.sidebarDetachedBounds = sanitizeSidebarDetachedBounds(value);
+  } else if (key === "devtoolsPanelDetachedBounds") {
+    settings!.devtoolsPanelDetachedBounds =
+      sanitizeDevToolsDetachedBounds(value);
   } else if (key === "sourceDoNotAllowList") {
     settings!.sourceDoNotAllowList = sanitizeStringList(value);
   } else if (key === "chatProvider") {

@@ -146,16 +146,32 @@ function normalizeCodexText(text: string): string {
     .replace(/[“”]/g, '"');
 }
 
-function looksLikeFailedToolOutput(output: string): boolean {
+function looksLikeFailedToolOutput(output: string, toolName?: string): boolean {
   const normalized = normalizeCodexText(output);
+  const firstLine =
+    normalized
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
+  if (
+    /^(?:error\b|error\[|blocked\b|warning\b|target\b|no active tab\b|cannot\b|can't\b)/.test(
+      firstLine,
+    )
+  ) {
+    return true;
+  }
+  if (
+    toolName === "click" &&
+    (
+      normalized.includes("page did not change after click") ||
+      normalized.includes("element may need a different interaction method")
+    )
+  ) {
+    return true;
+  }
   return (
-    normalized.startsWith("error") ||
-    normalized.startsWith("warning") ||
-    normalized.startsWith("target") ||
-    normalized.startsWith("no active tab") ||
-    normalized.includes("same page — results may have loaded dynamically") ||
-    normalized.includes("could not ") ||
-    normalized.includes("did not ")
+    toolName === "type_text" &&
+    /^(?:could not|did not|no focused|no visible)/.test(firstLine)
   );
 }
 
@@ -175,7 +191,7 @@ function emitCodexToolChunk(
   output: string,
 ): void {
   const summary = summarizeToolArg(args);
-  const argSummary = looksLikeFailedToolOutput(output)
+  const argSummary = looksLikeFailedToolOutput(output, name)
     ? ["⚠ failed", summary].filter(Boolean).join(" ")
     : summary;
   onChunk(`\n<<tool:${name}${argSummary ? ":" + argSummary : ""}>>\n`);
@@ -1045,7 +1061,10 @@ export class CodexProvider implements AIProvider {
           // when a real-progress tool succeeds, so a fresh web_search several
           // turns after the original (with intervening clicks/navigates/inspects)
           // is NOT treated as drift.
-          const toolSucceeded = !looksLikeFailedToolOutput(outputText);
+          const toolSucceeded = !looksLikeFailedToolOutput(
+            outputText,
+            prepared.prepared.name,
+          );
           if (toolSucceeded && isRealProgressTool(prepared.prepared.name)) {
             // A real-progress tool (navigate, click, inspect, etc.) means the
             // model has used the prior search result in some way, so a future
@@ -1059,7 +1078,7 @@ export class CodexProvider implements AIProvider {
           );
           if (
             prepared.prepared.name === "click" &&
-            looksLikeFailedToolOutput(outputText)
+            looksLikeFailedToolOutput(outputText, prepared.prepared.name)
           ) {
             failedClickCountSinceProgress += 1;
             // Push a recovery hint so the model knows the click did not

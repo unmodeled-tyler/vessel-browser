@@ -25,7 +25,7 @@ import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
 } from "../../../../shared/types";
-import { Trash2 } from "lucide-solid";
+import { Settings as SettingsIcon, Trash2 } from "lucide-solid";
 import "./chrome.css";
 
 interface AutocompleteItem {
@@ -850,22 +850,7 @@ const AddressBar: Component<{
             onClick={openSettings}
             data-tooltip="Settings"
           >
-          <svg width="14" height="14" viewBox="0 0 14 14">
-            <circle
-              cx="7"
-              cy="7"
-              r="2"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.2"
-            />
-            <path
-              d="M7 1v2M7 11v2M1 7h2M11 7h2M2.8 2.8l1.4 1.4M9.8 9.8l1.4 1.4M11.2 2.8l-1.4 1.4M4.2 9.8l-1.4 1.4"
-              stroke="currentColor"
-              stroke-width="1"
-              stroke-linecap="round"
-            />
-          </svg>
+            <SettingsIcon size={14} strokeWidth={1.8} />
           </button>
         </Show>
       </div>
