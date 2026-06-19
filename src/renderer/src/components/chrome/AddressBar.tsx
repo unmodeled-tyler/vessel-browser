@@ -25,7 +25,7 @@ import {
   SEARCH_ENGINE_PRESETS,
   type SearchEngineId,
 } from "../../../../shared/types";
-import { Settings as SettingsIcon, Trash2 } from "lucide-solid";
+import { Settings as SettingsIcon, Trash2, VenetianMask } from "lucide-solid";
 import "./chrome.css";
 
 interface AutocompleteItem {
@@ -420,9 +420,7 @@ const AddressBar: Component<{
 
       <Show when={isPrivateWindow}>
         <div class="private-badge" title="Private Browsing - history and cookies are not saved">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM5.5 7a1.5 1.5 0 103 0 1.5 1.5 0 00-3 0zm3.5 3.5c0-1-1.5-2-2.5-2s-2.5 1-2.5 2" />
-          </svg>
+          <VenetianMask size={12} />
           <span>Private</span>
         </div>
       </Show>

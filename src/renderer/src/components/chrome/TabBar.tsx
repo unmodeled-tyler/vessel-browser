@@ -1,5 +1,5 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js";
-import { LayersPlus, PanelTop, Plus, Volume2, VolumeX } from "lucide-solid";
+import { LayersPlus, PanelTop, Plus, VenetianMask, Volume2, VolumeX } from "lucide-solid";
 import { useTabs } from "../../stores/tabs";
 import type { TabGroupColor, TabState } from "../../../../shared/types";
 import { useNow } from "../../stores/clock";
@@ -243,9 +243,7 @@ const TabBar: Component = () => {
           <Plus size={15} />
         </button>
         <button class="tab-new tab-new-private" onClick={() => window.vessel.tabs.openPrivateWindow()} data-tooltip="Private window" data-tooltip-pos="left">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11z" />
-          </svg>
+          <VenetianMask size={12} />
         </button>
       </div>
     </div>
