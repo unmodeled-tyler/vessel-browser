@@ -158,6 +158,7 @@ export async function createSplashWindow(): Promise<BrowserWindow> {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
     },
   });
 
@@ -169,9 +170,7 @@ export async function createSplashWindow(): Promise<BrowserWindow> {
   const iconSrc = await findIconBase64();
   const html = buildSplashHTML(iconSrc);
   try {
-    const tmpDir = await fsPromisesMkdtemp(
-      path.join(os.tmpdir(), "vessel-splash-"),
-    );
+    const tmpDir = await fsPromisesMkdtemp(path.join(os.tmpdir(), "vessel-splash-"));
     const tmpPath = path.join(tmpDir, "index.html");
     splash.once("closed", () => {
       void rmSafe(tmpDir);
