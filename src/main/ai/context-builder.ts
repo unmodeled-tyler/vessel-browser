@@ -18,10 +18,7 @@ const LARGE_PAGE_HINT_THRESHOLD = 12000;
 
 function truncateContent(content: string): string {
   if (content.length <= MAX_CONTEXT_CONTENT_LENGTH) return content;
-  return (
-    content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-    "\n\n[Content truncated for length...]"
-  );
+  return content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + "\n\n[Content truncated for length...]";
 }
 
 function limitItems<T>(items: T[], max: number = MAX_STRUCTURED_ITEMS): T[] {
@@ -30,8 +27,7 @@ function limitItems<T>(items: T[], max: number = MAX_STRUCTURED_ITEMS): T[] {
 }
 
 function shouldRenderFieldValue(el: InteractiveElement): boolean {
-  const value =
-    typeof el.value === "string" && el.value.trim() ? el.value.trim() : "";
+  const value = typeof el.value === "string" && el.value.trim() ? el.value.trim() : "";
   return Boolean(value) && isQuantityLike(el);
 }
 
@@ -112,18 +108,14 @@ function formatElementMeta(el: InteractiveElement): string[] {
     meta.push(`value="${el.value.slice(0, 60)}"`);
   }
   if (el.selector) {
-    const selectorHint =
-      el.selector.length > 80 ? `${el.selector.slice(0, 77)}...` : el.selector;
+    const selectorHint = el.selector.length > 80 ? `${el.selector.slice(0, 77)}...` : el.selector;
     meta.push(`selector="${selectorHint}"`);
   }
   return meta;
 }
 
-function summarizeElementValue(
-  el: InteractiveElement,
-): { label: string; value: string } | null {
-  const value =
-    typeof el.value === "string" && el.value.trim() ? el.value.trim() : "";
+function summarizeElementValue(el: InteractiveElement): { label: string; value: string } | null {
+  const value = typeof el.value === "string" && el.value.trim() ? el.value.trim() : "";
   if (!value || !shouldRenderFieldValue(el)) return null;
 
   if (el.type === "select") {
@@ -143,16 +135,9 @@ function isTextEntryControl(el: InteractiveElement): boolean {
   if (el.type !== "input" && el.type !== "textarea") return false;
 
   const inputType = (el.inputType || "text").toLowerCase();
-  return ![
-    "button",
-    "checkbox",
-    "file",
-    "hidden",
-    "image",
-    "radio",
-    "reset",
-    "submit",
-  ].includes(inputType);
+  return !["button", "checkbox", "file", "hidden", "image", "radio", "reset", "submit"].includes(
+    inputType,
+  );
 }
 
 function hasRenderedValue(el: InteractiveElement): boolean {
@@ -160,10 +145,7 @@ function hasRenderedValue(el: InteractiveElement): boolean {
 }
 
 function hasAnyFieldValue(el: InteractiveElement): boolean {
-  return (
-    el.hasValue === true ||
-    (typeof el.value === "string" && el.value.trim().length > 0)
-  );
+  return el.hasValue === true || (typeof el.value === "string" && el.value.trim().length > 0);
 }
 
 function formatFillHint(el: InteractiveElement): string | null {
@@ -192,14 +174,7 @@ function appendFieldAffordances(parts: string[], el: InteractiveElement): void {
 }
 
 function isQuantityLike(el: InteractiveElement): boolean {
-  const text = [
-    el.label,
-    el.name,
-    el.placeholder,
-    el.text,
-    el.description,
-    el.selector,
-  ]
+  const text = [el.label, el.name, el.placeholder, el.text, el.description, el.selector]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -207,25 +182,18 @@ function isQuantityLike(el: InteractiveElement): boolean {
   return (
     /\b(qty|quantity|count|items?)\b/.test(text) ||
     (el.inputType === "number" &&
-      (/\b(quantity|qty|count|items?)\b/.test(text) ||
-        el.name === "quantity" ||
-        el.name === "qty"))
+      (/\b(quantity|qty|count|items?)\b/.test(text) || el.name === "quantity" || el.name === "qty"))
   );
 }
 
 function getQuantityElements(page: PageContent): InteractiveElement[] {
   const seen = new Set<string>();
-  const elements = [
-    ...page.interactiveElements,
-    ...page.forms.flatMap((form) => form.fields),
-  ];
+  const elements = [...page.interactiveElements, ...page.forms.flatMap((form) => form.fields)];
 
   return elements.filter((el) => {
     if (!isQuantityLike(el)) return false;
     const key = String(
-      el.index ??
-        el.selector ??
-        `${el.type}|${el.name || ""}|${el.label || ""}|${el.value || ""}`,
+      el.index ?? el.selector ?? `${el.type}|${el.name || ""}|${el.label || ""}|${el.value || ""}`,
     );
     if (seen.has(key)) return false;
     seen.add(key);
@@ -283,11 +251,7 @@ function getCartItemLinks(page: PageContent): InteractiveElement[] {
       const text = (el.text || "").trim();
       const href = (el.href || "").trim();
       if (!text || text.length < 3 || !href) return false;
-      if (
-        el.context === "nav" ||
-        el.context === "footer" ||
-        el.context === "sidebar"
-      ) {
+      if (el.context === "nav" || el.context === "footer" || el.context === "sidebar") {
         return false;
       }
       if (blockedText.test(text) || blockedHref.test(href)) return false;
@@ -308,8 +272,7 @@ function extractCartTotals(content: string): string[] {
   const seen = new Set<string>();
   const keyword =
     /\b(subtotal|order total|estimated total|total|tax|shipping|discount|savings?)\b/i;
-  const money =
-    /([$€£]\s?\d[\d,]*(?:\.\d{2})?|\d[\d,]*(?:\.\d{2})?\s?(?:usd|eur|gbp))/i;
+  const money = /([$€£]\s?\d[\d,]*(?:\.\d{2})?|\d[\d,]*(?:\.\d{2})?\s?(?:usd|eur|gbp))/i;
 
   for (const line of lines) {
     if (!keyword.test(line)) continue;
@@ -349,15 +312,9 @@ function formatCartSnapshot(page: PageContent): string | null {
   }
 
   if (quantityElements.length > 0) {
-    if (
-      numericQuantities.length === quantityElements.length &&
-      numericQuantities.length > 0
-    ) {
+    if (numericQuantities.length === quantityElements.length && numericQuantities.length > 0) {
       const unique = Array.from(new Set(numericQuantities));
-      const totalUnits = numericQuantities.reduce(
-        (sum, value) => sum + value,
-        0,
-      );
+      const totalUnits = numericQuantities.reduce((sum, value) => sum + value, 0);
       lines.push(
         unique.length === 1
           ? `Quantity controls: ${quantityElements.length} (all set to ${unique[0]})`
@@ -410,10 +367,7 @@ function elementSearchText(
   return normalizeComparable(fields.filter(Boolean).join(" "));
 }
 
-function formatElementOptions(
-  options: InteractiveElement["options"],
-  maxOptions: number,
-): string {
+function formatElementOptions(options: InteractiveElement["options"], maxOptions: number): string {
   return (
     options
       ?.slice(0, maxOptions)
@@ -447,11 +401,7 @@ function dateOrShowtimeControlPriority(el: InteractiveElement): number {
   ) {
     return 0;
   }
-  if (
-    /\b(showtimes?|showings?|screenings?|movie times?|date|calendar)\b/.test(
-      haystack,
-    )
-  ) {
+  if (/\b(showtimes?|showings?|screenings?|movie times?|date|calendar)\b/.test(haystack)) {
     return 1;
   }
   if (/\b(ticketing|tickets?|formovietickets|seat selection)\b/.test(haystack)) {
@@ -468,8 +418,7 @@ function isPurchaseActionElement(el: InteractiveElement): boolean {
   if (
     el.type !== "button" &&
     el.type !== "link" &&
-    !(el.type === "input" &&
-      (el.inputType === "submit" || el.inputType === "button"))
+    !(el.type === "input" && (el.inputType === "submit" || el.inputType === "button"))
   ) {
     return false;
   }
@@ -491,9 +440,7 @@ function getPurchaseActionElements(
       if (el.blockedByOverlay) return false;
 
       const key = String(
-        el.index ??
-          el.selector ??
-          `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+        el.index ?? el.selector ?? `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
       );
       if (seen.has(key)) return false;
       seen.add(key);
@@ -502,8 +449,7 @@ function getPurchaseActionElements(
     .sort((a, b) => {
       const delta = purchaseActionPriority(a) - purchaseActionPriority(b);
       if (delta !== 0) return delta;
-      return (a.index ?? Number.MAX_SAFE_INTEGER) -
-        (b.index ?? Number.MAX_SAFE_INTEGER);
+      return (a.index ?? Number.MAX_SAFE_INTEGER) - (b.index ?? Number.MAX_SAFE_INTEGER);
     })
     .slice(0, 8);
 }
@@ -512,27 +458,21 @@ function getOffscreenPurchaseActionElements(page: PageContent): InteractiveEleme
   const visibleKeys = new Set(
     getPurchaseActionElements(page, { visibleOnly: true }).map((el) =>
       String(
-        el.index ??
-          el.selector ??
-          `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+        el.index ?? el.selector ?? `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
       ),
     ),
   );
 
   return getPurchaseActionElements(page, { visibleOnly: false }).filter((el) => {
     const key = String(
-      el.index ??
-        el.selector ??
-        `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
+      el.index ?? el.selector ?? `${el.type}|${el.text || ""}|${el.label || ""}|${el.href || ""}`,
     );
     return !visibleKeys.has(key) && el.visible !== false;
   });
 }
 
 function getDialogFocusedElements(page: PageContent): InteractiveElement[] {
-  return page.interactiveElements.filter(
-    (el) => isVisibleToUser(el) && el.context === "dialog",
-  );
+  return page.interactiveElements.filter((el) => isVisibleToUser(el) && el.context === "dialog");
 }
 
 function normalizeOverlayText(value: string | undefined): string {
@@ -541,11 +481,7 @@ function normalizeOverlayText(value: string | undefined): string {
 
 function isCartConfirmationLike(page: PageContent): boolean {
   const overlayText = page.overlays
-    .map((overlay) =>
-      normalizeOverlayText(
-        [overlay.label, overlay.text].filter(Boolean).join(" "),
-      ),
-    )
+    .map((overlay) => normalizeOverlayText([overlay.label, overlay.text].filter(Boolean).join(" ")))
     .join(" ");
   const dialogText = getDialogFocusedElements(page)
     .map((el) => normalizeOverlayText(el.text || el.label || el.description))
@@ -622,11 +558,7 @@ function formatInteractiveElements(elements: InteractiveElement[]): string {
       }
       if (el.visible === false) s += HIDDEN_VISIBILITY_PENALTY;
       if (el.inViewport === false) s += OFFSCREEN_PENALTY;
-      if (
-        el.context === "nav" ||
-        el.context === "footer" ||
-        el.context === "sidebar"
-      )
+      if (el.context === "nav" || el.context === "footer" || el.context === "sidebar")
         s += NAVIGATION_CONTEXT_PENALTY;
       if (el.obscured) s += OBSCURED_PENALTY;
       // Inputs/buttons are higher priority than links (fewer of them, more actionable)
@@ -723,9 +655,7 @@ function formatForms(forms: PageContent["forms"]): string {
 
   return forms
     .map((form, index) => {
-      const parts: string[] = [
-        `Form ${index + 1}${form.id ? ` (#${form.id})` : ""}:`,
-      ];
+      const parts: string[] = [`Form ${index + 1}${form.id ? ` (#${form.id})` : ""}:`];
 
       if (form.action) parts.push(`  Action: ${form.action}`);
       if (form.method) parts.push(`  Method: ${form.method.toUpperCase()}`);
@@ -733,9 +663,7 @@ function formatForms(forms: PageContent["forms"]): string {
       if (form.fields.length > 0) {
         parts.push("  Fields:");
         form.fields.forEach((field) => {
-          const fieldParts: string[] = [
-            field.index ? `    [#${field.index}]` : "    -",
-          ];
+          const fieldParts: string[] = [field.index ? `    [#${field.index}]` : "    -"];
 
           if (field.type === "button") {
             fieldParts.push(`[${field.text || "Submit"}]`);
@@ -755,9 +683,7 @@ function formatForms(forms: PageContent["forms"]): string {
             appendFieldAffordances(fieldParts, field);
             if (field.options?.length) {
               const maxOptions = isDateOrShowtimeControl(field) ? 10 : 5;
-              fieldParts.push(
-                `options=${formatElementOptions(field.options, maxOptions)}`,
-              );
+              fieldParts.push(`options=${formatElementOptions(field.options, maxOptions)}`);
             }
           } else if (field.type === "textarea") {
             fieldParts.push(`[${field.label || "Text"}]`);
@@ -791,10 +717,7 @@ function formatLandmarks(landmarks: PageContent["landmarks"]): string {
     .map((lm) => {
       const parts: string[] = [`- ${lm.role}`];
       if (lm.label) parts.push(`(label: "${lm.label}")`);
-      if (lm.text)
-        parts.push(
-          `- "${lm.text.slice(0, 100)}${lm.text.length > 100 ? "..." : ""}"`,
-        );
+      if (lm.text) parts.push(`- "${lm.text.slice(0, 100)}${lm.text.length > 100 ? "..." : ""}"`);
       return parts.join(" ");
     })
     .join("\n");
@@ -838,15 +761,9 @@ function formatOverlays(page: PageContent): string {
       }
 
       const actionLabels = [
-        overlay.dismissAction?.label
-          ? `dismiss="${overlay.dismissAction.label}"`
-          : "",
-        overlay.acceptAction?.label
-          ? `accept="${overlay.acceptAction.label}"`
-          : "",
-        overlay.submitAction?.label
-          ? `submit="${overlay.submitAction.label}"`
-          : "",
+        overlay.dismissAction?.label ? `dismiss="${overlay.dismissAction.label}"` : "",
+        overlay.acceptAction?.label ? `accept="${overlay.acceptAction.label}"` : "",
+        overlay.submitAction?.label ? `submit="${overlay.submitAction.label}"` : "",
       ].filter(Boolean);
       if (actionLabels.length > 0) {
         lines.push(`  actions: ${actionLabels.join(" ")}`);
@@ -883,9 +800,7 @@ function getScrollHints(page: PageContent): string[] {
   ];
 }
 
-function formatDormantOverlays(
-  overlays: PageContent["dormantOverlays"],
-): string {
+function formatDormantOverlays(overlays: PageContent["dormantOverlays"]): string {
   if (overlays.length === 0) return "None detected";
 
   const items = limitItems(overlays, 10);
@@ -919,11 +834,7 @@ function formatPageIssues(issues: PageIssue[]): string {
 
 function formatStructuredValue(value: StructuredDataValue, depth = 0): string {
   if (value == null) return "";
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
   if (Array.isArray(value)) {
@@ -954,10 +865,7 @@ function formatStructuredEntities(entities: StructuredDataEntity[]): string {
       if (entity.url && entity.url !== entity.name) {
         lines.push(`  url: ${entity.url}`);
       }
-      for (const [key, value] of Object.entries(entity.attributes).slice(
-        0,
-        8,
-      )) {
+      for (const [key, value] of Object.entries(entity.attributes).slice(0, 8)) {
         const rendered = formatStructuredValue(value);
         if (rendered) {
           lines.push(`  ${key}: ${rendered}`);
@@ -990,8 +898,7 @@ function formatHighlights(highlights: StoredHighlight[]): string {
       parts.push(`- [${source}]`);
       if (h.label) parts.push(`**${h.label}**`);
       if (h.text) {
-        const preview =
-          h.text.length > 120 ? h.text.slice(0, 117) + "..." : h.text;
+        const preview = h.text.length > 120 ? h.text.slice(0, 117) + "..." : h.text;
         parts.push(`"${preview}"`);
       }
       if (h.selector) parts.push(`(${h.selector})`);
@@ -1016,13 +923,7 @@ function formatJsonLd(items: Record<string, unknown>[]): string {
   const lines: string[] = [];
 
   // Fields to omit as too noisy for agents
-  const SKIP = new Set([
-    "@context",
-    "image",
-    "logo",
-    "thumbnail",
-    "potentialAction",
-  ]);
+  const SKIP = new Set(["@context", "image", "logo", "thumbnail", "potentialAction"]);
 
   // Type-specific field priority (shown first)
   const TYPE_FIELDS: Record<string, string[]> = {
@@ -1037,15 +938,7 @@ function formatJsonLd(items: Record<string, unknown>[]): string {
       "recipeIngredient",
       "recipeInstructions",
     ],
-    Article: [
-      "headline",
-      "name",
-      "url",
-      "datePublished",
-      "dateModified",
-      "author",
-      "description",
-    ],
+    Article: ["headline", "name", "url", "datePublished", "dateModified", "author", "description"],
     Product: ["name", "url", "description", "offers"],
     BreadcrumbList: ["itemListElement"],
     Organization: ["name", "url", "description"],
@@ -1061,8 +954,7 @@ function formatJsonLd(items: Record<string, unknown>[]): string {
     const renderValue = (val: unknown, depth = 0): string => {
       if (val === null || val === undefined) return "";
       if (typeof val === "string") return val;
-      if (typeof val === "number" || typeof val === "boolean")
-        return String(val);
+      if (typeof val === "number" || typeof val === "boolean") return String(val);
       if (Array.isArray(val)) {
         if (depth > 0)
           return val
@@ -1080,12 +972,7 @@ function formatJsonLd(items: Record<string, unknown>[]): string {
       if (typeof val === "object") {
         const obj = val as Record<string, unknown>;
         // Common single-value wrappers
-        const text =
-          obj["@value"] ??
-          obj["text"] ??
-          obj["name"] ??
-          obj["url"] ??
-          obj["item"];
+        const text = obj["@value"] ?? obj["text"] ?? obj["name"] ?? obj["url"] ?? obj["item"];
         if (text) return renderValue(text, depth + 1);
         return Object.entries(obj)
           .filter(([k]) => !SKIP.has(k))
@@ -1130,22 +1017,24 @@ export type ExtractMode =
 
 export function chooseAgentReadMode(page: PageContent): ExtractMode {
   const pageType = detectPageType(page);
-  switch (pageType) {
-    case "SEARCH_RESULTS":
-    case "PAGINATED_LIST":
-      return "results_only";
-    case "LOGIN":
-    case "SEARCH_READY":
-    case "SHOPPING":
-    case "FORM":
-      return "visible_only";
-    case "ARTICLE":
-      return "summary";
-    case "GENERAL":
-    default:
-      return "visible_only";
-  }
+  return PAGE_TYPE_READ_MODE[pageType];
 }
+
+/**
+ * Maps each detected page type to the agent read mode that best surfaces
+ * the page's primary affordances. Kept as a Record so TypeScript enforces
+ * coverage when a new PageType is added.
+ */
+const PAGE_TYPE_READ_MODE: Readonly<Record<PageType, ExtractMode>> = {
+  LOGIN: "visible_only",
+  SEARCH_READY: "visible_only",
+  SEARCH_RESULTS: "results_only",
+  SHOPPING: "visible_only",
+  FORM: "visible_only",
+  PAGINATED_LIST: "results_only",
+  ARTICLE: "summary",
+  GENERAL: "visible_only",
+};
 
 interface SiteResultFilter {
   /** Hostname (without www) this filter applies to. */
@@ -1182,11 +1071,7 @@ const SITE_RESULT_FILTERS: SiteResultFilter[] = [
   },
 ];
 
-function matchesSiteFilter(
-  url: string,
-  filter: SiteResultFilter,
-  baseHostname: string,
-): boolean {
+function matchesSiteFilter(url: string, filter: SiteResultFilter, baseHostname: string): boolean {
   try {
     const parsed = new URL(url, baseHostname ? `https://${baseHostname}` : undefined);
     return parsed.hostname === filter.hostname;
@@ -1234,12 +1119,7 @@ function isSearchOrListingPage(page: PageContent): boolean {
   if (isSiteListingPage(page.url)) return true;
 
   const haystack = normalizeComparable(
-    [
-      page.url,
-      page.title,
-      page.excerpt,
-      page.headings.map((heading) => heading.text).join(" "),
-    ]
+    [page.url, page.title, page.excerpt, page.headings.map((heading) => heading.text).join(" ")]
       .filter(Boolean)
       .join(" "),
   );
@@ -1265,9 +1145,7 @@ function collectJsonLdEntityItems(
   const item = input as Record<string, unknown>;
   const type = item["@type"];
   const types = Array.isArray(type) ? type : [type];
-  const typeNames = types.filter(
-    (entry): entry is string => typeof entry === "string",
-  );
+  const typeNames = types.filter((entry): entry is string => typeof entry === "string");
 
   if (
     (typeof item.name === "string" || typeof item.url === "string") &&
@@ -1290,16 +1168,12 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
   const entityItems = collectJsonLdEntityItems(page.jsonLd ?? []);
   const entityNames = new Set(
     entityItems
-      .map((item) =>
-        typeof item.name === "string" ? normalizeComparable(item.name) : "",
-      )
+      .map((item) => (typeof item.name === "string" ? normalizeComparable(item.name) : ""))
       .filter(Boolean),
   );
   const entityUrls = new Set(
     entityItems
-      .map((item) =>
-        typeof item.url === "string" ? normalizeUrlForMatch(item.url) : null,
-      )
+      .map((item) => (typeof item.url === "string" ? normalizeUrlForMatch(item.url) : null))
       .filter((value): value is string => Boolean(value)),
   );
 
@@ -1330,20 +1204,15 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       if (href && entityUrls.has(href)) score += 6;
       if (
         entityItems.some((item) => {
-          const name =
-            typeof item.name === "string" ? normalizeComparable(item.name) : "";
-          return (
-            Boolean(name) &&
-            (name.includes(comparableText) || comparableText.includes(name))
-          );
+          const name = typeof item.name === "string" ? normalizeComparable(item.name) : "";
+          return Boolean(name) && (name.includes(comparableText) || comparableText.includes(name));
         })
       ) {
         score += 4;
       }
 
       if (element.context === "article") score += 3;
-      else if (element.context === "main" || element.context === "content")
-        score += 1;
+      else if (element.context === "main" || element.context === "content") score += 1;
 
       if (href && pageHost) {
         try {
@@ -1367,11 +1236,7 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       }
 
       if (/\b(card|tile|result|rating|review)\b/.test(haystack)) score += 1;
-      if (
-        /\b(item|list|row|repo|repository|issue|pull request|event)\b/.test(
-          haystack,
-        )
-      ) {
+      if (/\b(item|list|row|repo|repository|issue|pull request|event)\b/.test(haystack)) {
         score += 1;
       }
       if (text.length >= 12 && text.split(/\s+/).length >= 2) score += 1;
@@ -1409,10 +1274,7 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
       }
       return score >= 4 || (score >= 3 && element.context === "article");
     })
-    .sort(
-      (a, b) =>
-        b.score - a.score || (a.element.index ?? 0) - (b.element.index ?? 0),
-    );
+    .sort((a, b) => b.score - a.score || (a.element.index ?? 0) - (b.element.index ?? 0));
 
   const seen = new Set<string>();
   return scored
@@ -1425,390 +1287,384 @@ function getResultCandidates(page: PageContent): InteractiveElement[] {
     });
 }
 
-export function buildScopedContext(
-  page: PageContent,
-  mode: ExtractMode,
-): string {
-  switch (mode) {
-    case "summary": {
-      const sections: string[] = [];
-      const cartSnapshot = formatCartSnapshot(page);
-      sections.push(`**URL:** ${page.url}`);
-      sections.push(`**Title:** ${page.title}`);
-      sections.push(`**Viewport:** ${formatViewport(page)}`);
-      if (page.byline) sections.push(`**Author:** ${page.byline}`);
-      if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
-      const largePageHint = formatLargePageHint(page);
-      if (largePageHint) sections.push(`**Reading Hint:** ${largePageHint}`);
-      const scrollHints = getScrollHints(page);
-      if (scrollHints.length > 0) {
-        sections.push(`**Scroll Hint:** ${scrollHints[0]}`);
-      }
-      sections.push("");
-      const summaryIntent = analyzePageIntent(page);
-      if (summaryIntent) {
-        sections.push(summaryIntent);
-        sections.push("");
-      }
-      if (cartSnapshot) {
-        sections.push("### Cart Snapshot");
-        sections.push(cartSnapshot);
-        sections.push("");
-      }
-      if ((page.pageIssues?.length ?? 0) > 0) {
-        sections.push("### Page Access Warnings");
-        sections.push(formatPageIssues(page.pageIssues ?? []));
-        sections.push("");
-      }
-      sections.push("### Document Outline");
-      sections.push(formatHeadings(page.headings));
-      sections.push("");
-      const summaryHighlights = getHighlightsForPage(page.url);
-      sections.push(
-        `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.headings.length} headings, ${page.content.length} chars`,
-      );
-      if (summaryHighlights.length > 0) {
-        sections.push("");
-        sections.push("### Highlights & Annotations");
-        sections.push(formatHighlights(summaryHighlights));
-      }
-      if ((page.structuredData?.length ?? 0) > 0) {
-        if (hasOnlyFallbackStructuredData(page)) {
-          const rawSources = [
-            (page.jsonLd?.length ?? 0) > 0
-              ? `${page.jsonLd!.length} JSON-LD`
-              : "",
-            (page.microdata?.length ?? 0) > 0
-              ? `${page.microdata!.length} microdata`
-              : "",
-            (page.rdfa?.length ?? 0) > 0 ? `${page.rdfa!.length} RDFa` : "",
-          ].filter(Boolean);
-          if (rawSources.length > 0) {
-            sections.push(
-              `Structured data: generic page metadata only (raw sources present: ${rawSources.join(", ")} — use extract_structured_data or read_page with mode=structured for details)`,
-            );
-          } else {
-            sections.push("Structured data: generic page metadata only");
-          }
-        } else {
-          sections.push(
-            `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,
-          );
-        }
-      }
-      if (page.overlays.length > 0) {
-        sections.push(
-          `Blocking overlays: ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
-        );
-      }
-      if (page.dormantOverlays.length > 0) {
-        sections.push(
-          `Dormant consent/modal surfaces: ${page.dormantOverlays.length}`,
-        );
-      }
-      return sections.join("\n");
-    }
-
-    case "interactives_only": {
-      const sections: string[] = [];
-      const quantityElements = getQuantityElements(page);
-      const cartSnapshot = formatCartSnapshot(page);
-      const dialogFocus = formatDialogFocus(page);
-      sections.push(`**URL:** ${page.url}`);
-      sections.push(`**Title:** ${page.title}`);
-      sections.push(`**Viewport:** ${formatViewport(page)}`);
-      const interactivesScrollHints = getScrollHints(page);
-      if (interactivesScrollHints.length > 0) {
-        sections.push(`**Scroll Hint:** ${interactivesScrollHints[0]}`);
-      }
-      sections.push("");
-      const interactivesIntent = analyzePageIntent(page);
-      if (interactivesIntent) {
-        sections.push(interactivesIntent);
-        sections.push("");
-      }
-      const interactivesHighlights = getHighlightsForPage(page.url);
-      if (interactivesHighlights.length > 0) {
-        sections.push("### Highlights & Annotations");
-        sections.push(formatHighlights(interactivesHighlights));
-        sections.push("");
-      }
-      if (cartSnapshot) {
-        sections.push("### Cart Snapshot");
-        sections.push(cartSnapshot);
-        sections.push("");
-      }
-      if ((page.pageIssues?.length ?? 0) > 0) {
-        sections.push("### Page Access Warnings");
-        sections.push(formatPageIssues(page.pageIssues ?? []));
-        sections.push("");
-      }
-      if (page.overlays.length > 0) {
-        sections.push("### Active Overlays");
-        sections.push(formatOverlays(page));
-        sections.push("");
-      }
-      if (dialogFocus) {
-        sections.push("### Immediate Overlay Actions");
-        sections.push(dialogFocus);
-        sections.push("");
-      }
-      if (page.dormantOverlays.length > 0) {
-        sections.push("### Dormant Consent / Modal UI");
-        sections.push(formatDormantOverlays(page.dormantOverlays));
-        sections.push("");
-      }
-      if (page.navigation.length > 0) {
-        sections.push("### Navigation");
-        sections.push(formatNavigation(page.navigation));
-        sections.push("");
-      }
-      if (quantityElements.length > 0) {
-        sections.push("### Quantity / Count Controls");
-        sections.push(formatQuantityElements(quantityElements));
-        sections.push("");
-      }
-      if (page.interactiveElements.length > 0) {
-        sections.push(
-          `### Interactive Elements (${page.interactiveElements.length})`,
-        );
-        sections.push(formatInteractiveElements(page.interactiveElements));
-      }
-      return sections.join("\n");
-    }
-
-    case "forms_only": {
-      const sections: string[] = [];
-      const quantityElements = getQuantityElements(page);
-      const cartSnapshot = formatCartSnapshot(page);
-      sections.push(`**URL:** ${page.url}`);
-      sections.push(`**Title:** ${page.title}`);
-      sections.push(`**Viewport:** ${formatViewport(page)}`);
-      const visibleScrollHints = getScrollHints(page);
-      if (visibleScrollHints.length > 0) {
-        sections.push(`**Scroll Hint:** ${visibleScrollHints[0]}`);
-      }
-      sections.push("");
-      const formsHighlights = getHighlightsForPage(page.url);
-      if (formsHighlights.length > 0) {
-        sections.push("### Highlights & Annotations");
-        sections.push(formatHighlights(formsHighlights));
-        sections.push("");
-      }
-      if (cartSnapshot) {
-        sections.push("### Cart Snapshot");
-        sections.push(cartSnapshot);
-        sections.push("");
-      }
-      if ((page.pageIssues?.length ?? 0) > 0) {
-        sections.push("### Page Access Warnings");
-        sections.push(formatPageIssues(page.pageIssues ?? []));
-        sections.push("");
-      }
-      if (page.overlays.length > 0) {
-        sections.push("### Active Overlays");
-        sections.push(formatOverlays(page));
-        sections.push("");
-      }
-      if (page.dormantOverlays.length > 0) {
-        sections.push("### Dormant Consent / Modal UI");
-        sections.push(formatDormantOverlays(page.dormantOverlays));
-        sections.push("");
-      }
-      if (quantityElements.length > 0) {
-        sections.push("### Quantity / Count Controls");
-        sections.push(formatQuantityElements(quantityElements));
-        sections.push("");
-      }
-      if (page.forms.length > 0) {
-        sections.push(`### Forms (${page.forms.length})`);
-        sections.push(formatForms(page.forms));
-      } else {
-        sections.push("No forms found on this page.");
-      }
-      return sections.join("\n");
-    }
-
-    case "text_only": {
-      const sections: string[] = [];
-      sections.push(`**URL:** ${page.url}`);
-      sections.push(`**Title:** ${page.title}`);
-      sections.push(`**Viewport:** ${formatViewport(page)}`);
-      sections.push("");
-      const textHighlights = getHighlightsForPage(page.url);
-      if (textHighlights.length > 0) {
-        sections.push("### Highlights & Annotations");
-        sections.push(formatHighlights(textHighlights));
-        sections.push("");
-      }
-      if ((page.pageIssues?.length ?? 0) > 0) {
-        sections.push("### Page Access Warnings");
-        sections.push(formatPageIssues(page.pageIssues ?? []));
-        sections.push("");
-      }
-      const truncated =
-        page.content.length > MAX_CONTEXT_CONTENT_LENGTH
-          ? page.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + "\n[Content truncated...]"
-          : page.content;
-      sections.push(truncated);
-      return sections.join("\n");
-    }
-
-    case "visible_only": {
-      const visibleElements = page.interactiveElements.filter(isVisibleToUser);
-      const visibleNav = page.navigation.filter(isVisibleToUser);
-      const dialogFocusedElements = getDialogFocusedElements(page);
-      const visiblePage = {
-        ...page,
-        interactiveElements:
-          dialogFocusedElements.length > 0
-            ? dialogFocusedElements
-            : visibleElements,
-        forms: page.forms
-          .map((form) => ({
-            ...form,
-            fields: form.fields.filter(
-              (field) =>
-                isVisibleToUser(field) &&
-                (dialogFocusedElements.length === 0 ||
-                  field.context === "dialog"),
-            ),
-          }))
-          .filter((form) => form.fields.length > 0),
-      };
-      const quantityElements = getQuantityElements(visiblePage);
-      const purchaseActions = getPurchaseActionElements(visiblePage, {
-        visibleOnly: true,
-      });
-      const offscreenPurchaseActions = getOffscreenPurchaseActionElements(page);
-      const cartSnapshot = formatCartSnapshot(visiblePage);
-      const visibleForms = visiblePage.forms;
-      const dialogFocus = formatDialogFocus(page);
-      const flightBookingFormHint = getFlightBookingFormHint(page);
-      const sections: string[] = [];
-      sections.push(`**URL:** ${page.url}`);
-      sections.push(`**Title:** ${page.title}`);
-      sections.push(`**Viewport:** ${formatViewport(page)}`);
-      sections.push("");
-      const visibleHighlights = getHighlightsForPage(page.url);
-      if (visibleHighlights.length > 0) {
-        sections.push("### Highlights & Annotations");
-        sections.push(formatHighlights(visibleHighlights));
-        sections.push("");
-      }
-      if (cartSnapshot) {
-        sections.push("### Cart Snapshot");
-        sections.push(cartSnapshot);
-        sections.push("");
-      }
-      if ((page.pageIssues?.length ?? 0) > 0) {
-        sections.push("### Page Access Warnings");
-        sections.push(formatPageIssues(page.pageIssues ?? []));
-        sections.push("");
-      }
-      if (flightBookingFormHint) {
-        sections.push("### Flight Booking Hint");
-        sections.push(flightBookingFormHint);
-        sections.push("");
-      }
-      if (page.overlays.length > 0) {
-        sections.push("### Active Overlays");
-        sections.push(formatOverlays(page));
-        sections.push("");
-      }
-      if (dialogFocus) {
-        sections.push("### Immediate Overlay Actions");
-        sections.push(dialogFocus);
-        if (visibleElements.length > dialogFocusedElements.length) {
-          sections.push("");
-          sections.push(
-            `Background controls hidden while the dialog is active: ${visibleElements.length - dialogFocusedElements.length}`,
-          );
-        }
-        sections.push("");
-      }
-      if (page.dormantOverlays.length > 0) {
-        sections.push("### Dormant Consent / Modal UI");
-        sections.push(formatDormantOverlays(page.dormantOverlays));
-        sections.push("");
-      }
-      if (visibleNav.length > 0) {
-        sections.push("### Visible Navigation");
-        sections.push(formatNavigation(visibleNav));
-        sections.push("");
-      }
-      if (quantityElements.length > 0) {
-        sections.push("### Quantity / Count Controls");
-        sections.push(formatQuantityElements(quantityElements));
-        sections.push("");
-      }
-      if (purchaseActions.length > 0) {
-        sections.push("### Primary Purchase Actions");
-        sections.push(formatInteractiveElements(purchaseActions));
-        sections.push("");
-      }
-      if (offscreenPurchaseActions.length > 0) {
-        sections.push("### Offscreen Purchase Actions");
-        sections.push(
-          "These purchase controls are present on the page but currently outside the viewport. You can scroll to reveal them or click them by index.",
-        );
-        sections.push(formatInteractiveElements(offscreenPurchaseActions));
-        sections.push("");
-      }
-      if (visiblePage.interactiveElements.length > 0) {
-        sections.push(
-          `### Visible In-Viewport Interactive Elements (${visiblePage.interactiveElements.length})`,
-        );
-        sections.push(
-          formatInteractiveElements(visiblePage.interactiveElements),
-        );
-        sections.push("");
-      }
-      if (visibleForms.length > 0) {
-        sections.push("### Visible Forms");
-        sections.push(formatForms(visibleForms));
-      } else if (visibleElements.length === 0 && visibleNav.length === 0) {
-        sections.push(
-          "No currently visible, unobstructed interactive elements were detected in the viewport.",
-        );
-      }
-      return sections.join("\n");
-    }
-
-    case "results_only": {
-      const resultElements = getResultCandidates(page);
-      const sections: string[] = [];
-      sections.push(`**URL:** ${page.url}`);
-      sections.push(`**Title:** ${page.title}`);
-      sections.push(`**Viewport:** ${formatViewport(page)}`);
-      sections.push("");
-      const resultsHighlights = getHighlightsForPage(page.url);
-      if (resultsHighlights.length > 0) {
-        sections.push("### Highlights & Annotations");
-        sections.push(formatHighlights(resultsHighlights));
-        sections.push("");
-      }
-      if ((page.pageIssues?.length ?? 0) > 0) {
-        sections.push("### Page Access Warnings");
-        sections.push(formatPageIssues(page.pageIssues ?? []));
-        sections.push("");
-      }
-      if (resultElements.length > 0) {
-        sections.push(`### Likely Search Results (${resultElements.length})`);
-        sections.push(formatInteractiveElements(resultElements));
-      } else {
-        sections.push(
-          "No likely primary result links were detected on this page.",
-        );
-      }
-      return sections.join("\n");
-    }
-
-    case "full":
-    default:
-      return buildStructuredContext(page);
-  }
+export function buildScopedContext(page: PageContent, mode: ExtractMode): string {
+  const render = SCOPED_CONTEXT_RENDERERS.get(mode) ?? buildStructuredContext;
+  return render(page);
 }
+
+type ScopedContextRenderer = (page: PageContent) => string;
+
+function buildSummaryContext(page: PageContent): string {
+  const sections: string[] = [];
+  const cartSnapshot = formatCartSnapshot(page);
+  sections.push(`**URL:** ${page.url}`);
+  sections.push(`**Title:** ${page.title}`);
+  sections.push(`**Viewport:** ${formatViewport(page)}`);
+  if (page.byline) sections.push(`**Author:** ${page.byline}`);
+  if (page.excerpt) sections.push(`**Summary:** ${page.excerpt}`);
+  const largePageHint = formatLargePageHint(page);
+  if (largePageHint) sections.push(`**Reading Hint:** ${largePageHint}`);
+  const scrollHints = getScrollHints(page);
+  if (scrollHints.length > 0) {
+    sections.push(`**Scroll Hint:** ${scrollHints[0]}`);
+  }
+  sections.push("");
+  const summaryIntent = analyzePageIntent(page);
+  if (summaryIntent) {
+    sections.push(summaryIntent);
+    sections.push("");
+  }
+  if (cartSnapshot) {
+    sections.push("### Cart Snapshot");
+    sections.push(cartSnapshot);
+    sections.push("");
+  }
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
+  sections.push("### Document Outline");
+  sections.push(formatHeadings(page.headings));
+  sections.push("");
+  const summaryHighlights = getHighlightsForPage(page.url);
+  sections.push(
+    `Stats: ${page.interactiveElements.length} interactives, ${page.forms.length} forms, ${page.navigation.length} nav links, ${page.headings.length} headings, ${page.content.length} chars`,
+  );
+  if (summaryHighlights.length > 0) {
+    sections.push("");
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(summaryHighlights));
+  }
+  if ((page.structuredData?.length ?? 0) > 0) {
+    if (hasOnlyFallbackStructuredData(page)) {
+      const rawSources = [
+        (page.jsonLd?.length ?? 0) > 0 ? `${page.jsonLd!.length} JSON-LD` : "",
+        (page.microdata?.length ?? 0) > 0 ? `${page.microdata!.length} microdata` : "",
+        (page.rdfa?.length ?? 0) > 0 ? `${page.rdfa!.length} RDFa` : "",
+      ].filter(Boolean);
+      if (rawSources.length > 0) {
+        sections.push(
+          `Structured data: generic page metadata only (raw sources present: ${rawSources.join(", ")} — use extract_structured_data or read_page with mode=structured for details)`,
+        );
+      } else {
+        sections.push("Structured data: generic page metadata only");
+      }
+    } else {
+      sections.push(
+        `Structured entities: ${page.structuredData?.map((entity) => entity.types[0]).join(", ")}`,
+      );
+    }
+  }
+  if (page.overlays.length > 0) {
+    sections.push(
+      `Blocking overlays: ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
+    );
+  }
+  if (page.dormantOverlays.length > 0) {
+    sections.push(`Dormant consent/modal surfaces: ${page.dormantOverlays.length}`);
+  }
+  return sections.join("\n");
+}
+
+function buildInteractivesOnlyContext(page: PageContent): string {
+  const sections: string[] = [];
+  const quantityElements = getQuantityElements(page);
+  const cartSnapshot = formatCartSnapshot(page);
+  const dialogFocus = formatDialogFocus(page);
+  sections.push(`**URL:** ${page.url}`);
+  sections.push(`**Title:** ${page.title}`);
+  sections.push(`**Viewport:** ${formatViewport(page)}`);
+  const interactivesScrollHints = getScrollHints(page);
+  if (interactivesScrollHints.length > 0) {
+    sections.push(`**Scroll Hint:** ${interactivesScrollHints[0]}`);
+  }
+  sections.push("");
+  const interactivesIntent = analyzePageIntent(page);
+  if (interactivesIntent) {
+    sections.push(interactivesIntent);
+    sections.push("");
+  }
+  const interactivesHighlights = getHighlightsForPage(page.url);
+  if (interactivesHighlights.length > 0) {
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(interactivesHighlights));
+    sections.push("");
+  }
+  if (cartSnapshot) {
+    sections.push("### Cart Snapshot");
+    sections.push(cartSnapshot);
+    sections.push("");
+  }
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
+  if (page.overlays.length > 0) {
+    sections.push("### Active Overlays");
+    sections.push(formatOverlays(page));
+    sections.push("");
+  }
+  if (dialogFocus) {
+    sections.push("### Immediate Overlay Actions");
+    sections.push(dialogFocus);
+    sections.push("");
+  }
+  if (page.dormantOverlays.length > 0) {
+    sections.push("### Dormant Consent / Modal UI");
+    sections.push(formatDormantOverlays(page.dormantOverlays));
+    sections.push("");
+  }
+  if (page.navigation.length > 0) {
+    sections.push("### Navigation");
+    sections.push(formatNavigation(page.navigation));
+    sections.push("");
+  }
+  if (quantityElements.length > 0) {
+    sections.push("### Quantity / Count Controls");
+    sections.push(formatQuantityElements(quantityElements));
+    sections.push("");
+  }
+  if (page.interactiveElements.length > 0) {
+    sections.push(`### Interactive Elements (${page.interactiveElements.length})`);
+    sections.push(formatInteractiveElements(page.interactiveElements));
+  }
+  return sections.join("\n");
+}
+
+function buildFormsOnlyContext(page: PageContent): string {
+  const sections: string[] = [];
+  const quantityElements = getQuantityElements(page);
+  const cartSnapshot = formatCartSnapshot(page);
+  sections.push(`**URL:** ${page.url}`);
+  sections.push(`**Title:** ${page.title}`);
+  sections.push(`**Viewport:** ${formatViewport(page)}`);
+  const visibleScrollHints = getScrollHints(page);
+  if (visibleScrollHints.length > 0) {
+    sections.push(`**Scroll Hint:** ${visibleScrollHints[0]}`);
+  }
+  sections.push("");
+  const formsHighlights = getHighlightsForPage(page.url);
+  if (formsHighlights.length > 0) {
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(formsHighlights));
+    sections.push("");
+  }
+  if (cartSnapshot) {
+    sections.push("### Cart Snapshot");
+    sections.push(cartSnapshot);
+    sections.push("");
+  }
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
+  if (page.overlays.length > 0) {
+    sections.push("### Active Overlays");
+    sections.push(formatOverlays(page));
+    sections.push("");
+  }
+  if (page.dormantOverlays.length > 0) {
+    sections.push("### Dormant Consent / Modal UI");
+    sections.push(formatDormantOverlays(page.dormantOverlays));
+    sections.push("");
+  }
+  if (quantityElements.length > 0) {
+    sections.push("### Quantity / Count Controls");
+    sections.push(formatQuantityElements(quantityElements));
+    sections.push("");
+  }
+  if (page.forms.length > 0) {
+    sections.push(`### Forms (${page.forms.length})`);
+    sections.push(formatForms(page.forms));
+  } else {
+    sections.push("No forms found on this page.");
+  }
+  return sections.join("\n");
+}
+
+function buildTextOnlyContext(page: PageContent): string {
+  const sections: string[] = [];
+  sections.push(`**URL:** ${page.url}`);
+  sections.push(`**Title:** ${page.title}`);
+  sections.push(`**Viewport:** ${formatViewport(page)}`);
+  sections.push("");
+  const textHighlights = getHighlightsForPage(page.url);
+  if (textHighlights.length > 0) {
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(textHighlights));
+    sections.push("");
+  }
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
+  const truncated =
+    page.content.length > MAX_CONTEXT_CONTENT_LENGTH
+      ? page.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + "\n[Content truncated...]"
+      : page.content;
+  sections.push(truncated);
+  return sections.join("\n");
+}
+
+function buildVisibleOnlyContext(page: PageContent): string {
+  const visibleElements = page.interactiveElements.filter(isVisibleToUser);
+  const visibleNav = page.navigation.filter(isVisibleToUser);
+  const dialogFocusedElements = getDialogFocusedElements(page);
+  const visiblePage = {
+    ...page,
+    interactiveElements: dialogFocusedElements.length > 0 ? dialogFocusedElements : visibleElements,
+    forms: page.forms
+      .map((form) => ({
+        ...form,
+        fields: form.fields.filter(
+          (field) =>
+            isVisibleToUser(field) &&
+            (dialogFocusedElements.length === 0 || field.context === "dialog"),
+        ),
+      }))
+      .filter((form) => form.fields.length > 0),
+  };
+  const quantityElements = getQuantityElements(visiblePage);
+  const purchaseActions = getPurchaseActionElements(visiblePage, {
+    visibleOnly: true,
+  });
+  const offscreenPurchaseActions = getOffscreenPurchaseActionElements(page);
+  const cartSnapshot = formatCartSnapshot(visiblePage);
+  const visibleForms = visiblePage.forms;
+  const dialogFocus = formatDialogFocus(page);
+  const flightBookingFormHint = getFlightBookingFormHint(page);
+  const sections: string[] = [];
+  sections.push(`**URL:** ${page.url}`);
+  sections.push(`**Title:** ${page.title}`);
+  sections.push(`**Viewport:** ${formatViewport(page)}`);
+  sections.push("");
+  const visibleHighlights = getHighlightsForPage(page.url);
+  if (visibleHighlights.length > 0) {
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(visibleHighlights));
+    sections.push("");
+  }
+  if (cartSnapshot) {
+    sections.push("### Cart Snapshot");
+    sections.push(cartSnapshot);
+    sections.push("");
+  }
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
+  if (flightBookingFormHint) {
+    sections.push("### Flight Booking Hint");
+    sections.push(flightBookingFormHint);
+    sections.push("");
+  }
+  if (page.overlays.length > 0) {
+    sections.push("### Active Overlays");
+    sections.push(formatOverlays(page));
+    sections.push("");
+  }
+  if (dialogFocus) {
+    sections.push("### Immediate Overlay Actions");
+    sections.push(dialogFocus);
+    if (visibleElements.length > dialogFocusedElements.length) {
+      sections.push("");
+      sections.push(
+        `Background controls hidden while the dialog is active: ${visibleElements.length - dialogFocusedElements.length}`,
+      );
+    }
+    sections.push("");
+  }
+  if (page.dormantOverlays.length > 0) {
+    sections.push("### Dormant Consent / Modal UI");
+    sections.push(formatDormantOverlays(page.dormantOverlays));
+    sections.push("");
+  }
+  if (visibleNav.length > 0) {
+    sections.push("### Visible Navigation");
+    sections.push(formatNavigation(visibleNav));
+    sections.push("");
+  }
+  if (quantityElements.length > 0) {
+    sections.push("### Quantity / Count Controls");
+    sections.push(formatQuantityElements(quantityElements));
+    sections.push("");
+  }
+  if (purchaseActions.length > 0) {
+    sections.push("### Primary Purchase Actions");
+    sections.push(formatInteractiveElements(purchaseActions));
+    sections.push("");
+  }
+  if (offscreenPurchaseActions.length > 0) {
+    sections.push("### Offscreen Purchase Actions");
+    sections.push(
+      "These purchase controls are present on the page but currently outside the viewport. You can scroll to reveal them or click them by index.",
+    );
+    sections.push(formatInteractiveElements(offscreenPurchaseActions));
+    sections.push("");
+  }
+  if (visiblePage.interactiveElements.length > 0) {
+    sections.push(
+      `### Visible In-Viewport Interactive Elements (${visiblePage.interactiveElements.length})`,
+    );
+    sections.push(formatInteractiveElements(visiblePage.interactiveElements));
+    sections.push("");
+  }
+  if (visibleForms.length > 0) {
+    sections.push("### Visible Forms");
+    sections.push(formatForms(visibleForms));
+  } else if (visibleElements.length === 0 && visibleNav.length === 0) {
+    sections.push(
+      "No currently visible, unobstructed interactive elements were detected in the viewport.",
+    );
+  }
+  return sections.join("\n");
+}
+
+function buildResultsOnlyContext(page: PageContent): string {
+  const resultElements = getResultCandidates(page);
+  const sections: string[] = [];
+  sections.push(`**URL:** ${page.url}`);
+  sections.push(`**Title:** ${page.title}`);
+  sections.push(`**Viewport:** ${formatViewport(page)}`);
+  sections.push("");
+  const resultsHighlights = getHighlightsForPage(page.url);
+  if (resultsHighlights.length > 0) {
+    sections.push("### Highlights & Annotations");
+    sections.push(formatHighlights(resultsHighlights));
+    sections.push("");
+  }
+  if ((page.pageIssues?.length ?? 0) > 0) {
+    sections.push("### Page Access Warnings");
+    sections.push(formatPageIssues(page.pageIssues ?? []));
+    sections.push("");
+  }
+  if (resultElements.length > 0) {
+    sections.push(`### Likely Search Results (${resultElements.length})`);
+    sections.push(formatInteractiveElements(resultElements));
+  } else {
+    sections.push("No likely primary result links were detected on this page.");
+  }
+  return sections.join("\n");
+}
+
+/**
+ * Per-mode dispatch table for scoped context rendering. Modes not listed
+ * here fall through to buildStructuredContext (the "full" default). Add a
+ * mode by registering a new entry here instead of editing buildScopedContext.
+ */
+const SCOPED_CONTEXT_RENDERERS: ReadonlyMap<ExtractMode, ScopedContextRenderer> = new Map([
+  ["summary", buildSummaryContext],
+  ["interactives_only", buildInteractivesOnlyContext],
+  ["forms_only", buildFormsOnlyContext],
+  ["text_only", buildTextOnlyContext],
+  ["visible_only", buildVisibleOnlyContext],
+  ["results_only", buildResultsOnlyContext],
+]);
 
 /**
  * Speedee System — Page type classification.
@@ -1840,10 +1696,7 @@ export function detectPageType(page: PageContent): PageType {
   const hasSearchInput =
     searchInputs.length > 0 ||
     page.forms.some((f) =>
-      f.fields.some(
-        (el) =>
-          el.inputType === "search" || el.name === "q" || el.name === "query",
-      ),
+      f.fields.some((el) => el.inputType === "search" || el.name === "q" || el.name === "query"),
     );
   const hasVisibleSearchInput = searchInputs.some(
     (el) =>
@@ -1894,8 +1747,7 @@ export function detectPageType(page: PageContent): PageType {
   if (isSiteListingPage(page.url)) return "PAGINATED_LIST";
   if (hasPagination && listingLike) return "PAGINATED_LIST";
   if (hasSearchInput && !listingLike) return "SEARCH_READY";
-  if (page.content.length > 3000 && page.interactiveElements.length < 10)
-    return "ARTICLE";
+  if (page.content.length > 3000 && page.interactiveElements.length < 10) return "ARTICLE";
   return "GENERAL";
 }
 
@@ -1914,25 +1766,17 @@ function isFlightBookingPage(page: PageContent): boolean {
     return true;
   }
 
-  const controlsText = [
-    ...page.interactiveElements,
-    ...page.forms.flatMap((form) => form.fields),
-  ]
+  const controlsText = [...page.interactiveElements, ...page.forms.flatMap((form) => form.fields)]
     .map((el) =>
-      [el.label, el.placeholder, el.name, el.text, el.role, el.inputType]
-        .filter(Boolean)
-        .join(" "),
+      [el.label, el.placeholder, el.name, el.text, el.role, el.inputType].filter(Boolean).join(" "),
     )
     .join(" ")
     .toLowerCase();
 
-  const hasRouteControls =
-    /\b(?:where from|where to|origin|destination|from|to)\b/.test(
-      controlsText,
-    );
-  const hasDateControls = /\b(?:departure|depart|return|date)\b/.test(
+  const hasRouteControls = /\b(?:where from|where to|origin|destination|from|to)\b/.test(
     controlsText,
   );
+  const hasDateControls = /\b(?:departure|depart|return|date)\b/.test(controlsText);
   const hasFlightLanguage = /\b(?:flight|flights|airfare|airline)\b/.test(
     `${pageText} ${controlsText}`,
   );
@@ -1950,8 +1794,96 @@ function getFlightBookingFormHint(page: PageContent): string | null {
  * Detects page intent and suggests the most relevant actions,
  * so agents spend zero tokens deciding *which* tool to use.
  */
+interface PageIntentContext {
+  page: PageContent;
+  flightBookingFormHint: string | null;
+  hasPagination: boolean;
+}
+
+type PageIntentBuilder = (ctx: PageIntentContext) => string[];
+
+function buildLoginIntentHints(ctx: PageIntentContext): string[] {
+  const { page } = ctx;
+  const hints: string[] = [
+    "Page type: LOGIN/SIGNUP",
+    "Suggested: vessel_login or vessel_fill_form → auto-fills credentials and submits",
+  ];
+  const userField = page.forms
+    .flatMap((f) => f.fields)
+    .find(
+      (el) =>
+        el.inputType === "email" ||
+        el.name === "email" ||
+        el.name === "username" ||
+        el.autocomplete === "username",
+    );
+  if (userField) {
+    hints.push(
+      `Username field: #${userField.index} [${userField.label || userField.name || userField.placeholder || "input"}]`,
+    );
+  }
+  return hints;
+}
+
+function buildSearchReadyIntentHints(ctx: PageIntentContext): string[] {
+  const hints: string[] = [
+    "Page type: SEARCH READY",
+    "Suggested: vessel_search → auto-finds search box, types query, and submits",
+    "Treat the visible site search box as the primary navigation control before jumping to direct URLs.",
+  ];
+  if (ctx.flightBookingFormHint) hints.push(ctx.flightBookingFormHint);
+  return hints;
+}
+
+function buildSearchResultsIntentHints(ctx: PageIntentContext): string[] {
+  const hints: string[] = [
+    "Page type: SEARCH RESULTS",
+    "Suggested: click a result link, or vessel_paginate for more results",
+  ];
+  if (ctx.hasPagination) hints.push("Pagination detected — vessel_paginate available");
+  return hints;
+}
+
+function buildShoppingIntentHints(_ctx: PageIntentContext): string[] {
+  return ["Page type: SHOPPING/CHECKOUT", "Suggested: vessel_fill_form for payment/address fields"];
+}
+
+function buildFormIntentHints(ctx: PageIntentContext): string[] {
+  const { page } = ctx;
+  const formCount = page.forms.length;
+  const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
+  const hints: string[] = [
+    `Page type: FORM (${formCount} form${formCount > 1 ? "s" : ""}, ${totalFields} fields)`,
+    "Suggested: vessel_fill_form → fill all fields in one call",
+  ];
+  if (ctx.flightBookingFormHint) hints.push(ctx.flightBookingFormHint);
+  return hints;
+}
+
+function buildPaginatedListIntentHints(_ctx: PageIntentContext): string[] {
+  return ["Page type: PAGINATED LIST", "Suggested: vessel_paginate to navigate between pages"];
+}
+
+function buildArticleIntentHints(_ctx: PageIntentContext): string[] {
+  return ["Page type: ARTICLE/CONTENT", "Suggested: vessel_extract_content for readable text"];
+}
+
+/**
+ * Per-page-type intent hint builders. Page types not listed here (currently
+ * only GENERAL) produce no hints. Add a page type by registering a new entry
+ * here instead of editing analyzePageIntent.
+ */
+const PAGE_INTENT_BUILDERS: ReadonlyMap<PageType, PageIntentBuilder> = new Map([
+  ["LOGIN", buildLoginIntentHints],
+  ["SEARCH_READY", buildSearchReadyIntentHints],
+  ["SEARCH_RESULTS", buildSearchResultsIntentHints],
+  ["SHOPPING", buildShoppingIntentHints],
+  ["FORM", buildFormIntentHints],
+  ["PAGINATED_LIST", buildPaginatedListIntentHints],
+  ["ARTICLE", buildArticleIntentHints],
+]);
+
 function analyzePageIntent(page: PageContent): string {
-  const hints: string[] = [];
   const pageType = detectPageType(page);
   const flightBookingFormHint = getFlightBookingFormHint(page);
   const hasPagination = page.interactiveElements.some(
@@ -1961,77 +1893,13 @@ function analyzePageIntent(page: PageContent): string {
       el.text === "»" ||
       (el.label || "").toLowerCase().includes("next page"),
   );
+  const ctx: PageIntentContext = { page, flightBookingFormHint, hasPagination };
 
-  switch (pageType) {
-    case "LOGIN": {
-      hints.push("Page type: LOGIN/SIGNUP");
-      hints.push(
-        "Suggested: vessel_login or vessel_fill_form → auto-fills credentials and submits",
-      );
-      const userField = page.forms
-        .flatMap((f) => f.fields)
-        .find(
-          (el) =>
-            el.inputType === "email" ||
-            el.name === "email" ||
-            el.name === "username" ||
-            el.autocomplete === "username",
-        );
-      if (userField) {
-        hints.push(
-          `Username field: #${userField.index} [${userField.label || userField.name || userField.placeholder || "input"}]`,
-        );
-      }
-      break;
-    }
-    case "SEARCH_READY":
-      hints.push("Page type: SEARCH READY");
-      hints.push(
-        "Suggested: vessel_search → auto-finds search box, types query, and submits",
-      );
-      hints.push(
-        "Treat the visible site search box as the primary navigation control before jumping to direct URLs.",
-      );
-      if (flightBookingFormHint) hints.push(flightBookingFormHint);
-      break;
-    case "SEARCH_RESULTS":
-      hints.push("Page type: SEARCH RESULTS");
-      hints.push(
-        "Suggested: click a result link, or vessel_paginate for more results",
-      );
-      if (hasPagination)
-        hints.push("Pagination detected — vessel_paginate available");
-      break;
-    case "SHOPPING":
-      hints.push("Page type: SHOPPING/CHECKOUT");
-      hints.push("Suggested: vessel_fill_form for payment/address fields");
-      break;
-    case "FORM": {
-      const formCount = page.forms.length;
-      const totalFields = page.forms.reduce((n, f) => n + f.fields.length, 0);
-      hints.push(
-        `Page type: FORM (${formCount} form${formCount > 1 ? "s" : ""}, ${totalFields} fields)`,
-      );
-      hints.push("Suggested: vessel_fill_form → fill all fields in one call");
-      if (flightBookingFormHint) hints.push(flightBookingFormHint);
-      break;
-    }
-    case "PAGINATED_LIST":
-      hints.push("Page type: PAGINATED LIST");
-      hints.push("Suggested: vessel_paginate to navigate between pages");
-      break;
-    case "ARTICLE":
-      hints.push("Page type: ARTICLE/CONTENT");
-      hints.push("Suggested: vessel_extract_content for readable text");
-      break;
-  }
+  const builder = PAGE_INTENT_BUILDERS.get(pageType);
+  const hints = builder ? builder(ctx) : [];
 
   if (hints.length === 0 && !flightBookingFormHint) return "";
-  if (
-    flightBookingFormHint &&
-    pageType !== "SEARCH_READY" &&
-    pageType !== "FORM"
-  ) {
+  if (flightBookingFormHint && pageType !== "SEARCH_READY" && pageType !== "FORM") {
     hints.push(flightBookingFormHint);
   }
   return `### Page Intent (Speedee)\n${hints.join("\n")}`;
@@ -2079,9 +1947,7 @@ export function buildStructuredContext(page: PageContent): string {
 
   if (page.structuredData && page.structuredData.length > 0) {
     sections.push(
-      hasOnlyFallbackStructuredData(page)
-        ? "### Page Metadata"
-        : "### Structured Data",
+      hasOnlyFallbackStructuredData(page) ? "### Page Metadata" : "### Structured Data",
     );
     sections.push(formatStructuredEntities(page.structuredData));
     sections.push("");
@@ -2125,9 +1991,7 @@ export function buildStructuredContext(page: PageContent): string {
   // Interactive Elements
   if (page.interactiveElements.length > 0) {
     sections.push("### Interactive Elements");
-    sections.push(
-      `Found ${page.interactiveElements.length} interactive elements:`,
-    );
+    sections.push(`Found ${page.interactiveElements.length} interactive elements:`);
     sections.push(formatInteractiveElements(page.interactiveElements));
     sections.push("");
   }
@@ -2151,9 +2015,7 @@ export function buildStructuredContext(page: PageContent): string {
   sections.push(
     `**Blocking Overlays:** ${page.overlays.filter((overlay) => overlay.blocksInteraction).length}`,
   );
-  sections.push(
-    `**Dormant Consent / Modal UI:** ${page.dormantOverlays.length}`,
-  );
+  sections.push(`**Dormant Consent / Modal UI:** ${page.dormantOverlays.length}`);
   sections.push(`**Landmarks:** ${page.landmarks.length}`);
 
   return sections.join("\n");

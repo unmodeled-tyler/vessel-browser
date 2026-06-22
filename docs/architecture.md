@@ -15,7 +15,7 @@ That means the product optimizes for:
 
 | Layer | Technology |
 |-------|-----------|
-| Engine | Chromium (Electron 40) |
+| Engine | Chromium (Electron 42) |
 | UI Framework | SolidJS |
 | Language | TypeScript |
 | Build | electron-vite + Vite |

@@ -4,29 +4,20 @@ import { Channels } from "../../shared/channels";
 import { trackApprovalModeChanged } from "../telemetry/posthog";
 import { setSetting } from "../config/settings";
 import { onRuntimeHealthChange } from "../health/runtime-health";
-import {
-  assertTrustedIpcSender,
-  parseIpc,
-  sendSafe,
-  type SendToRendererViews,
-} from "./common";
+import { assertTrustedIpcSender, parseIpc, sendSafe, type SendToRendererViews } from "./common";
 import type { ApprovalMode, AgentRuntimeState, SessionSnapshot } from "../../shared/types";
 import type { AgentRuntime } from "../agent/runtime";
 
 const ApprovalModeSchema = z.enum(["auto", "confirm-dangerous", "manual"]);
 const CheckpointIdSchema = z.string().min(1);
+const ApprovalIdSchema = z.string().min(1);
+const OptionalCheckpointNameSchema = z.string().trim().max(200).optional();
+const OptionalNoteSchema = z.string().trim().max(20_000).optional();
+const BooleanSchema = z.boolean();
 const TaskTextSchema = z.string().trim().min(1).max(20_000);
 const OptionalTaskTextSchema = z.string().trim().max(20_000).optional();
-const OptionalNullableTaskTextSchema = z
-  .string()
-  .trim()
-  .max(20_000)
-  .nullable()
-  .optional();
-const TaskFactsSchema = z.record(
-  z.string().trim().min(1).max(200),
-  z.string().max(20_000),
-);
+const OptionalNullableTaskTextSchema = z.string().trim().max(20_000).nullable().optional();
+const TaskFactsSchema = z.record(z.string().trim().min(1).max(200), z.string().max(20_000));
 const TaskMemoryPatchSchema = z.object({
   nextStep: OptionalNullableTaskTextSchema,
   facts: TaskFactsSchema.optional(),
@@ -101,50 +92,55 @@ export function registerAgentRuntimeHandlers(
 
   ipcMain.handle(
     Channels.AGENT_APPROVAL_RESOLVE,
-    (event, approvalId: string, approved: boolean) => {
+    (event, approvalId: unknown, approved: unknown): AgentRuntimeState => {
       assertTrustedIpcSender(event);
-      return runtime.resolveApproval(approvalId, approved);
+      return runtime.resolveApproval(
+        parseIpc(ApprovalIdSchema, approvalId, "approvalId"),
+        parseIpc(BooleanSchema, approved, "approved"),
+      );
     },
   );
 
-  ipcMain.handle(
-    Channels.AGENT_CHECKPOINT_CREATE,
-    (event, name?: string, note?: string) => {
-      assertTrustedIpcSender(event);
-      return runtime.createCheckpoint(name, note);
-    },
-  );
+  ipcMain.handle(Channels.AGENT_CHECKPOINT_CREATE, (event, name?: unknown, note?: unknown) => {
+    assertTrustedIpcSender(event);
+    return runtime.createCheckpoint(
+      name == null ? undefined : parseIpc(OptionalCheckpointNameSchema, name, "name"),
+      note == null ? undefined : parseIpc(OptionalNoteSchema, note, "note"),
+    );
+  });
 
   ipcMain.handle(Channels.AGENT_CHECKPOINT_RESTORE, (event, checkpointId: string) => {
     assertTrustedIpcSender(event);
     return runtime.restoreCheckpoint(parseIpc(CheckpointIdSchema, checkpointId, "checkpointId"));
   });
 
-  ipcMain.handle(Channels.AGENT_CHECKPOINT_UPDATE_NOTE, (event, checkpointId: string, note?: string) => {
-    assertTrustedIpcSender(event);
-    return runtime.updateCheckpointNote(
-      parseIpc(CheckpointIdSchema, checkpointId, "checkpointId"),
-      note || "",
-    );
-  });
+  ipcMain.handle(
+    Channels.AGENT_CHECKPOINT_UPDATE_NOTE,
+    (event, checkpointId: unknown, note?: unknown) => {
+      assertTrustedIpcSender(event);
+      return runtime.updateCheckpointNote(
+        parseIpc(CheckpointIdSchema, checkpointId, "checkpointId"),
+        note == null ? "" : parseIpc(OptionalNoteSchema, note, "note"),
+      );
+    },
+  );
 
   ipcMain.handle(Channels.AGENT_UNDO_LAST_ACTION, (event) => {
     assertTrustedIpcSender(event);
     return runtime.undoLastAction();
   });
 
-  ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (event, note?: string) => {
+  ipcMain.handle(Channels.AGENT_SESSION_CAPTURE, (event, note?: unknown) => {
     assertTrustedIpcSender(event);
-    return runtime.captureSession(note);
+    return runtime.captureSession(
+      note == null ? undefined : parseIpc(OptionalNoteSchema, note, "note"),
+    );
   });
 
-  ipcMain.handle(
-    Channels.AGENT_SESSION_RESTORE,
-    (event, snapshot?: SessionSnapshot | null) => {
-      assertTrustedIpcSender(event);
-      return runtime.restoreSession(snapshot);
-    },
-  );
+  ipcMain.handle(Channels.AGENT_SESSION_RESTORE, (event, snapshot?: SessionSnapshot | null) => {
+    assertTrustedIpcSender(event);
+    return runtime.restoreSession(snapshot);
+  });
 
   // --- Task Memory ---
 
@@ -153,15 +149,10 @@ export function registerAgentRuntimeHandlers(
     return runtime.startTaskMemory(parseIpc(TaskTextSchema, goal, "goal"));
   });
 
-  ipcMain.handle(
-    Channels.AGENT_TASK_UPDATE,
-    (event, patch: unknown) => {
-      assertTrustedIpcSender(event);
-      return runtime.updateTaskMemory(
-        parseIpc(TaskMemoryPatchSchema, patch ?? {}, "patch"),
-      );
-    },
-  );
+  ipcMain.handle(Channels.AGENT_TASK_UPDATE, (event, patch: unknown) => {
+    assertTrustedIpcSender(event);
+    return runtime.updateTaskMemory(parseIpc(TaskMemoryPatchSchema, patch ?? {}, "patch"));
+  });
 
   ipcMain.handle(Channels.AGENT_TASK_NOTE, (event, text: string) => {
     assertTrustedIpcSender(event);
@@ -171,27 +162,21 @@ export function registerAgentRuntimeHandlers(
   ipcMain.handle(Channels.AGENT_TASK_BLOCKER, (event, blocker?: unknown) => {
     assertTrustedIpcSender(event);
     const validated =
-      blocker == null
-        ? null
-        : parseIpc(OptionalNullableTaskTextSchema, blocker, "blocker");
+      blocker == null ? null : parseIpc(OptionalNullableTaskTextSchema, blocker, "blocker");
     return runtime.setTaskBlocker(validated ?? null);
   });
 
   ipcMain.handle(Channels.AGENT_TASK_RESOLVE, (event, summary?: unknown) => {
     assertTrustedIpcSender(event);
     return runtime.resolveTaskMemory(
-      summary == null
-        ? undefined
-        : parseIpc(OptionalTaskTextSchema, summary, "summary"),
+      summary == null ? undefined : parseIpc(OptionalTaskTextSchema, summary, "summary"),
     );
   });
 
   ipcMain.handle(Channels.AGENT_TASK_ABANDON, (event, reason?: unknown) => {
     assertTrustedIpcSender(event);
     return runtime.abandonTaskMemory(
-      reason == null
-        ? undefined
-        : parseIpc(OptionalTaskTextSchema, reason, "reason"),
+      reason == null ? undefined : parseIpc(OptionalTaskTextSchema, reason, "reason"),
     );
   });
 

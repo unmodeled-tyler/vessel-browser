@@ -4,6 +4,7 @@ import test from "node:test";
 import worker from "../scripts/cloudflare-worker/vessel-premium-api.js";
 
 const STRIPE_API = "https://api.stripe.com/v1";
+const OPENROUTER_API = "https://openrouter.ai/api/v1";
 const WORKER_URL = "https://premium.example";
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -276,6 +277,115 @@ test("premium worker creates billing portal sessions only for signed premium tok
         portalRequestBody,
         /return_url=https%3A%2F%2Fpremium\.example%2Fportal-return/,
       );
+    },
+  );
+});
+
+test("premium worker returns entitlement metadata for signed tokens", async () => {
+  const token = await createPremiumToken("cus_entitlement");
+
+  await withMockFetch(
+    (url) => {
+      if (url === `${STRIPE_API}/customers/cus_entitlement`) {
+        return { id: "cus_entitlement", email: "premium@example.com" };
+      }
+      if (url === `${STRIPE_API}/subscriptions?customer=cus_entitlement&status=all&limit=10`) {
+        return {
+          data: [
+            {
+              id: "sub_active",
+              status: "active",
+              current_period_end: nowSeconds() + 30 * 24 * 60 * 60,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    },
+    async () => {
+      const response = await postJson("/entitlement", { identifier: token });
+      const data = await response.json() as {
+        status?: string;
+        plan?: string;
+        usage?: { monthlyBudgetUsd?: number; remainingBudgetUsd?: number };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(data.status, "active");
+      assert.equal(data.plan, "premium");
+      assert.equal(data.usage?.monthlyBudgetUsd, 5);
+      assert.equal(data.usage?.remainingBudgetUsd, 5);
+    },
+  );
+});
+
+test("premium worker forces Vessel AI model and records successful usage", async () => {
+  const kv = createMemoryKv();
+  const token = await createPremiumToken("cus_ai");
+  let upstreamBody = "";
+
+  await withMockFetch(
+    (url, init) => {
+      if (url === `${OPENROUTER_API}/chat/completions`) {
+        upstreamBody = String(init?.body || "");
+        return {
+          id: "gen_test",
+          model: "upstream/model",
+          choices: [{ message: { role: "assistant", content: "ok" } }],
+          usage: { prompt_tokens: 1000, completion_tokens: 500 },
+        };
+      }
+      if (url === `${STRIPE_API}/customers/cus_ai`) {
+        return { id: "cus_ai", email: "premium@example.com" };
+      }
+      if (url === `${STRIPE_API}/subscriptions?customer=cus_ai&status=all&limit=10`) {
+        return {
+          data: [
+            {
+              id: "sub_active",
+              status: "active",
+              current_period_end: nowSeconds() + 30 * 24 * 60 * 60,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    },
+    async () => {
+      const response = await worker.fetch(
+        new Request(`${WORKER_URL}/ai/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            model: "expensive/model",
+            messages: [{ role: "user", content: "hello" }],
+            max_tokens: 999999,
+          }),
+        }),
+        { ...env, ACTIVATION_KV: kv, OPENROUTER_API_KEY: "sk-or-test" },
+      );
+      const data = await response.json() as { model?: string };
+      const sent = JSON.parse(upstreamBody) as { model?: string; max_tokens?: number };
+
+      assert.equal(response.status, 200);
+      assert.equal(sent.model, "minimax/minimax-m3");
+      assert.equal(sent.max_tokens, 2000);
+      assert.equal(data.model, "minimax/minimax-m3");
+
+      const entitlement = await postJsonWithEnv(
+        "/entitlement",
+        { identifier: token },
+        { ACTIVATION_KV: kv },
+      );
+      const entitlementData = await entitlement.json() as {
+        usage?: { requests?: number; promptTokens?: number; completionTokens?: number };
+      };
+      assert.equal(entitlementData.usage?.requests, 1);
+      assert.equal(entitlementData.usage?.promptTokens, 1000);
+      assert.equal(entitlementData.usage?.completionTokens, 500);
     },
   );
 });

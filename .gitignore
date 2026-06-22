@@ -114,3 +114,5 @@ scripts/cloudflare-worker/vessel-premium-api.js
 # macOS Finder metadata
 .DS_Store
 .claude/plan.md
+scripts/cloudflare-worker/vessel-premium-api.js
+tests/cloudflare-premium-worker.test.ts

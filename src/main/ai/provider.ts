@@ -4,6 +4,7 @@ import type {
   AIMessage,
   CodexOAuthTokens,
   ProviderConfig,
+  ProviderId,
   ProviderModelsResult,
   ReasoningEffortLevel,
 } from "../../shared/types";
@@ -64,9 +65,7 @@ function sanitizeProviderConfig(config: ProviderConfig): ProviderConfig {
   };
 }
 
-function sanitizeReasoningEffortLevel(
-  value: unknown,
-): ReasoningEffortLevel {
+function sanitizeReasoningEffortLevel(value: unknown): ReasoningEffortLevel {
   return value === "low" ||
     value === "medium" ||
     value === "high" ||
@@ -174,9 +173,7 @@ export function buildLlamaCppCtxWarning(ctxSize: number | null): string | undefi
   return undefined;
 }
 
-async function fetchCodexBackendModels(
-  tokens: CodexOAuthTokens,
-): Promise<string[]> {
+async function fetchCodexBackendModels(tokens: CodexOAuthTokens): Promise<string[]> {
   const url = new URL("https://chatgpt.com/backend-api/codex/models");
   url.searchParams.set("client_version", CODEX_CLIENT_VERSION);
 
@@ -211,9 +208,7 @@ async function fetchCodexBackendModels(
     .filter((id): id is string => id !== null);
 }
 
-async function refreshCodexTokensForDiscovery(
-  tokens: CodexOAuthTokens,
-): Promise<CodexOAuthTokens> {
+async function refreshCodexTokensForDiscovery(tokens: CodexOAuthTokens): Promise<CodexOAuthTokens> {
   try {
     const fresh = await refreshAccessToken(tokens);
     writeStoredCodexTokens(fresh);
@@ -233,20 +228,13 @@ async function getFreshCodexTokensForDiscovery(
   return refreshCodexTokensForDiscovery(tokens);
 }
 
-async function fetchCodexBackendModelsWithRefresh(
-  tokens: CodexOAuthTokens,
-): Promise<string[]> {
+async function fetchCodexBackendModelsWithRefresh(tokens: CodexOAuthTokens): Promise<string[]> {
   const freshTokens = await getFreshCodexTokensForDiscovery(tokens);
   try {
     return await fetchCodexBackendModels(freshTokens);
   } catch (err) {
-    if (
-      err instanceof CodexBackendModelDiscoveryError &&
-      err.status === 401
-    ) {
-      return fetchCodexBackendModels(
-        await refreshCodexTokensForDiscovery(freshTokens),
-      );
+    if (err instanceof CodexBackendModelDiscoveryError && err.status === 401) {
+      return fetchCodexBackendModels(await refreshCodexTokensForDiscovery(freshTokens));
     }
     throw err;
   }
@@ -271,59 +259,15 @@ async function probeLlamaCppCtxWarning(baseURL: string): Promise<string | undefi
   }
 }
 
-export async function fetchProviderModels(
-  config: ProviderConfig,
-): Promise<ProviderModelsResult> {
+export async function fetchProviderModels(config: ProviderConfig): Promise<ProviderModelsResult> {
   const normalized = sanitizeProviderConfig(config);
   const error = validateProviderConnection(normalized, { requireModel: false });
   if (error) {
     throw new Error(error);
   }
 
-  if (normalized.id === "anthropic") {
-    const client = new Anthropic({ apiKey: normalized.apiKey });
-    const page = await client.models.list();
-    return okResult({ models: page.data.map((model) => model.id) });
-  }
-
-  if (normalized.id === "openai_codex") {
-    const tokens = readStoredCodexTokens();
-    if (!tokens) {
-      throw new Error("Codex provider requires authentication. Connect your ChatGPT account in settings.");
-    }
-    try {
-      const models = await fetchCodexBackendModelsWithRefresh(tokens);
-      if (models.length > 0) {
-        return okResult({ models });
-      }
-      throw new Error("Codex backend model discovery returned no models");
-    } catch (err) {
-      return okResult({
-        models: PROVIDERS.openai_codex.models,
-        warning: `Using built-in Codex model list because live discovery failed: ${err instanceof Error ? err.message : "Unknown error"}`,
-      });
-    }
-  }
-
-  const meta = PROVIDERS[normalized.id];
-  const baseURL =
-    normalized.baseUrl || meta?.defaultBaseUrl || "https://api.openai.com/v1";
-  const client = new OpenAI({
-    apiKey: normalized.apiKey || "ollama",
-    baseURL,
-  });
-  const page = await client.models.list();
-  const models = page.data.map((model) => model.id);
-  const warning =
-    normalized.id === "llama_cpp"
-      ? await probeLlamaCppCtxWarning(baseURL)
-      : undefined;
-  return {
-    ...okResult({
-      models,
-      ...(warning ? { warning } : {}),
-    }),
-  };
+  const handler = PROVIDER_HANDLERS.get(normalized.id) ?? openAICompatHandler;
+  return handler.listModels(normalized);
 }
 
 export function createProvider(config: ProviderConfig): AIProvider {
@@ -333,23 +277,99 @@ export function createProvider(config: ProviderConfig): AIProvider {
     throw new Error(error);
   }
 
-  if (normalized.id === "anthropic") {
-    return new AnthropicProvider(
-      normalized.apiKey,
-      normalized.model,
-      normalized.reasoningEffort,
+  const handler = PROVIDER_HANDLERS.get(normalized.id) ?? openAICompatHandler;
+  return handler.create(normalized);
+}
+
+interface ProviderHandlers {
+  create(config: ProviderConfig): AIProvider;
+  listModels(config: ProviderConfig): Promise<ProviderModelsResult>;
+}
+
+async function listAnthropicModels(config: ProviderConfig): Promise<ProviderModelsResult> {
+  const client = new Anthropic({ apiKey: config.apiKey });
+  const page = await client.models.list();
+  return okResult({ models: page.data.map((model) => model.id) });
+}
+
+function createAnthropicProvider(config: ProviderConfig): AIProvider {
+  return new AnthropicProvider(config.apiKey, config.model, config.reasoningEffort ?? "off");
+}
+
+async function listCodexModels(_config: ProviderConfig): Promise<ProviderModelsResult> {
+  const tokens = readStoredCodexTokens();
+  if (!tokens) {
+    throw new Error(
+      "Codex provider requires authentication. Connect your ChatGPT account in settings.",
     );
   }
-
-  if (normalized.id === "openai_codex") {
-    const tokens = readStoredCodexTokens();
-    if (!tokens) {
-      throw new Error(
-        "OpenAI Codex requires authentication. Open settings to connect your ChatGPT account.",
-      );
+  try {
+    const models = await fetchCodexBackendModelsWithRefresh(tokens);
+    if (models.length > 0) {
+      return okResult({ models });
     }
-    return new CodexProvider(tokens, normalized.model);
+    throw new Error("Codex backend model discovery returned no models");
+  } catch (err) {
+    return okResult({
+      models: PROVIDERS.openai_codex.models,
+      warning: `Using built-in Codex model list because live discovery failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+    });
   }
-
-  return new OpenAICompatProvider(normalized);
 }
+
+function createCodexProvider(config: ProviderConfig): AIProvider {
+  const tokens = readStoredCodexTokens();
+  if (!tokens) {
+    throw new Error(
+      "OpenAI Codex requires authentication. Open settings to connect your ChatGPT account.",
+    );
+  }
+  return new CodexProvider(tokens, config.model);
+}
+
+async function listOpenAICompatModels(config: ProviderConfig): Promise<ProviderModelsResult> {
+  const meta = PROVIDERS[config.id];
+  const baseURL = config.baseUrl || meta?.defaultBaseUrl || "https://api.openai.com/v1";
+  const client = new OpenAI({
+    apiKey: config.apiKey || "ollama",
+    baseURL,
+  });
+  const page = await client.models.list();
+  const models = page.data.map((model) => model.id);
+  const warning = config.id === "llama_cpp" ? await probeLlamaCppCtxWarning(baseURL) : undefined;
+  return {
+    ...okResult({
+      models,
+      ...(warning ? { warning } : {}),
+    }),
+  };
+}
+
+function createOpenAICompatProvider(config: ProviderConfig): AIProvider {
+  return new OpenAICompatProvider(config);
+}
+
+const anthropicHandler: ProviderHandlers = {
+  create: createAnthropicProvider,
+  listModels: listAnthropicModels,
+};
+
+const codexHandler: ProviderHandlers = {
+  create: createCodexProvider,
+  listModels: listCodexModels,
+};
+
+const openAICompatHandler: ProviderHandlers = {
+  create: createOpenAICompatProvider,
+  listModels: listOpenAICompatModels,
+};
+
+/**
+ * Per-provider dispatch table. Providers not listed here fall through to
+ * the OpenAI-compatible default handler. Add a provider by registering a
+ * new entry here instead of editing the factory functions.
+ */
+const PROVIDER_HANDLERS: ReadonlyMap<ProviderId, ProviderHandlers> = new Map([
+  ["anthropic", anthropicHandler],
+  ["openai_codex", codexHandler],
+]);

@@ -12,6 +12,13 @@
  *   RESEND_API_KEY       — API key for transactional activation emails
  *   PREMIUM_FROM_EMAIL   — verified sender, e.g. Vessel <premium@example.com>
  *   ACTIVATION_KV        — KV binding for activation attempts, checkout redemption, and feedback spam guard
+ *   OPENROUTER_API_KEY   — OpenRouter key used by hosted Vessel AI inference
+ *   GOOGLE_PLAY_SERVICE_ACCOUNT_JSON — Play Developer API service account JSON
+ *   ANDROID_PACKAGE_NAME — optional package-name allowlist for Play purchase verification
+ *   STRIPE_STARTER_PRICE_ID / STRIPE_PLUS_PRICE_ID / STRIPE_PRO_PRICE_ID — optional web plan mapping
+ *
+ * Google Play subscription product IDs:
+ *   vessel_starter_monthly, vessel_plus_monthly, vessel_pro_monthly
  */
 
 const STRIPE_API = "https://api.stripe.com/v1";
@@ -24,6 +31,51 @@ const CHECKOUT_REDEMPTION_TTL_SECONDS = Math.ceil(PREMIUM_AUTH_TTL_MS / 1000);
 const MAX_FEEDBACK_MESSAGE_LENGTH = 5000;
 const FEEDBACK_SPAM_GUARD_WINDOW_SECONDS = 60 * 60;
 const FEEDBACK_SPAM_GUARD_MAX = 5;
+const VESSEL_AI_MODEL = "minimax/minimax-m3";
+const OPENROUTER_API = "https://openrouter.ai/api/v1";
+const USAGE_LEDGER_TTL_SECONDS = 93 * 24 * 60 * 60;
+const PLAN_CONFIG = {
+  free: {
+    label: "Free",
+    monthlyAiBudgetUsd: 0,
+    maxOutputTokens: 0,
+    maxToolSteps: 0,
+  },
+  premium: {
+    label: "Premium",
+    monthlyAiBudgetUsd: 5,
+    maxOutputTokens: 2000,
+    maxToolSteps: 6,
+  },
+  starter: {
+    label: "Starter",
+    monthlyAiBudgetUsd: 2,
+    maxOutputTokens: 1500,
+    maxToolSteps: 4,
+  },
+  plus: {
+    label: "Plus",
+    monthlyAiBudgetUsd: 6,
+    maxOutputTokens: 2500,
+    maxToolSteps: 6,
+  },
+  pro: {
+    label: "Pro",
+    monthlyAiBudgetUsd: 18,
+    maxOutputTokens: 4000,
+    maxToolSteps: 8,
+  },
+};
+const PLAN_PRICE_ENV_KEYS = {
+  starter: ["STRIPE_STARTER_PRICE_ID", "VESSEL_STARTER_PRICE_ID"],
+  plus: ["STRIPE_PLUS_PRICE_ID", "VESSEL_PLUS_PRICE_ID"],
+  pro: ["STRIPE_PRO_PRICE_ID", "VESSEL_PRO_PRICE_ID"],
+};
+const PLAY_PRODUCT_PLANS = {
+  vessel_starter_monthly: "starter",
+  vessel_plus_monthly: "plus",
+  vessel_pro_monthly: "pro",
+};
 
 // --- Stripe helpers ---
 
@@ -37,6 +89,44 @@ async function stripeRequest(env, method, path, body) {
     body: body ? new URLSearchParams(body).toString() : undefined,
   });
   return res.json();
+}
+
+function normalizePlan(plan) {
+  const normalized = String(plan || "").trim().toLowerCase();
+  return PLAN_CONFIG[normalized] ? normalized : "premium";
+}
+
+function planConfig(plan) {
+  return PLAN_CONFIG[normalizePlan(plan)];
+}
+
+function configuredPriceIdsForPlan(env, plan) {
+  return (PLAN_PRICE_ENV_KEYS[plan] || [])
+    .map((key) => String(env[key] || "").trim())
+    .filter(Boolean);
+}
+
+function planFromPriceId(env, priceId) {
+  const id = String(priceId || "").trim();
+  if (!id) return "premium";
+  for (const plan of Object.keys(PLAN_PRICE_ENV_KEYS)) {
+    if (configuredPriceIdsForPlan(env, plan).includes(id)) {
+      return plan;
+    }
+  }
+  if (id === String(env.STRIPE_PRICE_ID || "").trim()) {
+    return "premium";
+  }
+  return "premium";
+}
+
+function planFromSubscription(env, sub) {
+  const priceId = sub?.items?.data?.[0]?.price?.id || sub?.plan?.id || "";
+  return planFromPriceId(env, priceId);
+}
+
+function planFromPlayProduct(productId) {
+  return PLAY_PRODUCT_PLANS[String(productId || "").trim()] || "premium";
 }
 
 async function findCustomerByEmail(env, email) {
@@ -230,13 +320,115 @@ async function buildActivationCodeDigest(env, email, code, nonce, exp) {
   return signHmac(secret, `premium-code:${email}:${code}:${nonce}:${exp}`);
 }
 
-async function createPremiumAuthToken(env, customerId, email) {
+function pemToArrayBuffer(pem) {
+  const base64 = String(pem || "")
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\s+/g, "");
+  return base64UrlToBytes(base64.replace(/\+/g, "-").replace(/\//g, "_")).buffer;
+}
+
+async function importGooglePrivateKey(privateKeyPem) {
+  return crypto.subtle.importKey(
+    "pkcs8",
+    pemToArrayBuffer(privateKeyPem),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+}
+
+async function signGoogleJwt(serviceAccount) {
+  const now = Math.floor(Date.now() / 1000);
+  const tokenUri = serviceAccount.token_uri || "https://oauth2.googleapis.com/token";
+  const header = stringToBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = stringToBase64Url(
+    JSON.stringify({
+      iss: serviceAccount.client_email,
+      scope: "https://www.googleapis.com/auth/androidpublisher",
+      aud: tokenUri,
+      iat: now,
+      exp: now + 55 * 60,
+    }),
+  );
+  const key = await importGooglePrivateKey(serviceAccount.private_key);
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    new TextEncoder().encode(`${header}.${payload}`),
+  );
+  return `${header}.${payload}.${bytesToBase64Url(new Uint8Array(signature))}`;
+}
+
+async function getGoogleAccessToken(env) {
+  const serviceAccount = JSON.parse(getRequiredSecret(env, "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"));
+  if (!serviceAccount.client_email || !serviceAccount.private_key) {
+    throw new Error("Google Play service account JSON is missing client_email or private_key");
+  }
+  const tokenUri = serviceAccount.token_uri || "https://oauth2.googleapis.com/token";
+  const assertion = await signGoogleJwt(serviceAccount);
+  const response = await fetch(tokenUri, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }).toString(),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.access_token) {
+    throw new Error(data.error_description || data.error || "Google access token request failed");
+  }
+  return data.access_token;
+}
+
+async function getGooglePlaySubscription(env, packageName, purchaseToken) {
+  const accessToken = await getGoogleAccessToken(env);
+  const url =
+    "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/" +
+    `${encodeURIComponent(packageName)}/purchases/subscriptionsv2/tokens/` +
+    encodeURIComponent(purchaseToken);
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error?.message || "Google Play purchase verification failed");
+  }
+  return data;
+}
+
+function isEntitledPlaySubscription(subscription) {
+  return [
+    "SUBSCRIPTION_STATE_ACTIVE",
+    "SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+  ].includes(subscription?.subscriptionState);
+}
+
+function authTokenTtlMsForExpiry(expiresAt) {
+  const expiryMs = Date.parse(expiresAt || "");
+  if (!Number.isFinite(expiryMs)) return PREMIUM_AUTH_TTL_MS;
+  const remainingMs = expiryMs - Date.now();
+  if (remainingMs <= 0) return 0;
+  return Math.min(PREMIUM_AUTH_TTL_MS, remainingMs);
+}
+
+async function createPremiumAuthToken(
+  env,
+  customerId,
+  email,
+  plan = "premium",
+  source = "stripe",
+  ttlMs = PREMIUM_AUTH_TTL_MS,
+) {
   const now = Date.now();
   return createSignedToken(env, "premium-access", {
     customerId,
     email,
+    plan: normalizePlan(plan),
+    source,
     iat: now,
-    exp: now + PREMIUM_AUTH_TTL_MS,
+    exp: now + ttlMs,
   });
 }
 
@@ -428,6 +620,110 @@ async function markCheckoutSessionRedeemed(env, key) {
   });
 }
 
+function currentUsagePeriod() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+async function usageSubjectKey(subject) {
+  return sha256Hex(String(subject || "anonymous").trim().toLowerCase());
+}
+
+function emptyUsage(period = currentUsagePeriod()) {
+  return {
+    period,
+    requests: 0,
+    estimatedCostUsd: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+  };
+}
+
+async function getUsage(env, subject) {
+  const period = currentUsagePeriod();
+  if (!env.ACTIVATION_KV) return emptyUsage(period);
+  const key = `ai-usage:${period}:${await usageSubjectKey(subject)}`;
+  const raw = await env.ACTIVATION_KV.get(key);
+  if (!raw) return emptyUsage(period);
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      ...emptyUsage(period),
+      ...parsed,
+      period,
+    };
+  } catch {
+    return emptyUsage(period);
+  }
+}
+
+async function putUsage(env, subject, usage) {
+  if (!env.ACTIVATION_KV) return;
+  const key = `ai-usage:${usage.period}:${await usageSubjectKey(subject)}`;
+  await env.ACTIVATION_KV.put(key, JSON.stringify(usage), {
+    expirationTtl: USAGE_LEDGER_TTL_SECONDS,
+  });
+}
+
+function estimateMinimaxCostUsd(promptTokens = 0, completionTokens = 0) {
+  const inputCost = (Number(promptTokens) || 0) * 0.30 / 1_000_000;
+  const outputCost = (Number(completionTokens) || 0) * 1.20 / 1_000_000;
+  return (inputCost + outputCost) * 1.055;
+}
+
+async function recordAiUsage(env, subject, usagePayload) {
+  const current = await getUsage(env, subject);
+  const promptTokens = Number(usagePayload?.prompt_tokens || usagePayload?.promptTokens || 0);
+  const completionTokens = Number(
+    usagePayload?.completion_tokens || usagePayload?.completionTokens || 0,
+  );
+  const next = {
+    ...current,
+    requests: current.requests + 1,
+    promptTokens: current.promptTokens + promptTokens,
+    completionTokens: current.completionTokens + completionTokens,
+    estimatedCostUsd:
+      current.estimatedCostUsd + estimateMinimaxCostUsd(promptTokens, completionTokens),
+  };
+  await putUsage(env, subject, next);
+  return next;
+}
+
+function usageSummaryForPlan(usage, plan) {
+  const config = planConfig(plan);
+  return {
+    ...usage,
+    monthlyBudgetUsd: config.monthlyAiBudgetUsd,
+    remainingBudgetUsd: Math.max(0, config.monthlyAiBudgetUsd - usage.estimatedCostUsd),
+  };
+}
+
+async function buildEntitlementStatus(env, payload, status = "active", expiresAt = "") {
+  const plan = normalizePlan(payload?.plan);
+  const customerId = payload?.customerId || "";
+  const email = normalizeEmail(payload?.email || "");
+  const subject = customerId || email;
+  const usage = await getUsage(env, subject);
+  return {
+    status,
+    customerId,
+    verificationToken: await createPremiumAuthToken(
+      env,
+      customerId,
+      email,
+      plan,
+      payload?.source || "entitlement",
+      authTokenTtlMsForExpiry(expiresAt),
+    ),
+    email,
+    expiresAt,
+    plan,
+    planLabel: planConfig(plan).label,
+    source: payload?.source || "entitlement",
+    usage: usageSummaryForPlan(usage, plan),
+  };
+}
+
 async function buildPremiumStatus(env, customerId, fallbackEmail = "", preferredSubscription = null) {
   if (!customerId) {
     return {
@@ -436,6 +732,10 @@ async function buildPremiumStatus(env, customerId, fallbackEmail = "", preferred
       verificationToken: "",
       email: fallbackEmail,
       expiresAt: "",
+      plan: "free",
+      planLabel: PLAN_CONFIG.free.label,
+      source: "stripe",
+      usage: usageSummaryForPlan(emptyUsage(), "free"),
     };
   }
 
@@ -447,11 +747,19 @@ async function buildPremiumStatus(env, customerId, fallbackEmail = "", preferred
       verificationToken: "",
       email: fallbackEmail,
       expiresAt: "",
+      plan: "free",
+      planLabel: PLAN_CONFIG.free.label,
+      source: "stripe",
+      usage: usageSummaryForPlan(emptyUsage(), "free"),
     };
   }
 
   const subscription = preferredSubscription || await getSubscription(env, customer.id);
   const status = subscriptionToStatus(subscription);
+  const plan = status === "active" || status === "trialing"
+    ? planFromSubscription(env, subscription)
+    : "free";
+  const usage = await getUsage(env, customer.id);
 
   return {
     status,
@@ -460,11 +768,17 @@ async function buildPremiumStatus(env, customerId, fallbackEmail = "", preferred
       env,
       customer.id,
       normalizeEmail(customer.email || fallbackEmail),
+      plan,
+      "stripe",
     ),
     email: customer.email || fallbackEmail,
     expiresAt: subscription?.current_period_end
       ? new Date(subscription.current_period_end * 1000).toISOString()
       : "",
+    plan,
+    planLabel: planConfig(plan).label,
+    source: "stripe",
+    usage: usageSummaryForPlan(usage, plan),
   };
 }
 
@@ -861,6 +1175,220 @@ async function handleVerify(request, env) {
   );
 }
 
+async function handleEntitlement(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
+  }
+
+  const identifier = String(body.identifier || "").trim();
+  if (!identifier) {
+    return corsResponse(request, env, { error: "identifier is required" }, 400);
+  }
+
+  const token = await verifySignedToken(env, identifier, "premium-access");
+  if (!token?.customerId) {
+    return corsResponse(
+      request,
+      env,
+      { error: "Authenticated entitlement token is required." },
+      403,
+    );
+  }
+
+  if (token.source === "stripe" || token.customerId.startsWith("cus_")) {
+    return corsResponse(
+      request,
+      env,
+      await buildPremiumStatus(env, token.customerId, token.email || ""),
+    );
+  }
+
+  return corsResponse(request, env, await buildEntitlementStatus(env, token));
+}
+
+async function handlePlayVerify(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
+  }
+
+  const email = normalizeEmail(body.email);
+  const packageName = String(body.packageName || "").trim();
+  const productId = String(body.productId || "").trim();
+  const purchaseToken = String(body.purchaseToken || "").trim();
+
+  if (!isValidEmail(email)) {
+    return corsResponse(request, env, { error: "A valid email is required" }, 400);
+  }
+  if (!packageName || !productId || !purchaseToken) {
+    return corsResponse(
+      request,
+      env,
+      { error: "packageName, productId, and purchaseToken are required" },
+      400,
+    );
+  }
+
+  if (!env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON) {
+    return corsResponse(
+      request,
+      env,
+      {
+        error:
+          "Google Play verification is not configured yet. Set GOOGLE_PLAY_SERVICE_ACCOUNT_JSON in the worker environment.",
+      },
+      503,
+    );
+  }
+
+  if (env.ANDROID_PACKAGE_NAME && packageName !== env.ANDROID_PACKAGE_NAME) {
+    return corsResponse(request, env, { error: "Unexpected Android package name" }, 403);
+  }
+
+  let subscription;
+  try {
+    subscription = await getGooglePlaySubscription(env, packageName, purchaseToken);
+  } catch (error) {
+    console.warn("Google Play verification failed:", error);
+    return corsResponse(request, env, { error: "Google Play purchase verification failed" }, 403);
+  }
+
+  const lineItem = Array.isArray(subscription.lineItems) ? subscription.lineItems[0] : null;
+  const verifiedProductId = lineItem?.productId || productId;
+  if (verifiedProductId !== productId) {
+    return corsResponse(request, env, { error: "Purchase product does not match request" }, 403);
+  }
+
+  if (!isEntitledPlaySubscription(subscription)) {
+    return corsResponse(request, env, {
+      status: "free",
+      customerId: "",
+      verificationToken: "",
+      email,
+      expiresAt: lineItem?.expiryTime || "",
+      plan: "free",
+      planLabel: PLAN_CONFIG.free.label,
+      source: "google_play",
+      usage: usageSummaryForPlan(emptyUsage(), "free"),
+    });
+  }
+
+  return corsResponse(
+    request,
+    env,
+    await buildEntitlementStatus(
+      env,
+      {
+        customerId: `play:${await sha256Hex(`${packageName}:${purchaseToken}`)}`,
+        email,
+        plan: planFromPlayProduct(productId),
+        source: "google_play",
+      },
+      "active",
+      lineItem?.expiryTime || "",
+    ),
+  );
+}
+
+async function handleAiChatCompletions(request, env) {
+  const auth = request.headers.get("authorization") || "";
+  const tokenValue = auth.replace(/^Bearer\s+/i, "").trim();
+  const token = await verifySignedToken(env, tokenValue, "premium-access");
+  if (!token?.customerId) {
+    return corsResponse(request, env, { error: "Vessel AI subscription is required." }, 401);
+  }
+
+  const plan = normalizePlan(token.plan);
+  const config = planConfig(plan);
+  if (config.monthlyAiBudgetUsd <= 0) {
+    return corsResponse(request, env, { error: "Vessel AI subscription is required." }, 403);
+  }
+
+  const subject = token.customerId || token.email;
+  const usage = await getUsage(env, subject);
+  if (usage.estimatedCostUsd >= config.monthlyAiBudgetUsd) {
+    return corsResponse(
+      request,
+      env,
+      {
+        error: "Monthly Vessel AI usage limit reached.",
+        usage: usageSummaryForPlan(usage, plan),
+      },
+      402,
+    );
+  }
+
+  if (!env.OPENROUTER_API_KEY) {
+    return corsResponse(
+      request,
+      env,
+      { error: "Vessel AI is not configured yet. Set OPENROUTER_API_KEY." },
+      503,
+    );
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return corsResponse(request, env, { error: "Invalid JSON body" }, 400);
+  }
+
+  const upstreamBody = {
+    ...body,
+    model: VESSEL_AI_MODEL,
+    stream: false,
+    max_tokens: Math.min(
+      Number(body.max_tokens || body.max_completion_tokens || config.maxOutputTokens),
+      config.maxOutputTokens,
+    ),
+  };
+
+  const upstream = await fetch(`${OPENROUTER_API}/chat/completions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": String(env.VESSEL_APP_URL || "https://quantaintellect.com"),
+      "X-Title": "Vessel Browser",
+    },
+    body: JSON.stringify(upstreamBody),
+  });
+
+  const text = await upstream.text();
+  let responseBody = text;
+  let responseUsage = null;
+  try {
+    const parsed = JSON.parse(text);
+    responseUsage = parsed.usage || null;
+    parsed.model = VESSEL_AI_MODEL;
+    parsed.vessel = {
+      plan,
+      model: VESSEL_AI_MODEL,
+    };
+    responseBody = JSON.stringify(parsed);
+  } catch {
+    // Keep the upstream body as-is.
+  }
+
+  if (upstream.ok && responseUsage) {
+    await recordAiUsage(env, subject, responseUsage);
+  }
+
+  return new Response(responseBody, {
+    status: upstream.status,
+    headers: {
+      "Content-Type": upstream.headers.get("Content-Type") || "application/json",
+      ...buildCorsHeaders(request, env),
+    },
+  });
+}
+
 async function handleWebhook(request, env) {
   const payload = await request.text();
   const sigHeader = request.headers.get("stripe-signature");
@@ -1003,6 +1531,15 @@ export default {
       }
       if (path === "/verify" && request.method === "POST") {
         return handleVerify(request, env);
+      }
+      if (path === "/entitlement" && request.method === "POST") {
+        return handleEntitlement(request, env);
+      }
+      if (path === "/play/verify" && request.method === "POST") {
+        return handlePlayVerify(request, env);
+      }
+      if (path === "/ai/chat/completions" && request.method === "POST") {
+        return handleAiChatCompletions(request, env);
       }
       if (path === "/webhook" && request.method === "POST") {
         return handleWebhook(request, env);

@@ -49,6 +49,8 @@ function installDom(html: string) {
     get: () => activeElement,
   });
   window.HTMLElement.prototype.focus = function focus() {
+    // Test DOM shim: focus should make the receiver the active element.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     activeElement = this;
   };
   window.HTMLElement.prototype.getBoundingClientRect = () =>
@@ -217,11 +219,7 @@ test("setElementValue falls back to native input when synthetic typing is reject
   });
 
   try {
-    const result = await setElementValue(
-      createNativeTypingWebContents(window),
-      "#airport",
-      "SFO",
-    );
+    const result = await setElementValue(createNativeTypingWebContents(window), "#airport", "SFO");
 
     assert.match(result, /Typed into: Airport search = SFO \(native input\)/);
     assert.equal(airport.value, "SFO");

@@ -17,14 +17,8 @@ import {
 } from "../security/permissions";
 import { checkForUpdates, openUpdateDownload } from "../updates/checker";
 import { togglePictureInPicture } from "./picture-in-picture";
-import {
-  assertTrustedIpcSender,
-  parseIpc,
-  sendSafe,
-  type SendToRendererViews,
-} from "./common";
+import { assertTrustedIpcSender, parseIpc, sendSafe, type SendToRendererViews } from "./common";
 import type { WindowState } from "../window";
-import type { ClearDataOptions } from "../../shared/types";
 import {
   CHROME_HEIGHT,
   getWindowIconPath,
@@ -61,17 +55,20 @@ import { assertFeatureUnlocked } from "../premium/manager";
 const KitIdSchema = z.string().min(1);
 const SkillSourceSchema = z.string().min(1).max(100_000);
 const OriginSchema = z.string().min(1);
+const DownloadIdSchema = z.string().min(1);
 const DevToolsHeightSchema = z.number().finite().min(0).max(2000);
+const ClearDataTimeRangeSchema = z.enum(["hour", "day", "week", "month", "all"]);
+const ClearDataOptionsSchema = z.object({
+  cache: z.boolean(),
+  cookies: z.boolean(),
+  history: z.boolean(),
+  localStorage: z.boolean(),
+  timeRange: ClearDataTimeRangeSchema,
+});
 const DevToolsPageMapRevealSchema = z.object({
   selector: z.string().min(1),
 });
-const DevToolsPanelTabSchema = z.enum([
-  "console",
-  "network",
-  "activity",
-  "agentTrace",
-  "pageMap",
-]);
+const DevToolsPanelTabSchema = z.enum(["console", "network", "activity", "agentTrace", "pageMap"]);
 const RendererViewSchema = z.enum(["chrome", "sidebar", "devtools"]);
 
 export function registerSystemHandlers(
@@ -165,9 +162,7 @@ export function registerSystemHandlers(
     clearDevToolsResizeRecoveryTimer();
     const [windowWidth, windowHeight] = windowState.mainWindow.getContentSize();
     const chromeHeight = windowState.uiState.focusMode ? 0 : CHROME_HEIGHT;
-    const sidebarWidth = isSidebarAttached(windowState)
-      ? windowState.uiState.sidebarWidth
-      : 0;
+    const sidebarWidth = isSidebarAttached(windowState) ? windowState.uiState.sidebarWidth : 0;
     windowState.devtoolsPanelView.setBounds({
       x: 0,
       y: chromeHeight,
@@ -223,18 +218,11 @@ export function registerSystemHandlers(
     return await refreshDevToolsPageMap(tabManager);
   });
 
-  ipcMain.handle(
-    Channels.DEVTOOLS_PAGE_MAP_REVEAL,
-    async (event, payload: unknown) => {
-      assertTrustedIpcSender(event);
-      const { selector } = parseIpc(
-        DevToolsPageMapRevealSchema,
-        payload,
-        "payload",
-      );
-      return await revealPageMapElement(tabManager, selector);
-    },
-  );
+  ipcMain.handle(Channels.DEVTOOLS_PAGE_MAP_REVEAL, async (event, payload: unknown) => {
+    assertTrustedIpcSender(event);
+    const { selector } = parseIpc(DevToolsPageMapRevealSchema, payload, "payload");
+    return await revealPageMapElement(tabManager, selector);
+  });
 
   ipcMain.handle(Channels.DEVTOOLS_PANEL_HOST_STATE_GET, (event) => {
     assertTrustedIpcSender(event);
@@ -268,32 +256,36 @@ export function registerSystemHandlers(
   ipcMain.handle(Channels.AUTOMATION_CREATE_FROM_TEXT, async (event, source: unknown) => {
     assertTrustedIpcSender(event);
     assertFeatureUnlocked("automation_kits", "Skills");
-    return await createKitFromText(
-      parseIpc(SkillSourceSchema, source, "source"),
-    );
+    return await createKitFromText(parseIpc(SkillSourceSchema, source, "source"));
   });
 
-  ipcMain.handle(Channels.AUTOMATION_UPDATE_FROM_TEXT, async (event, id: unknown, source: unknown) => {
-    assertTrustedIpcSender(event);
-    assertFeatureUnlocked("automation_kits", "Skills");
-    return await updateKitFromText(
-      parseIpc(KitIdSchema, id, "id"),
-      parseIpc(SkillSourceSchema, source, "source"),
-    );
-  });
+  ipcMain.handle(
+    Channels.AUTOMATION_UPDATE_FROM_TEXT,
+    async (event, id: unknown, source: unknown) => {
+      assertTrustedIpcSender(event);
+      assertFeatureUnlocked("automation_kits", "Skills");
+      return await updateKitFromText(
+        parseIpc(KitIdSchema, id, "id"),
+        parseIpc(SkillSourceSchema, source, "source"),
+      );
+    },
+  );
 
   ipcMain.handle(Channels.AUTOMATION_UNINSTALL, async (event, id: unknown) => {
     assertTrustedIpcSender(event);
     assertFeatureUnlocked("automation_kits", "Skills");
-    return await uninstallKit(
-      parseIpc(KitIdSchema, id, "id"),
-      getScheduledKitIds(),
-    );
+    return await uninstallKit(parseIpc(KitIdSchema, id, "id"), getScheduledKitIds());
   });
 
-  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (event, options: ClearDataOptions) => {
+  ipcMain.handle(Channels.CLEAR_BROWSING_DATA, async (event, options: unknown) => {
     assertTrustedIpcSender(event);
-    const { cache, cookies, history, localStorage: clearLs, timeRange } = options;
+    const {
+      cache,
+      cookies,
+      history,
+      localStorage: clearLs,
+      timeRange,
+    } = parseIpc(ClearDataOptionsSchema, options, "options");
 
     if (cache) {
       await session.defaultSession.clearCache();
@@ -324,13 +316,13 @@ export function registerSystemHandlers(
     clearDownloads();
     return true;
   });
-  ipcMain.handle(Channels.DOWNLOADS_OPEN, (event, id: string) => {
+  ipcMain.handle(Channels.DOWNLOADS_OPEN, (event, id: unknown) => {
     assertTrustedIpcSender(event);
-    return openDownload(id);
+    return openDownload(parseIpc(DownloadIdSchema, id, "id"));
   });
-  ipcMain.handle(Channels.DOWNLOADS_SHOW_IN_FOLDER, (event, id: string) => {
+  ipcMain.handle(Channels.DOWNLOADS_SHOW_IN_FOLDER, (event, id: unknown) => {
     assertTrustedIpcSender(event);
-    return showDownloadInFolder(id);
+    return showDownloadInFolder(parseIpc(DownloadIdSchema, id, "id"));
   });
 
   ipcMain.handle(Channels.PERMISSIONS_GET, (event) => {

@@ -49,7 +49,8 @@
     "test:navigation-regression": "env -u ELECTRON_RUN_AS_NODE ELECTRON_DISABLE_SANDBOX=1 electron --no-sandbox --disable-setuid-sandbox scripts/run-navigation-regression.mjs",
     "test:mcp-proxy": "node scripts/test-mcp-stdio-proxy.mjs",
     "smoke:test": "node scripts/smoke-test.mjs",
-    "test:coverage": "NODE_OPTIONS=\"--require ./tests/mocks/register.cjs --import ./tests/mocks/esm-register.mjs\" c8 --reporter=text --reporter=html tsx --test tests/*.test.ts"
+    "test:coverage": "NODE_OPTIONS=\"--require ./tests/mocks/register.cjs --import ./tests/mocks/esm-register.mjs\" c8 --reporter=text --reporter=html tsx --test tests/*.test.ts",
+    "prepare": "husky"
   },
   "keywords": [
     "agent-browser",
@@ -73,7 +74,7 @@
     "url": "https://github.com/unmodeled-tyler/vessel-browser.git"
   },
   "engines": {
-    "node": ">=22.12.0",
+    "node": ">=22.22.1",
     "npm": ">=11.0.0"
   },
   "packageManager": "npm@11.16.0",
@@ -82,14 +83,16 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@types/node": "^25.9.1",
+    "@types/node": "^22.10.0",
     "c8": "^11.0.0",
     "electron": "^42.3.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
     "knip": "^6.14.2",
+    "lint-staged": "^17.0.8",
     "lucide-solid": "^1.17.0",
     "prettier": "^3.8.3",
     "solid-js": "^1.9.13",
@@ -99,18 +102,22 @@
     "vite-plugin-solid": "^2.11.12"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.0",
+    "@anthropic-ai/sdk": "^0.105.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
-    "dompurify": "^3.4.7",
+    "dompurify": "^3.4.11",
     "linkedom": "^0.18.12",
-    "openai": "^6.39.1",
+    "openai": "^6.44.0",
     "zod": "^4.4.3"
   },
   "allowScripts": {
     "electron-winstaller@5.4.0": true,
     "esbuild@0.25.12": true,
-    "esbuild@0.28.0": true,
-    "esbuild@0.27.7": true
+    "esbuild@0.27.7": true,
+    "esbuild@0.28.1": true
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": "eslint --config eslint.config.mjs --fix",
+    "*.{ts,tsx,mjs,json}": "prettier --write"
   }
 }

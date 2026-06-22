@@ -21,7 +21,7 @@ export default tseslint.config(
         },
       ],
       "@typescript-eslint/no-unused-expressions": "warn",
-      "no-empty": "warn",
+      "no-empty": "error",
       "no-useless-escape": "warn",
       "no-control-regex": "warn",
       "no-unused-vars": "off",

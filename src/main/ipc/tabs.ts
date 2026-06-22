@@ -3,11 +3,7 @@ import { z } from "zod";
 import { Channels } from "../../shared/channels";
 import { loadSettings } from "../config/settings";
 import { layoutViews, type WindowState } from "../window";
-import {
-  assertTrustedIpcSender,
-  parseIpc,
-  type SendToRendererViews,
-} from "./common";
+import { assertTrustedIpcSender, parseIpc, type SendToRendererViews } from "./common";
 import { createFindInPageBridge } from "../tabs/find-bridge";
 import { showTabContextMenu, showGroupContextMenu } from "../tabs/tab-context-menu";
 import { openPrivateWindowSafely } from "../private/window";
@@ -18,6 +14,14 @@ const GroupIdSchema = z.string().min(1);
 const UrlSchema = z.string().min(1);
 const ColorSchema = z.string().min(1);
 const FindActionSchema = z.enum(["clearSelection", "keepSelection", "activateSelection"]);
+const FindTextSchema = z.string().min(1).max(10_000);
+const FindOptionsSchema = z
+  .object({
+    forward: z.boolean().optional(),
+    findNext: z.boolean().optional(),
+  })
+  .optional();
+const FindForwardSchema = z.boolean().optional();
 
 export function registerTabHandlers(
   windowState: WindowState,
@@ -159,16 +163,13 @@ export function registerTabHandlers(
     return tabManager.toggleGroupCollapsed(parseIpc(GroupIdSchema, groupId, "groupId"));
   });
 
-  ipcMain.handle(
-    Channels.TAB_GROUP_SET_COLOR,
-    (event, groupId: string, color: string) => {
-      assertTrustedIpcSender(event);
-      tabManager.setGroupColor(
-        parseIpc(GroupIdSchema, groupId, "groupId"),
-        parseIpc(ColorSchema, color, "color"),
-      );
-    },
-  );
+  ipcMain.handle(Channels.TAB_GROUP_SET_COLOR, (event, groupId: string, color: string) => {
+    assertTrustedIpcSender(event);
+    tabManager.setGroupColor(
+      parseIpc(GroupIdSchema, groupId, "groupId"),
+      parseIpc(ColorSchema, color, "color"),
+    );
+  });
 
   ipcMain.handle(Channels.TAB_TOGGLE_MUTE, (event, id: string) => {
     assertTrustedIpcSender(event);
@@ -187,7 +188,9 @@ export function registerTabHandlers(
 
   ipcMain.on(Channels.TAB_CONTEXT_MENU, (event, id: string) => {
     assertTrustedIpcSender(event);
-    showTabContextMenu(tabManager, parseIpc(TabIdSchema, id, "id"), mainWindow, () => layoutViews(windowState));
+    showTabContextMenu(tabManager, parseIpc(TabIdSchema, id, "id"), mainWindow, () =>
+      layoutViews(windowState),
+    );
   });
 
   ipcMain.on(Channels.TAB_GROUP_CONTEXT_MENU, (event, groupId: string) => {
@@ -205,18 +208,24 @@ export function registerTabHandlers(
 
   const findBridge = createFindInPageBridge(tabManager, windowState.chromeView);
 
-  ipcMain.handle(Channels.FIND_IN_PAGE_START, (event, text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+  ipcMain.handle(Channels.FIND_IN_PAGE_START, (event, text: unknown, options?: unknown) => {
     assertTrustedIpcSender(event);
-    return findBridge.start(text, options);
+    return findBridge.start(
+      parseIpc(FindTextSchema, text, "text"),
+      parseIpc(FindOptionsSchema, options, "options"),
+    );
   });
 
-  ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (event, forward?: boolean) => {
+  ipcMain.handle(Channels.FIND_IN_PAGE_NEXT, (event, forward?: unknown) => {
     assertTrustedIpcSender(event);
-    return findBridge.next(forward);
+    return findBridge.next(parseIpc(FindForwardSchema, forward, "forward"));
   });
 
-  ipcMain.handle(Channels.FIND_IN_PAGE_STOP, (event, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
-    assertTrustedIpcSender(event);
-    findBridge.stop(action ? parseIpc(FindActionSchema, action, "action") : undefined);
-  });
+  ipcMain.handle(
+    Channels.FIND_IN_PAGE_STOP,
+    (event, action?: "clearSelection" | "keepSelection" | "activateSelection") => {
+      assertTrustedIpcSender(event);
+      findBridge.stop(action ? parseIpc(FindActionSchema, action, "action") : undefined);
+    },
+  );
 }
