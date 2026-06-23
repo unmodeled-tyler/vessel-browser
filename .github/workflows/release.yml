@@ -535,3 +535,19 @@ jobs:
               echo "- $url"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+  trigger-snap-release:
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Trigger snap release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          gh workflow run release-snap.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            --field tag="$RELEASE_TAG"
