@@ -1,7 +1,7 @@
 import { ipcMain } from "electron";
 import { z } from "zod";
 import { Channels } from "../../shared/channels";
-import { TAB_GROUP_COLORS, type TabGroupColor } from "../../shared/types";
+import { TAB_GROUP_COLORS } from "../../shared/types";
 import { loadSettings } from "../config/settings";
 import { layoutViews, type WindowState } from "../window";
 import { assertTrustedIpcSender, parseIpc, type SendToRendererViews } from "./common";
@@ -14,12 +14,9 @@ const TabIdSchema = z.string().min(1);
 const GroupIdSchema = z.string().min(1);
 const UrlSchema = z.string().min(1);
 const NavigationPostBodySchema = z.record(z.string(), z.string()).optional();
-const ColorSchema = z.custom<TabGroupColor>(
-  (color) =>
-    typeof color === "string" &&
-    TAB_GROUP_COLORS.includes(color as TabGroupColor),
-  { message: "Invalid tab group color" },
-);
+const ColorSchema = z.enum(TAB_GROUP_COLORS, {
+  error: "Invalid tab group color",
+});
 const FindActionSchema = z.enum(["clearSelection", "keepSelection", "activateSelection"]);
 const FindTextSchema = z.string().min(1).max(10_000);
 const FindOptionsSchema = z

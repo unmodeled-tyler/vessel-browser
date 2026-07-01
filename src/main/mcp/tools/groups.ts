@@ -1,12 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { TAB_GROUP_COLORS, type TabGroupColor } from "../../../shared/types";
+import { TAB_GROUP_COLORS } from "../../../shared/types";
 import type { AgentRuntime } from "../../agent/runtime";
 import type { TabManager } from "../../tabs/tab-manager";
 import { asTextResponse, withAction } from "../mcp-helpers";
 
 const TabGroupColorSchema = z.enum(
-  TAB_GROUP_COLORS as [TabGroupColor, ...TabGroupColor[]],
+  TAB_GROUP_COLORS,
   { error: "Invalid tab group color" },
 );
 

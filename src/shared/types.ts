@@ -1,14 +1,6 @@
 export type TabRole = "primary" | "research" | "auth" | "scratch";
-export type TabGroupColor =
-  | "blue"
-  | "green"
-  | "yellow"
-  | "orange"
-  | "red"
-  | "purple"
-  | "gray";
 
-export const TAB_GROUP_COLORS: TabGroupColor[] = [
+export const TAB_GROUP_COLORS = [
   "blue",
   "green",
   "yellow",
@@ -16,7 +8,9 @@ export const TAB_GROUP_COLORS: TabGroupColor[] = [
   "red",
   "purple",
   "gray",
-];
+] as const;
+
+export type TabGroupColor = (typeof TAB_GROUP_COLORS)[number];
 
 export const TAB_GROUP_COLOR_LABELS: Record<TabGroupColor, string> = {
   blue: "Blue",
