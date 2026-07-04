@@ -2,9 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { AgentRuntime } from "../../agent/runtime";
 import type { TabManager } from "../../tabs/tab-manager";
-import { clickResolvedSelector } from "../../ai/page-actions/navigation";
 import { clearOverlays, dismissPopup } from "../../ai/page-actions/overlays";
 import { scrollPage } from "../../ai/page-actions/navigation";
+import {
+  handleClick,
+  handleInspectElement,
+  handleScrollToElement,
+} from "../../ai/page-actions/handlers/interaction";
 import {
   focusElement,
   hoverElement,
@@ -37,36 +41,29 @@ export function registerInteractionTools(
     {
       title: "Click Element",
       description:
-        "Click an element on the page by its index number or CSS selector.",
+        "Click an element on the page by its index number, CSS selector, or visible text.",
       inputSchema: {
         index: z
           .number()
           .optional()
           .describe("Element index from the page content listing"),
         selector: z.string().optional().describe("CSS selector as fallback"),
+        text: z
+          .string()
+          .optional()
+          .describe("Visible label, link text, button text, or section name to match"),
       },
     },
-    async ({ index, selector }) => {
+    async ({ index, selector, text }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
         "click",
-        { index, selector },
-        async () => {
-          const wc = tab.view.webContents;
-          const resolvedSelector =
-            typeof selector === "string" && selector.trim()
-              ? await resolveSelector(wc, undefined, selector)
-              : typeof index === "number"
-                ? `__vessel_idx:${index}`
-                : await resolveSelector(wc, index, selector);
-          if (!resolvedSelector) {
-            return "Error: No index or selector provided";
-          }
-          return clickResolvedSelector(wc, resolvedSelector);
-        },
+        { index, selector, text },
+        async () =>
+          handleClick({ tabManager, runtime }, { index, selector, text }),
       );
     },
   );
@@ -361,75 +358,73 @@ export function registerInteractionTools(
   );
 
   server.registerTool(
+    "inspect_element",
+    {
+      title: "Inspect Element",
+      description:
+        "Inspect one element and its nearest local UI region by index, selector, or visible text.",
+      inputSchema: {
+        index: z.number().optional().describe("Element index to inspect"),
+        selector: z.string().optional().describe("CSS selector to inspect"),
+        text: z
+          .string()
+          .optional()
+          .describe("Visible label or section text to locate before inspecting"),
+        limit: z
+          .number()
+          .optional()
+          .describe("Maximum nearby controls to include (default 8)"),
+      },
+    },
+    async ({ index, selector, text, limit }) => {
+      const tab = tabManager.getActiveTab();
+      if (!tab) return asNoActiveTabResponse();
+      return withAction(
+        runtime,
+        tabManager,
+        "inspect_element",
+        { index, selector, text, limit },
+        async () =>
+          handleInspectElement(
+            { tabManager, runtime },
+            { index, selector, text, limit },
+          ),
+      );
+    },
+  );
+
+  server.registerTool(
     "scroll_to_element",
     {
       title: "Scroll To Element",
-      description: "Scroll a specific element into view by index or selector.",
+      description:
+        "Scroll a specific element into view by index, selector, or visible text.",
       inputSchema: z.object({
         index: z.number().optional().describe("Element index to scroll to"),
         selector: z.string().optional().describe("CSS selector to scroll to"),
+        text: z
+          .string()
+          .optional()
+          .describe("Visible text or section name to scroll to"),
         position: z
           .enum(["center", "top", "bottom"])
           .optional()
           .describe("Viewport position (default center)"),
       }),
     },
-    async ({ index, selector: rawSelector, position }) => {
+    async ({ index, selector: rawSelector, text, position }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asNoActiveTabResponse();
       return withAction(
         runtime,
         tabManager,
         "scroll_to_element",
-        { index, selector: rawSelector, position },
-        async () => {
-          const wc = tab.view.webContents;
-          const sel =
-            rawSelector ||
-            (index != null ? await resolveSelector(wc, index) : null);
-          if (!sel) return "Error: Provide an index or selector.";
-          const block =
-            position === "top"
-              ? "start"
-              : position === "bottom"
-                ? "end"
-                : "center";
-
-          if (sel.startsWith("__vessel_idx:")) {
-            const idx = Number(sel.slice("__vessel_idx:".length));
-            return wc.executeJavaScript(`
-              (function() {
-                var refs = window.__vessel;
-                if (!refs || !refs.interactByIndex) return "Error: __vessel not available";
-                // Use stored ref directly
-                var el = document.querySelector('[data-vessel-idx="${idx}"]');
-                if (!el) return "Error: Element #${idx} not found";
-                el.scrollIntoView({ behavior: "smooth", block: "${block}" });
-                return "Scrolled to element #${idx}";
-              })()
-            `);
-          }
-
-          if (sel.includes(" >>> ")) {
-            return wc.executeJavaScript(`
-              (function() {
-                var el = window.__vessel?.resolveShadowSelector?.(${JSON.stringify(sel)});
-                if (!el) return "Error: Shadow DOM element not found";
-                el.scrollIntoView({ behavior: "smooth", block: "${block}" });
-                return "Scrolled to shadow DOM element";
-              })()
-            `);
-          }
-
-          return wc.executeJavaScript(`
-            (function() {
-              var el = document.querySelector(${JSON.stringify(sel)});
-              if (!el) return "Error: Element not found";
-              el.scrollIntoView({ behavior: "smooth", block: "${block}" });
-              return "Scrolled to element";
-            })()
-          `);
-        },
+        { index, selector: rawSelector, text, position },
+        async () =>
+          handleScrollToElement(
+            { tabManager, runtime },
+            { index, selector: rawSelector, text, position },
+          ),
       );
     },
   );

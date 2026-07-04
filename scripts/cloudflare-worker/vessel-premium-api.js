@@ -38,6 +38,7 @@ const MOBILE_BACKEND_PROXY_ROUTES = new Set([
   "/health",
   "/play/verify",
   "/play/topup/verify",
+  "/admin/usage",
 ]);
 
 function mobileBackendOrigin(env) {

@@ -2,6 +2,7 @@ import type { ActionContext } from "../core";
 import { waitForLoad } from "../../../utils/webcontents-utils";
 import { getTabByMatch } from "../navigation";
 import { getPostNavSummary } from "../summaries";
+import { TAB_GROUP_COLORS, type TabGroupColor } from "../../../../shared/types";
 
 export async function handleCurrentTab(_ctx: ActionContext): Promise<string> {
   const active = _ctx.tabManager.getActiveTab();
@@ -93,4 +94,92 @@ export async function handleSetAdBlocking(
 
   const state = targetTab.state;
   return `${enabled ? "Enabled" : "Disabled"} ad blocking for "${state.title}"${shouldReload ? " and reloaded the tab" : ""}`;
+}
+
+export function handleListGroups(ctx: ActionContext): string {
+  const groups = ctx.tabManager.getGroups();
+  const tabs = ctx.tabManager.getAllStates();
+  if (groups.length === 0) return "No tab groups";
+  return groups
+    .map((group) => {
+      const count = tabs.filter((tab) => tab.groupId === group.id).length;
+      return `[${group.id}] ${group.name} — color:${group.color} collapsed:${group.collapsed} tabs:${count}`;
+    })
+    .join("\n");
+}
+
+export function handleCreateGroup(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): string {
+  const targetId =
+    typeof args.tabId === "string" && args.tabId.trim()
+      ? args.tabId.trim()
+      : ctx.tabManager.getActiveTabId();
+  if (!targetId) return "Error: No active tab";
+  const color =
+    typeof args.color === "string" && TAB_GROUP_COLORS.includes(args.color as TabGroupColor)
+      ? (args.color as TabGroupColor)
+      : undefined;
+  const groupId = ctx.tabManager.createGroupFromTab(targetId, {
+    name: typeof args.name === "string" && args.name.trim() ? args.name.trim() : undefined,
+    color,
+  });
+  if (!groupId) return "Error: Could not create group";
+  return `Created group ${groupId}`;
+}
+
+export function handleAssignToGroup(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): string {
+  const groupId = typeof args.groupId === "string" ? args.groupId.trim() : "";
+  if (!groupId) return "Error: Group ID is required";
+  const targetId =
+    typeof args.tabId === "string" && args.tabId.trim()
+      ? args.tabId.trim()
+      : ctx.tabManager.getActiveTabId();
+  if (!targetId) return "Error: No active tab";
+  ctx.tabManager.assignTabToGroup(targetId, groupId);
+  return `Assigned tab ${targetId} to group ${groupId}`;
+}
+
+export function handleRemoveFromGroup(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): string {
+  const targetId =
+    typeof args.tabId === "string" && args.tabId.trim()
+      ? args.tabId.trim()
+      : ctx.tabManager.getActiveTabId();
+  if (!targetId) return "Error: No active tab";
+  ctx.tabManager.removeTabFromGroup(targetId);
+  return `Removed tab ${targetId} from group`;
+}
+
+export function handleToggleGroup(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): string {
+  const groupId = typeof args.groupId === "string" ? args.groupId.trim() : "";
+  if (!groupId) return "Error: Group ID is required";
+  const collapsed = ctx.tabManager.toggleGroupCollapsed(groupId);
+  if (collapsed === null) return "Error: Group not found";
+  return collapsed ? `Collapsed group ${groupId}` : `Expanded group ${groupId}`;
+}
+
+export function handleSetGroupColor(
+  ctx: ActionContext,
+  args: Record<string, unknown>,
+): string {
+  const groupId = typeof args.groupId === "string" ? args.groupId.trim() : "";
+  const color = typeof args.color === "string" ? args.color.trim() : "";
+  if (!groupId) return "Error: Group ID is required";
+  if (!TAB_GROUP_COLORS.includes(color as TabGroupColor)) {
+    return "Error: Invalid tab group color";
+  }
+  const groupExists = ctx.tabManager.getGroups().some((group) => group.id === groupId);
+  if (!groupExists) return "Error: Group not found";
+  ctx.tabManager.setGroupColor(groupId, color as TabGroupColor);
+  return `Set group ${groupId} color to ${color}`;
 }

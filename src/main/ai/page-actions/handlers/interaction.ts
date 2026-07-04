@@ -3,6 +3,7 @@ import {
   PAGE_SCRIPT_TIMEOUT,
   pageBusyError,
   executePageScript,
+  logger,
   waitForPotentialNavigation,
 } from "../core";
 import {
@@ -45,9 +46,9 @@ async function resolveTargetByText(
     label: string;
     kind: string;
     matchedText: string;
-  } | null>(
+  } | { __vesselTextTargetError: string } | null>(
     wc,
-    `(${resolveTextTargetInDocument.toString()})(document, ${JSON.stringify(trimmed)}, ${JSON.stringify(mode)})`,
+    `(() => { const __name = (fn) => fn; try { return (${resolveTextTargetInDocument.toString()})(document, ${JSON.stringify(trimmed)}, ${JSON.stringify(mode)}); } catch (error) { return { __vesselTextTargetError: String((error && error.stack) || error) }; } })()`,
     {
       timeoutMs: 2200,
       label: `resolve ${mode} target by text`,
@@ -55,6 +56,10 @@ async function resolveTargetByText(
   );
 
   if (result === PAGE_SCRIPT_TIMEOUT) return PAGE_SCRIPT_TIMEOUT;
+  if (result && "__vesselTextTargetError" in result) {
+    logger.warn(`Text target resolver failed (${mode}): ${result.__vesselTextTargetError}`);
+    return null;
+  }
   if (!result || typeof result.selector !== "string" || !result.selector) {
     return null;
   }

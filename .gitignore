@@ -78,6 +78,7 @@ tests/*.test.ts
 !tests/input-coercion.test.ts
 !tests/link-validation.test.ts
 !tests/mcp-group-tools.test.ts
+!tests/mcp-route-parity.test.ts
 !tests/overlay-context.test.ts
 !tests/page-access-issues.test.ts
 !tests/page-diff-display.test.ts

@@ -128,7 +128,6 @@ async function createPremiumToken(customerId = "cus_test"): Promise<string> {
   );
 }
 
-
 test("premium worker proxies mobile-only routes to the configured Node backend", async () => {
   let proxiedUrl = "";
   let proxiedEdgeHeader = "";
@@ -229,7 +228,6 @@ test("premium worker proxies mobile entitlement tokens while keeping desktop tok
     },
   );
 });
-
 
 test("premium worker proxies mobile AI bearer tokens to the Node backend", async () => {
   let proxiedUrl = "";

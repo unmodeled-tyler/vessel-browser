@@ -8,6 +8,9 @@ import {
   AgentRuntime,
   type AgentRuntimeActionLifecycleEvent,
 } from "../src/main/agent/runtime";
+import { executeAction } from "../src/main/ai/page-actions/orchestrator";
+import { setSetting } from "../src/main/config/settings";
+import type { TabGroupColor } from "../src/shared/types";
 import type { SessionSnapshot } from "../src/shared/types";
 
 function makeRuntime(): AgentRuntime {
@@ -114,4 +117,43 @@ test("runControlledAction emits lifecycle events for agent tools", async () => {
   assert.equal(events[1].detail, "page text");
   assert.equal(events[1].actionId, events[0].actionId);
   assert.equal(typeof events[1].durationMs, "number");
+});
+
+test("advertised API group tools dispatch to tab group operations", async () => {
+  setSetting("telemetryEnabled", false);
+  const runtime = makeRuntime();
+  const groups = [{ id: "group-1", name: "Research", color: "blue" as TabGroupColor, collapsed: false }];
+  const tabs = [{ id: "tab-1", title: "Docs", url: "https://example.test", groupId: "group-1" }];
+  const colorChanges: Array<{ groupId: string; color: TabGroupColor }> = [];
+  const tabManager = {
+    getActiveTab: () => null,
+    getActiveTabId: () => null,
+    getGroups: () => groups,
+    getAllStates: () => tabs,
+    createGroupFromTab: () => "group-created",
+    assignTabToGroup: () => undefined,
+    removeTabFromGroup: () => undefined,
+    toggleGroupCollapsed: () => false,
+    setGroupColor: (groupId: string, color: TabGroupColor) => {
+      colorChanges.push({ groupId, color });
+    },
+  };
+
+  assert.match(
+    await executeAction("list_groups", {}, { runtime, tabManager: tabManager as never }),
+    /\[group-1\] Research/,
+  );
+  assert.equal(
+    await executeAction(
+      "set_group_color",
+      { groupId: "group-1", color: "green" },
+      { runtime, tabManager: tabManager as never },
+    ),
+    "Set group group-1 color to green",
+  );
+  assert.deepEqual(colorChanges, [{ groupId: "group-1", color: "green" }]);
+  assert.notEqual(
+    await executeAction("toggle_group", { groupId: "group-1" }, { runtime, tabManager: tabManager as never }),
+    "Unknown tool: toggle_group",
+  );
 });

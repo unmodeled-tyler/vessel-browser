@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AgentRuntime } from "../../agent/runtime";
 import type { TabManager } from "../../tabs/tab-manager";
 import { getTabByMatch } from "../../ai/page-actions/navigation";
+import { handleWebSearch } from "../../ai/page-actions/handlers/navigation";
 import { validateLinkDestination } from "../../network/link-validation";
 import { assertSafeURL } from "../../network/url-safety";
 import { waitForLoad } from "../../utils/webcontents-utils";
@@ -107,6 +108,31 @@ export function registerNavigationTools(
             : "";
         return `Navigated to ${finalUrl}${statusNote}`;
       });
+    },
+  );
+
+  server.registerTool(
+    "web_search",
+    {
+      title: "Web Search",
+      description:
+        "Search the open web using the configured default search engine.",
+      inputSchema: {
+        query: z.string().describe("Web search query text"),
+      },
+    },
+    async ({ query }) => {
+      const tab = tabManager.getActiveTab();
+      const tabId = tabManager.getActiveTabId();
+      if (!tab || !tabId) return asNoActiveTabResponse();
+      return withAction(
+        runtime,
+        tabManager,
+        "web_search",
+        { query },
+        async () =>
+          handleWebSearch({ tabManager, runtime }, tabId, { query }),
+      );
     },
   );
 

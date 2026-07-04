@@ -11,6 +11,7 @@ import {
   buildStructuredContext,
   type ExtractMode,
 } from "../../ai/context-builder";
+import { handleReadPage } from "../../ai/page-actions/handlers/page-reading";
 import { getTabByMatch } from "../../ai/page-actions/navigation";
 import { MAX_MCP_NAV_CONTENT_LENGTH } from "../../ai/content-limits";
 import { extractContent } from "../../content/extractor";
@@ -42,6 +43,7 @@ const EXTRACT_MODES: ExtractMode[] = [
   "visible_only",
   "results_only",
 ];
+const READ_PAGE_MODES = [...EXTRACT_MODES, "glance", "debug"] as const;
 
 async function buildExtractResponse(
   pageContent: PageContent,
@@ -190,36 +192,26 @@ export function registerContentTools(
     {
       title: "Read Page",
       description:
-        "Read the active tab's page content. Includes saved highlights plus any active text selection or visible unsaved highlights on the page. Supports modes: full (default — includes highlights section), summary, interactives_only, forms_only, text_only, visible_only, results_only.",
+        "Read the active tab's page content. Includes saved highlights plus any active text selection or visible unsaved highlights on the page. Supports scoped modes plus glance and debug.",
       inputSchema: {
         mode: z
-          .enum(EXTRACT_MODES as [string, ...string[]])
+          .enum(READ_PAGE_MODES)
           .optional()
           .describe(
-            "Extraction mode: full, summary, interactives_only, forms_only, text_only, visible_only, results_only",
+            "Read mode: glance, summary, interactives_only, forms_only, text_only, visible_only, results_only, full, or debug",
           ),
       },
     },
     async ({ mode }) => {
       const tab = tabManager.getActiveTab();
       if (!tab) return asNoActiveTabResponse();
-
-      try {
-        const pageContent = await extractContent(tab.view.webContents);
-        const effectiveMode = (mode || "full") as ExtractMode;
-        return asTextResponse(
-          await buildExtractResponse(
-            pageContent,
-            effectiveMode,
-            tab.state.adBlockingEnabled,
-            tab.view.webContents,
-          ),
-        );
-      } catch (error) {
-        return asTextResponse(
-          `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`,
-        );
-      }
+      return withAction(
+        runtime,
+        tabManager,
+        "read_page",
+        { mode },
+        async () => handleReadPage({ tabManager, runtime }, { mode }),
+      );
     },
   );
 

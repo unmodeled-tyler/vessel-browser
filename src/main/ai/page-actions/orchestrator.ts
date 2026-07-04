@@ -19,6 +19,12 @@ import {
   handleSwitchTab,
   handleCreateTab,
   handleSetAdBlocking,
+  handleListGroups,
+  handleCreateGroup,
+  handleAssignToGroup,
+  handleRemoveFromGroup,
+  handleToggleGroup,
+  handleSetGroupColor,
 } from "./handlers/tabs";
 import {
   handleNavigate,
@@ -79,6 +85,12 @@ const NO_ACTIVE_TAB_TOOLS = new Set([
   "list_tabs",
   "create_tab",
   "set_ad_blocking",
+  "list_groups",
+  "create_group",
+  "assign_to_group",
+  "remove_from_group",
+  "toggle_group",
+  "set_group_color",
   "restore_checkpoint",
   "save_session",
   "load_session",
@@ -407,6 +419,18 @@ async function dispatch(
       return handleSwitchTab(ctx, args);
     case "create_tab":
       return handleCreateTab(ctx, args);
+    case "list_groups":
+      return handleListGroups(ctx);
+    case "create_group":
+      return handleCreateGroup(ctx, args);
+    case "assign_to_group":
+      return handleAssignToGroup(ctx, args);
+    case "remove_from_group":
+      return handleRemoveFromGroup(ctx, args);
+    case "toggle_group":
+      return handleToggleGroup(ctx, args);
+    case "set_group_color":
+      return handleSetGroupColor(ctx, args);
     case "navigate":
       return handleNavigate(ctx, tabId, args);
     case "web_search":

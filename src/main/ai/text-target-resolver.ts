@@ -23,6 +23,15 @@ export function resolveTextTargetInDocument(
   rawQuery: string,
   mode: TextTargetMode,
 ): TextTargetMatch | null {
+  function invalidTextTargetQuery(value: string): boolean {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return true;
+    if (/<\/?[a-z][^>]*>/i.test(trimmed)) return true;
+    if (/^&lt;\/?[a-z][^&]*&gt;$/i.test(trimmed)) return true;
+    if (/^<\/?[a-z][a-z0-9:-]*>$/i.test(trimmed)) return true;
+    return false;
+  }
+
   function normalize(value: string | null | undefined): string {
     return String(value || "")
       .toLowerCase()
@@ -105,9 +114,14 @@ export function resolveTextTargetInDocument(
     return uniqueSelector(candidate) || candidate;
   }
 
+  function isElementLike(el: Element | null): el is Element {
+    return !!el && typeof el.tagName === "string";
+  }
+
   function isVisible(el: Element | null): boolean {
-    if (!(el instanceof HTMLElement)) return false;
-    if (el.hidden || el.getAttribute("aria-hidden") === "true") return false;
+    if (!isElementLike(el)) return false;
+    const htmlEl = el as HTMLElement;
+    if (htmlEl.hidden || htmlEl.getAttribute("aria-hidden") === "true") return false;
     const style =
       typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
     if (
@@ -122,12 +136,14 @@ export function resolveTextTargetInDocument(
   }
 
   function inViewport(el: Element | null): boolean {
-    if (!(el instanceof HTMLElement)) return false;
-    if (typeof el.getBoundingClientRect !== "function") return true;
-    const rect = el.getBoundingClientRect();
+    if (!isElementLike(el)) return false;
+    const htmlEl = el as HTMLElement;
+    if (typeof htmlEl.getBoundingClientRect !== "function") return true;
+    const rect = htmlEl.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return true;
-    const vw = window.innerWidth || doc.documentElement?.clientWidth || 0;
-    const vh = window.innerHeight || doc.documentElement?.clientHeight || 0;
+    const view = doc.defaultView;
+    const vw = view?.innerWidth || doc.documentElement?.clientWidth || 0;
+    const vh = view?.innerHeight || doc.documentElement?.clientHeight || 0;
     return rect.bottom > 0 && rect.right > 0 && rect.top < vh && rect.left < vw;
   }
 
@@ -227,7 +243,7 @@ export function resolveTextTargetInDocument(
     return best;
   }
 
-  if (isInvalidTextTargetQuery(rawQuery)) return null;
+  if (invalidTextTargetQuery(rawQuery)) return null;
 
   const query = normalize(rawQuery);
   if (!query) return null;
@@ -272,7 +288,10 @@ export function resolveTextTargetInDocument(
   });
 
   if (!bestRegion || bestRegion.score < 80) {
-    if (mode === "interactive" && bestInteractive) {
+    const canUseInteractiveFallback =
+      bestInteractive &&
+      (mode === "interactive" || bestInteractive.score >= 120);
+    if (canUseInteractiveFallback && bestInteractive) {
       const selector = selectorFor(bestInteractive.el);
       if (!selector) return null;
       return {
@@ -286,6 +305,21 @@ export function resolveTextTargetInDocument(
   }
 
   if (mode === "context") {
+    const interactiveFallback = bestInteractive as Candidate | null;
+    if (
+      interactiveFallback &&
+      interactiveFallback.score >= 120 &&
+      interactiveFallback.score > bestRegion.score
+    ) {
+      const selector = selectorFor(interactiveFallback.el);
+      if (!selector) return null;
+      return {
+        selector,
+        label: labelFor(interactiveFallback.el),
+        kind: interactiveFallback.el.tagName.toLowerCase(),
+        matchedText: interactiveFallback.matchedText,
+      };
+    }
     const selector = selectorFor(bestRegion.el);
     if (!selector) return null;
     return {
