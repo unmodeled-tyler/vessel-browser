@@ -11,25 +11,12 @@
   "project": [
     ".husky/*",
     "bin/**/*.js",
-    ".husky/*",
     "scripts/**/*.{js,mjs}",
     "src/**/*.{ts,tsx}",
     "tests/**/*.ts"
   ],
-  "ignoreFiles": [
-    "src/main/telemetry/trace-logger.ts",
-    "src/renderer/src/env.d.ts"
-  ],
-  "ignoreDependencies": [
-    "husky",
-    "lint-staged"
-  ],
-  "ignoreBinaries": [
-    "husky",
-    "lint-staged",
-    "scripts/build-macos-icon.sh",
-    "scripts/verify-macos-universal.sh"
-  ],
+  "ignoreFiles": ["src/main/telemetry/trace-logger.ts", "src/renderer/src/env.d.ts"],
+  "ignoreBinaries": ["scripts/build-macos-icon.sh", "scripts/verify-macos-universal.sh"],
   "vite": {
     "config": "electron.vite.config.ts"
   }
