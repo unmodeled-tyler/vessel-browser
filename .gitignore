@@ -97,6 +97,7 @@ tests/*.test.ts
 !tests/safe-fs.test.ts
 !tests/scheduler.test.ts
 !tests/search-shortcuts.test.ts
+!tests/semantic-snapshots.test.ts
 !tests/security-hardening.test.ts
 !tests/settings-ipc-security.test.ts
 !tests/structured-data.test.ts
@@ -109,6 +110,7 @@ tests/*.scratch.ts
 
 # Claude skills (local overrides)
 .claude/skills/
+SillyTavern/
 
 # Local secrets / deployment config
 .webui_secret_key

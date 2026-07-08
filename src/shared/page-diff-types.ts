@@ -5,7 +5,7 @@ export interface PageDiffHistoryItem {
 
 export interface ContentChange {
   kind: "added" | "removed" | "changed";
-  section: "title" | "headings" | "content";
+  section: "title" | "headings" | "content" | "semantic";
   summary: string;
   before?: string;
   after?: string;

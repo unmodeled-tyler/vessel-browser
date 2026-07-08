@@ -1,5 +1,7 @@
 import type { PageSnapshot } from "../content/page-snapshots";
 import type { ContentChange, PageDiff } from "../../shared/page-diff-types";
+import type { SemanticPageSnapshot } from "./semantic-snapshots";
+import { diffSemanticSnapshots } from "./semantic-snapshots";
 
 export type { PageDiff, ContentChange };
 
@@ -75,9 +77,7 @@ function buildLcsTable(a: string[], b: string[]): number[][] {
   for (let i = a.length - 1; i >= 0; i -= 1) {
     for (let j = b.length - 1; j >= 0; j -= 1) {
       table[i][j] =
-        a[i] === b[j]
-          ? table[i + 1][j + 1] + 1
-          : Math.max(table[i + 1][j], table[i][j + 1]);
+        a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
     }
   }
 
@@ -137,24 +137,24 @@ function summarizeContentChange(
 ): string {
   const parts: string[] = [];
   if (changedCount > 0) {
-    parts.push(
-      `${changedCount} updated ${changedCount === 1 ? "section" : "sections"}`,
-    );
+    parts.push(`${changedCount} updated ${changedCount === 1 ? "section" : "sections"}`);
   }
   if (addedCount > 0) {
-    parts.push(
-      `${addedCount} added ${addedCount === 1 ? "section" : "sections"}`,
-    );
+    parts.push(`${addedCount} added ${addedCount === 1 ? "section" : "sections"}`);
   }
   if (removedCount > 0) {
-    parts.push(
-      `${removedCount} removed ${removedCount === 1 ? "section" : "sections"}`,
-    );
+    parts.push(`${removedCount} removed ${removedCount === 1 ? "section" : "sections"}`);
   }
   return parts.join(", ");
 }
 
-export function diffSnapshots(oldSnap: PageSnapshot, currentContent: string, currentTitle: string, currentHeadings: string): PageDiff {
+export function diffSnapshots(
+  oldSnap: PageSnapshot,
+  currentContent: string,
+  currentTitle: string,
+  currentHeadings: string,
+  currentSemantic?: SemanticPageSnapshot,
+): PageDiff {
   const changes: ContentChange[] = [];
 
   if (oldSnap.title !== currentTitle) {
@@ -234,11 +234,7 @@ export function diffSnapshots(oldSnap: PageSnapshot, currentContent: string, cur
       addedBlocks.push(...pendingAdded);
     }
 
-    if (
-      changedPairs.length > 0 ||
-      addedBlocks.length > 0 ||
-      removedBlocks.length > 0
-    ) {
+    if (changedPairs.length > 0 || addedBlocks.length > 0 || removedBlocks.length > 0) {
       changes.push({
         kind: "changed",
         section: "content",
@@ -257,13 +253,16 @@ export function diffSnapshots(oldSnap: PageSnapshot, currentContent: string, cur
           : addedBlocks[0]
             ? truncateText(addedBlocks[0])
             : undefined,
-        addedItems: addedBlocks
-          .slice(0, MAX_DETAIL_ITEMS)
-          .map((item) => truncateText(item)),
-        removedItems: removedBlocks
-          .slice(0, MAX_DETAIL_ITEMS)
-          .map((item) => truncateText(item)),
+        addedItems: addedBlocks.slice(0, MAX_DETAIL_ITEMS).map((item) => truncateText(item)),
+        removedItems: removedBlocks.slice(0, MAX_DETAIL_ITEMS).map((item) => truncateText(item)),
       });
+    }
+  }
+
+  if (oldSnap.semantic && currentSemantic) {
+    const semanticDiff = diffSemanticSnapshots(oldSnap.semantic, currentSemantic);
+    if (semanticDiff.hasChanges) {
+      changes.push(...semanticDiff.changes);
     }
   }
 
