@@ -53,7 +53,7 @@ function normalizeString(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
-function mapInputType(el: InteractiveElement): FormField["type"] {
+export function mapInputType(el: InteractiveElement): FormField["type"] {
   const inputType = el.inputType ?? el.type ?? "text";
   switch (inputType.toLowerCase()) {
     case "email":
@@ -128,7 +128,9 @@ function mapActionButtons(interactiveElements: InteractiveElement[]): ActionButt
       intent = "addToCart";
     } else if (/\b(login|sign in|log in|signin|log-in)\b/.test(normalized)) {
       intent = "login";
-    } else if (/\b(submit|send|continue|next|proceed|register|create account|sign up)\b/.test(normalized)) {
+    } else if (
+      /\b(submit|send|continue|next|proceed|register|create account|sign up)\b/.test(normalized)
+    ) {
       intent = "submit";
     } else if (/\b(cancel|back|return|go back|close)\b/.test(normalized)) {
       intent = "cancel";
@@ -160,9 +162,7 @@ function asStructuredObject(
     : undefined;
 }
 
-function stringifyStructuredScalar(
-  value: StructuredDataValue | undefined,
-): string | undefined {
+function stringifyStructuredScalar(value: StructuredDataValue | undefined): string | undefined {
   if (typeof value === "string") {
     const trimmed = value.trim();
     return trimmed || undefined;
@@ -173,7 +173,7 @@ function stringifyStructuredScalar(
   return undefined;
 }
 
-function firstStructuredString(
+export function firstStructuredString(
   ...values: Array<StructuredDataValue | undefined>
 ): string | undefined {
   for (const value of values) {
@@ -183,9 +183,7 @@ function firstStructuredString(
   return undefined;
 }
 
-function getOfferPrice(
-  offers: StructuredDataValue | undefined,
-): string | undefined {
+function getOfferPrice(offers: StructuredDataValue | undefined): string | undefined {
   if (Array.isArray(offers)) {
     for (const offer of offers) {
       const price = getOfferPrice(offer);
@@ -198,15 +196,13 @@ function getOfferPrice(
   return firstStructuredString(offer?.price);
 }
 
-function extractPrimaryEntity(
+export function extractPrimaryEntity(
   pageType: PageType,
   structuredData: StructuredDataEntity[] | undefined,
   _metaTags: Record<string, string> | undefined,
 ): PrimaryEntity | undefined {
   if (pageType === "product") {
-    const product = structuredData?.find((e) =>
-      e.types.some((t) => /^product$/i.test(t))
-    );
+    const product = structuredData?.find((e) => e.types.some((t) => /^product$/i.test(t)));
     if (product) {
       const attrs = product.attributes ?? {};
       const aggregateRating = asStructuredObject(attrs.aggregateRating);
@@ -237,24 +233,24 @@ function extractPrimaryEntity(
 
   if (pageType === "article") {
     const article = structuredData?.find((e) =>
-      e.types.some((t) =>
-        /^(article|newsarticle|blogposting|webpage)$/i.test(t)
-      )
+      e.types.some((t) => /^(article|newsarticle|blogposting|webpage)$/i.test(t)),
     );
     if (article) {
       const attrs = article.attributes ?? {};
       return {
         type: article.types[0] ?? "Article",
-        nameField: typeof attrs.headline === "string"
-          ? attrs.headline
-          : typeof attrs.name === "string"
-            ? attrs.name
-            : undefined,
-        descriptionField: typeof attrs.articleBody === "string"
-          ? attrs.articleBody
-          : typeof attrs.description === "string"
-            ? attrs.description
-            : undefined,
+        nameField:
+          typeof attrs.headline === "string"
+            ? attrs.headline
+            : typeof attrs.name === "string"
+              ? attrs.name
+              : undefined,
+        descriptionField:
+          typeof attrs.articleBody === "string"
+            ? attrs.articleBody
+            : typeof attrs.description === "string"
+              ? attrs.description
+              : undefined,
       };
     }
   }
@@ -281,9 +277,7 @@ export function inferPageSchema(page: PageContent): PageSchema {
   }
 
   const hasProduct = jsonLdTypes.some((t) => /^product$/i.test(t));
-  const hasArticle = jsonLdTypes.some((t) =>
-    /^(article|newsarticle|blogposting)$/i.test(t)
-  );
+  const hasArticle = jsonLdTypes.some((t) => /^(article|newsarticle|blogposting)$/i.test(t));
   const hasEvent = jsonLdTypes.some((t) => /^event$/i.test(t));
   const hasSearchResults = jsonLdTypes.some((t) => /^searchresultspage$/i.test(t));
 
@@ -315,10 +309,7 @@ export function inferPageSchema(page: PageContent): PageSchema {
   }
 
   // --- URL patterns (strong signals) ---
-  if (
-    /\/checkout|\/cart|\/payment|\/billing/i.test(urlLower) &&
-    pageType === "unknown"
-  ) {
+  if (/\/checkout|\/cart|\/payment|\/billing/i.test(urlLower) && pageType === "unknown") {
     pageType = "checkout";
     confidence += 0.1;
   } else if (/\/login|\/signin|\/auth/i.test(urlLower) && pageType === "unknown") {
@@ -339,7 +330,7 @@ export function inferPageSchema(page: PageContent): PageSchema {
         el.type === "submit" ||
         normalizeString(el.inputType) === "submit" ||
         normalizeString(el.name) === "submit",
-    )
+    ),
   );
 
   const hasPriceSelectors = interactiveElements.some(
@@ -383,9 +374,10 @@ export function inferPageSchema(page: PageContent): PageSchema {
   const primaryEntity = extractPrimaryEntity(pageType, structuredData, metaTags);
 
   // --- Extract form fields ---
-  const formFields = (pageType === "form" || pageType === "checkout" || pageType === "login")
-    ? mapFormFields(forms, interactiveElements)
-    : undefined;
+  const formFields =
+    pageType === "form" || pageType === "checkout" || pageType === "login"
+      ? mapFormFields(forms, interactiveElements)
+      : undefined;
 
   // --- Extract action buttons ---
   const actionButtons = mapActionButtons(interactiveElements);

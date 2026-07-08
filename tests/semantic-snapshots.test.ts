@@ -108,6 +108,46 @@ test("semantic fingerprint ignores capture time", () => {
   assert.equal(first.semanticFingerprint, second.semanticFingerprint);
 });
 
+test("buildSemanticSnapshot reuses canonical page schema normalization", () => {
+  const snapshot = buildSemanticSnapshot(
+    "https://example.com/product/widget",
+    makePageContent({
+      forms: [
+        {
+          fields: [
+            {
+              type: "input",
+              inputType: "range",
+              label: "Quantity",
+              name: "quantity",
+            },
+          ],
+        },
+      ],
+      structuredData: [
+        {
+          source: "json-ld",
+          types: ["Product"],
+          attributes: {
+            name: "Widget",
+            offers: { price: "29.99" },
+          },
+        },
+      ],
+      pageSchema: {
+        pageType: "product",
+        confidence: 0.8,
+        actionButtons: [],
+      },
+    }),
+    "2026-01-01T00:00:00.000Z",
+  );
+
+  assert.equal(snapshot.primaryEntity?.name, "Widget");
+  assert.equal(snapshot.primaryEntity?.price, "29.99");
+  assert.deepEqual(snapshot.formFields, [{ name: "quantity", type: "number", label: "Quantity" }]);
+});
+
 test("diffSemanticSnapshots reports meaningful semantic changes", () => {
   const oldSnapshot = buildSemanticSnapshot(
     "https://example.com/product/widget",

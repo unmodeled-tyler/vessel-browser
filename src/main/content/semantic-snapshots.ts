@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import type { PageType } from "../../shared/page-schema";
-import type {
-  InteractiveElement,
-  PageContent,
-  StructuredDataEntity,
-  StructuredDataValue,
-} from "../../shared/types";
+import {
+  extractPrimaryEntity,
+  firstStructuredString,
+  mapInputType,
+  type PageType,
+  type PrimaryEntity,
+} from "../../shared/page-schema";
+import type { InteractiveElement, PageContent, StructuredDataEntity } from "../../shared/types";
 import type { ContentChange } from "../../shared/page-diff-types";
 import { buildPageSnapshotKey } from "../../shared/page-url";
 
@@ -102,55 +103,64 @@ function digest(value: unknown): string {
     .digest("hex");
 }
 
-function firstStructuredString(
-  ...values: Array<StructuredDataValue | undefined>
-): string | undefined {
-  for (const value of values) {
-    if (typeof value === "string") {
-      const text = asString(value);
-      if (text) return text;
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return String(value);
-    }
-  }
-  return undefined;
-}
-
 function firstStructuredEntity(
   structuredData: StructuredDataEntity[] | undefined,
 ): StructuredDataEntity | undefined {
   return structuredData?.find((entity) => entity.types.length > 0) ?? structuredData?.[0];
 }
 
-function buildPrimaryEntity(page: PageContent): SemanticPrimaryEntitySnapshot | undefined {
-  const primary = page.pageSchema?.primaryEntity;
-  if (primary) {
-    return pruneUndefined({
-      type: primary.type,
-      name: asString(primary.nameField),
-      description: asString(primary.descriptionField),
-      price: asString(primary.priceField),
-      rating: asString(primary.ratingField),
-      reviews: asString(primary.reviewsField),
-      image: asString(primary.imageField),
-    });
-  }
+function compactStructuredString(
+  ...values: Parameters<typeof firstStructuredString>
+): string | undefined {
+  return asString(firstStructuredString(...values));
+}
 
+function buildPrimaryFromSchema(
+  primary: PrimaryEntity | undefined,
+): SemanticPrimaryEntitySnapshot | undefined {
+  if (!primary) return undefined;
+  return pruneUndefined({
+    type: primary.type,
+    name: asString(primary.nameField),
+    description: asString(primary.descriptionField),
+    price: asString(primary.priceField),
+    rating: asString(primary.ratingField),
+    reviews: asString(primary.reviewsField),
+    image: asString(primary.imageField),
+  });
+}
+
+function buildPrimaryFromStructuredData(
+  page: PageContent,
+): SemanticPrimaryEntitySnapshot | undefined {
   const entity = firstStructuredEntity(page.structuredData);
   if (!entity) return undefined;
   const attrs = entity.attributes ?? {};
   return pruneUndefined({
     type: entity.types[0] ?? "Thing",
-    name: asString(entity.name) ?? firstStructuredString(attrs.name, attrs.headline),
+    name: asString(entity.name) ?? compactStructuredString(attrs.name, attrs.headline),
     description:
-      asString(entity.description) ?? firstStructuredString(attrs.description, attrs.articleBody),
-    price: firstStructuredString(attrs.price),
-    rating: firstStructuredString(attrs.rating, attrs.ratingValue),
-    reviews: firstStructuredString(attrs.reviewCount, attrs.ratingCount),
-    image: firstStructuredString(attrs.image),
+      asString(entity.description) ?? compactStructuredString(attrs.description, attrs.articleBody),
+    price: compactStructuredString(attrs.price),
+    rating: compactStructuredString(attrs.rating, attrs.ratingValue),
+    reviews: compactStructuredString(attrs.reviewCount, attrs.ratingCount),
+    image: compactStructuredString(attrs.image),
     url: asString(entity.url),
   });
+}
+
+function buildPrimaryEntity(page: PageContent): SemanticPrimaryEntitySnapshot | undefined {
+  return (
+    buildPrimaryFromSchema(page.pageSchema?.primaryEntity) ??
+    buildPrimaryFromSchema(
+      extractPrimaryEntity(
+        page.pageSchema?.pageType ?? "unknown",
+        page.structuredData,
+        page.metaTags,
+      ),
+    ) ??
+    buildPrimaryFromStructuredData(page)
+  );
 }
 
 function pruneUndefined<T extends Record<string, unknown>>(value: T): T {
@@ -230,7 +240,7 @@ function buildFormFields(page: PageContent): SemanticFormFieldSnapshot[] {
     if (!name) continue;
     const next = pruneUndefined({
       name,
-      type: compactText(field.inputType || field.type || "text", 40) || "text",
+      type: mapInputType(field),
       label: asString(field.label),
       required: field.required === true ? true : undefined,
     });
