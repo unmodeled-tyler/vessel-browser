@@ -6,14 +6,13 @@ export interface DisplayDiffSummaryPart {
 const SECTION_LABELS: Record<string, string> = {
   content: "Content",
   headings: "Headings",
+  semantic: "Semantic",
   title: "Title",
 };
 
 export function cleanDiffSummaryText(value: string): string {
   return value
-    .replace(/```[\s\S]*?```/g, (match) =>
-      match.replace(/```[a-z]*\n?/gi, "").replace(/```/g, ""),
-    )
+    .replace(/```[\s\S]*?```/g, (match) => match.replace(/```[a-z]*\n?/gi, "").replace(/```/g, ""))
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/`([^`]+)`/g, "$1")

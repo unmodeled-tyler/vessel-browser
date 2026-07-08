@@ -1,13 +1,9 @@
 import { app } from "electron";
 import path from "path";
-import {
-  buildPageSnapshotKey,
-  isTrackablePageUrl,
-} from "../../shared/page-url";
-import {
-  createDebouncedJsonPersistence,
-  loadJsonFile,
-} from "../persistence/json-file";
+import { buildPageSnapshotKey, isTrackablePageUrl } from "../../shared/page-url";
+import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
+import type { SemanticPageSnapshot } from "./semantic-snapshots";
+import { normalizeStoredSemanticSnapshot } from "./semantic-snapshots";
 
 export interface PageSnapshot {
   url: string;
@@ -15,6 +11,7 @@ export interface PageSnapshot {
   textContent: string;
   headings: string;
   capturedAt: string;
+  semantic?: SemanticPageSnapshot;
 }
 
 const SAVE_DEBOUNCE_MS = 500;
@@ -45,6 +42,7 @@ function normalizeStoredSnapshot(value: unknown): PageSnapshot | null {
     textContent: raw.textContent,
     headings: raw.headings,
     capturedAt: raw.capturedAt,
+    semantic: normalizeStoredSemanticSnapshot(raw.semantic) ?? undefined,
   };
 }
 
@@ -93,6 +91,7 @@ export function saveSnapshot(
   title: string,
   textContent: string,
   headings: Array<{ level: number; text: string }>,
+  semantic?: SemanticPageSnapshot,
 ): PageSnapshot {
   const s = load();
   const key = normalizeUrl(rawUrl);
@@ -102,6 +101,7 @@ export function saveSnapshot(
     textContent: textContent.slice(0, MAX_TEXT_LENGTH),
     headings: headings.map((h) => `${"#".repeat(h.level)} ${h.text}`).join("\n"),
     capturedAt: new Date().toISOString(),
+    semantic,
   };
   s.delete(key);
   s.set(key, snapshot);

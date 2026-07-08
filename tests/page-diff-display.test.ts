@@ -44,13 +44,11 @@ test("parseDiffSummaryParts falls back when summary has no displayable text", ()
 });
 
 test("cleanDiffSummaryText removes common markdown wrappers", () => {
-  assert.equal(
-    cleanDiffSummaryText("> ## **Hello** [world](https://example.com)"),
-    "Hello world",
-  );
+  assert.equal(cleanDiffSummaryText("> ## **Hello** [world](https://example.com)"), "Hello world");
 });
 
 test("formatDiffSectionLabel normalizes known sections and preserves unknown labels", () => {
   assert.equal(formatDiffSectionLabel(" content "), "Content");
+  assert.equal(formatDiffSectionLabel("semantic"), "Semantic");
   assert.equal(formatDiffSectionLabel("Custom Section"), "Custom Section");
 });

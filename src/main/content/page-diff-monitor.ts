@@ -2,28 +2,22 @@ import { app } from "electron";
 import type { WebContents } from "electron";
 import path from "path";
 import { Channels } from "../../shared/channels";
-import type {
-  PageDiff,
-  PageDiffHistoryItem,
-} from "../../shared/page-diff-types";
+import { createLogger } from "../../shared/logger";
+import type { PageDiff, PageDiffHistoryItem } from "../../shared/page-diff-types";
 import { diffSnapshots } from "./page-diff";
 import * as pageSnapshots from "./page-snapshots";
+import * as semanticSnapshots from "./semantic-snapshots";
 import { extractContent } from "./extractor";
 import type { SendToRendererViews } from "../ipc/common";
-import {
-  MUTATION_CAPTURE_INTERVAL_MS,
-  MUTATION_SETTLE_AFTER_MS,
-} from "../config/timing";
-import {
-  createDebouncedJsonPersistence,
-  loadJsonFile,
-} from "../persistence/json-file";
+import { MUTATION_CAPTURE_INTERVAL_MS, MUTATION_SETTLE_AFTER_MS } from "../config/timing";
+import { createDebouncedJsonPersistence, loadJsonFile } from "../persistence/json-file";
 import {
   appendPageDiffHistoryItem,
   normalizePageDiffHistoryItem,
   prunePageDiffHistory,
 } from "./page-diff-history";
 
+const logger = createLogger("PageDiffMonitor");
 const latestPageDiffs = new Map<string, PageDiff>();
 const recentPageDiffBursts = new Map<string, PageDiffHistoryItem[]>();
 let historyLoaded = false;
@@ -85,10 +79,7 @@ function loadHistory(): Map<string, PageDiffHistoryItem[]> {
       for (const entry of raw) {
         if (!entry || typeof entry !== "object") continue;
         const record = entry as Record<string, unknown>;
-        if (
-          typeof record.url !== "string" ||
-          !Array.isArray(record.bursts)
-        ) {
+        if (typeof record.url !== "string" || !Array.isArray(record.bursts)) {
           continue;
         }
         next.set(
@@ -157,9 +148,7 @@ export function getPageDiffBursts(rawUrl: string): PageDiffHistoryItem[] {
 }
 
 function summarizeDiffBurst(diff: PageDiff): string {
-  const items = diff.changes
-    .slice(0, 2)
-    .map((change) => `${change.section}: ${change.summary}`);
+  const items = diff.changes.slice(0, 2).map((change) => `${change.section}: ${change.summary}`);
   return items.join(" | ");
 }
 
@@ -198,15 +187,20 @@ export async function capturePageSnapshot(
     const key = pageSnapshots.normalizeUrl(url);
     const oldSnap = pageSnapshots.getSnapshot(key);
     const content = await extractContent(wc);
+    let semanticSnapshot: semanticSnapshots.SemanticPageSnapshot | undefined;
+    try {
+      semanticSnapshot = semanticSnapshots.buildSemanticSnapshot(url, content);
+    } catch (err) {
+      // Semantic snapshots are additive; never let them block text snapshots.
+      logger.warn("Failed to build semantic page snapshot:", err);
+    }
     const textContent = content.content || "";
     const title = content.title || "";
     const headings = content.headings || [];
-    const currentHeadings = headings
-      .map((h) => `${"#".repeat(h.level)} ${h.text}`)
-      .join("\n");
+    const currentHeadings = headings.map((h) => `${"#".repeat(h.level)} ${h.text}`).join("\n");
 
     if (oldSnap) {
-      const diff = diffSnapshots(oldSnap, textContent, title, currentHeadings);
+      const diff = diffSnapshots(oldSnap, textContent, title, currentHeadings, semanticSnapshot);
       if (diff.hasChanges) {
         const enrichedDiff = enrichWithBurstHistory(key, diff);
         latestPageDiffs.set(key, enrichedDiff);
@@ -218,23 +212,18 @@ export async function capturePageSnapshot(
       latestPageDiffs.delete(key);
     }
 
-    pageSnapshots.saveSnapshot(url, title, textContent, headings);
-  } catch {
+    pageSnapshots.saveSnapshot(url, title, textContent, headings, semanticSnapshot);
+  } catch (err) {
     // Snapshot capture is best-effort.
+    logger.warn("Failed to capture page snapshot:", err);
   }
 }
 
-function computeNextSnapshotDueAt(
-  wcId: number,
-  now: number,
-  delayMs: number,
-): number {
+function computeNextSnapshotDueAt(wcId: number, now: number, delayMs: number): number {
   const lastCaptureAt = lastMutationSnapshotAt.get(wcId) || 0;
   const lastActivityAt = lastMutationActivityAt.get(wcId) || 0;
   const earliestAllowedAt = lastCaptureAt + MUTATION_CAPTURE_INTERVAL_MS;
-  const stableAfterActivityAt = lastActivityAt
-    ? lastActivityAt + MUTATION_SETTLE_AFTER_MS
-    : 0;
+  const stableAfterActivityAt = lastActivityAt ? lastActivityAt + MUTATION_SETTLE_AFTER_MS : 0;
   return Math.max(now + delayMs, earliestAllowedAt, stableAfterActivityAt);
 }
 
@@ -249,21 +238,24 @@ function scheduleTimerAt(
   const existing = pendingPageSnapshotTimers.get(wcId);
   if (existing) clearTimeout(existing);
 
-  const timer = setTimeout(() => {
-    cleanupTimersForWcId(wcId);
-    if (wc.isDestroyed()) return;
-    if (options.isActive && !options.isActive()) {
-      scheduleTimerAt(
-        wc,
-        sendToRendererViews,
-        Date.now() + BACKGROUND_DIFF_CAPTURE_DELAY_MS,
-        options,
-      );
-      return;
-    }
-    lastMutationSnapshotAt.set(wcId, Date.now());
-    void capturePageSnapshot(wc.getURL(), wc, sendToRendererViews);
-  }, Math.max(0, dueAt - Date.now()));
+  const timer = setTimeout(
+    () => {
+      cleanupTimersForWcId(wcId);
+      if (wc.isDestroyed()) return;
+      if (options.isActive && !options.isActive()) {
+        scheduleTimerAt(
+          wc,
+          sendToRendererViews,
+          Date.now() + BACKGROUND_DIFF_CAPTURE_DELAY_MS,
+          options,
+        );
+        return;
+      }
+      lastMutationSnapshotAt.set(wcId, Date.now());
+      void capturePageSnapshot(wc.getURL(), wc, sendToRendererViews);
+    },
+    Math.max(0, dueAt - Date.now()),
+  );
 
   pendingPageSnapshotTimers.set(wcId, timer);
   pendingPageSnapshotDueAt.set(wcId, dueAt);
