@@ -108,6 +108,59 @@ test("semantic fingerprint ignores capture time", () => {
   assert.equal(first.semanticFingerprint, second.semanticFingerprint);
 });
 
+test("semantic snapshots exclude hidden schema actions", () => {
+  const snapshot = buildSemanticSnapshot(
+    "https://example.com/account",
+    makePageContent({
+      interactiveElements: [
+        {
+          type: "button",
+          label: "Delete account",
+          visible: false,
+          obscured: true,
+        },
+      ],
+      pageSchema: {
+        pageType: "form",
+        confidence: 0.8,
+        actionButtons: [{ label: "Delete account", selector: "#hidden-delete", intent: "submit" }],
+      },
+    }),
+    "2026-01-01T00:00:00.000Z",
+  );
+
+  assert.deepEqual(snapshot.visibleActions, []);
+});
+
+test("semantic metadata ignores volatile tags but retains meaningful metadata", () => {
+  const page = makePageContent({
+    metaTags: {
+      csrf: "nonce-one",
+      "og:description": "Original description",
+    },
+  });
+  const first = buildSemanticSnapshot(page.url, page, "2026-01-01T00:00:00.000Z");
+  const nonceOnly = buildSemanticSnapshot(
+    page.url,
+    { ...page, metaTags: { ...page.metaTags, csrf: "nonce-two" } },
+    "2026-01-01T00:01:00.000Z",
+  );
+  const meaningful = buildSemanticSnapshot(
+    page.url,
+    {
+      ...page,
+      metaTags: { ...page.metaTags, "og:description": "Updated description" },
+    },
+    "2026-01-01T00:02:00.000Z",
+  );
+
+  assert.equal(diffSemanticSnapshots(first, nonceOnly).hasChanges, false);
+  assert.match(
+    diffSemanticSnapshots(first, meaningful).changes[0]?.summary ?? "",
+    /Structured metadata changed/,
+  );
+});
+
 test("buildSemanticSnapshot reuses canonical page schema normalization", () => {
   const snapshot = buildSemanticSnapshot(
     "https://example.com/product/widget",
@@ -152,6 +205,9 @@ test("diffSemanticSnapshots reports meaningful semantic changes", () => {
   const oldSnapshot = buildSemanticSnapshot(
     "https://example.com/product/widget",
     makePageContent({
+      interactiveElements: [
+        { type: "button", label: "Add to Cart", visible: true, inViewport: true },
+      ],
       pageSchema: {
         pageType: "product",
         confidence: 0.9,
@@ -168,6 +224,7 @@ test("diffSemanticSnapshots reports meaningful semantic changes", () => {
   const newSnapshot = buildSemanticSnapshot(
     "https://example.com/product/widget",
     makePageContent({
+      interactiveElements: [{ type: "button", label: "Checkout", visible: true, inViewport: true }],
       overlays: [
         {
           type: "modal",

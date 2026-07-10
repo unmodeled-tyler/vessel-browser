@@ -156,6 +156,57 @@ test("premium worker proxies mobile-only routes to the configured Node backend",
   );
 });
 
+test("premium worker rejects unsupported methods before proxying", async () => {
+  let proxyCalls = 0;
+
+  await withMockFetch(
+    () => {
+      proxyCalls += 1;
+      return { ok: true };
+    },
+    async () => {
+      const response = await worker.fetch(
+        new Request(`${WORKER_URL}/admin/usage`, { method: "DELETE" }),
+        { ...env, MOBILE_BACKEND_ORIGIN: "https://mobile-origin.example" },
+      );
+      const data = await response.json() as { error?: string };
+
+      assert.equal(response.status, 405);
+      assert.equal(response.headers.get("Allow"), "GET");
+      assert.match(data.error || "", /Use GET/);
+      assert.equal(proxyCalls, 0);
+    },
+  );
+});
+
+test("premium checkout uses Stripe-configured dynamic payment methods", async () => {
+  let checkoutParams: URLSearchParams | undefined;
+
+  await withMockFetch(
+    (url, init) => {
+      assert.equal(url, `${STRIPE_API}/checkout/sessions`);
+      checkoutParams = new URLSearchParams(String(init?.body || ""));
+      return { url: "https://checkout.stripe.test/session" };
+    },
+    async () => {
+      const response = await worker.fetch(
+        new Request(`${WORKER_URL}/checkout?email=person%40example.com`, { method: "POST" }),
+        env,
+      );
+      const data = await response.json() as { url?: string };
+
+      assert.equal(response.status, 200);
+      assert.equal(data.url, "https://checkout.stripe.test/session");
+      assert.equal(checkoutParams?.get("mode"), "subscription");
+      assert.equal(checkoutParams?.get("customer_email"), "person@example.com");
+      assert.equal(
+        [...(checkoutParams?.keys() ?? [])].some((key) => key.startsWith("payment_method_types")),
+        false,
+      );
+    },
+  );
+});
+
 test("premium worker proxies mobile entitlement tokens while keeping desktop tokens local", async () => {
   const mobileToken = "mobile.jwt.token";
   let proxiedUrl = "";
@@ -813,7 +864,7 @@ test("premium worker finds mixed-case Stripe customer emails during activation",
       if (url === `${STRIPE_API}/customers?email=paul.h9%40proton.me&limit=1`) {
         return { data: [] };
       }
-      if (url === `${STRIPE_API}/customers/search?query=email%3A'paul.h9%40proton.me'&limit=1`) {
+      if (url === `${STRIPE_API}/customers?limit=100`) {
         return { data: [{ id: "cus_mixed_case", email: "Paul.H9@proton.me" }] };
       }
       if (url === "https://api.resend.com/emails") {
@@ -835,6 +886,40 @@ test("premium worker finds mixed-case Stripe customer emails during activation",
       assert.equal(start.status, 200);
       assert.match(sentCode, /^\d{6}$/);
       assert.equal(typeof data.challengeToken, "string");
+    },
+  );
+});
+
+test("premium worker falls back to Stripe Search for older mixed-case customers", async () => {
+  const kv = createMemoryKv();
+  let searchCalls = 0;
+
+  await withMockFetch(
+    (url) => {
+      if (url === `${STRIPE_API}/customers?email=older%40example.com&limit=1`) {
+        return { data: [] };
+      }
+      if (url === `${STRIPE_API}/customers?limit=100`) {
+        return { data: [] };
+      }
+      if (url === `${STRIPE_API}/customers/search?query=email%3A'older%40example.com'&limit=1`) {
+        searchCalls += 1;
+        return { data: [{ id: "cus_older", email: "Older@example.com" }] };
+      }
+      if (url === "https://api.resend.com/emails") {
+        return { id: "email_test" };
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    },
+    async () => {
+      const response = await postJsonWithEnv(
+        "/activate/start",
+        { email: "Older@example.com" },
+        { ACTIVATION_KV: kv },
+      );
+
+      assert.equal(response.status, 200);
+      assert.equal(searchCalls, 1);
     },
   );
 });

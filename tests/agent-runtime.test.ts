@@ -4,10 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { app } from "electron";
-import {
-  AgentRuntime,
-  type AgentRuntimeActionLifecycleEvent,
-} from "../src/main/agent/runtime";
+import { AgentRuntime, type AgentRuntimeActionLifecycleEvent } from "../src/main/agent/runtime";
 import { executeAction } from "../src/main/ai/page-actions/orchestrator";
 import { setSetting } from "../src/main/config/settings";
 import type { TabGroupColor } from "../src/shared/types";
@@ -122,7 +119,9 @@ test("runControlledAction emits lifecycle events for agent tools", async () => {
 test("advertised API group tools dispatch to tab group operations", async () => {
   setSetting("telemetryEnabled", false);
   const runtime = makeRuntime();
-  const groups = [{ id: "group-1", name: "Research", color: "blue" as TabGroupColor, collapsed: false }];
+  const groups = [
+    { id: "group-1", name: "Research", color: "blue" as TabGroupColor, collapsed: false },
+  ];
   const tabs = [{ id: "tab-1", title: "Docs", url: "https://example.test", groupId: "group-1" }];
   const colorChanges: Array<{ groupId: string; color: TabGroupColor }> = [];
   const tabManager = {
@@ -152,8 +151,28 @@ test("advertised API group tools dispatch to tab group operations", async () => 
     "Set group group-1 color to green",
   );
   assert.deepEqual(colorChanges, [{ groupId: "group-1", color: "green" }]);
+  assert.equal(
+    await executeAction(
+      "assign_to_group",
+      { groupId: "missing-group", tabId: "tab-1" },
+      { runtime, tabManager: tabManager as never },
+    ),
+    "Error: Group not found",
+  );
+  assert.equal(
+    await executeAction(
+      "assign_to_group",
+      { groupId: "group-1", tabId: "missing-tab" },
+      { runtime, tabManager: tabManager as never },
+    ),
+    "Error: Tab not found",
+  );
   assert.notEqual(
-    await executeAction("toggle_group", { groupId: "group-1" }, { runtime, tabManager: tabManager as never }),
+    await executeAction(
+      "toggle_group",
+      { groupId: "group-1" },
+      { runtime, tabManager: tabManager as never },
+    ),
     "Unknown tool: toggle_group",
   );
 });

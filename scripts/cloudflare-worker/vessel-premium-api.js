@@ -34,11 +34,11 @@ const FEEDBACK_SPAM_GUARD_WINDOW_SECONDS = 60 * 60;
 const FEEDBACK_SPAM_GUARD_MAX = 5;
 const VESSEL_AI_MODEL = "minimax/minimax-m3";
 const OPENROUTER_API = "https://openrouter.ai/api/v1";
-const MOBILE_BACKEND_PROXY_ROUTES = new Set([
-  "/health",
-  "/play/verify",
-  "/play/topup/verify",
-  "/admin/usage",
+const MOBILE_BACKEND_PROXY_METHODS = new Map([
+  ["/health", "GET"],
+  ["/play/verify", "POST"],
+  ["/play/topup/verify", "POST"],
+  ["/admin/usage", "GET"],
 ]);
 
 function mobileBackendOrigin(env) {
@@ -59,6 +59,17 @@ function mobileBackendNotConfiguredResponse(request, env) {
     },
     503,
   );
+}
+
+function mobileBackendMethodNotAllowedResponse(request, env, allowedMethod) {
+  const response = corsResponse(
+    request,
+    env,
+    { error: `Method not allowed. Use ${allowedMethod}.` },
+    405,
+  );
+  response.headers.set("Allow", allowedMethod);
+  return response;
 }
 
 async function proxyToMobileBackend(request, env) {
@@ -200,10 +211,24 @@ function planFromPlayProduct(productId) {
 }
 
 async function findCustomerByEmail(env, email) {
-  const data = await stripeRequest(env, "GET", `/customers?email=${encodeURIComponent(email)}&limit=1`);
+  const normalizedEmail = normalizeEmail(email);
+  const data = await stripeRequest(
+    env,
+    "GET",
+    `/customers?email=${encodeURIComponent(normalizedEmail)}&limit=1`,
+  );
   if (data.data?.[0]) return data.data[0];
 
-  const searchQuery = `email:'${escapeStripeSearchString(email)}'`;
+  // Stripe Search is eventually consistent. Check the newest customers through
+  // the strongly consistent list API first so activation works right after checkout.
+  const recentData = await stripeRequest(env, "GET", "/customers?limit=100");
+  const recentCustomers = Array.isArray(recentData.data) ? recentData.data : [];
+  const recentCustomer = recentCustomers.find(
+    (customer) => normalizeEmail(customer?.email) === normalizedEmail,
+  );
+  if (recentCustomer) return recentCustomer;
+
+  const searchQuery = `email:'${escapeStripeSearchString(normalizedEmail)}'`;
   const searchData = await stripeRequest(
     env,
     "GET",
@@ -935,21 +960,6 @@ async function handleCheckout(request, env) {
   const url = new URL(request.url);
   const email = url.searchParams.get("email") || undefined;
 
-  // Payment methods for subscription checkout.
-  // Stripe automatically filters out methods unavailable for the
-  // customer's region or incompatible with subscription mode.
-  // Note: apple_pay/google_pay are automatic via card — not listed here.
-  // Note: bank-redirect methods (bancontact, eps, blik) require SEPA debit
-  // activation for subscriptions. Add them after enabling SEPA in Stripe.
-  // Note: crypto/pix are one-time only — no subscription support.
-  const paymentMethods = [
-    "card",
-    "link",
-    "amazon_pay",
-    "cashapp",
-    "klarna",
-  ];
-
   const params = {
     mode: "subscription",
     "line_items[0][price]": env.STRIPE_PRICE_ID,
@@ -959,10 +969,6 @@ async function handleCheckout(request, env) {
     "subscription_data[trial_period_days]": "7",
   };
 
-  // Attach all enabled payment method types
-  for (let i = 0; i < paymentMethods.length; i++) {
-    params[`payment_method_types[${i}]`] = paymentMethods[i];
-  }
   if (email) {
     params.customer_email = email;
   }
@@ -1614,7 +1620,11 @@ export default {
       if (path === "/verify" && request.method === "POST") {
         return handleVerify(request, env);
       }
-      if (MOBILE_BACKEND_PROXY_ROUTES.has(path)) {
+      const mobileBackendMethod = MOBILE_BACKEND_PROXY_METHODS.get(path);
+      if (mobileBackendMethod) {
+        if (request.method !== mobileBackendMethod) {
+          return mobileBackendMethodNotAllowedResponse(request, env, mobileBackendMethod);
+        }
         if (hasMobileBackendOrigin(env)) {
           return proxyToMobileBackend(request, env);
         }

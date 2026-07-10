@@ -187,7 +187,9 @@ function buildVisibleActions(page: PageContent): SemanticActionSnapshot[] {
   const seen = new Set<string>();
 
   for (const el of page.interactiveElements) {
-    if (el.type !== "button" && el.type !== "link") continue;
+    if (el.type !== "button" && el.type !== "link" && el.type !== "submit" && el.type !== "reset") {
+      continue;
+    }
     const label = actionLabel(el);
     if (!label) continue;
     const visible = el.visible !== false && el.obscured !== true && el.blockedByOverlay !== true;
@@ -198,16 +200,6 @@ function buildVisibleActions(page: PageContent): SemanticActionSnapshot[] {
     if (seen.has(key)) continue;
     seen.add(key);
     actions.push(pruneUndefined({ label, type: el.type, intent, visible: true }));
-    if (actions.length >= MAX_ACTIONS) break;
-  }
-
-  for (const button of page.pageSchema?.actionButtons ?? []) {
-    const label = compactText(button.label);
-    if (!label) continue;
-    const key = `${normalizeString(label)}|button|${button.intent || ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    actions.push(pruneUndefined({ label, type: "button", intent: button.intent }));
     if (actions.length >= MAX_ACTIONS) break;
   }
 
@@ -264,11 +256,28 @@ function buildBlockers(page: PageContent): string[] {
     .slice(0, MAX_BLOCKERS);
 }
 
+function semanticMetaTags(metaTags: Record<string, string> | undefined): Record<string, string> {
+  const semanticKeys = new Set(["author", "canonical", "description", "title"]);
+  const semanticPrefixes = ["article:", "og:", "product:", "recipe:", "twitter:"];
+  return Object.fromEntries(
+    Object.entries(metaTags ?? {}).filter(
+      ([key]) =>
+        semanticKeys.has(key.toLowerCase()) ||
+        semanticPrefixes.some((prefix) => key.toLowerCase().startsWith(prefix)),
+    ),
+  );
+}
+
+function stableStructuredData(structuredData: StructuredDataEntity[] | undefined): unknown[] {
+  return (structuredData ?? [])
+    .map(stableValue)
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+}
+
 function buildStructuredDigest(page: PageContent): string {
   return digest({
-    structuredData: page.structuredData ?? [],
-    metaTags: page.metaTags ?? {},
-    pageSchema: page.pageSchema ?? null,
+    structuredData: stableStructuredData(page.structuredData),
+    metaTags: semanticMetaTags(page.metaTags),
   });
 }
 
