@@ -108,10 +108,7 @@ export function handleListGroups(ctx: ActionContext): string {
     .join("\n");
 }
 
-export function handleCreateGroup(
-  ctx: ActionContext,
-  args: Record<string, unknown>,
-): string {
+export function handleCreateGroup(ctx: ActionContext, args: Record<string, unknown>): string {
   const targetId =
     typeof args.tabId === "string" && args.tabId.trim()
       ? args.tabId.trim()
@@ -129,38 +126,38 @@ export function handleCreateGroup(
   return `Created group ${groupId}`;
 }
 
-export function handleAssignToGroup(
-  ctx: ActionContext,
-  args: Record<string, unknown>,
-): string {
+export function handleAssignToGroup(ctx: ActionContext, args: Record<string, unknown>): string {
   const groupId = typeof args.groupId === "string" ? args.groupId.trim() : "";
   if (!groupId) return "Error: Group ID is required";
+  if (!ctx.tabManager.getGroups().some((group) => group.id === groupId)) {
+    return "Error: Group not found";
+  }
   const targetId =
     typeof args.tabId === "string" && args.tabId.trim()
       ? args.tabId.trim()
       : ctx.tabManager.getActiveTabId();
   if (!targetId) return "Error: No active tab";
+  if (!ctx.tabManager.getAllStates().some((tab) => tab.id === targetId)) {
+    return "Error: Tab not found";
+  }
   ctx.tabManager.assignTabToGroup(targetId, groupId);
   return `Assigned tab ${targetId} to group ${groupId}`;
 }
 
-export function handleRemoveFromGroup(
-  ctx: ActionContext,
-  args: Record<string, unknown>,
-): string {
+export function handleRemoveFromGroup(ctx: ActionContext, args: Record<string, unknown>): string {
   const targetId =
     typeof args.tabId === "string" && args.tabId.trim()
       ? args.tabId.trim()
       : ctx.tabManager.getActiveTabId();
   if (!targetId) return "Error: No active tab";
+  const targetTab = ctx.tabManager.getAllStates().find((tab) => tab.id === targetId);
+  if (!targetTab) return "Error: Tab not found";
+  if (!targetTab.groupId) return `Tab ${targetId} is not in a group`;
   ctx.tabManager.removeTabFromGroup(targetId);
   return `Removed tab ${targetId} from group`;
 }
 
-export function handleToggleGroup(
-  ctx: ActionContext,
-  args: Record<string, unknown>,
-): string {
+export function handleToggleGroup(ctx: ActionContext, args: Record<string, unknown>): string {
   const groupId = typeof args.groupId === "string" ? args.groupId.trim() : "";
   if (!groupId) return "Error: Group ID is required";
   const collapsed = ctx.tabManager.toggleGroupCollapsed(groupId);
@@ -168,10 +165,7 @@ export function handleToggleGroup(
   return collapsed ? `Collapsed group ${groupId}` : `Expanded group ${groupId}`;
 }
 
-export function handleSetGroupColor(
-  ctx: ActionContext,
-  args: Record<string, unknown>,
-): string {
+export function handleSetGroupColor(ctx: ActionContext, args: Record<string, unknown>): string {
   const groupId = typeof args.groupId === "string" ? args.groupId.trim() : "";
   const color = typeof args.color === "string" ? args.color.trim() : "";
   if (!groupId) return "Error: Group ID is required";

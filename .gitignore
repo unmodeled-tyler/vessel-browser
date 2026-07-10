@@ -110,7 +110,6 @@ tests/*.scratch.ts
 
 # Claude skills (local overrides)
 .claude/skills/
-SillyTavern/
 
 # Local secrets / deployment config
 .webui_secret_key

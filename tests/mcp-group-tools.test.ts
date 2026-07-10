@@ -21,20 +21,14 @@ type ToolConfig = {
 
 type ToolRegistration = {
   config: ToolConfig;
-  handler: (
-    args: Record<string, unknown>,
-    extra?: unknown,
-  ) => TextResponse | Promise<TextResponse>;
+  handler: (args: Record<string, unknown>, extra?: unknown) => TextResponse | Promise<TextResponse>;
 };
 
 function textOf(response: TextResponse): string {
   return response.content.map((part) => part.text).join("");
 }
 
-function getTool(
-  tools: Map<string, ToolRegistration>,
-  name: string,
-): ToolRegistration {
+function getTool(tools: Map<string, ToolRegistration>, name: string): ToolRegistration {
   const tool = tools.get(name);
   if (!tool) {
     throw new Error(`Tool ${name} was not registered`);
@@ -52,14 +46,18 @@ function createHarness() {
       collapsed: false,
     },
   ];
+  const tabs: Array<{
+    id: string;
+    title: string;
+    url: string;
+    groupId?: string;
+  }> = [{ id: "tab-1", title: "Example", url: "https://example.test", groupId: "group-1" }];
   const colorChanges: Array<{ groupId: string; color: TabGroupColor }> = [];
+  const assignments: Array<{ tabId: string; groupId: string }> = [];
+  const removals: string[] = [];
 
   const server = {
-    registerTool: (
-      name: string,
-      config: ToolConfig,
-      handler: ToolRegistration["handler"],
-    ) => {
+    registerTool: (name: string, config: ToolConfig, handler: ToolRegistration["handler"]) => {
       tools.set(name, { config, handler });
       return undefined;
     },
@@ -68,7 +66,7 @@ function createHarness() {
   const tabManager = {
     getActiveTabId: () => "tab-1",
     getActiveTab: () => null,
-    getAllStates: () => [],
+    getAllStates: () => tabs,
     getGroups: () => groups,
     setGroupColor: (groupId: string, color: TabGroupColor) => {
       colorChanges.push({ groupId, color });
@@ -78,23 +76,27 @@ function createHarness() {
       }
     },
     createGroupFromTab: () => null,
-    assignTabToGroup: () => undefined,
-    removeTabFromGroup: () => undefined,
+    assignTabToGroup: (tabId: string, groupId: string) => {
+      assignments.push({ tabId, groupId });
+      const tab = tabs.find((candidate) => candidate.id === tabId);
+      if (tab) tab.groupId = groupId;
+    },
+    removeTabFromGroup: (tabId: string) => {
+      removals.push(tabId);
+      const tab = tabs.find((candidate) => candidate.id === tabId);
+      if (tab) tab.groupId = undefined;
+    },
     toggleGroupCollapsed: () => null,
   } as unknown as TabManager;
 
   const runtime = {
-    runControlledAction: async ({
-      executor,
-    }: {
-      executor: () => Promise<string>;
-    }) => executor(),
+    runControlledAction: async ({ executor }: { executor: () => Promise<string> }) => executor(),
     getFlowContext: () => "",
   } as unknown as AgentRuntime;
 
   registerGroupTools(server, tabManager, runtime);
 
-  return { tools, groups, colorChanges };
+  return { tools, groups, tabs, colorChanges, assignments, removals };
 }
 
 test("MCP group color schemas use the shared tab group palette", () => {
@@ -108,10 +110,7 @@ test("MCP group color schemas use the shared tab group palette", () => {
       assert.equal(colorSchema.parse(color), color);
     }
 
-    assert.throws(
-      () => colorSchema.parse("chartreuse"),
-      /Invalid tab group color/,
-    );
+    assert.throws(() => colorSchema.parse("chartreuse"), /Invalid tab group color/);
   }
 });
 
@@ -158,4 +157,30 @@ test("set_group_color applies valid shared palette colors", async () => {
   assert.equal(textOf(response), "Set group group-1 color to purple");
   assert.equal(groups[0]?.color, "purple");
   assert.deepEqual(colorChanges, [{ groupId: "group-1", color: "purple" }]);
+});
+
+test("group assignment rejects missing groups and tabs without reporting success", async () => {
+  const { tools, assignments } = createHarness();
+  const assign = getTool(tools, "assign_to_group");
+
+  assert.equal(
+    textOf(await assign.handler({ groupId: "missing-group", tabId: "tab-1" })),
+    "Error: Group not found",
+  );
+  assert.equal(
+    textOf(await assign.handler({ groupId: "group-1", tabId: "missing-tab" })),
+    "Error: Tab not found",
+  );
+  assert.deepEqual(assignments, []);
+});
+
+test("group removal reports missing and already-ungrouped tabs accurately", async () => {
+  const { tools, tabs, removals } = createHarness();
+  const remove = getTool(tools, "remove_from_group");
+
+  assert.equal(textOf(await remove.handler({ tabId: "missing-tab" })), "Error: Tab not found");
+  assert.equal(textOf(await remove.handler({ tabId: "tab-1" })), "Removed tab tab-1 from group");
+  assert.equal(textOf(await remove.handler({ tabId: "tab-1" })), "Tab tab-1 is not in a group");
+  assert.equal(tabs[0]?.groupId, undefined);
+  assert.deepEqual(removals, ["tab-1"]);
 });
