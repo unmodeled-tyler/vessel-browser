@@ -3,6 +3,11 @@ import test from "node:test";
 import type { WebContents } from "electron";
 
 import { clickElement } from "../src/main/ai/page-actions/click-targets";
+import {
+  assignElementIndex,
+  beginElementIndexSnapshot,
+  createElementIndexRegistry,
+} from "../src/preload/element-index-registry";
 
 /**
  * `clickElement` resolves its target by running a page script via
@@ -84,4 +89,26 @@ test("clickElement reports a partially obstructed target without failing the res
   const out = await clickElement(wc, "button.buy");
   assert.equal(out, "Clicked via pointer events (target may be partially obstructed)");
   assert.equal(inputs.length, 3, "obstructed targets still receive a full click sequence");
+});
+
+test("element indexes remain bound to live click targets across snapshots", () => {
+  const registry = createElementIndexRegistry<object>();
+  const first = {};
+  const target = {};
+
+  assert.equal(assignElementIndex(registry, first, "#first"), 1);
+  assert.equal(assignElementIndex(registry, target, "#target"), 2);
+
+  beginElementIndexSnapshot(registry);
+  assert.deepEqual(registry.selectors, {});
+  assert.deepEqual(registry.refs, {});
+
+  const lateDecoy = {};
+  assert.equal(assignElementIndex(registry, lateDecoy, "#late-decoy"), 3);
+  assert.equal(assignElementIndex(registry, target, "#target-updated"), 2);
+
+  assert.equal(registry.selectors[2], "#target-updated");
+  assert.equal(registry.refs[2], target);
+  assert.equal(registry.selectors[3], "#late-decoy");
+  assert.equal(registry.refs[3], lateDecoy);
 });
