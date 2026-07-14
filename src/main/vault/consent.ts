@@ -14,17 +14,11 @@ export interface ConsentResult {
 // Domains trusted for the current session (cleared on app restart)
 const sessionTrustedDomains = new Set<string>();
 
-export function isDomainTrustedForSession(domain: string): boolean {
-  return sessionTrustedDomains.has(domain.toLowerCase());
-}
-
 /**
  * Show a consent dialog before the agent uses stored credentials.
  * Returns whether the user approved, and whether to trust this domain for the session.
  */
-export async function requestConsent(
-  request: ConsentRequest,
-): Promise<ConsentResult> {
+export async function requestConsent(request: ConsentRequest): Promise<ConsentResult> {
   const domain = request.domain.toLowerCase();
 
   // Skip dialog if domain is trusted for this session
@@ -37,25 +31,22 @@ export async function requestConsent(
     return { approved: false, trustForSession: false };
   }
 
-  const { response } = await dialog.showMessageBox(
-    parentWindow,
-    {
-      type: "question",
-      title: "Agent Credential Access",
-      message: `Agent wants to sign in to ${request.domain}`,
-      detail: [
-        `Credential: ${request.credentialLabel}`,
-        `Username: ${request.username}`,
-        "",
-        "The agent is requesting to fill a login form with stored credentials.",
-        "Credential values will NOT be sent to the AI provider.",
-      ].join("\n"),
-      buttons: ["Deny", "Allow Once", "Allow for Session"],
-      defaultId: 1,
-      cancelId: 0,
-      noLink: true,
-    },
-  );
+  const { response } = await dialog.showMessageBox(parentWindow, {
+    type: "question",
+    title: "Agent Credential Access",
+    message: `Agent wants to sign in to ${request.domain}`,
+    detail: [
+      `Credential: ${request.credentialLabel}`,
+      `Username: ${request.username}`,
+      "",
+      "The agent is requesting to fill a login form with stored credentials.",
+      "Credential values will NOT be sent to the AI provider.",
+    ].join("\n"),
+    buttons: ["Deny", "Allow Once", "Allow for Session"],
+    defaultId: 1,
+    cancelId: 0,
+    noLink: true,
+  });
 
   if (response === 0) {
     return { approved: false, trustForSession: false };

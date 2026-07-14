@@ -112,9 +112,3 @@ export function saveSnapshot(
 export function flushPersist(): Promise<void> {
   return persistence.flush();
 }
-
-/** Clear all in-memory snapshots (e.g. after "clear browsing data"). */
-export function clearSnapshots(): void {
-  load().clear();
-  persistence.schedule();
-}

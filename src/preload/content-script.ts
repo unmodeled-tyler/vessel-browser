@@ -3,12 +3,14 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import { Readability } from "@mozilla/readability";
-import {
-  generateStableSelector,
-  escapeSelectorValue,
-} from "../shared/dom/selectors";
+import { generateStableSelector, escapeSelectorValue } from "../shared/dom/selectors";
 import { createLogger } from "../shared/logger";
 import { startPageDiffObserver } from "./page-diff-observer";
+import {
+  assignElementIndex,
+  beginElementIndexSnapshot,
+  createElementIndexRegistry,
+} from "./element-index-registry";
 import type {
   SelectOption,
   InteractiveElement,
@@ -59,21 +61,17 @@ function looksLikeCorrectOption(value?: string): boolean | undefined {
   ) {
     return true;
   }
-  if (
-    /\b(wrong|incorrect|not this|don't pick|do not pick|bad option|decoy)\b/i.test(
-      text,
-    )
-  ) {
+  if (/\b(wrong|incorrect|not this|don't pick|do not pick|bad option|decoy)\b/i.test(text)) {
     return false;
   }
   return undefined;
 }
 
-let elementIndex = 0;
-const elementSelectors: Record<number, string> = {};
-const indexedElements = new WeakMap<Element, number>();
+const elementIndexRegistry = createElementIndexRegistry<Element>();
+const elementSelectors = elementIndexRegistry.selectors;
+const indexedElements = elementIndexRegistry.indexes;
 // Direct element references for shadow DOM support — CSS selectors can't cross shadow boundaries
-const indexedElementRefs: Record<number, Element> = {};
+const indexedElementRefs = elementIndexRegistry.refs;
 let activeOverlays: OverlayCandidate[] = [];
 
 const CUSTOM_TEXT_FIELD_SELECTOR =
@@ -110,15 +108,10 @@ function collectShadowRoots(root: ParentNode): ShadowRoot[] {
   let walked = 0;
 
   const walk = (node: ParentNode, depth: number) => {
-    if (depth > MAX_SHADOW_DEPTH || shadowRoots.length >= MAX_SHADOW_HOSTS)
-      return;
+    if (depth > MAX_SHADOW_DEPTH || shadowRoots.length >= MAX_SHADOW_HOSTS) return;
     const tw = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
     let el: Node | null = tw.nextNode();
-    while (
-      el &&
-      walked < MAX_WALK_ELEMENTS &&
-      shadowRoots.length < MAX_SHADOW_HOSTS
-    ) {
+    while (el && walked < MAX_WALK_ELEMENTS && shadowRoots.length < MAX_SHADOW_HOSTS) {
       walked++;
       if ((el as Element).shadowRoot) {
         shadowRoots.push((el as Element).shadowRoot!);
@@ -132,10 +125,7 @@ function collectShadowRoots(root: ParentNode): ShadowRoot[] {
   return shadowRoots;
 }
 
-function deepQuerySelectorAll(
-  selector: string,
-  root: ParentNode = document,
-): Element[] {
+function deepQuerySelectorAll(selector: string, root: ParentNode = document): Element[] {
   const results: Element[] = [];
   root.querySelectorAll(selector).forEach((el) => results.push(el));
 
@@ -212,13 +202,7 @@ function generateSelector(el: Element): string {
 }
 
 function assignIndex(el: Element): number {
-  const existing = indexedElements.get(el);
-  if (existing != null) return existing;
-  elementIndex += 1;
-  elementSelectors[elementIndex] = generateSelector(el);
-  indexedElementRefs[elementIndex] = el;
-  indexedElements.set(el, elementIndex);
-  return elementIndex;
+  return assignElementIndex(elementIndexRegistry, el, generateSelector(el));
 }
 
 function getNodeTextByIds(ids: string | null): string | undefined {
@@ -237,11 +221,7 @@ function getTrimmedText(value: string | null | undefined): string | undefined {
   return text || undefined;
 }
 
-function pushPropertyValue(
-  target: Record<string, unknown>,
-  key: string,
-  value: unknown,
-): void {
+function pushPropertyValue(target: Record<string, unknown>, key: string, value: unknown): void {
   if (!key || value == null) return;
 
   const existing = target[key];
@@ -320,11 +300,7 @@ function getStructuredElementValue(el: Element): unknown {
 function isElementVisible(el: Element): boolean {
   if (!(el instanceof HTMLElement)) return true;
   const style = window.getComputedStyle(el);
-  if (
-    style.display === "none" ||
-    style.visibility === "hidden" ||
-    style.opacity === "0"
-  ) {
+  if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
     return false;
   }
   if (el.hasAttribute("hidden") || el.getAttribute("aria-hidden") === "true") {
@@ -335,10 +311,8 @@ function isElementVisible(el: Element): boolean {
 }
 
 function isInViewportRect(rect: DOMRect): boolean {
-  const viewportWidth =
-    window.innerWidth || document.documentElement?.clientWidth || 0;
-  const viewportHeight =
-    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   return (
     rect.width > 0 &&
     rect.height > 0 &&
@@ -350,10 +324,8 @@ function isInViewportRect(rect: DOMRect): boolean {
 }
 
 function isFullyInViewportRect(rect: DOMRect): boolean {
-  const viewportWidth =
-    window.innerWidth || document.documentElement?.clientWidth || 0;
-  const viewportHeight =
-    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   return (
     rect.width > 0 &&
     rect.height > 0 &&
@@ -370,17 +342,12 @@ function parseZIndex(style: CSSStyleDeclaration): number {
 }
 
 function getViewportCenterCoverage(rect: DOMRect): boolean {
-  const viewportWidth =
-    window.innerWidth || document.documentElement?.clientWidth || 0;
-  const viewportHeight =
-    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   const centerX = viewportWidth / 2;
   const centerY = viewportHeight / 2;
   return (
-    rect.left <= centerX &&
-    rect.right >= centerX &&
-    rect.top <= centerY &&
-    rect.bottom >= centerY
+    rect.left <= centerX && rect.right >= centerX && rect.top <= centerY && rect.bottom >= centerY
   );
 }
 
@@ -393,9 +360,7 @@ function getOverlayLabel(el: HTMLElement): string | undefined {
   );
 }
 
-function getOverlayType(
-  el: HTMLElement,
-): "dialog" | "modal" | "overlay" | null {
+function getOverlayType(el: HTMLElement): "dialog" | "modal" | "overlay" | null {
   const tag = el.tagName.toLowerCase();
   const role = el.getAttribute("role");
   if (tag === "dialog" || role === "dialog" || role === "alertdialog") {
@@ -408,10 +373,8 @@ function getOverlayType(
 }
 
 function touchesViewportEdge(rect: DOMRect): boolean {
-  const viewportWidth =
-    window.innerWidth || document.documentElement?.clientWidth || 0;
-  const viewportHeight =
-    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   const edgePadding = 24;
   return (
     rect.left <= edgePadding ||
@@ -479,10 +442,7 @@ function looksLikeCartConfirmation(el: HTMLElement): boolean {
 }
 
 function getControlTextData(el: Element): { text?: string; source?: string } {
-  if (
-    el instanceof HTMLInputElement &&
-    (el.type === "radio" || el.type === "checkbox")
-  ) {
+  if (el instanceof HTMLInputElement && (el.type === "radio" || el.type === "checkbox")) {
     const label = getInputLabel(el);
     if (label) return { text: label, source: "label" };
   }
@@ -494,8 +454,7 @@ function getControlTextData(el: Element): { text?: string; source?: string } {
   if (textContent) return { text: textContent, source: "textContent" };
 
   if (el instanceof HTMLInputElement) {
-    const value =
-      getTrimmedText(el.value) || getTrimmedText(el.getAttribute("value"));
+    const value = getTrimmedText(el.value) || getTrimmedText(el.getAttribute("value"));
     if (value) return { text: value, source: "value" };
   }
 
@@ -508,16 +467,11 @@ function getControlTextData(el: Element): { text?: string; source?: string } {
   return {};
 }
 
-function getOverlayActionKind(
-  el: Element,
-  label: string,
-): OverlayAction["kind"] {
+function getOverlayActionKind(el: Element, label: string): OverlayAction["kind"] {
   const lower = label.toLowerCase();
   const attrText = [
     el.getAttribute("id"),
-    typeof (el as HTMLElement).className === "string"
-      ? (el as HTMLElement).className
-      : "",
+    typeof (el as HTMLElement).className === "string" ? (el as HTMLElement).className : "",
     el.getAttribute("name"),
     el.getAttribute("title"),
   ]
@@ -532,18 +486,14 @@ function getOverlayActionKind(
     return "radio";
   }
   if (
-    /close|dismiss|skip|cancel|not now|maybe later|no thanks|reject|decline/.test(
-      lower,
-    ) ||
+    /close|dismiss|skip|cancel|not now|maybe later|no thanks|reject|decline/.test(lower) ||
     /modal-close|overlay-close/.test(attrText)
   ) {
     return "dismiss";
   }
   if (
     /accept|agree|allow/.test(lower) &&
-    /cookie|consent|privacy|gdpr|onetrust|cookiebot/.test(
-      `${lower} ${attrText}`,
-    )
+    /cookie|consent|privacy|gdpr|onetrust|cookiebot/.test(`${lower} ${attrText}`)
   ) {
     return "accept";
   }
@@ -572,29 +522,27 @@ function collectOverlayRadioOptions(root: HTMLElement): OverlayRadioOption[] {
   const seen = new Set<string>();
   const options: OverlayRadioOption[] = [];
 
-  root
-    .querySelectorAll('[role="radio"], input[type="radio"]')
-    .forEach((node) => {
-      if (!(node instanceof HTMLElement) || !isElementVisible(node)) return;
-      const data = getControlTextData(node);
-      if (!data.text) return;
-      const selector = generateSelector(node);
-      const key = selector || data.text;
-      if (seen.has(key)) return;
-      seen.add(key);
+  root.querySelectorAll('[role="radio"], input[type="radio"]').forEach((node) => {
+    if (!(node instanceof HTMLElement) || !isElementVisible(node)) return;
+    const data = getControlTextData(node);
+    if (!data.text) return;
+    const selector = generateSelector(node);
+    const key = selector || data.text;
+    if (seen.has(key)) return;
+    seen.add(key);
 
-      const checked =
-        node.getAttribute("aria-checked") === "true" ||
-        (node instanceof HTMLInputElement ? node.checked : false);
+    const checked =
+      node.getAttribute("aria-checked") === "true" ||
+      (node instanceof HTMLInputElement ? node.checked : false);
 
-      options.push({
-        label: data.text.slice(0, MAX_LABEL_LENGTH),
-        selector,
-        checked,
-        labelSource: data.source,
-        looksCorrect: looksLikeCorrectOption(data.text),
-      });
+    options.push({
+      label: data.text.slice(0, MAX_LABEL_LENGTH),
+      selector,
+      checked,
+      labelSource: data.source,
+      looksCorrect: looksLikeCorrectOption(data.text),
     });
+  });
 
   return options.slice(0, MAX_OPTIONS_PER_SELECT);
 }
@@ -614,18 +562,11 @@ function collectOverlayActions(root: HTMLElement): OverlayAction[] {
 
       let data = getControlTextData(node);
       if (!data.text) {
-        const attrText = [
-          node.id,
-          typeof node.className === "string" ? node.className : "",
-        ]
+        const attrText = [node.id, typeof node.className === "string" ? node.className : ""]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
-        if (
-          /onetrust|consent|cookie|banner|gdpr|trustarc|cookiebot/.test(
-            attrText,
-          )
-        ) {
+        if (/onetrust|consent|cookie|banner|gdpr|trustarc|cookiebot/.test(attrText)) {
           data = {
             text: attrText.includes("accept")
               ? "Accept cookies"
@@ -680,9 +621,7 @@ function classifyOverlayKind(args: {
     .join(" ")
     .toLowerCase();
 
-  if (
-    /cookie|consent|privacy|gdpr|onetrust|cookiebot|trustarc/.test(haystack)
-  ) {
+  if (/cookie|consent|privacy|gdpr|onetrust|cookiebot|trustarc/.test(haystack)) {
     return "cookie_consent";
   }
   if (args.cartConfirm) return "cart_confirmation";
@@ -712,10 +651,8 @@ function forEachOverlayCandidate(
 function detectOverlays(): OverlayCandidate[] {
   if (!document.body) return [];
 
-  const viewportWidth =
-    window.innerWidth || document.documentElement?.clientWidth || 0;
-  const viewportHeight =
-    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   const viewportArea = Math.max(1, viewportWidth * viewportHeight);
   const overlays: OverlayCandidate[] = [];
   const seen = new Set<HTMLElement>();
@@ -752,11 +689,7 @@ function detectOverlays(): OverlayCandidate[] {
         areaRatio >= 0.3 &&
         getViewportCenterCoverage(rect));
 
-    if (
-      !blockingSurface &&
-      overlayType !== "dialog" &&
-      overlayType !== "modal"
-    ) {
+    if (!blockingSurface && overlayType !== "dialog" && overlayType !== "modal") {
       return;
     }
 
@@ -778,12 +711,9 @@ function detectOverlays(): OverlayCandidate[] {
       text: getTrimmedText(node.textContent)?.slice(0, MAX_DESCRIPTION_LENGTH),
       message: getOverlayMessage(node),
       blocksInteraction: blockingSurface,
-      dismissSelector: actions.find((action) => action.kind === "dismiss")
-        ?.selector,
-      acceptSelector: actions.find((action) => action.kind === "accept")
-        ?.selector,
-      submitSelector: actions.find((action) => action.kind === "submit")
-        ?.selector,
+      dismissSelector: actions.find((action) => action.kind === "dismiss")?.selector,
+      acceptSelector: actions.find((action) => action.kind === "accept")?.selector,
+      submitSelector: actions.find((action) => action.kind === "submit")?.selector,
       actions,
       radioOptions,
       zIndex: parseZIndex(style),
@@ -869,10 +799,8 @@ function detectDormantOverlays(): Array<{
 
 function samplePointForRect(rect: DOMRect): { x: number; y: number } | null {
   if (!isInViewportRect(rect)) return null;
-  const viewportWidth =
-    window.innerWidth || document.documentElement?.clientWidth || 0;
-  const viewportHeight =
-    window.innerHeight || document.documentElement?.clientHeight || 0;
+  const viewportWidth = window.innerWidth || document.documentElement?.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
   const maxX = Math.max(0, viewportWidth - 1);
   const maxY = Math.max(0, viewportHeight - 1);
   return {
@@ -935,8 +863,7 @@ function getVisibilityState(
 }
 
 function getViewportSnapshot() {
-  const scrollingElement =
-    document.scrollingElement || document.documentElement || document.body;
+  const scrollingElement = document.scrollingElement || document.documentElement || document.body;
   const scrollXCandidates = [
     window.scrollX,
     window.pageXOffset,
@@ -963,9 +890,7 @@ function getViewportSnapshot() {
 }
 
 function isElementDisabled(el: Element): boolean {
-  return (
-    el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true"
-  );
+  return el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true";
 }
 
 function getElementContext(el: Element): string {
@@ -995,9 +920,7 @@ function getInputLabel(
   el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
 ): string | undefined {
   if (el.id) {
-    const label = document.querySelector(
-      `label[for="${escapeSelectorValue(el.id)}"]`,
-    );
+    const label = document.querySelector(`label[for="${escapeSelectorValue(el.id)}"]`);
     if (label) return getTrimmedText(label.textContent);
   }
 
@@ -1019,16 +942,12 @@ function getInputLabel(
   );
 }
 
-function getInputLabelWithSource(
-  el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
-): {
+function getInputLabelWithSource(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): {
   label?: string;
   source?: InteractiveElement["labelSource"];
 } {
   if (el.id) {
-    const label = document.querySelector(
-      `label[for="${escapeSelectorValue(el.id)}"]`,
-    );
+    const label = document.querySelector(`label[for="${escapeSelectorValue(el.id)}"]`);
     const text = getTrimmedText(label?.textContent);
     if (text) return { label: text, source: "label" };
   }
@@ -1089,8 +1008,7 @@ function shouldExposeCustomTextField(el: Element): boolean {
   const role = getElementRole(el);
   return (
     el.isContentEditable ||
-    (el.hasAttribute("contenteditable") &&
-      el.getAttribute("contenteditable") !== "false") ||
+    (el.hasAttribute("contenteditable") && el.getAttribute("contenteditable") !== "false") ||
     role === "textbox" ||
     role === "searchbox" ||
     role === "combobox"
@@ -1193,16 +1111,10 @@ function getElementValue(
   el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
 ): string | undefined {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    if (
-      el.type === "password" ||
-      el.type === "checkbox" ||
-      el.type === "radio"
-    ) {
+    if (el.type === "password" || el.type === "checkbox" || el.type === "radio") {
       return undefined; // checkbox/radio state exposed via dedicated checked boolean
     }
-    return shouldExposeFieldValue(el)
-      ? getTrimmedText(el.value)
-      : undefined;
+    return shouldExposeFieldValue(el) ? getTrimmedText(el.value) : undefined;
   }
   return undefined;
 }
@@ -1211,11 +1123,7 @@ function getElementHasValue(
   el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
 ): boolean | undefined {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    if (
-      el.type === "password" ||
-      el.type === "checkbox" ||
-      el.type === "radio"
-    ) {
+    if (el.type === "password" || el.type === "checkbox" || el.type === "radio") {
       return undefined;
     }
     return getTrimmedText(el.value) ? true : undefined;
@@ -1291,10 +1199,7 @@ function buildBaseMetadata(
 
 function isNavigableEmbeddedSrc(src: string): boolean {
   const normalized = src.trim().toLowerCase();
-  return (
-    Boolean(normalized) &&
-    !/^(about:blank|javascript:|data:|blob:|file:)/i.test(normalized)
-  );
+  return Boolean(normalized) && !/^(about:blank|javascript:|data:|blob:|file:)/i.test(normalized);
 }
 
 function getEmbeddedFrameLabel(iframe: HTMLIFrameElement): string {
@@ -1310,18 +1215,13 @@ function getEmbeddedFrameLabel(iframe: HTMLIFrameElement): string {
 
   let host = "embedded page";
   try {
-    host = new URL(iframe.src, window.location.href).hostname.replace(
-      /^www\./,
-      "",
-    );
+    host = new URL(iframe.src, window.location.href).hostname.replace(/^www\./, "");
   } catch {
     // Keep the generic fallback for malformed iframe URLs.
   }
 
   const srcText = iframe.src.toLowerCase();
-  const prefix = /\b(ticket|showtime|movie|cinema|theat(?:er|re))\b/.test(
-    srcText,
-  )
+  const prefix = /\b(ticket|showtime|movie|cinema|theat(?:er|re))\b/.test(srcText)
     ? "Embedded ticketing page"
     : "Embedded page";
   return `${prefix}: ${host}`.slice(0, MAX_LABEL_LENGTH);
@@ -1343,24 +1243,24 @@ function extractHeadings(): HeadingStructure[] {
 function extractNavigation(): InteractiveElement[] {
   const navigation: InteractiveElement[] = [];
 
-  deepQuerySelectorAll(
-    'nav, [role="navigation"], header nav, [role="banner"] nav',
-  ).forEach((nav) => {
-    // Also pierce shadow DOM within nav elements
-    deepQuerySelectorAll("a[href]", nav as ParentNode).forEach((link) => {
-      const anchor = link as HTMLAnchorElement;
-      const text = anchor.textContent?.trim();
-      if (!text || anchor.getAttribute("href")?.startsWith("#")) return;
+  deepQuerySelectorAll('nav, [role="navigation"], header nav, [role="banner"] nav').forEach(
+    (nav) => {
+      // Also pierce shadow DOM within nav elements
+      deepQuerySelectorAll("a[href]", nav as ParentNode).forEach((link) => {
+        const anchor = link as HTMLAnchorElement;
+        const text = anchor.textContent?.trim();
+        if (!text || anchor.getAttribute("href")?.startsWith("#")) return;
 
-      navigation.push({
-        type: "link",
-        text: text.slice(0, MAX_LABEL_LENGTH),
-        href: anchor.href.slice(0, MAX_HREF_LENGTH),
-        ...buildBaseMetadata(anchor),
-        context: "nav",
+        navigation.push({
+          type: "link",
+          text: text.slice(0, MAX_LABEL_LENGTH),
+          href: anchor.href.slice(0, MAX_HREF_LENGTH),
+          ...buildBaseMetadata(anchor),
+          context: "nav",
+        });
       });
-    });
-  });
+    },
+  );
 
   const seen = new Set<string>();
   return navigation.filter((item) => {
@@ -1378,10 +1278,7 @@ function getFieldMetadata(
   if (name) meta.name = name;
   const autocomplete = el.getAttribute("autocomplete");
   if (autocomplete) meta.autocomplete = autocomplete;
-  if (
-    el instanceof HTMLInputElement &&
-    (el.type === "checkbox" || el.type === "radio")
-  ) {
+  if (el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
     meta.checked = el.checked;
   }
   if (el instanceof HTMLInputElement) {
@@ -1448,26 +1345,19 @@ function extractInteractiveElements(): InteractiveElement[] {
   deepQuerySelectorAll(
     'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea',
   ).forEach((input) => {
-    const element = input as
-      | HTMLInputElement
-      | HTMLSelectElement
-      | HTMLTextAreaElement;
+    const element = input as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
     const tag = input.tagName.toLowerCase();
     const label = getInputLabelWithSource(element);
     const role = getElementRole(input);
     const radioText =
-      role === "radio" ||
-      (element instanceof HTMLInputElement && element.type === "radio")
+      role === "radio" || (element instanceof HTMLInputElement && element.type === "radio")
         ? getTrimmedText(
-            element.getAttribute("value") ||
-              element.getAttribute("aria-label") ||
-              label.label,
+            element.getAttribute("value") || element.getAttribute("aria-label") || label.label,
           )
         : undefined;
 
     elements.push({
-      type:
-        tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
+      type: tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
       label: label.label?.slice(0, MAX_LABEL_LENGTH),
       labelSource: label.source,
       inputType: element.getAttribute("type") || undefined,
@@ -1475,17 +1365,12 @@ function extractInteractiveElements(): InteractiveElement[] {
       required: element.hasAttribute("required") || undefined,
       value: getElementValue(element),
       hasValue: getElementHasValue(element),
-      options:
-        element instanceof HTMLSelectElement
-          ? getSelectOptions(element)
-          : undefined,
+      options: element instanceof HTMLSelectElement ? getSelectOptions(element) : undefined,
       ...buildBaseMetadata(input),
       role,
       text: radioText?.slice(0, MAX_LABEL_LENGTH),
       looksCorrect:
-        radioText || label.label
-          ? looksLikeCorrectOption(radioText || label.label)
-          : undefined,
+        radioText || label.label ? looksLikeCorrectOption(radioText || label.label) : undefined,
       ...getFieldMetadata(element),
     });
   });
@@ -1550,10 +1435,7 @@ function extractForms(): Array<{
         if (!isNativeFormField(input) && !shouldExposeCustomTextField(input)) {
           return;
         }
-        const element = input as
-          | HTMLInputElement
-          | HTMLSelectElement
-          | HTMLTextAreaElement;
+        const element = input as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
         const tag = input.tagName.toLowerCase();
         const label = getInputLabelWithSource(element);
         const customLabel = isNativeFormField(input)
@@ -1561,54 +1443,35 @@ function extractForms(): Array<{
           : getCustomTextFieldLabelWithSource(input);
         const role = getElementRole(input);
         const radioText =
-          role === "radio" ||
-          (element instanceof HTMLInputElement && element.type === "radio")
+          role === "radio" || (element instanceof HTMLInputElement && element.type === "radio")
             ? getTrimmedText(
-                element.getAttribute("value") ||
-                  element.getAttribute("aria-label") ||
-                  label.label,
+                element.getAttribute("value") || element.getAttribute("aria-label") || label.label,
               )
             : undefined;
 
         fields.push({
-          type:
-            tag === "select"
-              ? "select"
-              : tag === "textarea"
-                ? "textarea"
-                : "input",
+          type: tag === "select" ? "select" : tag === "textarea" ? "textarea" : "input",
           label: (label.label || customLabel.label)?.slice(0, MAX_LABEL_LENGTH),
           labelSource: label.source || customLabel.source,
           inputType:
-            element.getAttribute("type") ||
-            getCustomTextFieldInputType(input) ||
-            undefined,
+            element.getAttribute("type") || getCustomTextFieldInputType(input) || undefined,
           placeholder: element.getAttribute("placeholder") || undefined,
           required: element.hasAttribute("required") || undefined,
           value: getElementValue(element),
           hasValue: isNativeFormField(input)
             ? getElementHasValue(element)
             : getCustomTextFieldHasValue(input),
-          options:
-            element instanceof HTMLSelectElement
-              ? getSelectOptions(element)
-              : undefined,
+          options: element instanceof HTMLSelectElement ? getSelectOptions(element) : undefined,
           ...buildBaseMetadata(input),
           role,
           text: radioText?.slice(0, MAX_LABEL_LENGTH),
           looksCorrect:
-            radioText || label.label
-              ? looksLikeCorrectOption(radioText || label.label)
-              : undefined,
+            radioText || label.label ? looksLikeCorrectOption(radioText || label.label) : undefined,
           ...getFieldMetadata(element),
         });
       });
 
-    Array.from(
-      document.querySelectorAll(
-        "button, input[type='submit'], input[type='image']",
-      ),
-    )
+    Array.from(document.querySelectorAll("button, input[type='submit'], input[type='image']"))
       .filter((control) => isSubmitControlForForm(control, form))
       .forEach((btn) => {
         const { text, source } = getButtonTextWithSource(btn);
@@ -1688,9 +1551,7 @@ function extractLandmarks(): Array<{
 
 function extractJsonLd(): Record<string, unknown>[] {
   const results: Record<string, unknown>[] = [];
-  const scripts = document.querySelectorAll(
-    'script[type="application/ld+json"]',
-  );
+  const scripts = document.querySelectorAll('script[type="application/ld+json"]');
   for (const script of scripts) {
     try {
       const parsed = JSON.parse(script.textContent || "");
@@ -1711,29 +1572,27 @@ function extractJsonLd(): Record<string, unknown>[] {
 function extractMetaTags(): Record<string, string> {
   const tags: Record<string, string> = {};
 
-  document
-    .querySelectorAll("meta[name], meta[property], meta[itemprop]")
-    .forEach((el) => {
-      if (!(el instanceof HTMLMetaElement)) return;
-      const key =
-        getTrimmedText(el.getAttribute("property")) ||
-        getTrimmedText(el.getAttribute("name")) ||
-        getTrimmedText(el.getAttribute("itemprop"));
-      const value = getTrimmedText(el.content);
-      if (!key || !value || tags[key]) return;
+  document.querySelectorAll("meta[name], meta[property], meta[itemprop]").forEach((el) => {
+    if (!(el instanceof HTMLMetaElement)) return;
+    const key =
+      getTrimmedText(el.getAttribute("property")) ||
+      getTrimmedText(el.getAttribute("name")) ||
+      getTrimmedText(el.getAttribute("itemprop"));
+    const value = getTrimmedText(el.content);
+    if (!key || !value || tags[key]) return;
 
-      if (
-        key === "description" ||
-        key === "author" ||
-        key.startsWith("og:") ||
-        key.startsWith("article:") ||
-        key.startsWith("product:") ||
-        key.startsWith("recipe:") ||
-        key.startsWith("twitter:")
-      ) {
-        tags[key] = value;
-      }
-    });
+    if (
+      key === "description" ||
+      key === "author" ||
+      key.startsWith("og:") ||
+      key.startsWith("article:") ||
+      key.startsWith("product:") ||
+      key.startsWith("recipe:") ||
+      key.startsWith("twitter:")
+    ) {
+      tags[key] = value;
+    }
+  });
 
   const canonical = document.querySelector('link[rel="canonical"]');
   if (canonical instanceof HTMLLinkElement && canonical.href) {
@@ -1744,10 +1603,7 @@ function extractMetaTags(): Record<string, string> {
 }
 
 function extractMicrodata(): Record<string, unknown>[] {
-  const serializeItem = (
-    scope: HTMLElement,
-    depth = 0,
-  ): Record<string, unknown> | null => {
+  const serializeItem = (scope: HTMLElement, depth = 0): Record<string, unknown> | null => {
     if (depth > 3) return null;
 
     const item: Record<string, unknown> = {};
@@ -1764,15 +1620,11 @@ function extractMicrodata(): Record<string, unknown>[] {
       if (!(node instanceof HTMLElement)) return;
 
       const nearestScope = node.closest("[itemscope]");
-      const isNestedItemRoot =
-        nearestScope === node && node.hasAttribute("itemscope");
+      const isNestedItemRoot = nearestScope === node && node.hasAttribute("itemscope");
       if (nearestScope !== scope && !isNestedItemRoot) {
         return;
       }
-      if (
-        isNestedItemRoot &&
-        node.parentElement?.closest("[itemscope]") !== scope
-      ) {
+      if (isNestedItemRoot && node.parentElement?.closest("[itemscope]") !== scope) {
         return;
       }
 
@@ -1796,18 +1648,14 @@ function extractMicrodata(): Record<string, unknown>[] {
 
   return Array.from(document.querySelectorAll("[itemscope]"))
     .filter(
-      (node): node is HTMLElement =>
-        node instanceof HTMLElement && !node.hasAttribute("itemprop"),
+      (node): node is HTMLElement => node instanceof HTMLElement && !node.hasAttribute("itemprop"),
     )
     .map((scope) => serializeItem(scope))
     .filter((item): item is Record<string, unknown> => item !== null);
 }
 
 function extractRdfa(): Record<string, unknown>[] {
-  const serializeEntity = (
-    scope: HTMLElement,
-    depth = 0,
-  ): Record<string, unknown> | null => {
+  const serializeEntity = (scope: HTMLElement, depth = 0): Record<string, unknown> | null => {
     if (depth > 3) return null;
 
     const entity: Record<string, unknown> = {};
@@ -1828,8 +1676,7 @@ function extractRdfa(): Record<string, unknown>[] {
       if (!(node instanceof HTMLElement)) return;
 
       const nearestTypedAncestor = node.closest("[typeof]");
-      const isNestedEntityRoot =
-        nearestTypedAncestor === node && node.hasAttribute("typeof");
+      const isNestedEntityRoot = nearestTypedAncestor === node && node.hasAttribute("typeof");
       if (nearestTypedAncestor !== scope && !isNestedEntityRoot) {
         return;
       }
@@ -1867,9 +1714,7 @@ function extractRdfa(): Record<string, unknown>[] {
 
 function withHighlightLabelsRemoved<T>(read: () => T): T {
   const labels = Array.from(
-    document.querySelectorAll(
-      ".__vessel-highlight-label[data-vessel-highlight]",
-    ),
+    document.querySelectorAll(".__vessel-highlight-label[data-vessel-highlight]"),
   ).filter((node): node is HTMLElement => node instanceof HTMLElement);
 
   const removed = labels
@@ -1921,9 +1766,7 @@ function vesselExtractContent(): PageContent {
     const readabilityText = article?.textContent || "";
     const visibleText = getVisiblePageText();
     const content =
-      readabilityText.length > visibleText.length * 0.3
-        ? readabilityText
-        : visibleText;
+      readabilityText.length > visibleText.length * 0.3 ? readabilityText : visibleText;
 
     return {
       title: article?.title || document.title,
@@ -1937,9 +1780,7 @@ function vesselExtractContent(): PageContent {
       interactiveElements: extractInteractiveElements(),
       forms: extractForms(),
       viewport: getViewportSnapshot(),
-      overlays: activeOverlays.map(
-        ({ element: _element, zIndex: _zIndex, ...overlay }) => overlay,
-      ),
+      overlays: activeOverlays.map(({ element: _element, zIndex: _zIndex, ...overlay }) => overlay),
       dormantOverlays: detectDormantOverlays(),
       landmarks: extractLandmarks(),
       jsonLd: extractJsonLd(),
@@ -1950,15 +1791,10 @@ function vesselExtractContent(): PageContent {
   };
 
   try {
-    elementIndex = 0;
     activeOverlays = [];
-    Object.keys(elementSelectors).forEach(
-      (key) => delete elementSelectors[Number(key)],
-    );
-    Object.keys(indexedElementRefs).forEach(
-      (key) => delete indexedElementRefs[Number(key)],
-    );
-    // WeakMap entries are GC'd automatically; no explicit clearing needed
+    beginElementIndexSnapshot(elementIndexRegistry);
+    // Keep the registry counter and element identities stable within this
+    // document. New nodes receive fresh IDs; live nodes repopulate the maps.
 
     const documentClone = document.cloneNode(true) as Document;
     const reader = new Readability(documentClone);
@@ -2021,11 +1857,7 @@ function interactByIndex(
     el.click();
     if (el instanceof HTMLInputElement) {
       if (el.type === "checkbox") {
-        const label =
-          getInputLabel(el) ||
-          el.getAttribute("aria-label") ||
-          el.name ||
-          "checkbox";
+        const label = getInputLabel(el) || el.getAttribute("aria-label") || el.name || "checkbox";
         return `${el.checked ? "Checked" : "Unchecked"}: ${label}`;
       }
       if (el.type === "radio") {
@@ -2050,12 +1882,8 @@ function interactByIndex(
       }
       return `${ariaChecked === "true" ? "Selected" : "Clicked"}: ${label}`;
     }
-    const anchor =
-      el instanceof HTMLAnchorElement
-        ? el
-        : el.closest("a[href]");
-    const href =
-      anchor instanceof HTMLAnchorElement ? anchor.href : null;
+    const anchor = el instanceof HTMLAnchorElement ? el : el.closest("a[href]");
+    const href = anchor instanceof HTMLAnchorElement ? anchor.href : null;
     return (
       "Clicked: " +
       (el.getAttribute("aria-label") ||

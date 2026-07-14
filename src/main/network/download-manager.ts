@@ -4,7 +4,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { Channels } from "../../shared/channels";
 import type { DownloadRecord } from "../../shared/types";
-import { DownloadRecordSchema, parseArrayStateWithFallback } from "../../shared/persistence-schemas";
+import {
+  DownloadRecordSchema,
+  parseArrayStateWithFallback,
+} from "../../shared/persistence-schemas";
 import { PersistentState } from "../persistence/persistent-state";
 
 const EXECUTABLE_EXTENSIONS = new Set([
@@ -23,7 +26,9 @@ const EXECUTABLE_EXTENSIONS = new Set([
 const DOWNLOADS_FALLBACK = { items: [] as DownloadRecord[] };
 
 function hasMisleadingDoubleExtension(filename: string): boolean {
-  return /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|txt|zip)\.(exe|msi|bat|cmd|ps1|sh|scr|appimage)$/i.test(filename);
+  return /\.(pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|txt|zip)\.(exe|msi|bat|cmd|ps1|sh|scr|appimage)$/i.test(
+    filename,
+  );
 }
 
 function isExecutableDownload(savePath: string): boolean {
@@ -38,14 +43,22 @@ function executableWarningDetail(item: DownloadRecord): string {
     hasMisleadingDoubleExtension(item.filename)
       ? "Warning: this filename uses a misleading double extension."
       : null,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 const store = new PersistentState<{ items: DownloadRecord[] }>({
   filename: "vessel-downloads.json",
   fallback: DOWNLOADS_FALLBACK,
   parse: (raw: unknown) =>
-    parseArrayStateWithFallback(DownloadRecordSchema, raw, "items", DOWNLOADS_FALLBACK, "downloads"),
+    parseArrayStateWithFallback(
+      DownloadRecordSchema,
+      raw,
+      "items",
+      DOWNLOADS_FALLBACK,
+      "downloads",
+    ),
   logLabel: "downloads",
   debounceMs: 250,
 });
@@ -64,7 +77,9 @@ export function listDownloads(): DownloadRecord[] {
   return store.getState().items.map((item) => ({ ...item }));
 }
 
-export function upsertDownload(input: Omit<DownloadRecord, "id" | "startedAt" | "updatedAt">): DownloadRecord {
+export function upsertDownload(
+  input: Omit<DownloadRecord, "id" | "startedAt" | "updatedAt">,
+): DownloadRecord {
   const now = new Date().toISOString();
   const result = store.mutate((s) => {
     const existing = s.items.find((item) => item.savePath === input.savePath);
@@ -112,8 +127,4 @@ export async function showDownloadInFolder(id: string): Promise<boolean> {
   if (!item || !fs.existsSync(item.savePath)) return false;
   shell.showItemInFolder(item.savePath);
   return true;
-}
-
-export function flushPersist(): Promise<void> {
-  return store.flushPersist();
 }

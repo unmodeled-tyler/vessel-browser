@@ -3,14 +3,8 @@ import path from "path";
 import { Channels } from "../../shared/channels";
 import type { TabGroupColor } from "../../shared/types";
 import { loadSettings } from "../config/settings";
-import {
-  installAdBlocking,
-  unregisterAdBlockingTabManager,
-} from "../network/ad-blocking";
-import {
-  installDownloadHandler,
-  unregisterDownloadHandler,
-} from "../network/downloads";
+import { installAdBlocking, unregisterAdBlockingTabManager } from "../network/ad-blocking";
+import { installDownloadHandler, unregisterDownloadHandler } from "../network/downloads";
 import { loadTrustedAppURL } from "../network/url-safety";
 import { TabManager } from "../tabs/tab-manager";
 import { CHROME_HEIGHT } from "../window";
@@ -104,30 +98,20 @@ function registerSecondaryIpcHandlers(state: SecondaryWindowState): void {
   });
   ipc.handle(Channels.TAB_PIN, (_e, id: string) => tabManager.pinTab(id));
   ipc.handle(Channels.TAB_UNPIN, (_e, id: string) => tabManager.unpinTab(id));
-  ipc.handle(Channels.TAB_GROUP_CREATE, (_e, id: string) =>
-    tabManager.createGroupFromTab(id),
-  );
+  ipc.handle(Channels.TAB_GROUP_CREATE, (_e, id: string) => tabManager.createGroupFromTab(id));
   ipc.handle(Channels.TAB_GROUP_ADD_TAB, (_e, id: string, groupId: string) =>
     tabManager.assignTabToGroup(id, groupId),
   );
-  ipc.handle(Channels.TAB_GROUP_REMOVE_TAB, (_e, id: string) =>
-    tabManager.removeTabFromGroup(id),
-  );
+  ipc.handle(Channels.TAB_GROUP_REMOVE_TAB, (_e, id: string) => tabManager.removeTabFromGroup(id));
   ipc.handle(Channels.TAB_GROUP_TOGGLE_COLLAPSED, (_e, groupId: string) =>
     tabManager.toggleGroupCollapsed(groupId),
   );
-  ipc.handle(
-    Channels.TAB_GROUP_SET_COLOR,
-    (_e, groupId: string, color: TabGroupColor) =>
-      tabManager.setGroupColor(groupId, color),
+  ipc.handle(Channels.TAB_GROUP_SET_COLOR, (_e, groupId: string, color: TabGroupColor) =>
+    tabManager.setGroupColor(groupId, color),
   );
-  ipc.handle(Channels.TAB_TOGGLE_MUTE, (_e, id: string) =>
-    tabManager.toggleMuted(id),
-  );
+  ipc.handle(Channels.TAB_TOGGLE_MUTE, (_e, id: string) => tabManager.toggleMuted(id));
   ipc.handle(Channels.TAB_PRINT, (_e, id: string) => tabManager.printTab(id));
-  ipc.handle(Channels.TAB_PRINT_TO_PDF, (_e, id: string) =>
-    tabManager.saveTabAsPdf(id),
-  );
+  ipc.handle(Channels.TAB_PRINT_TO_PDF, (_e, id: string) => tabManager.saveTabAsPdf(id));
   ipc.handle(Channels.TAB_STATE_GET, () => ({
     tabs: tabManager.getAllStates(),
     activeId: tabManager.getActiveTabId() || "",
@@ -223,8 +207,4 @@ export function createSecondaryWindow(): SecondaryWindowState {
   loadSecondaryRenderer(chromeView);
   win.show();
   return state;
-}
-
-export function getSecondaryWindows(): ReadonlySet<SecondaryWindowState> {
-  return secondaryWindows;
 }
