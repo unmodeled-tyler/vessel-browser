@@ -54,10 +54,7 @@ export interface WriteFileOptions {
  * Read a file as UTF-8 string, or as Buffer if `encoding` is omitted.
  * Throws on any error other than ENOENT (use readIfExists to handle that).
  */
-export async function read(
-  filePath: string,
-  encoding?: "utf-8",
-): Promise<string>;
+export async function read(filePath: string, encoding?: "utf-8"): Promise<string>;
 export async function read(filePath: string, encoding: "buffer"): Promise<Buffer>;
 export async function read(
   filePath: string,
@@ -138,9 +135,6 @@ export async function writeFileAtomic(
   return tmpPath;
 }
 
-/** Backwards-compat alias for writeFileAtomic. */
-export const writeFileSafe = writeFileAtomic;
-
 /**
  * Delete a file. Returns true on success, false if the file did not exist.
  * Throws on any other error.
@@ -159,10 +153,7 @@ export async function unlinkIfExists(filePath: string): Promise<boolean> {
  * Ensure a directory exists, creating it (recursively) if it doesn't.
  * Pass `mode` to set the POSIX mode on newly-created directories.
  */
-export async function ensureDir(
-  dirPath: string,
-  options: { mode?: number } = {},
-): Promise<void> {
+export async function ensureDir(dirPath: string, options: { mode?: number } = {}): Promise<void> {
   if (options.mode != null) {
     await mkdir(dirPath, { recursive: true, mode: options.mode });
     return;
@@ -182,10 +173,7 @@ export async function exists(filePath: string): Promise<boolean> {
 }
 
 /** Best-effort recursive delete; never throws. */
-export async function rmSafe(
-  target: string,
-  options: { force?: boolean } = {},
-): Promise<void> {
+export async function rmSafe(target: string, options: { force?: boolean } = {}): Promise<void> {
   try {
     await rm(target, { recursive: true, force: options.force ?? true });
   } catch {

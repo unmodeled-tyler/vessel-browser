@@ -26,21 +26,13 @@ const VAULT_FILENAME = "vessel-vault.enc";
 const KEY_FILENAME = "vessel-vault.key";
 
 const { encrypt, decrypt } = createEncryptDecrypt(KEY_FILENAME);
-const { loadVault, saveVault } = createVaultIO<VaultEntry>(
-  VAULT_FILENAME,
-  encrypt,
-  decrypt,
-);
+const { loadVault, saveVault } = createVaultIO<VaultEntry>(VAULT_FILENAME, encrypt, decrypt);
 
 // --- Public API ---
 
 /** List all entries (passwords redacted). */
 export function listEntries(): Omit<VaultEntry, "password" | "totpSecret">[] {
   return loadVault().map(({ password, totpSecret, ...rest }) => rest);
-}
-
-export function getEntry(id: string): VaultEntry | undefined {
-  return loadVault().find((e) => e.id === id);
 }
 
 export function findEntriesForDomain(url: string): Omit<VaultEntry, "password" | "totpSecret">[] {
