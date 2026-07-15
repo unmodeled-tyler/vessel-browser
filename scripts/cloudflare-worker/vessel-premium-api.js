@@ -160,16 +160,109 @@ const PLAY_PRODUCT_PLANS = {
 
 // --- Stripe helpers ---
 
+class StripeApiError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = "StripeApiError";
+    this.status = details.status || 0;
+    this.stripeCode = details.stripeCode || "";
+    this.requestId = details.requestId || "";
+    this.endpoint = details.endpoint || "";
+  }
+}
+
+function logPremiumEvent(level, event, fields = {}) {
+  const logger = level === "error"
+    ? console.error
+    : level === "warn"
+      ? console.warn
+      : console.info;
+  logger("[Vessel Premium]", JSON.stringify({ event, ...fields }));
+}
+
+function stripeEndpointForLog(path) {
+  try {
+    return new URL(path, STRIPE_API).pathname;
+  } catch {
+    return "unknown";
+  }
+}
+
+function isStripeApiError(error) {
+  return error instanceof StripeApiError || error?.name === "StripeApiError";
+}
+
 async function stripeRequest(env, method, path, body) {
-  const res = await fetch(`${STRIPE_API}${path}`, {
+  const startedAt = Date.now();
+  const endpoint = stripeEndpointForLog(path);
+  let res;
+  try {
+    res = await fetch(`${STRIPE_API}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body ? new URLSearchParams(body).toString() : undefined,
+    });
+  } catch (error) {
+    logPremiumEvent("error", "stripe.request.failed", {
+      method,
+      endpoint,
+      outcome: "network_error",
+      durationMs: Date.now() - startedAt,
+      errorName: error?.name || "Error",
+    });
+    throw new StripeApiError("Stripe request failed", { endpoint });
+  }
+
+  const requestId = res.headers.get("request-id") || "";
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    logPremiumEvent("error", "stripe.request.failed", {
+      method,
+      endpoint,
+      status: res.status,
+      requestId,
+      outcome: "invalid_json",
+      durationMs: Date.now() - startedAt,
+    });
+    throw new StripeApiError("Stripe returned an invalid response", {
+      status: res.status,
+      requestId,
+      endpoint,
+    });
+  }
+
+  if (!res.ok || data?.error) {
+    const stripeCode = String(data?.error?.code || data?.error?.type || "");
+    logPremiumEvent("error", "stripe.request.failed", {
+      method,
+      endpoint,
+      status: res.status,
+      requestId,
+      stripeCode,
+      outcome: "stripe_error",
+      durationMs: Date.now() - startedAt,
+    });
+    throw new StripeApiError("Stripe rejected the request", {
+      status: res.status,
+      stripeCode,
+      requestId,
+      endpoint,
+    });
+  }
+
+  logPremiumEvent("info", "stripe.request.completed", {
     method,
-    headers: {
-      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: body ? new URLSearchParams(body).toString() : undefined,
+    endpoint,
+    status: res.status,
+    requestId,
+    durationMs: Date.now() - startedAt,
   });
-  return res.json();
+  return data;
 }
 
 function normalizePlan(plan) {
@@ -217,7 +310,13 @@ async function findCustomerByEmail(env, email) {
     "GET",
     `/customers?email=${encodeURIComponent(normalizedEmail)}&limit=1`,
   );
-  if (data.data?.[0]) return data.data[0];
+  if (data.data?.[0]) {
+    logPremiumEvent("info", "stripe.customer.resolved", {
+      lookup: "exact_email",
+      customerId: data.data[0].id || "",
+    });
+    return data.data[0];
+  }
 
   // Stripe Search is eventually consistent. Check the newest customers through
   // the strongly consistent list API first so activation works right after checkout.
@@ -226,7 +325,13 @@ async function findCustomerByEmail(env, email) {
   const recentCustomer = recentCustomers.find(
     (customer) => normalizeEmail(customer?.email) === normalizedEmail,
   );
-  if (recentCustomer) return recentCustomer;
+  if (recentCustomer) {
+    logPremiumEvent("info", "stripe.customer.resolved", {
+      lookup: "recent_case_insensitive",
+      customerId: recentCustomer.id || "",
+    });
+    return recentCustomer;
+  }
 
   const searchQuery = `email:'${escapeStripeSearchString(normalizedEmail)}'`;
   const searchData = await stripeRequest(
@@ -234,7 +339,13 @@ async function findCustomerByEmail(env, email) {
     "GET",
     `/customers/search?query=${encodeURIComponent(searchQuery)}&limit=1`,
   );
-  return searchData.data?.[0] || null;
+  const searchCustomer = searchData.data?.[0] || null;
+  logPremiumEvent("info", "stripe.customer.resolved", {
+    lookup: "stripe_search",
+    customerId: searchCustomer?.id || "",
+    found: Boolean(searchCustomer),
+  });
+  return searchCustomer;
 }
 
 function escapeStripeSearchString(value) {
@@ -244,7 +355,16 @@ function escapeStripeSearchString(value) {
 async function getSubscription(env, customerId) {
   const data = await stripeRequest(env, "GET", `/subscriptions?customer=${customerId}&status=all&limit=10`);
   const subscriptions = Array.isArray(data.data) ? data.data : [];
-  return pickBestSubscription(subscriptions);
+  const selected = pickBestSubscription(subscriptions);
+  logPremiumEvent("info", "stripe.subscription.resolved", {
+    customerId,
+    candidateCount: subscriptions.length,
+    hasMore: Boolean(data.has_more),
+    subscriptionId: selected?.id || "",
+    subscriptionStatus: selected?.status || "none",
+    accessEndsAt: subscriptionAccessEndsAt(selected) || 0,
+  });
+  return selected;
 }
 
 async function getSubscriptionById(env, subscriptionId) {
@@ -956,6 +1076,22 @@ async function verifyWebhookSignature(payload, sigHeader, secret) {
 
 // --- Route handlers ---
 
+function stripeUnavailableResponse(
+  request,
+  env,
+  event,
+  fields = {},
+  message = "Premium verification is temporarily unavailable. Your code was not consumed; try again shortly.",
+) {
+  logPremiumEvent("error", event, fields);
+  return corsResponse(
+    request,
+    env,
+    { error: message },
+    503,
+  );
+}
+
 async function handleCheckout(request, env) {
   const url = new URL(request.url);
   const email = url.searchParams.get("email") || undefined;
@@ -1111,10 +1247,29 @@ async function handleActivationStart(request, env) {
   const code = generateVerificationCode();
   const codeDigest = await buildActivationCodeDigest(env, email, code, nonce, exp);
 
-  const customer = await findCustomerByEmail(env, email);
+  let customer;
+  try {
+    customer = await findCustomerByEmail(env, email);
+  } catch (error) {
+    if (!isStripeApiError(error)) throw error;
+    return stripeUnavailableResponse(request, env, "activation.start.failed", {
+      activationId: nonce,
+      stage: "customer_lookup",
+      stripeStatus: error.status || 0,
+      stripeCode: error.stripeCode || "",
+      stripeRequestId: error.requestId || "",
+      stripeEndpoint: error.endpoint || "",
+    }, "Premium verification is temporarily unavailable. Request a new code shortly.");
+  }
+
   if (customer?.email) {
     await sendActivationCodeEmail(env, email, code);
   }
+  logPremiumEvent("info", "activation.start.completed", {
+    activationId: nonce,
+    customerId: customer?.id || "",
+    codeSent: Boolean(customer?.email),
+  });
 
   return corsResponse(request, env, {
     ok: true,
@@ -1152,6 +1307,9 @@ async function handleActivationVerify(request, env) {
 
   const challenge = await verifySignedToken(env, challengeToken, "premium-activation");
   if (!challenge || challenge.email !== email) {
+    logPremiumEvent("warn", "activation.verify.rejected", {
+      reason: "invalid_or_expired_challenge",
+    });
     return corsResponse(
       request,
       env,
@@ -1161,7 +1319,14 @@ async function handleActivationVerify(request, env) {
   }
 
   const attempt = await consumeActivationAttempt(request, env, challengeToken);
-  if (attempt.response) return attempt.response;
+  if (attempt.response) {
+    logPremiumEvent("warn", "activation.verify.rejected", {
+      activationId: challenge.nonce || "",
+      reason: "attempt_guard",
+      responseStatus: attempt.response.status,
+    });
+    return attempt.response;
+  }
 
   const expectedDigest = await buildActivationCodeDigest(
     env,
@@ -1171,11 +1336,39 @@ async function handleActivationVerify(request, env) {
     challenge.exp,
   );
   if (expectedDigest !== challenge.codeDigest) {
+    logPremiumEvent("warn", "activation.verify.rejected", {
+      activationId: challenge.nonce || "",
+      reason: "invalid_code",
+    });
     return corsResponse(request, env, { error: "Invalid verification code" }, 403);
   }
 
-  const customer = await findCustomerByEmail(env, email);
+  const activationId = challenge.nonce || "";
+  logPremiumEvent("info", "activation.verify.code_accepted", { activationId });
+
+  let customer;
+  try {
+    customer = await findCustomerByEmail(env, email);
+  } catch (error) {
+    if (!isStripeApiError(error)) throw error;
+    return stripeUnavailableResponse(request, env, "activation.verify.failed", {
+      activationId,
+      stage: "customer_lookup",
+      stripeStatus: error.status || 0,
+      stripeCode: error.stripeCode || "",
+      stripeRequestId: error.requestId || "",
+      stripeEndpoint: error.endpoint || "",
+    });
+  }
+
   if (!customer?.id) {
+    logPremiumEvent("warn", "activation.verify.completed", {
+      activationId,
+      customerId: "",
+      subscriptionStatus: "none",
+      entitlementStatus: "free",
+      challengeRedeemed: false,
+    });
     return corsResponse(
       request,
       env,
@@ -1189,8 +1382,33 @@ async function handleActivationVerify(request, env) {
     );
   }
 
-  const status = await buildPremiumStatus(env, customer.id, email);
-  await markActivationChallengeRedeemed(env, attempt.key);
+  let status;
+  try {
+    status = await buildPremiumStatus(env, customer.id, email);
+  } catch (error) {
+    if (!isStripeApiError(error)) throw error;
+    return stripeUnavailableResponse(request, env, "activation.verify.failed", {
+      activationId,
+      stage: "subscription_lookup",
+      customerId: customer.id,
+      stripeStatus: error.status || 0,
+      stripeCode: error.stripeCode || "",
+      stripeRequestId: error.requestId || "",
+      stripeEndpoint: error.endpoint || "",
+    });
+  }
+
+  const active = status.status === "active" || status.status === "trialing";
+  if (active) {
+    await markActivationChallengeRedeemed(env, attempt.key);
+  }
+  logPremiumEvent(active ? "info" : "warn", "activation.verify.completed", {
+    activationId,
+    customerId: status.customerId || customer.id,
+    subscriptionStatus: status.status,
+    entitlementStatus: active ? "active" : "free",
+    challengeRedeemed: active,
+  });
   return corsResponse(request, env, status);
 }
 
@@ -1663,7 +1881,11 @@ export default {
 
       return new Response("Not found", { status: 404 });
     } catch (err) {
-      console.error("[Vessel Premium API]", err);
+      logPremiumEvent("error", "request.unhandled_error", {
+        method: request.method,
+        path,
+        errorName: err?.name || "Error",
+      });
       return corsResponse(request, env, { error: "Internal server error" }, 500);
     }
   },

@@ -855,39 +855,189 @@ test("premium worker verifies activation codes before the attempt limit", async 
   );
 });
 
-test("premium worker finds mixed-case Stripe customer emails during activation", async () => {
+test("premium worker verifies active subscriptions for mixed-case Stripe customer emails", async () => {
   const kv = createMemoryKv();
   let sentCode = "";
+  const infoLogs: string[] = [];
+  const originalInfo = console.info;
+  console.info = (...args: unknown[]) => infoLogs.push(args.map(String).join(" "));
 
-  await withMockFetch(
-    (url, init) => {
-      if (url === `${STRIPE_API}/customers?email=paul.h9%40proton.me&limit=1`) {
-        return { data: [] };
-      }
-      if (url === `${STRIPE_API}/customers?limit=100`) {
-        return { data: [{ id: "cus_mixed_case", email: "Paul.H9@proton.me" }] };
-      }
-      if (url === "https://api.resend.com/emails") {
-        const body = JSON.parse(String(init?.body || "{}")) as { text?: string; to?: string[] };
-        sentCode = body.text?.match(/\b\d{6}\b/)?.[0] || "";
-        assert.deepEqual(body.to, ["paul.h9@proton.me"]);
-        return { id: "email_test" };
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    },
-    async () => {
-      const start = await postJsonWithEnv(
-        "/activate/start",
-        { email: "Paul.H9@proton.me" },
-        { ACTIVATION_KV: kv },
-      );
-      const data = await start.json() as { challengeToken?: string };
+  try {
+    await withMockFetch(
+      (url, init) => {
+        if (url === `${STRIPE_API}/customers?email=paul.h9%40proton.me&limit=1`) {
+          return { data: [] };
+        }
+        if (url === `${STRIPE_API}/customers?limit=100`) {
+          return { data: [{ id: "cus_mixed_case", email: "Paul.H9@proton.me" }] };
+        }
+        if (url === "https://api.resend.com/emails") {
+          const body = JSON.parse(String(init?.body || "{}")) as { text?: string; to?: string[] };
+          sentCode = body.text?.match(/\b\d{6}\b/)?.[0] || "";
+          assert.deepEqual(body.to, ["paul.h9@proton.me"]);
+          return { id: "email_test" };
+        }
+        if (url === `${STRIPE_API}/customers/cus_mixed_case`) {
+          return { id: "cus_mixed_case", email: "Paul.H9@proton.me" };
+        }
+        if (url === `${STRIPE_API}/subscriptions?customer=cus_mixed_case&status=all&limit=10`) {
+          return {
+            data: [
+              {
+                id: "sub_mixed_case_active",
+                status: "active",
+                current_period_end: nowSeconds() + 30 * 24 * 60 * 60,
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+      async () => {
+        const start = await postJsonWithEnv(
+          "/activate/start",
+          { email: "Paul.H9@proton.me" },
+          { ACTIVATION_KV: kv },
+        );
+        const startData = await start.json() as { challengeToken?: string };
 
-      assert.equal(start.status, 200);
-      assert.match(sentCode, /^\d{6}$/);
-      assert.equal(typeof data.challengeToken, "string");
-    },
-  );
+        assert.equal(start.status, 200);
+        assert.match(sentCode, /^\d{6}$/);
+        assert.equal(typeof startData.challengeToken, "string");
+
+        const verify = await postJsonWithEnv(
+          "/activate/verify",
+          {
+            email: "Paul.H9@proton.me",
+            code: sentCode,
+            challengeToken: startData.challengeToken,
+          },
+          { ACTIVATION_KV: kv },
+        );
+        const verifyData = await verify.json() as {
+          status?: string;
+          customerId?: string;
+          verificationToken?: string;
+        };
+
+        assert.equal(verify.status, 200);
+        assert.equal(verifyData.status, "active");
+        assert.equal(verifyData.customerId, "cus_mixed_case");
+        assert.match(verifyData.verificationToken || "", /^[^.]+\.[^.]+\.[^.]+$/);
+
+        const logs = infoLogs.join("\n");
+        assert.match(logs, /activation\.verify\.completed/);
+        assert.match(logs, /sub_mixed_case_active/);
+        assert.doesNotMatch(logs, /Paul\.H9@proton\.me/i);
+        assert.doesNotMatch(logs, new RegExp(startData.challengeToken!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+      },
+    );
+  } finally {
+    console.info = originalInfo;
+  }
+});
+
+test("premium worker reports Stripe failures without redeeming a valid activation code", async () => {
+  const kv = createMemoryKv();
+  let sentCode = "";
+  let subscriptionLookups = 0;
+  const errorLogs: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => errorLogs.push(args.map(String).join(" "));
+
+  try {
+    await withMockFetch(
+      (url, init) => {
+        if (url === `${STRIPE_API}/customers?email=premium%40example.com&limit=1`) {
+          return { data: [{ id: "cus_retry", email: "premium@example.com" }] };
+        }
+        if (url === "https://api.resend.com/emails") {
+          const body = JSON.parse(String(init?.body || "{}")) as { text?: string };
+          sentCode = body.text?.match(/\b\d{6}\b/)?.[0] || "";
+          return { id: "email_test" };
+        }
+        if (url === `${STRIPE_API}/customers/cus_retry`) {
+          return { id: "cus_retry", email: "premium@example.com" };
+        }
+        if (url === `${STRIPE_API}/subscriptions?customer=cus_retry&status=all&limit=10`) {
+          subscriptionLookups += 1;
+          if (subscriptionLookups === 1) {
+            return new Response(
+              JSON.stringify({
+                error: {
+                  type: "api_error",
+                  code: "temporary_failure",
+                  message: "Do not log premium@example.com or secret diagnostic details",
+                },
+              }),
+              {
+                status: 500,
+                headers: {
+                  "Content-Type": "application/json",
+                  "request-id": "req_activation_retry",
+                },
+              },
+            );
+          }
+          return {
+            data: [
+              {
+                id: "sub_retry_active",
+                status: "active",
+                current_period_end: nowSeconds() + 30 * 24 * 60 * 60,
+              },
+            ],
+          };
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      },
+      async () => {
+        const start = await postJsonWithEnv(
+          "/activate/start",
+          { email: "premium@example.com" },
+          { ACTIVATION_KV: kv },
+        );
+        const startData = await start.json() as { challengeToken?: string };
+
+        const failed = await postJsonWithEnv(
+          "/activate/verify",
+          {
+            email: "premium@example.com",
+            code: sentCode,
+            challengeToken: startData.challengeToken,
+          },
+          { ACTIVATION_KV: kv },
+        );
+        const failedData = await failed.json() as { error?: string };
+
+        assert.equal(failed.status, 503);
+        assert.match(failedData.error || "", /code was not consumed/i);
+
+        const retried = await postJsonWithEnv(
+          "/activate/verify",
+          {
+            email: "premium@example.com",
+            code: sentCode,
+            challengeToken: startData.challengeToken,
+          },
+          { ACTIVATION_KV: kv },
+        );
+        const retriedData = await retried.json() as { status?: string };
+
+        assert.equal(retried.status, 200);
+        assert.equal(retriedData.status, "active");
+        assert.equal(subscriptionLookups, 2);
+
+        const logs = errorLogs.join("\n");
+        assert.match(logs, /req_activation_retry/);
+        assert.match(logs, /temporary_failure/);
+        assert.doesNotMatch(logs, /premium@example\.com/i);
+        assert.doesNotMatch(logs, /secret diagnostic details/i);
+      },
+    );
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test("premium worker falls back to Stripe Search for older mixed-case customers", async () => {
