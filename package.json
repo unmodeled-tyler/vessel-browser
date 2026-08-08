@@ -110,7 +110,7 @@
     "@mozilla/readability": "^0.6.0",
     "dompurify": "^3.4.13",
     "linkedom": "^0.18.13",
-    "openai": "^6.49.0",
+    "openai": "^7.4.0",
     "zod": "^4.4.3"
   },
   "allowScripts": {
